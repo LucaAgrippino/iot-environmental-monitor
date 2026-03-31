@@ -1,0 +1,25 @@
+# IDE
+.vscode/
+.settings/
+*.launch
+.cproject
+.project
+
+# Build artifacts
+build/
+Debug/
+Release/
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Visual Paradigm backups
+*.vpp.bak_*
+*.vpp.lck
