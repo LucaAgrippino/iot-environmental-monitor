@@ -19,6 +19,8 @@ This document captures the system concept, stakeholder needs, and scope boundari
 
 All design decisions must trace back to this document. If a requirement cannot be justified by a statement in this vision, it should be questioned.
 
+
+Note: This project has no external customer. The problem statement and stakeholder needs were derived from the author's professional experience with industrial IoT systems. Domain knowledge substitutes for formal customer elicitation.
 ---
 
 ## 2. Problem Statement
