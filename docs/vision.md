@@ -60,7 +60,8 @@ A two-node embedded system where a **field device** collects sensor data and com
 
 ### Physical Connection
 
-UART (TX/RX + GND) between the two boards for Modbus RTU communication.
+RS-485 (A/B differential pair + GND) between the two boards for Modbus RTU.
+UART-to-RS-485 conversion handled by a MAX485/MAX3485 module on each board.
 
 ---
 
