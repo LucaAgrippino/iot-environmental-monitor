@@ -58,7 +58,45 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 ### 2.1 Sensor Acquisition [SA]
 
-<!-- Traces to: UC-07, UC-14 -->
+<!-- Traces to: UC-07 -->
+<!-- preconditions: System is initialised -->
+- [REQ-SA-000] The system shall read the polling interval configuration from flash during startup
+- [REQ-SA-001] The system shall use default polling interval of 1 Hz if the configuration reading fails
+- [REQ-SA-002] The system shall use default sensor minimum and maximum values if the configuration reading fails
+- [REQ-SA-003] The system shall initialise temperature, humidity, and pressure sensors with manufacturer default settings during startup
+- [REQ-SA-004] The system shall log an error message if a sensor fails its initialisation
+- [REQ-SA-005] The system shall use default filter parameters if configuration reading fails
+- [REQ-SA-006] The system shall continue operation with available sensors if one or more sensors fail to initialise.
+
+<!-- 1. System triggers a new sensor data acquisition at the configured polling interval -->
+- [REQ-SA-010] The system shall read temperature, humidity, and pressure sensors on the field device at configurable polling interval
+- [REQ-SA-011] The system shall log the error code if the reading fails
+
+<!-- 2. System get data from sensor -->
+- [REQ-SA-020] The system shall store the most recent [TBD] readings per sensor
+- [REQ-SA-021] The system shall store a timestamp with each sensor measurement
+
+<!-- 3. System process sensor data -->
+- [REQ-SA-030] The system shall apply the same processing pipeline to both periodic and on-demand sensor readings
+- [REQ-SA-031] The system shall validate that the acquired value is within the configured sensor range
+- [REQ-SA-032] The system shall clamp out-of-range readings to the nearest range boundary
+- [REQ-SA-033] The system shall filter the sensor measurement using a low pass filter with parameters [TBD] 
+
+<!-- 4. System updates Modbus registers and LCD display -->
+- [REQ-SA-040] The system shall make processed sensor data available for Modbus register access and LCD display
+
+<!-- E1 (step 2): if some sensors don't respond, use a default error value -->
+- [REQ-SA-0E1] The system shall mark the sensor value as invalid if sensor reading fails
+
+
+<!-- Traces to: UC-14 -->
+<!-- preconditions: System is initialised -->
+<!-- 1. The Remote Operator request a sensor data reading -->
+<!-- 2. System execute new data reading -->
+- [REQ-SA-070] The system shall perform an additional sensor read upon receiving a remote read request
+<!-- 3. System returns result -->
+<!-- E1 (step 1): if the gateway is disconnected, show an command is not delivered to the gateway -->
+<!-- E2 (step 3): if the gateway is disconnected, system cannot deliver result to AWS IoT Core; result is buffered -->
 
 ### 2.2 Alarm Management [AM]
 
