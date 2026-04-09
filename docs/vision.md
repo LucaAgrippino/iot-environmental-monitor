@@ -227,10 +227,6 @@ This approach demonstrates scalable design without the implementation burden of 
 - No data loss is acceptable during short connectivity outages (buffer sizing TBD in HLD).
 
 ---
-<<<<<<< Updated upstream
-
-## 8. Time Synchronisation
-=======
 
 ## 8. Capability
 - The system applies signal conditioning (filtering, range validation) to raw sensor data before publishing.
@@ -238,7 +234,6 @@ This approach demonstrates scalable design without the implementation burden of 
 ---
 
 ## 9. Time Synchronisation
->>>>>>> Stashed changes
 
 - The gateway synchronises its RTC via NTP over WiFi on boot and periodically thereafter.
 - The gateway writes the current timestamp to the field device via a Modbus holding register on initial connection and at regular intervals.
@@ -246,17 +241,14 @@ This approach demonstrates scalable design without the implementation burden of 
 - If the RTC has not been synchronised (e.g., first boot with no connectivity), the system uses uptime-based timestamps and flags the data as "unsynchronised."
 
 ---
+
 ## 10. Portability
 
-<<<<<<< Updated upstream
-## 9. Configuration Tiers
-=======
 The firmware architecture shall be designed for vendor portability. Hardware dependencies shall be confined to the driver layer, which accesses peripherals directly via CMSIS device headers. A virtual hardware layer built on top of the driver layer shall expose vendor-neutral interfaces to the middleware and application layers. Porting to a different MCU vendor shall require rewriting only the driver layer.
 
 ---
 
 ## 11. Configuration Tiers
->>>>>>> Stashed changes
 
 | Tier | Scope         | Access              | Examples                                              | Rationale                                        |
 |------|---------------|----------------------|-------------------------------------------------------|--------------------------------------------------|
@@ -266,11 +258,7 @@ The firmware architecture shall be designed for vendor portability. Hardware dep
 
 ---
 
-<<<<<<< Updated upstream
-## 10. Development Practices
-=======
 ## 12. Development Practices
->>>>>>> Stashed changes
 
 These are not system features but engineering practices applied throughout the project:
 
@@ -281,11 +269,7 @@ These are not system features but engineering practices applied throughout the p
 
 ---
 
-<<<<<<< Updated upstream
-## 11. Out of Scope (for initial release)
-=======
 ## 13. Out of Scope (for initial release)
->>>>>>> Stashed changes
 
 - BLE connectivity
 - Data logging to SD card
@@ -295,11 +279,7 @@ These are not system features but engineering practices applied throughout the p
 
 ---
 
-<<<<<<< Updated upstream
-## 12. Success Criteria
-=======
 ## 14. Success Criteria
->>>>>>> Stashed changes
 
 The project is considered successful when:
 
