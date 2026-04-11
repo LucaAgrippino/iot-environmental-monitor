@@ -22,6 +22,9 @@ All design decisions must trace back to this document. If a requirement cannot b
 
 
 Note: This project has no external customer. The problem statement and stakeholder needs were derived from the author's professional experience with industrial IoT systems. Domain knowledge substitutes for formal customer elicitation.
+
+AI tools (Claude, Anthropic) were used as a mentoring and review aid throughout the project. All technical decisions and implementation are the author's own.
+
 ---
 
 ## 2. Problem Statement
@@ -253,7 +256,7 @@ The firmware architecture shall be designed for vendor portability. Hardware dep
 | Tier | Scope         | Access              | Examples                                              | Rationale                                        |
 |------|---------------|----------------------|-------------------------------------------------------|--------------------------------------------------|
 | Tier 1 | Provisioning | Local serial only   | WiFi credentials, cloud certificates, Modbus address  | Changing remotely could make device unreachable   |
-| Tier 2 | Operational  | Local LCD + remote   | Polling rate, alarm thresholds, display settings       | Safe to change remotely, no connectivity risk     |
+| Tier 2 | Operational  | Local LCD + remote   | Polling rate, alarm thresholds, display settings, telemetry publishing interval, health data publishing interval | Safe to change remotely, no connectivity risk     |
 | Tier 3 | Commands     | Remote with safeguards | Restart, immediate read                             | Potentially disruptive, needs confirmation        |
 
 ---
