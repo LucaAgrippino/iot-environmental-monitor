@@ -178,12 +178,16 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
     - Parity bit: no parity
     - Stop bit: 1 stop bit
 - [REQ-MB-040] The system shall support Modbus function codes: 
+    - 03 (Read Holding Registers)
     - 04 (Read Input Registers) 
     - 06/16 (Write Single/Multiple Registers) 
 - [REQ-MB-050] The system shall timeout a Modbus request after [TBD] milliseconds with no response
 - [REQ-MB-060] The system shall retry a failed Modbus request up to [TBD] times before reporting a communication failure
 - [REQ-MB-070] The system shall define a register map specifying the address, data type, and access mode for all exchanged data
 <!-- Traces to: UC-19 -->
+- [REQ-MB-080] The system shall receive remote commands from the gateway and write them to the appropriate Modbus holding registers on the field device.
+- [REQ-MB-090] The system shall read the command execution result from the field device via Modbus and return it to the cloud.
+- [REQ-MB-0E1] The system shall reject a remote command with an unrecognised format and log the error.
 
 
 ### 2.6 Cloud Communication [CC]
@@ -225,10 +229,11 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 <!-- Traces to: UC-15, UC-16, UC-17, UC-18, UC-20 -->
 <!-- Traces to: UC-15 -->
-- [REQ-DM-000] The system shall execute remote restart command
-- [REQ-DM-010] The system shall accept operational parameter changes from the Remote Operator via cloud command
-<!-- Traces to: UC-16 -->
+- [REQ-DM-000] The system shall accept operational parameter changes from the Remote Operator via cloud command
+- [REQ-DM-001] The system shall validate remote parameter changes before applying them.
+- [REQ-DM-002] The system shall send a confirmation or rejection response to the cloud after processing a remote parameter change.
 <!-- Traces to: UC-17 -->
+- [REQ-DM-010] The system shall execute remote restart command
 - [REQ-DM-020] The system shall request confirmation from the Remote Operator before executing a restart
 - [REQ-DM-021] The system shall cancel the restart if the Remote Operator declines confirmation
 - [REQ-DM-030] The system shall report restart success after reboot and self-check
