@@ -6,11 +6,11 @@
 - Field node is powered on, and initialised
 
 **Postconditions:** 
-- Field Technician has current sensor readings screen displayed on LCD
+- Field Technician has current sensor measurements screen displayed on LCD
 
 **Main Flow (Field Technician — local):**
-1. Field Technician navigates to measure visualization screen on LCD.
-2. System displays sensor measures on LCD.
+1. Field Technician navigates to measurement visualization screen on LCD.
+2. System displays sensor measurement on LCD.
 
 **Exceptions:**
 - E1: (step 2) if the sensor is in error, displays only the past data if available and a description of the sensor's errors.
@@ -79,11 +79,11 @@
 - Gateway is publishing telemetry to AWS IoT Core
 
 **Postconditions:**
-- Remote Operator has access to current sensor readings via the cloud
+- Remote Operator has access to current sensor measurement via the cloud
 
 **Main Flow:**
 1. Remote Operator accesses telemetry data via AWS IoT Core.
-2. System presents the most recently published sensor readings 
+2. System presents the most recently published sensor measurement 
    (temperature, humidity, pressure, accelerometer, gyroscope, and magnetometer) with timestamps.
 
 **Exceptions:**
@@ -149,7 +149,7 @@
 1. System receives new sensor data
 2. System compares value against configured thresholds
 3. Value within range — no action, clear existing alarm if applicable, applying hysteresis
-4. Value outside range — system raises alarm and updates LCD alarm indicator
+4. Value outside range — system raises alarm and updates LCD alarm indicator and publishes alarm event to the cloud
 
 **Exceptions:**
 
@@ -183,7 +183,7 @@
 
 **Main Flow:**
 1. System triggers a new remote data update event
-2. System sends sensors data to AWS IoT Core
+2. System sends sensor data to AWS IoT Core
 
 **Exceptions:**
 - E1 (step 2): if the system is disconnected, buffer data in non-volatile storage; publish in chronological order when connectivity is restored.
@@ -253,11 +253,11 @@
 - System is powered on, initialised and connected to internet
 
 **Postconditions:**
-- Fresh sensor reading has been published to AWS IoT Core.
+- Fresh sensor measurement has been published to AWS IoT Core.
 
 **Main Flow:**
-1. The Remote Operator requests a sensor data reading
-2. System executes new data reading
+1. The Remote Operator requests a sensor measurement
+2. System executes new measurement
 3. System returns result.
 
 **Exceptions:**
@@ -399,7 +399,7 @@
 
 **Exceptions:**
 - E1 (step 1): If the gateway is not connected, raise a connection error.
-- E2 (step 1): Invalid or unrecognised command format — gateway rejects and logs error
+- E2 (step 2): Invalid or unrecognised command format — gateway rejects and logs error
 - E3 (step 3): Field device unreachable via Modbus — gateway reports failure to cloud
 - E4 (step 4): Gateway disconnected from cloud — result is buffered
 
