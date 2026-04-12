@@ -61,9 +61,9 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Traces to: UC-07 -->
 <!-- preconditions: System is initialised -->
 - [REQ-SA-000] The system shall read the polling interval configuration from flash during startup
-- [REQ-SA-010] The system shall use default polling interval of 1 Hz if the configuration reading fails
+- [REQ-SA-010] The system shall use default polling interval of 1 second if the configuration reading fails
 - [REQ-SA-020] The system shall use default sensor minimum and maximum values if the configuration reading fails
-- [REQ-SA-030] The system shall initialise the field node sensors: temperature, humidity, and pressure with manufacturer default settings during startup
+- [REQ-SA-030] The system shall initialise the field node sensor simulation: temperature, humidity, and pressure with default parameters during startup.
 - [REQ-SA-031] The system shall initialise the gateway node sensors: temperature, humidity, pressure, accelerometer, gyroscope and magnetometer with manufacturer default settings during startup
 - [REQ-SA-040] The system shall log an error message if a sensor fails its initialisation
 - [REQ-SA-050] The system shall use default filter parameters if configuration reading fails
@@ -74,11 +74,11 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-SA-071] The system shall read temperature, humidity, pressure, accelerometer, gyroscope and magnetometer sensors on the gateway device at configurable polling interval
 - [REQ-SA-080] The system shall log the error code if the reading fails
 
-<!-- 2. System get data from sensor -->
+<!-- 2. System gets data from sensor -->
 - [REQ-SA-090] The system shall store the most recent [TBD] readings per sensor
 - [REQ-SA-100] The system shall store a timestamp with each sensor measurement
 
-<!-- 3. System process sensor data -->
+<!-- 3. System processes sensor data -->
 - [REQ-SA-110] The system shall apply the same processing pipeline to both periodic and on-demand sensor readings
 - [REQ-SA-120] The system shall validate that the acquired value is within the configured sensor range
 - [REQ-SA-130] The system shall clamp out-of-range readings to the nearest range boundary
@@ -106,8 +106,8 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 <!-- Traces to: UC-03 -->
 <!-- Traces to: UC-08 -->
-- [REQ-AM-000] The system shall compare sensor measurements with configured sensor measurement thresholds
-- [REQ-AM-010] The system shall clear existing alarm if the current measurement is within the sensor measurement range
+- [REQ-AM-000] The system shall compare sensor measurements with configured alarm thresholds
+- [REQ-AM-010] The system shall clear existing alarm if the current measurement is within the configured alarm thresholds
 - [REQ-AM-011] The system shall apply configurable hysteresis when clearing alarms to prevent flapping
 <!-- Traces to: UC-09 -->
 - [REQ-AM-020] The system shall trigger an alarm notification if the sensor measurement is out of range
@@ -118,7 +118,7 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 <!-- Traces to: UC-01, UC-02, UC-03 -->
 <!-- Traces to: UC-01 -->
-- [REQ-LD-000] The system shall provide navigation between sensor readings, system status, and alarm screens on the LCD
+- [REQ-LD-000] The system shall provide navigation between sensor readings, system status, system configuration, and alarm screens on the LCD
 - [REQ-LD-010] The system shall display the most recent temperature, humidity, and pressure readings on the LCD
 - [REQ-LD-020] The system shall display the timestamp of the most recent reading on the LCD
 - [REQ-LD-030] The system shall display the measurement unit for each sensor reading on the LCD
@@ -128,9 +128,17 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Traces to: UC-02 -->
 - [REQ-LD-070] The system shall display a system status screen which lists: stack high watermarks, free heap, CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy
 <!-- Traces to: UC-03 -->
-- [REQ-LD-080] The system shall display an alarm screen which list all active alarms with their timestamp
+- [REQ-LD-080] The system shall display an alarm screen which lists all active alarms with their timestamp
 - [REQ-LD-090] The system shall display a message on the alarm screen if no alarms are detected
+<!-- Traces to: UC-15 -->
+- [REQ-LD-100] The system shall display a configuration screen which lists these user configurable parameters: polling rate, alarm thresholds, display settings
+- [REQ-LD-110] The system shall validate each input value against a configurable acceptable range
+- [REQ-LD-120] The system shall request confirmation from the Field Technician before applying changes
+- [REQ-LD-130] The system shall apply the change if a confirmation is received
+- [REQ-LD-140] The system shall retain the previous configuration until all new parameters are successfully applied
+- [REQ-LD-150] The system shall save the parameters to persistent memory when they are successfully applied 
 
+- [REQ-LD-0E1] The system shall discard all the input parameters if no confirmation is received
 
 ### 2.4 Local Interface — CLI [LI]
 
@@ -139,9 +147,9 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Traces to: UC-04 -->
 - [REQ-LI-000] The system shall provide a serial console interface accessible to the Field Technician. The connection parameters are:
     - Baud Rate: 115200
-    - Num of bit:     8
+    - Data bits: 8
     - Parity bit: No Parity
-    - Num stop bit: 1
+    - Stop bits: 1
 - [REQ-LI-010] The system shall receive a diagnostic command [command list TBD] and execute it
 - [REQ-LI-020] The system shall display the result of the diagnostic 
 
@@ -174,9 +182,9 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Protocol parameters -->
 - [REQ-MB-030] The system shall communicate via Modbus RTU at:
     - Baudrate: 9600 baud
-    - Data bits: 8 data bits
+    - Data bits: 8
     - Parity bit: no parity
-    - Stop bit: 1 stop bit
+    - Stop bits: 1
 - [REQ-MB-040] The system shall support Modbus function codes: 
     - 03 (Read Holding Registers)
     - 04 (Read Input Registers) 
@@ -200,18 +208,15 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Traces to: UC-09 -->
 - [REQ-CC-020] The system shall publish to the cloud the alarm notification
 <!-- Traces to: UC-10 -->
-- [REQ-CC-030] The system shall publish sensor telemetry immediately upon receiving a remote telemetry request
 <!-- Traces to: UC-11 -->
-- [REQ-CC-040] The system shall publish to the cloud the device health data when a remote health data request is received
 <!-- Traces to: UC-12 -->
-- [REQ-CC-050] The system shall publish to the cloud the alarm notifications, if any, when a remote alarm notification request is received
-- [REQ-CC-060] The system shall publish sensor telemetry at a configurable interval, adjustable locally via CLI and remotely via cloud command.
-- [REQ-CC-070] The system shall publish device health data at a configurable interval, adjustable locally via CLI and remotely via cloud command.
-- [REQ-CC-080] The system shall connect to AWS IoT Core using MQTT over TLS with X.509 certificate authentication
-- [REQ-CC-090] The system shall reconnect automatically if the MQTT connection is lost
-- [REQ-CC-100] The system shall use JSON format for all MQTT payloads
-- [REQ-CC-101] The system shall include a schema version identifier in all MQTT payloads.
-- [REQ-CC-110] The system shall use separate MQTT topics for telemetry, alarms, and device health data
+- [REQ-CC-030] The system shall publish sensor telemetry at a configurable interval, adjustable locally via CLI and remotely via cloud command.
+- [REQ-CC-040] The system shall publish device health data at a configurable interval, adjustable locally via CLI and remotely via cloud command.
+- [REQ-CC-050] The system shall connect to AWS IoT Core using MQTT over TLS with X.509 certificate authentication
+- [REQ-CC-060] The system shall reconnect automatically if the MQTT connection is lost
+- [REQ-CC-070] The system shall use JSON format for all MQTT payloads
+- [REQ-CC-071] The system shall include a schema version identifier in all MQTT payloads.
+- [REQ-CC-080] The system shall use separate MQTT topics for telemetry, alarms, and device health data
 
 
 ### 2.7 Time Synchronisation [TS]
@@ -299,8 +304,6 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 | Requirement | Use Case(s)       | Vision Section |
 |-------------|--------------------|----------------|
-| REQ-SA-001  | UC-07              | §3, §12.1     |
-| ...         | ...                | ...            |
 
 ---
 
