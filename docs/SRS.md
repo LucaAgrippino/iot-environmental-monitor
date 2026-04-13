@@ -277,14 +277,67 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 ## 3. Non-Functional Requirements [NF]
 
 ### 3.1 Performance
+- [REQ-NF-100] The system shall complete a full sensor polling cycle (read all sensors, timestamp, queue data) within 100 ms
+- [REQ-NF-101] The system shall detect an alarm condition within one polling cycle of the threshold being exceeded
+- [REQ-NF-102] The system shall clear an alarm condition within one polling cycle of the measurement being in the range
+- [REQ-NF-103] The system shall declare Modbus communication failure after 3 consecutive unanswered requests
+- [REQ-NF-104] The system shall declare Modbus communication restored after 3 consecutive successful responses
+- [REQ-NF-105] The system shall consider a Modbus request failed if no response is received within 200 ms of transmission 
+- [REQ-NF-106] The system shall queue an MQTT message for publication within 200 ms of data being ready
+- [REQ-NF-107] The system shall begin executing a received remote command within 500 ms of receipt
+- [REQ-NF-108] The system shall use a refresh rate of 5Hz for the field node LCD
+- [REQ-NF-109] The system shall use a system watchdog of 10 seconds
+- [REQ-NF-110] The system shall poll the field node at frequency of 1Hz
+- [REQ-NF-111] The system shall publish the sensor measurements to AWS IoT Cloud each 60 seconds
+- [REQ-NF-112] The system shall publish the health data to AWS IoT Cloud each 10 minutes
+- [REQ-NF-113] The system shall publish the alarm notification to AWS IoT Cloud within 500 ms since their detection
 
 ### 3.2 Reliability
+- [REQ-NF-200] The system shall continue local sensor acquisition and alarm evaluation when internet connectivity is lost
+- [REQ-NF-201] The system shall recover Modbus communication automatically after a transient bus error without requiring a restart
+- [REQ-NF-202] The system shall restart and resume normal operation within 5 seconds after a watchdog reset
+- [REQ-NF-203] The system shall restart and resume normal operation within 5 seconds after a normal reset
+- [REQ-NF-204] The system shall roll back to the previous firmware and resume normal operation within 10 seconds if a firmware update fails post-installation
+- [REQ-NF-205] The system shall recover from a sensor failure by reinitialising the failed sensor  
+- [REQ-NF-206] The system shall use a MQTT Qos 0 for publishing sensor telemetries
+- [REQ-NF-207] The system shall use a MQTT Qos 1 for publishing alarm notifications
+- [REQ-NF-208] The system shall substitute a defined error indicator value for any sensor that fails to provide a reading
+- [REQ-NF-209] The system shall attempt to reconnect at a frequency of 1Hz if a disconnection is detected
+- [REQ-NF-210] The system shall synchronise the RTC every [TBD] [TBD — determined by RTC drift measurement during integration testing]
+- [REQ-NF-211] The system shall synchronise the field node time every [TBD] [TBD — determined by RTC drift measurement during integration testing]
+- [REQ-NF-212] The system shall use uptime-based timestamps and flag the data as "unsynchronised" if the RTC is not synchronised
+- [REQ-NF-213] The system shall reach normal operational state within [TBD] seconds of power-on
+
 
 ### 3.3 Security
+- [REQ-NF-300] The system shall encrypt all communication with AWS IoT Core using TLS 1.2 or higher
+- [REQ-NF-301] The system shall authenticate to AWS IoT Core using X.509 client certificates
+- [REQ-NF-302] The system shall not store provisioning credentials in plaintext
+- [REQ-NF-303] The system shall restrict CLI access to physical serial connections only
+- [REQ-NF-304] The system shall cryptographically verify firmware images before installation
+- [REQ-NF-305] The system shall reject any unencrypted connection to cloud services
+- [REQ-NF-306] The system shall restrict Tier 1 configuration parameters to local serial access only
+- [REQ-NF-307] The system shall require confirmation before executing Tier 3 commands
 
 ### 3.4 Memory and Resource Constraints
+- [REQ-NF-400] The system shall operate within the 128 KB SRAM of the B-L475E-IOT01A
+- [REQ-NF-401] The system shall operate within the 1 MB FLASH of the B-L475E-IOT01A
+- [REQ-NF-402] The system shall operate within the 8 MB QUAD-SPI FLASH of the B-L475E-IOT01A
+- [REQ-NF-403] The system shall operate within the 320+4 KB SRAM of the STM32F469 Discovery 
+- [REQ-NF-404] The system shall operate within the 2 MB FLASH of the STM32F469 Discovery
+- [REQ-NF-405] The system shall operate within the 16 MB QUAD-SPI FLASH of the STM32F469 Discovery 
+- [REQ-NF-406] The system shall allocate no more than 3 MB of non-volatile storage for diagnostic logs per node
+- [REQ-NF-407] The system shall allocate no more than 4 MB of non-volatile storage for sensor measurements per node
+- [REQ-NF-408] The system shall not use dynamic memory allocation (malloc/free) after initialisation completes
 
 ### 3.5 Maintainability
+- [REQ-NF-500] The system shall log diagnostic events with severity level, timestamp, and source module identifier
+- [REQ-NF-501] The system shall enforce a layered architecture where no module above the driver layer imports vendor-specific headers
+- [REQ-NF-502] All source code shall conform to the project's BARR-C:2018 subset coding standard
+- [REQ-NF-503] The system shall report its firmware version via the CLI and in cloud health messages
+- [REQ-NF-504] The system shall provide a diagnostic output channel for runtime tracing and debugging
+- [REQ-NF-505] The system shall include Doxygen-compatible documentation comments for all public API functions
+- [REQ-NF-506] The system shall expose vendor-neutral interfaces to the middleware and application layers
 
 ---
 
