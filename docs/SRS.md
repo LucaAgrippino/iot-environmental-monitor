@@ -89,13 +89,13 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 <!-- E1 (step 2): if some sensors don't respond, use a default error value -->
 - [REQ-SA-0E1] The system shall mark the sensor value as invalid if sensor reading fails
-
+- [REQ-SA-160] The system shall publish sensor data marked as invalid to the cloud with an error flag
 
 <!-- Traces to: UC-14 -->
 <!-- preconditions: System is initialised -->
 <!-- 1. The Remote Operator request a sensor data reading -->
 <!-- 2. System execute new data reading -->
-- [REQ-SA-160] The system shall perform an additional sensor read upon receiving a remote read request
+- [REQ-SA-170] The system shall perform an additional sensor read upon receiving a remote read request
 <!-- 3. System returns result -->
 <!-- E1 (step 1): if the gateway is disconnected, show an command is not delivered to the gateway -->
 <!-- E2 (step 3): if the gateway is disconnected, system cannot deliver result to AWS IoT Core; result is buffered -->
@@ -189,8 +189,10 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
     - 03 (Read Holding Registers)
     - 04 (Read Input Registers) 
     - 06/16 (Write Single/Multiple Registers) 
-- [REQ-MB-050] The system shall timeout a Modbus request after [TBD] milliseconds with no response
-- [REQ-MB-060] The system shall retry a failed Modbus request up to [TBD] times before reporting a communication failure
+<!-- See REQ-NF-105 -->
+- [REQ-MB-050] The system shall timeout a Modbus request after 200 milliseconds with no response
+<!-- See REQ-NF-103 -->
+- [REQ-MB-060] The system shall retry a failed Modbus request up to 3 times before reporting a communication failure
 - [REQ-MB-070] The system shall define a register map specifying the address, data type, and access mode for all exchanged data
 <!-- Traces to: UC-19 -->
 - [REQ-MB-080] The system shall receive remote commands from the gateway and write them to the appropriate Modbus holding registers on the field device.
@@ -287,10 +289,11 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-NF-107] The system shall begin executing a received remote command within 500 ms of receipt
 - [REQ-NF-108] The system shall use a refresh rate of 5Hz for the field node LCD
 - [REQ-NF-109] The system shall use a system watchdog of 10 seconds
-- [REQ-NF-110] The system shall poll the field node at frequency of 1Hz
-- [REQ-NF-111] The system shall publish the sensor measurements to AWS IoT Cloud each 60 seconds
-- [REQ-NF-112] The system shall publish the health data to AWS IoT Cloud each 10 minutes
-- [REQ-NF-113] The system shall publish the alarm notification to AWS IoT Cloud within 500 ms since their detection
+- [REQ-NF-110] The system shall poll the field node at default polling frequency of 1Hz
+- [REQ-NF-111] The system shall publish the sensor measurements to AWS IoT Core each 60 seconds
+- [REQ-NF-112] The system shall publish the health data to AWS IoT Core each 10 minutes
+- [REQ-NF-113] The system shall publish the alarm notification to AWS IoT Core within 500 ms since their detection
+- [REQ-NF-114] The system shall use a polling frequency within this range [TBD] Hz and [TBD] Hz
 
 ### 3.2 Reliability
 - [REQ-NF-200] The system shall continue local sensor acquisition and alarm evaluation when internet connectivity is lost
@@ -299,15 +302,18 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-NF-203] The system shall restart and resume normal operation within 5 seconds after a normal reset
 - [REQ-NF-204] The system shall roll back to the previous firmware and resume normal operation within 10 seconds if a firmware update fails post-installation
 - [REQ-NF-205] The system shall recover from a sensor failure by reinitialising the failed sensor  
-- [REQ-NF-206] The system shall use a MQTT Qos 0 for publishing sensor telemetries
-- [REQ-NF-207] The system shall use a MQTT Qos 1 for publishing alarm notifications
+<!-- Rationale: fire-and-forget; data is buffered locally by REQ-BF-000 -->
+- [REQ-NF-206] The system shall use MQTT QoS 0 for publishing sensor telemetry
+<!-- Rationale: at-least-once delivery for safety-critical events -->
+- [REQ-NF-207] The system shall use MQTT QoS 1 for publishing alarm notifications
 - [REQ-NF-208] The system shall substitute a defined error indicator value for any sensor that fails to provide a reading
 - [REQ-NF-209] The system shall attempt to reconnect at a frequency of 1Hz if a disconnection is detected
 - [REQ-NF-210] The system shall synchronise the RTC every [TBD] [TBD — determined by RTC drift measurement during integration testing]
 - [REQ-NF-211] The system shall synchronise the field node time every [TBD] [TBD — determined by RTC drift measurement during integration testing]
 - [REQ-NF-212] The system shall use uptime-based timestamps and flag the data as "unsynchronised" if the RTC is not synchronised
 - [REQ-NF-213] The system shall reach normal operational state within [TBD] seconds of power-on
-
+- [REQ-NF-214] The system shall recover to a known-good state if power is lost during a flash write operation (configuration save, buffer write, or firmware update)
+- [REQ-NF-215] The system shall report a "node offline" status to the AWS IoT Core when no Modbus response is received for 3 consecutive polls
 
 ### 3.3 Security
 - [REQ-NF-300] The system shall encrypt all communication with AWS IoT Core using TLS 1.2 or higher
@@ -344,13 +350,13 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 ## 4. Constraints
 
 <!-- Hardware constraints, protocol constraints, third-party limitations -->
-
+- X.509 client certificates and private keys shall be stored in a dedicated flash partition, separate from configuration and telemetry buffer storage
 ---
 
 ## 5. Assumptions
 
 <!-- Assumptions that, if wrong, would invalidate requirements -->
-
+- The field device sensor simulation module generates realistic noise and fault conditions sufficient to exercise the signal conditioning pipeline. If the simulation produced perfect data, the filtering and range validation requirements would not be testable on the field device.
 ---
 
 ## 6. Traceability Matrix
