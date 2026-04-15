@@ -1,6 +1,6 @@
 # Project Vision — IoT Environmental Monitoring Gateway
 
-**Version:** 1.4  
+**Version:** 1.5  
 **Date:** April 2026  
 **Status:** Approved (updated scope)
 
@@ -11,8 +11,9 @@
 | 1.0     | April 2026 | Initial version from stakeholder elicitation                            |
 | 1.1     | April 2026 | Added TLS, RTC/NTP, flash storage, observability, OTA/secure boot scope |
 | 1.2     | April 2026 | Added portability requirement                                           |
-| 1.3     | April 2026 | Added Signal conditioning requirement                   |
+| 1.3     | April 2026 | Added Signal conditioning requirement                                   |
 | 1.4     | April 2026 | Corrected field device sensor description: simulated sensors behind driver abstraction |
+| 1.5     | April 2026 | Added board self-test and device serial number to diagnostic console |
 
 ---
 
@@ -165,6 +166,8 @@ Both boards provide a serial CLI console over a dedicated UART. The console serv
 
 - **Provisioning (Tier 1):** Initial device setup — WiFi credentials, cloud endpoint and certificates, Modbus address, serial port parameters. These settings are stored in non-volatile flash and persist across reboots.
 - **Diagnostics:** Runtime inspection — view logs, check connectivity, inspect Modbus frame statistics, view FreeRTOS task status and stack usage, view system health metrics and error counters.
+
+The CLI provides a board self-test command that verifies all hardware peripherals, sensors, and communication links, and reports a pass/fail result with details. The device serial number (derived from the MCU unique ID) is accessible via the CLI and included in cloud health messages.
 
 The CLI is a system feature, not a development-only tool. It is designed to be used by a field technician during installation and troubleshooting.
 

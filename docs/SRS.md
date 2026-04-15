@@ -164,7 +164,15 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-LI-100] The system shall request confirmation from the Field Technician before applying changes
 - [REQ-LI-110] The system shall apply the change if a confirmation is received
 - [REQ-LI-120] The system shall retain the previous configuration until all new parameters are successfully applied
-
+- [REQ-LI-130] The system shall provide a board self-test command via the CLI 
+  that verifies sensors, communication links, and flash memory
+- [REQ-LI-140] The system shall report the self-test result as pass/fail 
+  with details for each subsystem tested
+- [REQ-LI-150] The system shall read and display the device serial number 
+  (MCU unique ID) via the CLI
+- [REQ-LI-160] The system shall store the most recent board self-test 
+  result (date, pass/fail, per-subsystem details) in non-volatile storage
+  
 - [REQ-LI-0E1] The system shall display an error message if the diagnostic command fails
 - [REQ-LI-0E2] The system shall display an error message with the problem if the input validation fails
 - [REQ-LI-0E3] The system shall discard all the input parameters if no confirmation is received
@@ -219,7 +227,8 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-CC-070] The system shall use JSON format for all MQTT payloads
 - [REQ-CC-071] The system shall include a schema version identifier in all MQTT payloads.
 - [REQ-CC-080] The system shall use separate MQTT topics for telemetry, alarms, and device health data
-
+- [REQ-CC-090] The system shall include the device serial number 
+  in all cloud health messages
 
 ### 2.7 Time Synchronisation [TS]
 
@@ -349,20 +358,211 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 ## 4. Constraints
 
-<!-- Hardware constraints, protocol constraints, third-party limitations -->
-- X.509 client certificates and private keys shall be stored in a dedicated flash partition, separate from configuration and telemetry buffer storage
+- [CON-001] The gateway WiFi module (ISM43362-M3G-L44) communicates with the host MCU via SPI using AT commands. All TCP/IP and TLS operations are handled by the module's internal stack, not by the application firmware.
+- [CON-002] The ISM43362 WiFi module limits RF output power to 9 dBm to comply with FCC/IC/CE requirements. WiFi range is constrained accordingly.
+- [CON-003] The STM32F469 Discovery board has no on-board environmental sensors. All field device sensor data is produced by a software simulation module.
+- [CON-004] The Modbus RTU protocol limits a single data frame to 256 bytes (253 bytes of application data plus 3 bytes of overhead).
+- [CON-005] The Modbus RTU bus operates as single-master. Only the gateway may initiate transactions; the field device responds only when polled.
+- [CON-006] X.509 client certificates and private keys shall be stored in a dedicated flash partition, separate from configuration and telemetry buffer storage.
+- [CON-007] AWS IoT Core limits MQTT message payload size to 128 KB per publish. All telemetry, alarm, and health messages must fit within this limit.
+- [CON-008] AWS IoT Core requires MQTT over TLS with X.509 certificate authentication. No alternative authentication method is supported by the system.
+- [CON-009] The Quad-SPI NOR flash (MX25R6435F on the gateway) has a rated write endurance of 100,000 cycles per sector. Flash write patterns (buffering, configuration, logs) must account for wear levelling.
+- [CON-010] Both STM32 MCUs operate at 3.3 V logic levels. All external modules (RS-485 transceivers, sensors) must be 3.3 V compatible.
+- [CON-011] The system uses FreeRTOS as its real-time operating system. All timing, scheduling, and inter-task communication constraints are governed by FreeRTOS capabilities.
+
 ---
 
 ## 5. Assumptions
 
-<!-- Assumptions that, if wrong, would invalidate requirements -->
-- The field device sensor simulation module generates realistic noise and fault conditions sufficient to exercise the signal conditioning pipeline. If the simulation produced perfect data, the filtering and range validation requirements would not be testable on the field device.
+- [ASM-001] The field device sensor simulation module generates realistic noise and fault conditions sufficient to exercise the signal conditioning pipeline. If the simulation produced perfect data, the filtering and range validation requirements would not be testable on the field device.
+- [ASM-002] The gateway has access to at least one NTP server via the internet on boot or within a reasonable period after boot. If NTP is permanently unreachable, time synchronisation requirements (REQ-TS-000 through REQ-TS-030) cannot be satisfied.
+- [ASM-003] The RS-485 bus has exactly one master (the gateway). No other Modbus master device is present on the bus. If a second master were introduced, bus contention would violate the single-master constraint (CON-005).
+- [ASM-004] The combined SRAM requirements of FreeRTOS kernel, TLS/MQTT stack, application tasks, and communication buffers fit within 128 KB on the gateway (B-L475E-IOT01A). If TLS stack memory requirements exceed estimates, the system may require a reduced task set or optimised buffer allocation.
+- [ASM-005] Power supply to both boards is stable under normal operating conditions. The power failure recovery requirement (REQ-NF-214) covers transient power loss, not sustained operation on degraded power.
+- [ASM-006] The ISM43362 WiFi module firmware (version C3.5.2.3.BETA9) is pre-loaded and functional. The system does not update or manage the WiFi module's internal firmware.
+- [ASM-007] AWS IoT Core is available and operational. The system handles temporary cloud unavailability via store-and-forward buffering but does not handle permanent cloud service decommissioning.
+
 ---
 
 ## 6. Traceability Matrix
 
-| Requirement | Use Case(s)       | Vision Section |
-|-------------|--------------------|----------------|
+| Requirement | Use Case(s) | Vision Section |
+|---|---|---|
+| REQ-SA-000 | UC-07 | §5.1 |
+| REQ-SA-010 | UC-07 | §5.1 |
+| REQ-SA-020 | UC-07 | §5.1 |
+| REQ-SA-030 | UC-07 | §5.1, §5.1.1 |
+| REQ-SA-031 | UC-07 | §5.1 |
+| REQ-SA-040 | UC-07 | §5.1 |
+| REQ-SA-050 | UC-07 | §5.1 |
+| REQ-SA-060 | UC-07 | §5.1 |
+| REQ-SA-070 | UC-07 | §5.1 |
+| REQ-SA-071 | UC-07 | §5.1 |
+| REQ-SA-080 | UC-07 | §5.1 |
+| REQ-SA-090 | UC-07 | §5.1 |
+| REQ-SA-100 | UC-07 | §5.1, §8 |
+| REQ-SA-110 | UC-07, UC-14 | §5.1 |
+| REQ-SA-120 | UC-07 | §5.1 |
+| REQ-SA-130 | UC-07 | §5.1 |
+| REQ-SA-140 | UC-07 | §5.1 |
+| REQ-SA-150 | UC-07 | §5.1, §5.3 |
+| REQ-SA-0E1 | UC-07 | §5.1 |
+| REQ-SA-160 | UC-07 | §5.1 |
+| REQ-SA-170 | UC-14 | §5.7 |
+| REQ-AM-000 | UC-08 | §5.2 |
+| REQ-AM-010 | UC-08 | §5.2 |
+| REQ-AM-011 | UC-08 | §5.2 |
+| REQ-AM-020 | UC-08, UC-09 | §5.2 |
+| REQ-AM-030 | UC-09 | §5.2, §5.4 |
+| REQ-AM-040 | UC-09 | §5.2 |
+| REQ-LD-000 | UC-01, UC-02, UC-03, UC-15 | §5.5 |
+| REQ-LD-010 | UC-01 | §5.5 |
+| REQ-LD-020 | UC-01 | §5.5 |
+| REQ-LD-030 | UC-01 | §5.5 |
+| REQ-LD-040 | UC-01 | §5.5 |
+| REQ-LD-050 | UC-01 | §5.5 |
+| REQ-LD-060 | UC-01 | §5.5 |
+| REQ-LD-070 | UC-02 | §5.5, §5.8 |
+| REQ-LD-080 | UC-03 | §5.5 |
+| REQ-LD-090 | UC-03 | §5.5 |
+| REQ-LD-100 | UC-15 | §5.5, §10 |
+| REQ-LD-110 | UC-15 | §5.5 |
+| REQ-LD-120 | UC-15 | §5.5 |
+| REQ-LD-130 | UC-15 | §5.5 |
+| REQ-LD-140 | UC-15 | §5.5 |
+| REQ-LD-150 | UC-15 | §5.5, §5.9 |
+| REQ-LD-0E1 | UC-15 | §5.5 |
+| REQ-LI-000 | UC-04 | §5.6 |
+| REQ-LI-010 | UC-04 | §5.6 |
+| REQ-LI-020 | UC-04 | §5.6 |
+| REQ-LI-030 | UC-16 | §5.6 |
+| REQ-LI-040 | UC-16 | §5.6 |
+| REQ-LI-050 | UC-16 | §5.6 |
+| REQ-LI-060 | UC-16 | §5.6 |
+| REQ-LI-070 | UC-16 | §5.6 |
+| REQ-LI-080 | UC-16 | §5.6 |
+| REQ-LI-090 | UC-16 | §5.6 |
+| REQ-LI-100 | UC-16 | §5.6 |
+| REQ-LI-110 | UC-16 | §5.6 |
+| REQ-LI-120 | UC-16 | §5.6 |
+| REQ-LI-130 | UC-04 | §5.6 |
+| REQ-LI-140 | UC-04 | §5.6 |
+| REQ-LI-150 | UC-04 | §5.6 |
+| REQ-LI-160 | UC-04 | §5.6, §5.9 |
+| REQ-LI-0E1 | UC-04 | §5.6 |
+| REQ-LI-0E2 | UC-16 | §5.6 |
+| REQ-LI-0E3 | UC-16 | §5.6 |
+| REQ-MB-000 | UC-07 | §5.3 |
+| REQ-MB-010 | UC-10 | §5.3 |
+| REQ-MB-020 | UC-13 | §5.3, §8 |
+| REQ-MB-030 | UC-07, UC-10, UC-13 | §5.3 |
+| REQ-MB-040 | UC-07, UC-10, UC-13, UC-19 | §5.3 |
+| REQ-MB-050 | UC-07, UC-10 | §5.3 |
+| REQ-MB-060 | UC-07, UC-10 | §5.3 |
+| REQ-MB-070 | UC-07, UC-10, UC-13, UC-19 | §5.3 |
+| REQ-MB-080 | UC-19 | §5.3, §5.7 |
+| REQ-MB-090 | UC-19 | §5.3, §5.7 |
+| REQ-MB-0E1 | UC-19 | §5.3 |
+| REQ-CC-000 | UC-05, UC-10 | §5.4 |
+| REQ-CC-010 | UC-06, UC-11 | §5.4, §5.8 |
+| REQ-CC-020 | UC-09, UC-12 | §5.4, §5.2 |
+| REQ-CC-030 | UC-10 | §5.4, §10 |
+| REQ-CC-040 | UC-11 | §5.4, §5.8, §10 |
+| REQ-CC-050 | UC-10, UC-11, UC-12 | §5.4, §7 |
+| REQ-CC-060 | UC-10, UC-11, UC-12 | §5.4, §7 |
+| REQ-CC-070 | UC-10, UC-11, UC-12 | §5.4 |
+| REQ-CC-071 | UC-10, UC-11, UC-12 | §5.4 |
+| REQ-CC-080 | UC-10, UC-11, UC-12 | §5.4 |
+| REQ-CC-090 | UC-06 | §5.6, §5.8 |
+| REQ-TS-000 | UC-13 | §8 |
+| REQ-TS-010 | UC-13 | §8 |
+| REQ-TS-020 | UC-13 | §8 |
+| REQ-TS-030 | UC-13 | §8 |
+| REQ-TS-040 | UC-13 | §8 |
+| REQ-TS-0E1 | UC-13 | §8 |
+| REQ-DM-000 | UC-15 | §5.7, §10 |
+| REQ-DM-001 | UC-15 | §5.7 |
+| REQ-DM-002 | UC-15 | §5.7 |
+| REQ-DM-010 | UC-17 | §5.7 |
+| REQ-DM-020 | UC-17 | §5.7, §10 |
+| REQ-DM-021 | UC-17 | §5.7 |
+| REQ-DM-030 | UC-17 | §5.7 |
+| REQ-DM-040 | UC-17 | §5.7 |
+| REQ-DM-050 | UC-18 | §5.10 |
+| REQ-DM-051 | UC-18 | §5.10 |
+| REQ-DM-052 | UC-18 | §5.10 |
+| REQ-DM-053 | UC-18 | §5.10 |
+| REQ-DM-054 | UC-18 | §5.10 |
+| REQ-DM-055 | UC-18 | §5.10 |
+| REQ-DM-056 | UC-18 | §5.10 |
+| REQ-DM-060 | UC-18, UC-20 | §5.10 |
+| REQ-DM-061 | UC-18 | §5.10 |
+| REQ-DM-062 | UC-18 | §5.10 |
+| REQ-DM-070 | UC-18 | §5.10 |
+| REQ-DM-071 | UC-18 | §5.10 |
+| REQ-DM-072 | UC-18 | §5.10 |
+| REQ-DM-073 | UC-18 | §5.10 |
+| REQ-DM-074 | UC-18 | §5.10 |
+| REQ-DM-080 | UC-20 | §5.10 |
+| REQ-DM-090 | UC-15, UC-16 | §5.9 |
+| REQ-BF-000 | UC-10, UC-11, UC-12 | §5.9, §7 |
+| REQ-BF-010 | UC-10, UC-11, UC-12 | §5.9, §7 |
+| REQ-BF-020 | UC-10, UC-11, UC-12 | §5.9, §7 |
+| REQ-NF-100 | UC-07 | §5.1 |
+| REQ-NF-101 | UC-08 | §5.2 |
+| REQ-NF-102 | UC-08 | §5.2 |
+| REQ-NF-103 | UC-07, UC-10 | §5.3, §7 |
+| REQ-NF-104 | UC-07, UC-10 | §5.3, §7 |
+| REQ-NF-105 | UC-07, UC-10 | §5.3 |
+| REQ-NF-106 | UC-10, UC-11, UC-12 | §5.4 |
+| REQ-NF-107 | UC-19 | §5.7 |
+| REQ-NF-108 | UC-01 | §5.5 |
+| REQ-NF-109 | — | §7 |
+| REQ-NF-110 | UC-07 | §5.1 |
+| REQ-NF-111 | UC-10 | §5.4 |
+| REQ-NF-112 | UC-11 | §5.8 |
+| REQ-NF-113 | UC-09, UC-12 | §5.2, §5.4 |
+| REQ-NF-114 | UC-07 | §5.1, §10 |
+| REQ-NF-200 | UC-07, UC-08 | §7 |
+| REQ-NF-201 | UC-07, UC-10 | §7 |
+| REQ-NF-202 | — | §7 |
+| REQ-NF-203 | UC-17 | §7 |
+| REQ-NF-204 | UC-18 | §5.10 |
+| REQ-NF-205 | UC-07 | §5.1 |
+| REQ-NF-206 | UC-10 | §5.4 |
+| REQ-NF-207 | UC-09, UC-12 | §5.2, §5.4 |
+| REQ-NF-208 | UC-07 | §5.1 |
+| REQ-NF-209 | UC-10, UC-11, UC-12 | §7 |
+| REQ-NF-210 | UC-13 | §8 |
+| REQ-NF-211 | UC-13 | §8 |
+| REQ-NF-212 | UC-13 | §8 |
+| REQ-NF-213 | — | §7 |
+| REQ-NF-214 | — | §5.9, §7 |
+| REQ-NF-215 | UC-07, UC-10 | §5.8, §7 |
+| REQ-NF-300 | UC-10, UC-11, UC-12 | §5.4, §7 |
+| REQ-NF-301 | UC-10, UC-11, UC-12 | §5.4, §7 |
+| REQ-NF-302 | UC-16 | §5.6 |
+| REQ-NF-303 | UC-04, UC-16 | §5.6 |
+| REQ-NF-304 | UC-18, UC-20 | §5.10 |
+| REQ-NF-305 | UC-10, UC-11, UC-12 | §5.4, §7 |
+| REQ-NF-306 | UC-16 | §10 |
+| REQ-NF-307 | UC-17 | §10 |
+| REQ-NF-400 | — | §3 |
+| REQ-NF-401 | — | §3 |
+| REQ-NF-402 | — | §3 |
+| REQ-NF-403 | — | §3 |
+| REQ-NF-404 | — | §3 |
+| REQ-NF-405 | — | §3 |
+| REQ-NF-406 | — | §5.9 |
+| REQ-NF-407 | — | §5.9 |
+| REQ-NF-408 | — | §11 |
+| REQ-NF-500 | UC-04 | §5.6, §5.8 |
+| REQ-NF-501 | — | §9 |
+| REQ-NF-502 | — | §11 |
+| REQ-NF-503 | UC-04, UC-06 | §5.6, §5.8 |
+| REQ-NF-504 | UC-04 | §5.6 |
+| REQ-NF-505 | — | §11 |
+| REQ-NF-506 | — | §9 |
 
 ---
 
