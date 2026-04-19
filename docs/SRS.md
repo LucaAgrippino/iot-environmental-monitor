@@ -1,14 +1,15 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 0.1 (draft)
+**Version:** 1.0
 **Date:** April 2026
-**Status:** In progress
+**Status:** Approved — baselined for HLD
 
 **Revision History:**
 
 | Version | Date       | Changes              |
 |---------|------------|----------------------|
 | 0.1     | April 2026 | Initial draft        |
+| 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 
 ---
 
@@ -30,6 +31,8 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 | Gateway    | B-L475E-IOT01A board acting as Modbus RTU master and cloud bridge |
 | SRS        | System Requirements Specification                            |
 | TBD        | To Be Determined — flagged for resolution before HLD         |
+| Polling interval | Time between consecutive sensor reads, measured in seconds |
+| Polling rate | User-facing name for the polling interval parameter, expressed in Hz |
 
 ### 1.4 Requirement Notation
 
@@ -123,7 +126,7 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-LD-020] The system shall display the timestamp of the most recent reading on the LCD
 - [REQ-LD-030] The system shall display the measurement unit for each sensor reading on the LCD
 - [REQ-LD-040] The system shall display an error indicator for any sensor whose reading is marked as invalid
-- [REQ-LD-050] The system shall refresh the displayed sensor readings at the polling interval or upon receiving new data
+- [REQ-LD-050] The system shall refresh the displayed sensor readings at the polling rate or upon receiving new data
 - [REQ-LD-060] The system shall display a "waiting for data" message on the LCD until the first sensor reading is available
 <!-- Traces to: UC-02 -->
 - [REQ-LD-070] The system shall display a system status screen which lists: stack high watermarks, free heap, CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy
@@ -205,6 +208,9 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Traces to: UC-19 -->
 - [REQ-MB-080] The system shall receive remote commands from the gateway and write them to the appropriate Modbus holding registers on the field device.
 - [REQ-MB-090] The system shall read the command execution result from the field device via Modbus and return it to the cloud.
+- [REQ-MB-100] The system shall support addressing multiple field devices 
+  by unique Modbus slave address in the register map and polling logic, 
+  even though only one field device is implemented
 - [REQ-MB-0E1] The system shall reject a remote command with an unrecognised format and log the error.
 
 
@@ -298,11 +304,11 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-NF-107] The system shall begin executing a received remote command within 500 ms of receipt
 - [REQ-NF-108] The system shall use a refresh rate of 5Hz for the field node LCD
 - [REQ-NF-109] The system shall use a system watchdog of 10 seconds
-- [REQ-NF-110] The system shall poll the field node at default polling frequency of 1Hz
+- [REQ-NF-110] The system shall poll the field node at default polling rate of 1Hz
 - [REQ-NF-111] The system shall publish the sensor measurements to AWS IoT Core each 60 seconds
 - [REQ-NF-112] The system shall publish the health data to AWS IoT Core each 10 minutes
 - [REQ-NF-113] The system shall publish the alarm notification to AWS IoT Core within 500 ms since their detection
-- [REQ-NF-114] The system shall use a polling frequency within this range [TBD] Hz and [TBD] Hz
+- [REQ-NF-114] The system shall use a polling rate within this range [TBD] Hz and [TBD] Hz
 
 ### 3.2 Reliability
 - [REQ-NF-200] The system shall continue local sensor acquisition and alarm evaluation when internet connectivity is lost
@@ -323,6 +329,7 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-NF-213] The system shall reach normal operational state within [TBD] seconds of power-on
 - [REQ-NF-214] The system shall recover to a known-good state if power is lost during a flash write operation (configuration save, buffer write, or firmware update)
 - [REQ-NF-215] The system shall report a "node offline" status to the AWS IoT Core when no Modbus response is received for 3 consecutive polls
+- [REQ-NF-216] The system shall use MQTT QoS 0 for publishing device health data
 
 ### 3.3 Security
 - [REQ-NF-300] The system shall encrypt all communication with AWS IoT Core using TLS 1.2 or higher
@@ -462,6 +469,7 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 | REQ-MB-070 | UC-07, UC-10, UC-13, UC-19 | §5.3 |
 | REQ-MB-080 | UC-19 | §5.3, §5.7 |
 | REQ-MB-090 | UC-19 | §5.3, §5.7 |
+| REQ-MB-100 | UC-07, UC-10 | §6 |
 | REQ-MB-0E1 | UC-19 | §5.3 |
 | REQ-CC-000 | UC-05, UC-10 | §5.4 |
 | REQ-CC-010 | UC-06, UC-11 | §5.4, §5.8 |
@@ -539,6 +547,7 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 | REQ-NF-213 | — | §7 |
 | REQ-NF-214 | — | §5.9, §7 |
 | REQ-NF-215 | UC-07, UC-10 | §5.8, §7 |
+| REQ-NF-216 | UC-11 | §5.4, §5.8 |
 | REQ-NF-300 | UC-10, UC-11, UC-12 | §5.4, §7 |
 | REQ-NF-301 | UC-10, UC-11, UC-12 | §5.4, §7 |
 | REQ-NF-302 | UC-16 | §5.6 |
