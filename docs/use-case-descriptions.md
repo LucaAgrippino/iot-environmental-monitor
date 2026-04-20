@@ -327,7 +327,7 @@
 - System is powered on, initialised and connected to internet
 
 **Postconditions:**
-- The system has been restarted
+- The gateway has been restarted
 
 **Main Flow**
 1. The Remote Operator requests a device restart
