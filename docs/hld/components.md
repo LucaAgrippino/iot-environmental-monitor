@@ -15,6 +15,11 @@ Naming conventions:
 - **Interfaces:** `IXxx` prefix, capability-oriented names (`IBarometer`, not `BarometerIF`).
 - **Hardware-layer boundary:** `CMSIS` denotes direct register access via CMSIS device headers, per Vision §9 (vendor-neutral driver interfaces, CMSIS-only driver internals).
 
+Cross-cutting components:
+
+- **Logger** is consumed by every Application and Middleware component for diagnostic output (REQ-NF-500). Connections are listed in the spec but elided from the diagrams to keep them readable; a UML note on each diagram records the convention.
+- **HealthMonitor** is a passive collector. Producers of health metrics push to its interface; no downward dependencies are shown in the diagram.
+
 ---
 
 # Field Device
@@ -26,7 +31,6 @@ Naming conventions:
 | Peripheral / module                        | Interface                  |
 |--------------------------------------------|----------------------------|
 | USB Mini-B ST-Link virtual COM port        | UART1 (debug console)      |
-| USB Mini-B user                            | SWD (debug only — no fw)   |
 | Simulated barometer                        | Software simulation        |
 | Simulated humidity and temperature sensor  | Software simulation        |
 | 4-inch DSI LCD                             | MIPI DSI                   |
@@ -36,7 +40,6 @@ Naming conventions:
 | RS-485 transceiver for Modbus              | UARTx (RS-485 half-duplex) |
 | On-board LEDs                              | GPIO                       |
 | RTC (backup-domain)                        | RTC peripheral             |
-| System reset                               | NVIC software reset        |
 
 ### Driver components derived
 
@@ -50,21 +53,21 @@ Naming conventions:
 - ModbusUartDriver
 - LedDriver
 - RtcDriver
-- ResetDriver
 - I2cDriver
 - GpioDriver
 
 ## 2. Top-down sweep (use cases → application components)
 
-| Component        | Use cases covered                                    |
-|------------------|-------------------------------------------------------|
-| LcdUi            | UC-01, UC-02, UC-03, UC-08, UC-15                     |
-| HealthMonitor    | UC-06                                                 |
-| SensorService    | UC-07, UC-08                                          |
-| ConsoleService   | UC-04, UC-16                                          |
-| ConfigStore      | UC-15, UC-16 *(persistence tier)*                     |
-| ModbusRegisterMap| UC-06, UC-07, UC-13, UC-15                            |
-| ConfigService    | UC-15, UC-16                                          |
+| Component         | Use cases covered                                     |
+|-------------------|-------------------------------------------------------|
+| LcdUi             | UC-01, UC-02, UC-03, UC-08 *(display)*, UC-15         |
+| HealthMonitor     | UC-06                                                 |
+| SensorService     | UC-07                                                 |
+| AlarmService      | UC-08                                                 |
+| ConsoleService    | UC-04, UC-16                                          |
+| ConfigStore       | UC-15, UC-16 *(persistence tier)*                     |
+| ModbusRegisterMap | UC-06, UC-07, UC-13, UC-15                            |
+| ConfigService     | UC-15, UC-16                                          |
 
 ## 3. Final component list
 
@@ -72,11 +75,13 @@ Naming conventions:
 - LcdUi
 - HealthMonitor
 - SensorService
+- AlarmService
 - ConsoleService
 - ModbusRegisterMap
 - ConfigService
 
 ### Middleware layer
+- Logger
 - ConfigStore
 - ModbusSlave
 
@@ -91,7 +96,6 @@ Naming conventions:
 - ModbusUartDriver
 - LedDriver
 - RtcDriver
-- ResetDriver
 - I2cDriver
 - GpioDriver
 
@@ -159,12 +163,6 @@ Naming conventions:
 **PROVIDES (upward):** IRtc
 **USES (downward):** CMSIS
 
-**NAME:** ResetDriver
-**LAYER:** Driver
-**RESPONSIBILITY:** Triggers a full software reset of the MCU.
-**PROVIDES (upward):** IReset
-**USES (downward):** CMSIS
-
 **NAME:** I2cDriver
 **LAYER:** Driver
 **RESPONSIBILITY:** Serialises I2C bus transactions across multiple sensor drivers.
@@ -179,6 +177,12 @@ Naming conventions:
 
 ### Middleware layer
 
+**NAME:** Logger
+**LAYER:** Middleware
+**RESPONSIBILITY:** Formats severity-tagged log entries with timestamps and source module identifiers, and dispatches them to the configured output sinks.
+**PROVIDES (upward):** ILogger
+**USES (downward):** DebugUartDriver, RtcDriver
+
 **NAME:** ConfigStore
 **LAYER:** Middleware
 **RESPONSIBILITY:** Persists configuration key-value pairs across reboots and retrieves them on request.
@@ -189,7 +193,7 @@ Naming conventions:
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the Modbus RTU slave protocol — frame parsing, CRC validation, function code dispatch, response framing.
 **PROVIDES (upward):** IModbusSlave
-**USES (downward):** ModbusUartDriver
+**USES (downward):** ModbusUartDriver, HealthMonitor
 
 ### Application layer
 
@@ -197,37 +201,43 @@ Naming conventions:
 **LAYER:** Application
 **RESPONSIBILITY:** Renders LCD screens and dispatches touchscreen input to the appropriate screen handler.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** LcdDriver, TouchscreenDriver
+**USES (downward):** LcdDriver, TouchscreenDriver, SensorService, AlarmService, ConfigService, Logger, HealthMonitor
 
 **NAME:** HealthMonitor
 **LAYER:** Application
-**RESPONSIBILITY:** Periodically acquires and dispatches system health data.
+**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error).
 **PROVIDES (upward):** IHealthMonitor *(other components push metrics to this interface)*
-**USES (downward):** *(none — passive collector)*
+**USES (downward):** LedDriver, Logger
 
 **NAME:** SensorService
 **LAYER:** Application
-**RESPONSIBILITY:** Periodically acquires and processes sensor data.
-**PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** BarometerDriver, HumidityTempDriver
+**RESPONSIBILITY:** Periodically acquires and processes sensor data, and exposes the latest validated readings to consumers.
+**PROVIDES (upward):** ISensorService *(latest readings + new-reading event subscription)*
+**USES (downward):** BarometerDriver, HumidityTempDriver, RtcDriver, Logger, HealthMonitor
+
+**NAME:** AlarmService
+**LAYER:** Application
+**RESPONSIBILITY:** Compares each new sensor reading against configured thresholds, applies hysteresis when clearing alarms, maintains per-sensor alarm state, and notifies subscribers when alarms are raised or cleared.
+**PROVIDES (upward):** IAlarmService *(active alarm query + alarm event subscription)*
+**USES (downward):** SensorService, ConfigService, Logger
 
 **NAME:** ConsoleService
 **LAYER:** Application
 **RESPONSIBILITY:** Provides a local console for provisioning and diagnostic.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** DebugUartDriver
+**USES (downward):** DebugUartDriver, SensorService, ConfigService, Logger, HealthMonitor
 
 **NAME:** ModbusRegisterMap
 **LAYER:** Application
-**RESPONSIBILITY:** Binds Modbus register addresses to live data sources and configuration values.
+**RESPONSIBILITY:** Binds Modbus register addresses to live data sources (sensor readings, alarm state, time, configuration values), serving register reads and dispatching register writes to the appropriate handler.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** ModbusSlave
+**USES (downward):** ModbusSlave, SensorService, AlarmService, ConfigService, RtcDriver, Logger
 
 **NAME:** ConfigService
 **LAYER:** Application
 **RESPONSIBILITY:** Validates and applies operational and provisioning parameter changes, coordinating with ConfigStore for persistence.
 **PROVIDES (upward):** IConfigService
-**USES (downward):** ConfigStore
+**USES (downward):** ConfigStore, Logger
 
 ---
 
@@ -240,7 +250,6 @@ Naming conventions:
 | Peripheral / module                          | Interface                  |
 |----------------------------------------------|----------------------------|
 | USB Micro-B ST-Link virtual COM port         | UART1 (debug console)      |
-| USB Micro-B user                             | SWD (debug only — no fw)   |
 | WiFi module Inventek ISM43362-M3G-L44        | SPI3 + GPIO *(per CON-001)*|
 | Magnetometer LIS3MDL                         | I2C2 + GPIO                |
 | IMU LSM6DSL (accelerometer + gyroscope)      | I2C2 + GPIO                |
@@ -271,10 +280,11 @@ Naming conventions:
 
 ## 2. Top-down sweep (use cases → application components)
 
-| Component        | Use cases covered                                                      |
+| Component        | Use cases covered                                                       |
 |------------------|-------------------------------------------------------------------------|
 | HealthMonitor    | UC-06                                                                   |
-| SensorService    | UC-07, UC-08                                                            |
+| SensorService    | UC-07                                                                   |
+| AlarmService     | UC-08 *(gateway sensors only — field-device alarms arrive pre-evaluated via Modbus)* |
 | CloudPublisher   | UC-05, UC-09, UC-10, UC-11, UC-12, UC-14, UC-17, UC-18, UC-19           |
 | TimeService      | UC-13                                                                   |
 | ConsoleService   | UC-04, UC-16                                                            |
@@ -289,6 +299,7 @@ Naming conventions:
 ### Application layer
 - HealthMonitor
 - SensorService
+- AlarmService
 - CloudPublisher
 - TimeService
 - UpdateService
@@ -298,6 +309,7 @@ Naming conventions:
 - StoreAndForward
 
 ### Middleware layer
+- Logger
 - MqttClient
 - ModbusMaster
 - CircularFlashLog
@@ -410,17 +422,23 @@ Naming conventions:
 
 ### Middleware layer
 
+**NAME:** Logger
+**LAYER:** Middleware
+**RESPONSIBILITY:** Formats severity-tagged log entries with timestamps and source module identifiers, and dispatches them to the configured output sinks.
+**PROVIDES (upward):** ILogger
+**USES (downward):** DebugUartDriver, RtcDriver
+
 **NAME:** MqttClient
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the MQTT client protocol over a TLS-secured connection.
 **PROVIDES (upward):** IMqttClient
-**USES (downward):** WifiDriver
+**USES (downward):** WifiDriver, HealthMonitor
 
 **NAME:** ModbusMaster
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the Modbus RTU master protocol — request framing, transmission, response parsing, timeout handling.
 **PROVIDES (upward):** IModbusMaster
-**USES (downward):** ModbusUartDriver
+**USES (downward):** ModbusUartDriver, HealthMonitor
 
 **NAME:** CircularFlashLog
 **LAYER:** Middleware
@@ -444,54 +462,60 @@ Naming conventions:
 
 **NAME:** HealthMonitor
 **LAYER:** Application
-**RESPONSIBILITY:** Periodically acquires and dispatches system health data.
+**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error).
 **PROVIDES (upward):** IHealthMonitor *(other components push metrics to this interface)*
-**USES (downward):** *(none — passive collector)*
+**USES (downward):** LedDriver, Logger
 
 **NAME:** SensorService
 **LAYER:** Application
-**RESPONSIBILITY:** Periodically acquires and processes sensor data.
-**PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** MagnetometerDriver, ImuDriver, BarometerDriver, HumidityTempDriver
+**RESPONSIBILITY:** Periodically acquires and processes sensor data, and exposes the latest validated readings to consumers.
+**PROVIDES (upward):** ISensorService *(latest readings + new-reading event subscription)*
+**USES (downward):** MagnetometerDriver, ImuDriver, BarometerDriver, HumidityTempDriver, RtcDriver, Logger, HealthMonitor
+
+**NAME:** AlarmService
+**LAYER:** Application
+**RESPONSIBILITY:** Compares each new gateway sensor reading against configured thresholds, applies hysteresis when clearing alarms, maintains per-sensor alarm state, and notifies subscribers when alarms are raised or cleared. Field device alarms arrive pre-evaluated via Modbus and are not re-evaluated here.
+**PROVIDES (upward):** IAlarmService
+**USES (downward):** SensorService, ConfigService, Logger
 
 **NAME:** CloudPublisher
 **LAYER:** Application
-**RESPONSIBILITY:** Serialises and deserialises MQTT payloads according to the project's message schemas, and routes inbound commands to the appropriate handler.
+**RESPONSIBILITY:** Serialises and deserialises MQTT payloads according to the project's message schemas, publishes telemetry, alarm and health messages, and routes inbound commands to the appropriate handler.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** MqttClient
+**USES (downward):** MqttClient, SensorService, AlarmService, ModbusPoller, StoreAndForward, Logger, HealthMonitor
 
 **NAME:** TimeService
 **LAYER:** Application
 **RESPONSIBILITY:** Synchronises the local RTC with an external NTP source on boot and periodically thereafter, then writes the current time to the field device via Modbus.
 **PROVIDES (upward):** ITimeService
-**USES (downward):** RtcDriver, NtpClient, ModbusPoller
+**USES (downward):** RtcDriver, NtpClient, ModbusPoller, Logger
 
 **NAME:** UpdateService
 **LAYER:** Application
 **RESPONSIBILITY:** Orchestrates the firmware update flow: download, verify, partition switch, reboot.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** MqttClient, QspiFlashDriver, ResetDriver
+**USES (downward):** MqttClient, QspiFlashDriver, ResetDriver, Logger
 
 **NAME:** ConsoleService
 **LAYER:** Application
 **RESPONSIBILITY:** Provides a local console for provisioning and diagnostic.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** DebugUartDriver
+**USES (downward):** DebugUartDriver, SensorService, ConfigService, Logger, HealthMonitor
 
 **NAME:** ModbusPoller
 **LAYER:** Application
-**RESPONSIBILITY:** Polls configured slave devices on schedule, routes Modbus transactions on behalf of higher-layer components, and tracks per-slave error statistics.
-**PROVIDES (upward):** IModbusPoller
-**USES (downward):** ModbusMaster
+**RESPONSIBILITY:** Polls configured slave devices on schedule, tracks per-slave register state transitions to detect new events (such as field device alarms), routes Modbus transactions on behalf of higher-layer components, and tracks per-slave error statistics.
+**PROVIDES (upward):** IModbusPoller *(transaction routing + state-change event subscription)*
+**USES (downward):** ModbusMaster, Logger, HealthMonitor
 
 **NAME:** ConfigService
 **LAYER:** Application
 **RESPONSIBILITY:** Validates and applies operational and provisioning parameter changes, coordinating with ConfigStore for persistence.
 **PROVIDES (upward):** IConfigService
-**USES (downward):** ConfigStore
+**USES (downward):** ConfigStore, Logger
 
 **NAME:** StoreAndForward
 **LAYER:** Application
 **RESPONSIBILITY:** Stores telemetry in flash when the cloud is unreachable, and forwards it in chronological order when connectivity is restored.
-**PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** CircularFlashLog
+**PROVIDES (upward):** IStoreAndForward
+**USES (downward):** CircularFlashLog, Logger, HealthMonitor
