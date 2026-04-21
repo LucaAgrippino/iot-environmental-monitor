@@ -192,8 +192,8 @@ Cross-cutting components:
 **NAME:** ModbusSlave
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the Modbus RTU slave protocol — frame parsing, CRC validation, function code dispatch, response framing.
-**PROVIDES (upward):** IModbusSlave
-**USES (downward):** ModbusUartDriver, HealthMonitor
+**PROVIDES (upward):** IModbusSlave, IModbusStats
+**USES (downward):** ModbusUartDriver, Logger
 
 ### Application layer
 
@@ -431,14 +431,14 @@ Cross-cutting components:
 **NAME:** MqttClient
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the MQTT client protocol over a TLS-secured connection.
-**PROVIDES (upward):** IMqttClient
-**USES (downward):** WifiDriver, HealthMonitor
+**PROVIDES (upward):** IMqttClient,IConnStats
+**USES (downward):** WifiDriver
 
 **NAME:** ModbusMaster
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the Modbus RTU master protocol — request framing, transmission, response parsing, timeout handling.
-**PROVIDES (upward):** IModbusMaster
-**USES (downward):** ModbusUartDriver, HealthMonitor
+**PROVIDES (upward):** IModbusMaster, IModbusStats
+**USES (downward):** ModbusUartDriver, Logger
 
 **NAME:** CircularFlashLog
 **LAYER:** Middleware
