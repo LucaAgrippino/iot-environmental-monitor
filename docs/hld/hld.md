@@ -165,7 +165,7 @@ The driver layer adds WiFi (over SPI) and the WiFi module's GPIO control lines, 
 
 This view answers: *how does sensor data — both gateway-local and field-device-relayed — reach the cloud?*
 
-![Gateway — Data Flow](../diagrams/Gateway%20-%20Data%20Flow%20view.png)
+![Gateway — Data Flow](../diagrams/Gateway%20-%20Data%20Flow.png)
 
 CloudPublisher is the central application component. It draws sensor data from two sources — the Gateway's own SensorService and the field device's data relayed by ModbusPoller — and publishes both via MqttClient, which sits on top of the WiFi driver. When the cloud is unreachable, CloudPublisher diverts payloads to StoreAndForward, which buffers them in CircularFlashLog over QspiFlashDriver until connectivity is restored.
 
