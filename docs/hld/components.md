@@ -356,6 +356,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 | ModbusPoller     | UC-07, UC-13, UC-14, UC-15, UC-19                                       |
 | ConfigService    | UC-15, UC-16                                                            |
 | StoreAndForward  | UC-09, UC-10, UC-11, UC-12, UC-14 *(exception flows)*                   |
+| FirmwareStore    | UC-20 (verifies firmware integrity)                                     |
 
 ## 3. Final component list
 
@@ -379,6 +380,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 - CircularFlashLog
 - NtpClient
 - ConfigStore
+- FirmwareStore
 
 ### Driver layer
 - DebugUartDriver
@@ -528,6 +530,12 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 **PROVIDES (upward):** IConfigStore
 **USES (downward):** QspiFlashDriver, IHealthReport, ILogger
 
+**NAME:** FirmwareStore
+**LAYER:** Middleware
+**RESPONSIBILITY:** Manages firmware image storage in flash partitions. Writes image data to the inactive slot, verifies image integrity and digital signature (REQ-DM-070), tracks active/inactive slot state, and commits a slot switch on successful verification.
+**PROVIDES (upward):** IFirmwareStore
+**USES (downward):** QspiFlashDriver, ILogger
+
 ### Application layer
 
 **NAME:** HealthMonitor
@@ -562,9 +570,9 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 
 **NAME:** UpdateService
 **LAYER:** Application
-**RESPONSIBILITY:** Orchestrates the firmware update flow: download, verify, partition switch, reboot.
+**RESPONSIBILITY:** Orchestrates the firmware update flow: download via MqttClient, delegate image storage and verification to FirmwareStore, commit slot switch, reboot via ResetDriver
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** MqttClient, QspiFlashDriver, ResetDriver, ILogger
+**USES (downward):** MqttClient, FirmwareStore, ResetDriver, ILogger
 
 **NAME:** ConsoleService
 **LAYER:** Application
