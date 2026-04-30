@@ -1762,6 +1762,22 @@ across all six.
 5. **Add internal transitions** inside the relevant state boxes.
 6. **Add labels** to all transitions: `event [guard] / action`.
 
+## Internal Transitions and Behavioural Compartments
+
+State machine diagrams in this project show **structural transitions only**.
+Internal transitions, entry/do/exit actions, and other behavioural
+compartments are listed exclusively in the companion document
+`state-machines.md` Step 2 (state list with entry/do/exit) and Step 3
+(transition tables).
+
+Rationale: the diagram answers "what states exist and how do they connect?".
+The companion doc answers "what does each state actually do?". Separating
+the two prevents diagrams from becoming text walls and keeps the
+behavioural specification authoritative in one place.
+
+The single exception is the **`«submachine»` stereotype** label on states
+that delegate to a sub-machine, which appears on the diagram for navigation.
+
 ## Per-machine specifics
 
 ### gateway-lifecycle.vpd
