@@ -139,7 +139,13 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-LD-120] The system shall request confirmation from the Field Technician before applying changes
 - [REQ-LD-130] The system shall apply the change if a confirmation is received
 - [REQ-LD-140] The system shall retain the previous configuration until all new parameters are successfully applied
-- [REQ-LD-150] The system shall save the parameters to persistent memory when they are successfully applied 
+- [REQ-LD-150] The system shall save the parameters to persistent memory when they are successfully applied ù
+
+- [REQ-LD-200] The system shall display a splash screen on the LCD during the boot phase, from the moment the LCD is initialised until the system reaches the operational state.
+- [REQ-LD-210] The splash screen shall include a progress bar indicating the boot progression.
+- [REQ-LD-220] The splash screen progress bar shall update at the completion of each Init sub-step.
+- [REQ-LD-230] The splash screen shall display the current Init sub-step name in human-readable form.
+- [REQ-LD-240] The splash screen shall display the firmware version number.
 
 - [REQ-LD-0E1] The system shall discard all the input parameters if no confirmation is received
 
