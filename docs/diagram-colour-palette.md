@@ -73,20 +73,113 @@ When drawing component diagrams with nested layers:
 
 ## 3. State Machine Colours
 
-Used in **state machine diagrams** for device lifecycle and operational modes.
+### Principle
 
-| State Type               | Fill        | Border      | Text        | Usage                                   |
-|--------------------------|-------------|-------------|-------------|-----------------------------------------|
-| Initial / Idle           | `#E8E8E8`  | `#999999`   | `#2A2A2A`   | Power-on, waiting, uninitialised        |
-| Initialising             | `#DAE4F6`  | `#7B9DD4`   | `#1A3A52`   | Boot sequence, peripheral init, self-test|
-| Running / Normal         | `#D5F0DE`  | `#6FBF8E`   | `#1A4231`   | Normal operation, sensors active        |
-| Warning / Degraded       | `#FFF2CC`  | `#D4A84C`   | `#4A3318`   | Threshold exceeded, partial failure     |
-| Error / Fault            | `#F5D0D0`  | `#CC6666`   | `#5A1A1A`   | Communication lost, sensor failure      |
-| Shutdown / Sleep         | `#D9D0E8`  | `#8870AA`   | `#2E1F4A`   | Low-power mode, graceful shutdown       |
-| Pseudo-state (choice, fork) | `#F2F2F2` | `#666666` | `#2A2A2A`   | Decision points, junction connectors    |
+Per §8: **colour = subsystem ownership, shade = state classification within that subsystem.**
 
-**Transition arrows:** `#555555` (dark grey), **weight:** 1.5 pt
-**Guard/action text:** `#333333`, italic for guards, regular for actions
+State machine diagrams follow the same rule as every other diagram in the
+project. Each state machine belongs to exactly one board (Gateway, in green;
+or Field Device, in blue) and inherits that board's colour family. State
+*classification* (Initialising, Running, Faulted) is conveyed through
+**shade** within the family, not through cross-subsystem colours.
+
+### Field Device State Palette (Blue Family)
+
+| State Classification         | Fill        | Border      | Text        | Usage                                                       |
+|------------------------------|-------------|-------------|-------------|-------------------------------------------------------------|
+| Normal / Running             | `#DAEAF6`   | `#7BAFD4`   | `#1A3A52`   | Operational, Idle (slave waiting), any steady-state         |
+| Initialising / Transient     | `#A3C7E2`   | `#5088B5`   | `#1A3A52`   | Init sub-states, Connecting, Validating, Applying, etc.     |
+| Faulted                      | `#DAEAF6`   | `#CC4444`   | `#1A3A52`   | Faulted state — border replaced with red, border weight 2pt |
+| Composite container          | `#EFF6FB`   | `#7BAFD4`   | `#1A3A52`   | The outer box of a composite state (e.g. Init)              |
+
+### Gateway State Palette (Green Family)
+
+| State Classification         | Fill        | Border      | Text        | Usage                                                       |
+|------------------------------|-------------|-------------|-------------|-------------------------------------------------------------|
+| Normal / Running             | `#D5F0DE`   | `#6FBF8E`   | `#1A4231`   | Operational, Connected.Publishing, Idle, etc.               |
+| Initialising / Transient     | `#9DD9B5`   | `#4AA56E`   | `#1A4231`   | Init sub-states, Connecting, Validating, Applying, etc.     |
+| Faulted                      | `#D5F0DE`   | `#CC4444`   | `#1A4231`   | Faulted state — border replaced with red, border weight 2pt |
+| Composite container          | `#EBF7F0`   | `#6FBF8E`   | `#1A4231`   | The outer box of a composite state (e.g. Init, Connected)   |
+
+### Composite State Rule
+
+When a state contains sub-states (Gateway `Init`, `Connected`; Field Device
+`Init`), the **outer composite box uses the lighter "Composite container" fill**, and the
+**inner sub-states use the standard fills above**. This guarantees the
+outer-vs-inner contrast required by the nesting rule in §8.
+
+### Sub-machine Reference States
+
+When a top-level state delegates to a sub-machine (e.g. `UpdatingFirmware`
+on the Gateway lifecycle delegates to the Firmware Update sub-machine):
+
+- The state appears on the parent diagram as a **simple state** (not
+  composite) using the standard `Initialising / Transient` shade.
+- Add a UML stereotype label **`«submachine»`** above the state name.
+- Add a **double border** (1.5pt outer + 1.5pt inner, 2px gap) to signal
+  "expand elsewhere". Visual Paradigm supports this directly.
+- The sub-machine's own diagram lives in a separate `.vpd` and uses the
+  full palette of its owning subsystem.
+
+### Pseudo-states
+
+Standard UML conventions, applied uniformly across both subsystems:
+
+| Pseudo-state    | Rendering                                              |
+|-----------------|--------------------------------------------------------|
+| Initial         | Filled black circle, ~12px diameter                    |
+| Final           | Concentric circles (filled inner)                      |
+| Choice          | Diamond, fill `#F2F2F2`, border `#666666`              |
+| Junction        | Small filled circle `#666666`                          |
+| "MCU reset" final | Final-state circle with annotation label "MCU reset (→ Init)", placed adjacent |
+
+The "MCU reset" pseudo-state is project-specific. It marks transitions whose
+action triggers an immediate reboot (Restarting → reset, Faulted → reset,
+Firmware Update Applying/RollingBack → reset). Visually it is a UML final
+state with a textual annotation — not a new colour.
+
+### Transition Arrows
+
+Neutral grey, regardless of source/target subsystem. This stays readable
+against both blue and green fills without competing with state colours.
+
+| Transition Type            | Stroke      | Weight | Style    |
+|----------------------------|-------------|--------|----------|
+| State-changing (default)   | `#555555`   | 1.5 pt | solid    |
+| Internal (compartment text)| —           | —      | listed inside state box, not drawn as arrow |
+| Composite-boundary         | `#555555`   | 1.5 pt | solid    |
+| Reboot-triggering          | `#555555`   | 1.5 pt | solid; action label includes "NVIC_SystemReset()" |
+
+### Internal Transition Compartment
+
+When a state has internal transitions listed inside it (e.g. Operational
+with its 15 internal transitions), the compartment is rendered as plain
+text inside the state box, separated from the entry/do/exit compartment
+by a horizontal line at `#999999`, 1pt.
+
+If the count exceeds what fits readably (typical threshold ~6–8 lines):
+
+- List internal-transition references as `I1, I2, ..., In` only inside
+  the state box.
+- Reference the full table in `state-machines.md` Step 3.
+- Note this in a small annotation below the state: *"see Step 3 — internal
+  transitions Ix..Iy"*.
+
+### Guards and Actions
+
+| Element                    | Colour      | Style                                  |
+|----------------------------|-------------|----------------------------------------|
+| Event name                 | `#333333`   | regular                                |
+| Guard `[expression]`       | `#333333`   | italic                                 |
+| Action `/ method()`        | `#333333`   | regular, prefixed with `/`             |
+
+### Choice of Subsystem When the Diagram Belongs to Both
+
+Each of the six state machines in this project is owned by exactly one
+subsystem — there is no ambiguity. See `state-machines.md` Part C for the
+ownership map. If a future diagram models behaviour spanning both boards
+(e.g. an end-to-end protocol diagram), use the **Communication / Protocol
+purple family** from §1, not blue or green.
 
 ---
 
