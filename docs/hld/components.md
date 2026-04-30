@@ -109,6 +109,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 
 | Component         | Use cases covered                                     |
 |-------------------|-------------------------------------------------------|
+| LifecycleController | LD-200..-240, NF-202, NF-213, NF-214                |
 | LcdUi             | UC-01, UC-02, UC-03, UC-08 *(display)*, UC-15         |
 | HealthMonitor     | UC-02, UC-04, UC-06                                   |
 | SensorService     | UC-07                                                 |
@@ -121,6 +122,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 ## 3. Final component list
 
 ### Application layer
+- LifecycleController
 - LcdUi
 - HealthMonitor
 - SensorService
@@ -260,6 +262,12 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 
 ### Application layer
 
+**NAME:** LifecycleController
+**LAYER:** Application
+**RESPONSIBILITY:** Coordinates the field device's top-level lifecycle.
+**PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause)*
+**USES (downward):** SensorService, GraphicsLibrary, ModbusSlave *(via ModbusRegisterMap)*, AlarmService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, Logger
+
 **NAME:** LcdUi
 **LAYER:** Application
 **RESPONSIBILITY:** Renders LCD screens and dispatches touchscreen input to the appropriate screen handler. Consumes sensor, alarm, and health data for display; initiates configuration changes via ConfigService.
@@ -345,6 +353,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 
 | Component        | Use cases covered                                                       |
 |------------------|-------------------------------------------------------------------------|
+| LifecycleController | UC-17 *(restart orchestration)*, UC-18 *(firmware update entry)*, plus cross-cutting lifecycle coverage (NF-202, NF-203, NF-213, NF-214) |
 | HealthMonitor    | UC-04, UC-06                                                            |
 | SensorService    | UC-07                                                                   |
 | AlarmService     | UC-08 *(gateway sensors only — field-device alarms arrive pre-evaluated via Modbus)* |
@@ -361,6 +370,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 ## 3. Final component list
 
 ### Application layer
+- LifecycleController
 - HealthMonitor
 - SensorService
 - AlarmService
@@ -537,6 +547,12 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 **USES (downward):** QspiFlashDriver, ILogger
 
 ### Application layer
+
+**NAME:** LifecycleController
+**LAYER:** Application
+**RESPONSIBILITY:** Coordinates the gateway's top-level lifecycle.
+**PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause)*
+**USES (downward):** SensorService, AlarmService, CloudPublisher, ModbusPoller, UpdateService, TimeService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, ResetDriver, Logger
 
 **NAME:** HealthMonitor
 **LAYER:** Application

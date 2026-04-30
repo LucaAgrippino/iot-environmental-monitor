@@ -195,6 +195,8 @@ The richest top-level machine in the system. Models the gateway's overall
 mode: booting, running normally, being provisioned via CLI, restarting,
 applying a firmware update, or stopped on fault.
 
+**Owned by:** `LifecycleController` (gateway, Application layer).
+
 ## Step 1 — Requirements → behaviours
 
 ### INIT
@@ -623,6 +625,8 @@ state until external/watchdog reset.
 Owned by the gateway. Models the gateway's relationship with AWS IoT Core:
 connect, publish, lose connection, reconnect, drain buffer.
 
+**Owned by:** `CloudPublisher` (gateway, Application layer).
+
 ## Step 1 — Requirements → behaviours
 
 ```
@@ -771,6 +775,8 @@ immediately would violate REQ-BF-010 ordering.
 The most state-rich machine in the system. Owned by the gateway. Spans two
 reboots in the worst case. Corresponds 1:1 with the `UpdatingFirmware`
 composite state on the gateway top-level lifecycle.
+
+**Owned by:** `UpdateService` (gateway, Application layer).
 
 ## Why this is its own machine
 
@@ -1000,6 +1006,8 @@ Owned by the gateway. Models the polling cycle for a single Modbus
 transaction against the field device. **Active machine — drives transitions
 via internal timers.**
 
+**Owned by:** `ModbusPoller` (gateway, Application layer; delegates protocol-level frame handling to `ModbusMaster` middleware).
+
 ## Step 1 — Requirements → behaviours
 
 ```
@@ -1154,6 +1162,8 @@ These are transition actions, not separate states.
 
 Simpler than the gateway: no cloud, no firmware update, no remote restart.
 But complete in its own right.
+
+**Owned by:** `LifecycleController` (field device, Application layer).
 
 ## Field-device characteristics that shape the lifecycle
 
@@ -1473,6 +1483,8 @@ Owned by the field device. Models the response cycle for a single Modbus
 transaction received from the gateway. **Reactive: no timers, no retries,
 no polling.** Frame reception drives every transition.
 
+**Owned by:** `ModbusSlave` (field device, Middleware layer).
+
 ## Step 1 — Requirements → behaviours
 
 ```
@@ -1672,6 +1684,7 @@ concretely.
 8. **Behaviour during faulted boot** if BringingUpSensors or LoadingConfig fails 
     before BringingUpLCD completes, there's no LCD to display anything. 
     Fault indication in those cases falls back to LED pattern only.
+
 ## Open questions deferred to LLD
 
 1. **Per-channel alarm state machine (Clear ↔ Active with hysteresis).**
