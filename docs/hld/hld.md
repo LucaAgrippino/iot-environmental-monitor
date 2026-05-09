@@ -1,6 +1,6 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.2 (draft — state machines phase)
+**Version:** 0.3 (draft — sequence diagrams phase)
 **Date:** May 2026
 **Status:** In progress
 
@@ -39,7 +39,7 @@ The HLD phase consists of the following artefacts:
 | 2 | Domain Model | Complete |
 | 3 | Component Diagrams (per board, multi-view) | Complete |
 | 4 | State Machine Diagrams | Complete |
-| 5 | Data Flow / Sequence Diagrams | Pending |
+| 5 | Data Flow | Sequence Diagrams | Complete |
 | 6 | FreeRTOS Task Breakdown | Pending |
 | 7 | Modbus Register Map | Pending |
 | 8 | Flash Partition Layout | Pending |
@@ -402,36 +402,264 @@ For middleware that wraps a third-party library, the same boundary discipline ap
 The Modbus protocol stack on both boards is implemented from scratch, not wrapped from FreeMODBUS or a vendor SDK. This decision is recorded in §11.1 with rationale.
 
 ---
+## 10. Sequence diagrams
 
-## 10. Forward-looking artefacts
+### 10.1 Purpose and scope
 
-This document will be extended as the remaining HLD artefacts are completed.
+Where Section 7 specifies *what state* each subsystem is in, this section
+specifies *who calls whom* during each significant flow — the same runtime
+behaviour seen from a different projection.
 
-### 10.1 Sequence diagrams (Phase 2.5)
+The full set of 18 sequence diagrams, message-by-message tables, fragment
+decisions, and traceability is in the companion document `sequence-diagrams.md`.
+This master HLD presents the inventory and the verification outcomes; the
+companion is the source of truth for content.
 
-End-to-end interaction diagrams for representative use cases. Candidates: UC-07 (acquire sensor data), UC-08 (evaluate alarms), UC-09/10 (publish telemetry, with offline buffering), UC-13 (time synchronisation), UC-18 (firmware update).
+Sequence diagrams serve a dual purpose. First, they document the API-level
+interactions that the LLD refines into per-task sequencing and IPC choices.
+Second, they act as a verification pass on the structural design — if a flow
+cannot be drawn cleanly with the existing components, that exposes a gap in the
+component spec or state machines. Several such gaps were exposed and resolved
+during this phase; they are summarised in §10.4 and recorded in §12.
 
-These sequence diagrams will also serve as a verification pass on the component spec — if a sequence cannot be drawn cleanly with the existing component set, that exposes a gap in the HLD which feeds back into a spec update.
+### 10.2 Drawing conventions
 
-### 10.2 FreeRTOS task breakdown (Phase 2.6)
+The conventions used across all sequence diagrams are documented in
+`sequence-diagrams.md` §2. The conventions material to this overview:
 
-Per-board task list with priorities, stack sizes, and inter-task communication mechanisms (queues, mutexes, semaphores). Mapping from components to FreeRTOS tasks is many-to-one in some cases (one task hosts multiple application components) and one-to-one in others.
+- Synchronous calls use solid arrows with filled arrowheads; async events use
+  open arrowheads. Returns are shown only where the return value is used by
+  the caller.
+- Boundary actors (`«cloud»` AWS IoT Core, `«bootloader»` STM32 bootloader)
+  mark the system boundary; their internal logic is out of HLD scope.
+- Pull-based downstream consumption (P7) is annotated by UML notes rather than
+  redrawn on every consumer.
+- Each diagram is accompanied by a numbered message table; the diagram and
+  table are kept synchronised by review. **The table is the contract.**
 
-### 10.3 Modbus register map (Phase 2.7)
+### 10.3 Diagram inventory
 
-The complete register table exposed by ModbusRegisterMap: address ranges, data types, read/write semantics, scaling factors. Source of truth for the field-device-to-gateway protocol.
+The 18 diagrams are grouped by lifecycle phase. Each entry below shows the
+diagram and a one-line summary; the message table, fragment list, and
+traceability are in `sequence-diagrams.md`.
 
-### 10.4 Flash partition layout (Phase 2.8)
+#### Boot and link establishment
 
-Memory map of the QSPI flash on each board, partitioned across firmware slots, configuration storage, circular log, and any reserved regions. Drives FirmwareStore, ConfigStore, and CircularFlashLog implementations.
+**SD-00a — Field device cold boot**
+
+![SD-00a](../diagrams/sd-00a-field-device-cold-boot.png)
+
+Power-on through `LifecycleController` Init composite to Operational; LCD
+splash with progress bar (REQ-LD-200..-240).
+
+**SD-00b — Gateway cold boot and Modbus link establishment**
+
+![SD-00b](../diagrams/sd-00b-gateway-cold-boot.png)
+
+Gateway Init through self-check, including per-slave probe with
+profile-bound device-ID validation (D14, D17).
+
+**SD-00c — Gateway post-update boot**
+
+![SD-00c](../diagrams/sd-00c-gateway-post-update-boot.png)
+
+Boot-time detection of `pending_self_check` flag and entry into the Firmware
+Update sub-machine at SelfChecking.
+
+#### Runtime steady state
+
+**SD-01 — Sensor acquisition cycle** *(UC-07)*
+
+![SD-01](../diagrams/sd-01-sensor-acquisition-cycle.png)
+
+Periodic `SensorService` poll, threshold evaluation, and pull-based exposure
+of the latest reading to downstream consumers.
+
+**SD-02 — Modbus polling cycle** *(UC-10)*
+
+![SD-02](../diagrams/sd-02-modbus-polling-cycle.png)
+
+`ModbusPoller` issues a request to a profiled slave, with timeout (REQ-MB-050)
+and retry (REQ-MB-060) handling. Link-state hysteresis is recorded as a
+transition action.
+
+**SD-03a — Cloud telemetry publish** *(UC-05)*
+
+![SD-03a](../diagrams/sd-03a-cloud-telemetry-publish.png)
+
+`CloudPublisher` assembles a telemetry payload and publishes via `MqttClient`
+through `WifiDriver`.
+
+**SD-03b — Cloud health publish** *(UC-06)*
+
+![SD-03b](../diagrams/sd-03b-cloud-health-publish.png)
+
+Periodic health snapshot (`IHealthSnapshot`) published on a separate MQTT topic.
+
+#### Exception flows
+
+**SD-04a — Disconnect and buffering** *(UC-11, UC-12 entry)*
+
+![SD-04a](../diagrams/sd-04a-disconnect-and-buffering.png)
+
+Cloud Connectivity transitions to Disconnected; outbound messages are
+enqueued; oldest dropped on overflow (REQ-BF-000..-020).
+
+**SD-04b — Reconnect and drain** *(UC-11, UC-12 recovery)*
+
+![SD-04b](../diagrams/sd-04b-reconnect-and-drain.png)
+
+Reconnect attempt succeeds; choice pseudo-state routes to Draining;
+chronological replay of buffered messages.
+
+**SD-05 — Alarm propagation** *(UC-08, UC-09)*
+
+![SD-05](../diagrams/sd-05-alarm-propagation.png)
+
+Threshold breach in `SensorService` propagates as an Observer event to
+`AlarmService`, then to `CloudPublisher` and LCD (REQ-NF-101 latency budget).
+
+#### Firmware update *(UC-18)*
+
+**SD-06a — OTA initiation**
+
+![SD-06a](../diagrams/sd-06a-ota-initiation.png)
+
+Cloud command received; `UpdateService` validates and authorises the update;
+download begins to the inactive bank.
+
+**SD-06b — OTA download and verification**
+
+![SD-06b](../diagrams/sd-06b-ota-download-and-verification.png)
+
+Streamed image written to inactive bank via `FirmwareStore`; signature and
+integrity verified.
+
+**SD-06c — Bank swap and reboot**
+
+![SD-06c](../diagrams/sd-06c-bank-swap-and-reboot.png)
+
+Boot pointer flipped, `pending_self_check` flag set, `NVIC_SystemReset()`
+fires. Reboot is a transition action, not a state.
+
+**SD-06d — Self-check, commit or rollback**
+
+![SD-06d](../diagrams/sd-06d-self-check-commit-or-rollback.png)
+
+Three serial probes — sensor, Modbus, MQTT — within REQ-NF-204's 10 s
+budget; commit on success, rollback on any failure (D15).
+
+#### Remote management
+
+**SD-07 — Remote configuration command** *(UC-15, UC-19)*
+
+![SD-07](../diagrams/sd-07-remote-configuration-command.png)
+
+Cloud configuration command received, validated, applied via `IConfigManager`,
+and acknowledged. Configuration drift handled by snapshot/rollback semantics.
+
+**SD-08 — Remote restart** *(UC-17)*
+
+![SD-08](../diagrams/sd-08-remote-restart.png)
+
+Cloud restart command received; gateway lifecycle transitions to Restarting;
+confirmation published before reset.
+
+#### Cross-cutting
+
+**SD-09 — Time synchronisation** *(UC-13)*
+
+![SD-09](../diagrams/sd-09-time-synchronisation.png)
+
+`TimeService` performs NTP sync at boot and on post-reconnect trigger from
+`CloudPublisher` (D13).
+
+**SD-10 — Device provisioning** *(UC-16)*
+
+![SD-10](../diagrams/sd-10-device-provisioning.png)
+
+CLI provisioning of credentials, device profiles, and threshold configuration
+through `ConsoleService` and `ConfigService`.
+
+### 10.4 Architectural feedback from this phase
+
+Drawing the sequence diagrams surfaced four substantive issues that fed back
+into the structural design. Each is recorded in §12.1.
+
+1. **Per-slave link state with profile binding.** SD-02 could not represent
+   multi-slave allowlist behaviour (REQ-MB-100) without a registry of known
+   device profiles. This led to introducing a `DeviceProfileRegistry`
+   Application component on the gateway, with an `IDeviceProfileProvider`
+   interface and persistence delegated to `ConfigStore`. Component spec and
+   supporting SRS requirements (REQ-MB-110, REQ-MB-111, REQ-MB-120,
+   REQ-MB-130, REQ-DM-100, REQ-DM-101) land in follow-up PRs *(D17, D18)*.
+
+2. **Periodic re-sync trigger ownership.** SD-09 required a triggering
+   component external to `TimeService` for the post-reconnect NTP retry path.
+   `CloudPublisher` already owns connectivity-state propagation and was
+   assigned the trigger role *(D13)*. The trigger is drawn as a terminal
+   async event on `TimeService`; the companion document carries the semantic
+   that it re-enters the sync flow.
+
+3. **Self-check probe coordination (SD-06d).** Initial draft used a `par`
+   fragment for sensor / Modbus / MQTT probes. Analysis showed that with
+   three probes and the 10 s budget of REQ-NF-204, serial probes complete in
+   roughly 500 ms — well inside the budget — and avoid the coordination
+   primitives (event group / counting semaphore) that the parallel form
+   would require. Serial dispatch was adopted *(D15)*.
+
+4. **Bootloader as boundary actor.** Firmware-update sequences (SD-06a–d)
+   cross into bootloader territory at each reboot. Treating the bootloader
+   as a `«bootloader»` boundary actor — analogous to `«cloud»` — keeps its
+   internal logic out of the HLD without losing the cross-domain handoff
+   *(D16)*.
+
+### 10.5 LLD handoff
+
+The sequence diagrams establish the message-level contract between
+components. The LLD refines them into:
+
+- **Per-task sequencing** — which FreeRTOS task runs which segment of each
+  flow.
+- **IPC mechanism** — which messages traverse a queue, a direct task
+  notification, an event group, or a direct call within the same task.
+- **Per-message timing budget** — fragment-level latency contributions to
+  the SRS NF deadlines.
+
+HLD Artefact #6 (RTOS Task Breakdown) is the bridge from sequence diagrams
+to LLD task design.
+---
+
+## 11. Forward-looking artefacts
+
+The following are scheduled for the remainder of HLD Phase 2 before LLD begins.
+
+### 11.1 RTOS task breakdown (Phase 2.6)
+
+Per-board task list with priorities, stack sizes, and inter-task communication
+mechanisms (queues, mutexes, semaphores, notifications). Mapping from
+components to FreeRTOS tasks is many-to-one in some cases (one task hosts
+multiple application components) and one-to-one in others. Bridges the
+sequence diagrams (component-level interactions) to runtime tasks.
+
+### 11.2 Modbus register map (Phase 2.7)
+
+Tabular reference: per-register address, function code, data type, scaling,
+and access semantics. Source of truth for the field-device-to-gateway protocol.
+
+### 11.3 Flash partition layout (Phase 2.8)
+
+Memory map of the QSPI flash on each board, partitioned across firmware
+slots, configuration storage, circular log, and any reserved regions.
+Drives `FirmwareStore`, `ConfigStore`, and `CircularFlashLog` implementations.
 
 ---
 
-## 11. Architectural decisions log
+## 12. Architectural decisions log
 
 The following decisions were considered and resolved during the components and state machines phases. They are recorded here so an interview reviewer can see what was rejected as well as what was adopted.
 
-### 11.1 Decisions adopted
+### 12.1 Decisions adopted
 
 | Decision | Rationale |
 |----------|-----------|
@@ -452,8 +680,18 @@ The following decisions were considered and resolved during the components and s
 | Reboots in Firmware Update are transition actions, not states | The machine resumes via persisted flags detected by gateway-lifecycle Init; entry-point pseudo-state + choice diamond render this on the diagram |
 | State machine diagrams show structural transitions only; behavioural compartments live in `state-machines.md` | Keeps diagrams readable; companion document is the authoritative behavioural specification |
 | Custom Modbus RTU implementation, not FreeMODBUS | Tightly scoped to project needs (function codes 03/04/06/16; minimal exception responses). Demonstrates protocol-level competence and respects the no-HAL-above-driver portability stance. Decision can still flip to FreeMODBUS after LLD design pass without losing the design work |
+| Periodic re-sync triggered by CloudPublisher via async event to TimeService | Connectivity state is owned by CloudPublisher; routing the trigger through it keeps TimeService decoupled from the timing source. RTOS software-timer event-style propagation. |
+| Per-slave probe with profile-bound device-ID validation; fall-through to Running on failure | Industry-standard deny-by-default; a slave that fails identity validation is excluded from the polling allowlist without blocking gateway boot. Supports the 5 s boot budget (REQ-NF-203). |
+| Per-slave probe with profile-bound device-ID validation; fall-through to Running on failure | Industry-standard deny-by-default; a slave that fails identity validation is excluded from the polling allowlist without blocking gateway boot. Supports the 5 s boot budget (REQ-NF-203). |
+| SD-06d self-check probes serial, not parallel | Three probes complete in ~500 ms worst-case; well within the 10 s rollback budget (REQ-NF-204). Coordination primitives not justified at this scale. |
+| Bootloader modelled as «bootloader» boundary actor | Analogous to «cloud» for AWS IoT Core; bootloader internal logic out of HLD scope. Cross-domain handoff preserved. |
+| Per-slave link state with profile binding | Supports REQ-MB-100; the polling allowlist is a derived view over DeviceProfileRegistry. |
+| DeviceProfileRegistry as first-class Application component (gateway only) | Industry EDS/GSD pattern; decouples register-map knowledge from firmware. Persistence delegated to ConfigStore. |
+| Pull-based downstream consumption represented via UML notes only | Consumers read on their own schedules per P7; redrawing each consumer would clutter the diagram without adding information. |
+| Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict. |
 
-### 11.2 Decisions rejected
+
+### 12.2 Decisions rejected
 
 | Considered | Rejected because |
 |------------|------------------|
