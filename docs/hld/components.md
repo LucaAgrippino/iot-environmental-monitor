@@ -364,6 +364,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 | ConfigStore      | UC-15, UC-16 *(persistence tier)*                                       |
 | ModbusPoller     | UC-07, UC-13, UC-14, UC-15, UC-19                                       |
 | ConfigService    | UC-15, UC-16                                                            |
+| DeviceProfileRegistry | UC-15, UC-16, UC-19 *(per-slave profile binding)*                  |
 | StoreAndForward  | UC-09, UC-10, UC-11, UC-12, UC-14 *(exception flows)*                   |
 | FirmwareStore    | UC-20 (verifies firmware integrity)                                     |
 
@@ -380,6 +381,7 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 - ConsoleService
 - ModbusPoller
 - ConfigService
+- DeviceProfileRegistry
 - StoreAndForward
 
 ### Middleware layer
@@ -594,19 +596,25 @@ Each layer depends only on the layers below it. Drivers never depend on Middlewa
 **LAYER:** Application
 **RESPONSIBILITY:** Provides a local console for provisioning and diagnostic, exposing sensor, configuration, and health data through CLI commands.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** DebugUartDriver, ISensorService, IConfigManager, IHealthSnapshot, ILogger
+**USES (downward):** DebugUartDriver, SensorService, ConfigService, DeviceProfileRegistry, HealthMonitor, Logger
 
 **NAME:** ModbusPoller
 **LAYER:** Application
 **RESPONSIBILITY:** Polls configured slave devices on schedule, tracks per-slave register state transitions to detect new events (such as field device alarms), routes Modbus transactions on behalf of higher-layer components, and tracks per-slave error statistics. Polls IModbusMasterStats and reports Modbus protocol metrics via IHealthReport.
 **PROVIDES (upward):** IModbusPoller *(transaction routing + state-change event subscription)*
-**USES (downward):** ModbusMaster, IHealthReport, ILogger
+**USES (downward):** ModbusMaster, DeviceProfileRegistry, HealthMonitor, Logger
 
 **NAME:** ConfigService
 **LAYER:** Application
 **RESPONSIBILITY:** Validates and applies operational and provisioning parameter changes, coordinating with ConfigStore for persistence. Provides ISP-split interfaces for read and write access.
 **PROVIDES (upward):** IConfigManager *(write-side)*, IConfigProvider *(read-side)*
 **USES (downward):** ConfigStore, ILogger
+
+**NAME:** DeviceProfileRegistry
+**LAYER:** Application
+**RESPONSIBILITY:** Holds the configurable registry of device profiles bound to expected field devices, where each profile carries a device identifier, a slave address, and a register-map specification (REQ-MB-110, REQ-MB-111). Provides the polling allowlist and per-slave register-map binding to ModbusPoller (REQ-MB-100, REQ-MB-120), and supports profile management through the CLI (UC-16) and remote configuration (UC-15, UC-19). Loaded from persistent storage at boot (SD-00b); affected slaves are re-probed when a profile is added or updated at runtime (REQ-DM-100, REQ-DM-101). Persistence is delegated to ConfigStore. Decouples register-map knowledge from firmware code — new field-device types are supported by configuration alone.
+**PROVIDES (upward):** IDeviceProfileProvider *(profile lookup, allowlist query, register-map binding)*; IDeviceProfileManager *(add, update, remove profile)*
+**USES (downward):** ConfigStore, Logger
 
 **NAME:** StoreAndForward
 **LAYER:** Application
