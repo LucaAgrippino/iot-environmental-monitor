@@ -73,7 +73,8 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-SA-060] The system shall continue operation with available sensors if one or more sensors fail to initialise.
 
 <!-- 1. System triggers a new sensor data acquisition at the configured polling interval -->
-- [REQ-SA-070] The system shall read temperature, humidity, and pressure sensors on the field device at configurable polling interval
+- [REQ-SA-070] The system shall read temperature, humidity, and pressure sensors on the field device at configurable 
+polling interval
 - [REQ-SA-071] The system shall read temperature, humidity, pressure, accelerometer, gyroscope and magnetometer sensors on the gateway device at configurable polling interval
 - [REQ-SA-080] The system shall log the error code if the reading fails
 
@@ -217,6 +218,15 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-MB-100] The system shall support addressing multiple field devices 
   by unique Modbus slave address in the register map and polling logic, 
   even though only one field device is implemented
+<!-- Traces to: UC-07, UC-10, UC-16, UC-19 -->
+- [REQ-MB-110] The system shall maintain a configurable registry of device profiles, one entry per expected field device
+- [REQ-MB-111] Each device profile shall specify:
+    - A device identifier
+    - A device description
+    - A Modbus slave address
+    - A register-map specification
+- [REQ-MB-120] The system shall verify the device identifier returned by a Modbus slave against the profile bound to its address during link establishment, and shall reject mismatches
+- [REQ-MB-130] The system shall log device-profile validation failures, including the offending device identifier and the slave address
 - [REQ-MB-0E1] The system shall reject a remote command with an unrecognised format and log the error.
 
 
@@ -268,8 +278,8 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 - [REQ-DM-040] The system shall complete a self-check after restart, verifying sensor initialisations and communication links
 <!-- Traces to: UC-18 -->
 - [REQ-DM-050] The system shall download the firmware image
-- [REQ-DM-051] The system shall resume a firmware download from the point of interruption if the connection is restored
 - [REQ-DM-052] The system shall delete the amount of downloaded firmware if after three retries, the firmware download still fails
+- [REQ-DM-051] The system shall resume a firmware download from the point of interruption if the connection is restored
 - [REQ-DM-053] The system shall log an error if the firmware image download fails
 - [REQ-DM-054] The system shall reject a new update command if one is in progress
 - [REQ-DM-055] The system shall report the update result to the cloud
@@ -285,6 +295,9 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 <!-- Traces to: UC-20 -->
 - [REQ-DM-080] The system shall verify the cryptographic signature of the firmware image before applying the update
 - [REQ-DM-090] The system shall persist all configuration changes to non-volatile storage
+<!-- Traces to: UC-15, UC-16 -->
+- [REQ-DM-100] The system shall accept device-profile updates via the provisioning mechanism (UC-16) and via remote configuration (UC-15)
+- [REQ-DM-101] The system shall trigger re-probing of an affected slave when its device profile is added or updated at runtime
 
 
 ### 2.9 Data Buffering [BF]
@@ -476,6 +489,10 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 | REQ-MB-080 | UC-19 | §5.3, §5.7 |
 | REQ-MB-090 | UC-19 | §5.3, §5.7 |
 | REQ-MB-100 | UC-07, UC-10 | §6 |
+| REQ-MB-110 | UC-07, UC-10, UC-16, UC-19 | §5.3, §6 |
+| REQ-MB-111 | UC-07, UC-10, UC-16, UC-19 | §5.3, §6 |
+| REQ-MB-120 | UC-07, UC-10, UC-16 | §5.3 |
+| REQ-MB-130 | UC-07, UC-10, UC-16 | §5.3 |
 | REQ-MB-0E1 | UC-19 | §5.3 |
 | REQ-CC-000 | UC-05, UC-10 | §5.4 |
 | REQ-CC-010 | UC-06, UC-11 | §5.4, §5.8 |
@@ -519,6 +536,8 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 | REQ-DM-074 | UC-18 | §5.10 |
 | REQ-DM-080 | UC-20 | §5.10 |
 | REQ-DM-090 | UC-15, UC-16 | §5.9 |
+| REQ-DM-100 | UC-15, UC-16 | §5.7, §5.9 |
+| REQ-DM-101 | UC-15, UC-16 | §5.3, §5.7 |
 | REQ-BF-000 | UC-10, UC-11, UC-12 | §5.9, §7 |
 | REQ-BF-010 | UC-10, UC-11, UC-12 | §5.9, §7 |
 | REQ-BF-020 | UC-10, UC-11, UC-12 | §5.9, §7 |
