@@ -1,6 +1,6 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.4 (draft — task breakdown phase)
+**Version:** 0.5 (draft — register map phase)
 **Date:** May 2026
 **Status:** In progress
 
@@ -41,7 +41,7 @@ The HLD phase consists of the following artefacts:
 | 4 | State Machine Diagrams | Complete |
 | 5 | Data Flow | Sequence Diagrams | Complete |
 | 6 | FreeRTOS Task Breakdown | Complete |
-| 7 | Modbus Register Map | Pending |
+| 7 | Modbus Register Map | Complete |
 | 8 | Flash Partition Layout | Pending |
 
 This document is updated incrementally as each artefact is completed.
@@ -713,16 +713,120 @@ HLD Artefact #7 (Modbus Register Map) is the next forward-looking item.
 
 ---
 
-## 12. Forward-looking artefacts
+## 12. Modbus register map
+
+### 12.1 Purpose and scope
+
+This section presents the field-device-to-gateway Modbus RTU
+register-level interface. The full register-by-register specification
+— address layout, encoding conventions, function code support,
+exception responses, version policy, and test plan — is in the
+companion document `modbus-register-map.md`. This master HLD presents
+the address-space overview and the principal design decisions.
+
+The register map is the contract between the two boards. The Gateway's
+`ModbusPoller` and the Field Device's `ModbusRegisterMap` both conform
+to it. It is also the contract that any third-party Modbus master
+would use to read this device.
+
+### 12.2 Protocol parameters
+
+Per SRS §2.5: 9600 8N1, half-duplex RS-485, 200 ms master-side timeout
+(REQ-MB-050), 3 retries (REQ-MB-060). Slave address range 1..247 per
+Modbus RTU.
+
+### 12.3 Function code support
+
+Only four function codes are implemented:
+
+| FC | Use |
+|---|---|
+| FC03 — Read Holding Registers | Read configuration and command-state |
+| FC04 — Read Input Registers | Read sensor data, device state, metrics |
+| FC06 — Write Single Register | Single config / command write |
+| FC16 — Write Multiple Registers | Atomic block configuration write |
+
+Discrete-input (FC01, FC02) and coil access (FC05, FC15) are
+intentionally not supported — bit-level data is packed into 16-bit
+registers, keeping the slave to one access pattern. Unsupported
+function codes return exception **0x01 Illegal Function**.
+
+### 12.4 Address-space layout
+
+All addresses are 0-based on the wire. Generous gaps are reserved for
+future additions without renumbering.
+
+| Range | Category | Function codes | Access |
+|---|---|---|---|
+| 0x0000 – 0x000F | Identity and version | FC04 | R |
+| 0x0010 – 0x002F | Sensor readings | FC04 | R |
+| 0x0030 – 0x004F | Device state and metrics | FC04 | R |
+| 0x0100 – 0x01FF | Configuration | FC03 / FC06 / FC16 | RW |
+| 0x0200 – 0x02FF | Commands and control | FC03 / FC06 / FC16 | RW |
+
+Full per-register tables are in `modbus-register-map.md` §6.
+
+### 12.5 Encoding conventions
+
+The map uses three conventions uniformly:
+
+- **Big-endian byte order, big-endian word order** ("ABCD") for
+  multi-register values *(D30)*.
+- **Scaled integers** rather than IEEE-754 floats for physical
+  quantities — predictable decoders, no NaN/Inf, half the bandwidth
+  *(D29)*.
+- **Sentinel values** (`0x8000` for `int16`, `0xFFFF` for `uint16`,
+  `0xFFFFFFFF` for `uint32`) for "value unavailable" on sensor I/O
+  errors *(D34)*.
+
+### 12.6 Versioning policy
+
+Register `MAP_VERSION` (address 0x0000) provides a single compatibility
+signal. The Gateway reads it during link establishment (SD-00b) and
+binds the corresponding device profile from `DeviceProfileRegistry`
+*(D14, D17, D18, D33)*. Slaves reporting a version outside the
+Gateway's supported set are rejected from the polling allowlist
+(REQ-MB-120, REQ-MB-130).
+
+Bump policy and backward-compatible change definitions are in
+`modbus-register-map.md` §8.
+
+### 12.7 Architectural feedback from this phase
+
+Two decisions worth highlighting (full set in §14):
+
+1. **Magic value `0xA5A5` on destructive commands** — `CMD_SOFT_RESTART`
+   requires the magic; any other value is rejected with exception
+   **0x03**. Prevents accidental triggers from incorrect writes
+   *(D32)*.
+
+2. **Single access pattern (registers only, no coils/discrete inputs)**
+   — bit-level data is packed into `bitfield16` registers. Simplifies
+   the slave to one access pattern and reduces the protocol surface
+   without losing expressiveness *(D31)*.
+
+### 12.8 LLD handoff
+
+The LLD refines this artefact into:
+
+- **C struct definitions** for each register category — direct memory
+  layout that mirrors the on-wire representation.
+- **Validation logic** per write — range checks anchored to the table
+  rows.
+- **Sentinel-aware accessors** in `ModbusRegisterMap`.
+- **Unit tests** that exercise every register, including exception
+  paths.
+
+HLD Artefact #8 (Flash Partition Layout) is the final HLD artefact
+before LLD begins.
+
+---
+
+## 13. Forward-looking artefacts
 
 The following are scheduled for the remainder of HLD Phase 2 before LLD begins.
 
-### 12.1 Modbus register map (Phase 2.7)
-
-Tabular reference: per-register address, function code, data type, scaling,
-and access semantics. Source of truth for the field-device-to-gateway protocol.
-
-### 12.2 Flash partition layout (Phase 2.8)
+### 13.1 Flash partition layout (Phase 2.8)
 
 Memory map of the QSPI flash on each board, partitioned across firmware
 slots, configuration storage, circular log, and any reserved regions.
@@ -730,11 +834,11 @@ Drives `FirmwareStore`, `ConfigStore`, and `CircularFlashLog` implementations.
 
 ---
 
-## 13. Architectural decisions log
+## 14. Architectural decisions log
 
 The following decisions were considered and resolved during the components and state machines phases. They are recorded here so an interview reviewer can see what was rejected as well as what was adopted.
 
-### 13.1 Decisions adopted
+### 14.1 Decisions adopted
 
 | Decision | Rationale |
 |----------|-----------|
@@ -766,7 +870,7 @@ The following decisions were considered and resolved during the components and s
 | Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict. |
 
 
-### 13.2 Decisions rejected
+### 14.2 Decisions rejected
 
 | Considered | Rejected because |
 |------------|------------------|
