@@ -1,6 +1,6 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.3 (draft — sequence diagrams phase)
+**Version:** 0.4 (draft — task breakdown phase)
 **Date:** May 2026
 **Status:** In progress
 
@@ -40,7 +40,7 @@ The HLD phase consists of the following artefacts:
 | 3 | Component Diagrams (per board, multi-view) | Complete |
 | 4 | State Machine Diagrams | Complete |
 | 5 | Data Flow | Sequence Diagrams | Complete |
-| 6 | FreeRTOS Task Breakdown | Pending |
+| 6 | FreeRTOS Task Breakdown | Complete |
 | 7 | Modbus Register Map | Pending |
 | 8 | Flash Partition Layout | Pending |
 
@@ -630,24 +630,99 @@ HLD Artefact #6 (RTOS Task Breakdown) is the bridge from sequence diagrams
 to LLD task design.
 ---
 
-## 11. Forward-looking artefacts
+## 11. Task design
+
+### 11.1 Purpose and scope
+
+The component view (§5–6) defines who exists. The sequence diagrams (§10)
+define who calls whom over time. This section defines the runtime
+execution structure: which FreeRTOS task hosts which components, at what
+priority, with what stack, and through which IPC primitive.
+
+The full task tables, ISR contracts, mutex strategy, schedulability
+check, and engineering method are in the companion document
+`task-breakdown.md`. This section presents the summary and embeds the two
+task interaction diagrams.
+
+### 11.2 Task interaction diagrams
+
+**Field Device** — five application tasks plus idle and timer.
+
+![Task Interaction — Field Device](../diagrams/task-interaction-field-device.png)
+
+**Gateway** — seven application tasks plus idle and timer.
+
+![Task Interaction — Gateway](../diagrams/task-interaction-gateway.png)
+
+Conventions: `«task»` stereotype on each task element; hosted components
+nested inside; ISRs at diagram edge with `«ISR»` stereotype; IPC
+connectors stereotyped `«notify»` / `«queue»` / `«mutex»` etc.
+
+### 11.3 Task summary
+
+**Field Device (5 tasks)**
+
+| Task | Hosted | Priority | Stack |
+|---|---|---|---|
+| `ModbusSlaveTask` | `ModbusRegisterMap`, `ModbusSlave` | 4 | 2 KB |
+| `SensorTask` | `SensorService`, `AlarmService` | 3 | 2 KB |
+| `LcdUiTask` | `LcdUi`, `GraphicsLibrary` | 2 | 4 KB |
+| `ConsoleTask` | `ConsoleService` | 1 | 2 KB |
+| `LifecycleTask` | `LifecycleController` | 1 | 1 KB |
+
+**Gateway (7 tasks)**
+
+| Task | Hosted | Priority | Stack |
+|---|---|---|---|
+| `ModbusPollerTask` | `ModbusPoller`, `ModbusMaster` | 4 | 2 KB |
+| `SensorTask` | `SensorService`, `AlarmService` | 3 | 2 KB |
+| `CloudPublisherTask` | `CloudPublisher`, `MqttClient`, `StoreAndForward` | 2 | 8 KB |
+| `TimeServiceTask` | `TimeService`, `NtpClient` | 2 | 3 KB |
+| `UpdateServiceTask` | `UpdateService`, `FirmwareStore` | 1 | 4 KB |
+| `ConsoleTask` | `ConsoleService` | 1 | 2 KB |
+| `LifecycleTask` | `LifecycleController` | 1 | 1 KB |
+
+Stack sizes are conservative initial estimates; refined via
+`uxTaskGetStackHighWaterMark()` during integration *(D28)*.
+
+### 11.4 Architectural feedback from this phase
+
+Designing the task layout surfaced three decisions worth highlighting.
+The full set is recorded in §13.
+
+1. **`AlarmService` co-located with `SensorService`** in `SensorTask` —
+   Observer subscriber runs in producer's task context; the extra queue
+   and context switch is unjustified by REQ-NF-101 *(D21)*.
+
+2. **`TimeService` and `CloudPublisher` kept in separate tasks** despite
+   shared WiFi resource — different activation patterns (hourly vs
+   continuous) honour P5; WiFi protected by `wifi_mutex` *(D22)*.
+
+3. **ISRs reduced to acknowledge / capture / notify** — all driver state
+   machines run in task context; interrupt latency bounded by design
+   *(D27)*.
+
+### 11.5 LLD handoff
+
+The task tables establish the runtime structure. The LLD refines them
+into concrete task entry-point functions with measured WCETs, refined
+stack sizes, formal schedulability analysis where any task approaches
+its deadline, and per-IPC message type definitions.
+
+HLD Artefact #7 (Modbus Register Map) is the next forward-looking item.
+
+---
+
+## 12. Forward-looking artefacts
 
 The following are scheduled for the remainder of HLD Phase 2 before LLD begins.
 
-### 11.1 RTOS task breakdown (Phase 2.6)
-
-Per-board task list with priorities, stack sizes, and inter-task communication
-mechanisms (queues, mutexes, semaphores, notifications). Mapping from
-components to FreeRTOS tasks is many-to-one in some cases (one task hosts
-multiple application components) and one-to-one in others. Bridges the
-sequence diagrams (component-level interactions) to runtime tasks.
-
-### 11.2 Modbus register map (Phase 2.7)
+### 12.1 Modbus register map (Phase 2.7)
 
 Tabular reference: per-register address, function code, data type, scaling,
 and access semantics. Source of truth for the field-device-to-gateway protocol.
 
-### 11.3 Flash partition layout (Phase 2.8)
+### 12.2 Flash partition layout (Phase 2.8)
 
 Memory map of the QSPI flash on each board, partitioned across firmware
 slots, configuration storage, circular log, and any reserved regions.
@@ -655,11 +730,11 @@ Drives `FirmwareStore`, `ConfigStore`, and `CircularFlashLog` implementations.
 
 ---
 
-## 12. Architectural decisions log
+## 13. Architectural decisions log
 
 The following decisions were considered and resolved during the components and state machines phases. They are recorded here so an interview reviewer can see what was rejected as well as what was adopted.
 
-### 12.1 Decisions adopted
+### 13.1 Decisions adopted
 
 | Decision | Rationale |
 |----------|-----------|
@@ -691,7 +766,7 @@ The following decisions were considered and resolved during the components and s
 | Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict. |
 
 
-### 12.2 Decisions rejected
+### 13.2 Decisions rejected
 
 | Considered | Rejected because |
 |------------|------------------|
@@ -706,7 +781,14 @@ The following decisions were considered and resolved during the components and s
 | Per-channel alarm state machine at HLD level | Per-instance rather than per-system; trivial states (Clear, Active) with single guarded transition pair; deferred to LLD alongside per-channel data structures |
 | Modbus Master HSM with Online/Offline as composite states each containing the polling cycle | Visually duplicative of the polling cycle with no behavioural difference inside each composite; replaced with model-variable + transition-action hysteresis |
 | `Degraded` top-level state on the gateway lifecycle | Cloud loss is owned by the Cloud Connectivity sub-machine; surfacing it at gateway top level would duplicate logic and contradict REQ-NF-200 |
-
+| AlarmService runs in SensorTask (no separate task) | Observer subscriber in producer context; extra queue + context switch unjustified by REQ-NF-101 |
+| TimeService and CloudPublisher in separate tasks despite shared WiFi | Different activation patterns (hourly vs continuous); P5 honoured; WiFi protected by wifi_mutex |
+| UpdateServiceTask at priority 1 despite OTA criticality | OTA is rare and seconds-tolerant; criticality is correctness (signature, rollback), not scheduling priority |
+| LifecycleTask as dedicated task | Cross-task lifecycle events processed in one context; eliminates need for external mutex on lifecycle state machine |
+| Direct-to-task notification preferred for 1:1 single-event paths | Lighter than queue (no kernel object beyond TCB notification value) |
+| Priority inheritance enabled on all mutexes | Prevents unbounded priority inversion; FreeRTOS-standard practice |
+| ISRs perform only acknowledge / capture / notify | Bounded interrupt latency; all driver state machines in task context |
+| Stack sizes estimated; refined via uxTaskGetStackHighWaterMark | Conservative initial values minimise risk; runtime measurement provides real numbers |
 ---
 
 *This document is the master HLD. It is updated as each artefact is completed. Detailed specifications live in the companion files referenced in §1.1.*
