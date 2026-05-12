@@ -1,6 +1,6 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.5 (draft — register map phase)
+**Version:** 0.6 (HLD complete — pending gate review)
 **Date:** May 2026
 **Status:** In progress
 
@@ -42,7 +42,7 @@ The HLD phase consists of the following artefacts:
 | 5 | Data Flow | Sequence Diagrams | Complete |
 | 6 | FreeRTOS Task Breakdown | Complete |
 | 7 | Modbus Register Map | Complete |
-| 8 | Flash Partition Layout | Pending |
+| 8 | Flash Partition Layout | Complete |
 
 This document is updated incrementally as each artefact is completed.
 
@@ -822,15 +822,120 @@ before LLD begins.
 
 ---
 
-## 13. Forward-looking artefacts
+## 13. Flash partition layout
 
-The following are scheduled for the remainder of HLD Phase 2 before LLD begins.
+### 13.1 Purpose and scope
 
-### 13.1 Flash partition layout (Phase 2.8)
+This section presents the non-volatile memory layout for both boards.
+The full partition tables, bootloader contract, metadata layout,
+wear-levelling strategy, and traceability are in the companion document
+`flash-partition-layout.md`. This master HLD presents the summary, the
+two partition diagrams, and the principal design decisions.
 
-Memory map of the QSPI flash on each board, partitioned across firmware
-slots, configuration storage, circular log, and any reserved regions.
-Drives `FirmwareStore`, `ConfigStore`, and `CircularFlashLog` implementations.
+The layout is the physical foundation for the bootloader, OTA
+(SD-06a–d), `ConfigStore`, `DeviceProfileRegistry`, and
+`CircularFlashLog`. Every address, sector boundary, and partition size
+is authoritative — the LLD-phase linker scripts and bootloader source
+derive their constants from this contract.
+
+### 13.2 Memory inventory
+
+| Board | On-chip flash | External QSPI flash |
+|---|---|---|
+| Field Device (STM32F469NI) | 2 MB, dual-bank, variable sector layout | 16 MB, 4 KB sectors |
+| Gateway (STM32L475VG) | 1 MB, uniform 2 KB sectors | 8 MB, 4 KB sectors |
+
+Datasheet references: UM1932 (F469) and UM2153 (L475).
+
+### 13.3 Field Device layout
+
+The Field Device does not support OTA *(D35)*. Single-bank firmware,
+no rollback, flashed via SWD.
+
+| Partition | Location | Size |
+|---|---|---|
+| Application firmware | On-chip 0x0800_0000 | 1 MB |
+| `ConfigStore` | QSPI 0x9000_0000 | 64 KB |
+| LCD assets | QSPI 0x9001_0000 | 1 MB |
+
+![Flash layout — Field Device](../diagrams/flash-layout-field-device.png)
+
+### 13.4 Gateway layout
+
+The Gateway supports OTA with dual-bank A/B firmware, atomic boot
+pointer swap, and self-check rollback.
+
+| Partition | Location | Size |
+|---|---|---|
+| Bootloader | On-chip 0x0800_0000 | 16 KB |
+| Metadata | On-chip 0x0800_4000 | 8 KB |
+| Bank A (firmware) | On-chip 0x0800_6000 | 480 KB |
+| Bank B (firmware) | On-chip 0x0807_E000 | 480 KB |
+| `ConfigStore` | QSPI 0x9000_0000 | 64 KB |
+| `CircularFlashLog` | QSPI 0x9001_0000 | 1 MB |
+| OTA staging | QSPI 0x9011_0000 | 4 MB |
+
+![Flash layout — Gateway](../diagrams/flash-layout-gateway.png)
+
+### 13.5 Bootloader contract
+
+The custom secondary bootloader on the Gateway (16 KB at the reset
+vector) performs the following at every reset:
+
+1. Read the boot pointer from metadata.
+2. Verify the indicated bank's image header (magic, version, CRC,
+   signature). On failure: switch boot pointer to the other bank, log
+   rollback, reboot.
+3. Check the `pending_self_check` flag. If set, the firmware is
+   responsible for clearing it after a successful self-check (SD-06d)
+   or for triggering a rollback on failure.
+4. Jump to the indicated bank's reset vector.
+
+The bootloader never accepts firmware over a network interface. OTA is
+the application firmware's responsibility, using the QSPI OTA staging
+partition as the download target.
+
+Full metadata layout in `flash-partition-layout.md` §7.1.
+
+### 13.6 Wear-levelling strategy
+
+- **`ConfigStore`** — A/B sector rotation across two 32 KB slots;
+  sequence number in slot header; power-loss-safe.
+- **`CircularFlashLog`** — sector-wrap ring buffer; persistent head
+  pointer in dedicated A/B-rotated sector.
+- **Metadata partition** — A/B sector rotation for frequently updated
+  fields (active bank, flag, rollback count).
+- **Firmware banks** — no wear concern; OTA frequency is well below
+  flash endurance.
+
+### 13.7 Architectural feedback from this phase
+
+Three decisions worth highlighting (full set in §14):
+
+1. **Both Gateway firmware banks on-chip** *(D37)* — caps firmware at
+   480 KB (well above the expected footprint) in exchange for instant
+   bank swap, XIP from both banks, and a simpler bootloader. No
+   QSPI-to-on-chip copy step on boot.
+
+2. **OTA staging on QSPI retained** *(D41)* — enables resumable
+   downloads and full-image signature verification before any on-chip
+   write to Bank B. Prevents partial-write corruption of the
+   destination bank.
+
+3. **A/B rotation applied uniformly to all wear-hot partitions**
+   *(D38, D39, D40)* — `ConfigStore`, metadata, and the log head
+   pointer all use the same protective pattern, simplifying both the
+   implementation review and the LLD test strategy.
+
+### 13.8 LLD handoff
+
+The LLD refines this artefact into the linker scripts, the bootloader
+source code, and the per-partition driver implementations.
+`flash-partition-layout.md` §10 lists the full LLD task surface.
+
+This is the final HLD artefact. Phase 2 (HLD) is structurally complete;
+the next gate is the Phase 2 → Phase 3 review, after which the master
+HLD bumps to version 1.0.
 
 ---
 
@@ -868,7 +973,13 @@ The following decisions were considered and resolved during the components and s
 | DeviceProfileRegistry as first-class Application component (gateway only) | Industry EDS/GSD pattern; decouples register-map knowledge from firmware. Persistence delegated to ConfigStore. |
 | Pull-based downstream consumption represented via UML notes only | Consumers read on their own schedules per P7; redrawing each consumer would clutter the diagram without adding information. |
 | Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict. |
-
+| Field Device has no OTA; single-bank firmware | OTA is Gateway-only per project narrative (SD-06a–d, `UpdateService` on Gateway only); FD firmware updated via SWD |
+| Custom secondary bootloader on Gateway (16 KB) | STM32 ROM bootloader not used at runtime; required for OTA, dual-bank, and rollback logic |
+| Both Gateway firmware banks on-chip (480 KB each) | Instant swap (no QSPI-to-on-chip copy on boot); both banks XIP; simpler bootloader. Trade-off: caps firmware at 480 KB, well above the expected footprint |
+| Metadata partition uses A/B sector rotation for frequently updated fields | Spreads wear on the most write-hot fields; protects against power loss during metadata update |
+| `ConfigStore` uses A/B sector rotation across two 32 KB slots | Doubles effective endurance per logical config; power-loss-safe (previous slot remains valid until new slot CRC-verified) |
+| `CircularFlashLog` is a sector-wrap ring buffer with persistent head pointer | Continuous logging without endurance concern; head pointer in dedicated A/B-rotated sector |
+| OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Bank B |
 
 ### 14.2 Decisions rejected
 
