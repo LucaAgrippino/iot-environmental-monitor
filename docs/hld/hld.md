@@ -1,6 +1,6 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.3 (draft — sequence diagrams phase)
+**Version:** 0.6 (HLD complete — pending gate review)
 **Date:** May 2026
 **Status:** In progress
 
@@ -40,9 +40,9 @@ The HLD phase consists of the following artefacts:
 | 3 | Component Diagrams (per board, multi-view) | Complete |
 | 4 | State Machine Diagrams | Complete |
 | 5 | Data Flow | Sequence Diagrams | Complete |
-| 6 | FreeRTOS Task Breakdown | Pending |
-| 7 | Modbus Register Map | Pending |
-| 8 | Flash Partition Layout | Pending |
+| 6 | FreeRTOS Task Breakdown | Complete |
+| 7 | Modbus Register Map | Complete |
+| 8 | Flash Partition Layout | Complete |
 
 This document is updated incrementally as each artefact is completed.
 
@@ -630,36 +630,320 @@ HLD Artefact #6 (RTOS Task Breakdown) is the bridge from sequence diagrams
 to LLD task design.
 ---
 
-## 11. Forward-looking artefacts
+## 11. Task design
 
-The following are scheduled for the remainder of HLD Phase 2 before LLD begins.
+### 11.1 Purpose and scope
 
-### 11.1 RTOS task breakdown (Phase 2.6)
+The component view (§5–6) defines who exists. The sequence diagrams (§10)
+define who calls whom over time. This section defines the runtime
+execution structure: which FreeRTOS task hosts which components, at what
+priority, with what stack, and through which IPC primitive.
 
-Per-board task list with priorities, stack sizes, and inter-task communication
-mechanisms (queues, mutexes, semaphores, notifications). Mapping from
-components to FreeRTOS tasks is many-to-one in some cases (one task hosts
-multiple application components) and one-to-one in others. Bridges the
-sequence diagrams (component-level interactions) to runtime tasks.
+The full task tables, ISR contracts, mutex strategy, schedulability
+check, and engineering method are in the companion document
+`task-breakdown.md`. This section presents the summary and embeds the two
+task interaction diagrams.
 
-### 11.2 Modbus register map (Phase 2.7)
+### 11.2 Task interaction diagrams
 
-Tabular reference: per-register address, function code, data type, scaling,
-and access semantics. Source of truth for the field-device-to-gateway protocol.
+**Field Device** — five application tasks plus idle and timer.
 
-### 11.3 Flash partition layout (Phase 2.8)
+![Task Interaction — Field Device](../diagrams/task-interaction-field-device.png)
 
-Memory map of the QSPI flash on each board, partitioned across firmware
-slots, configuration storage, circular log, and any reserved regions.
-Drives `FirmwareStore`, `ConfigStore`, and `CircularFlashLog` implementations.
+**Gateway** — seven application tasks plus idle and timer.
+
+![Task Interaction — Gateway](../diagrams/task-interaction-gateway.png)
+
+Conventions: `«task»` stereotype on each task element; hosted components
+nested inside; ISRs at diagram edge with `«ISR»` stereotype; IPC
+connectors stereotyped `«notify»` / `«queue»` / `«mutex»` etc.
+
+### 11.3 Task summary
+
+**Field Device (5 tasks)**
+
+| Task | Hosted | Priority | Stack |
+|---|---|---|---|
+| `ModbusSlaveTask` | `ModbusRegisterMap`, `ModbusSlave` | 4 | 2 KB |
+| `SensorTask` | `SensorService`, `AlarmService` | 3 | 2 KB |
+| `LcdUiTask` | `LcdUi`, `GraphicsLibrary` | 2 | 4 KB |
+| `ConsoleTask` | `ConsoleService` | 1 | 2 KB |
+| `LifecycleTask` | `LifecycleController` | 1 | 1 KB |
+
+**Gateway (7 tasks)**
+
+| Task | Hosted | Priority | Stack |
+|---|---|---|---|
+| `ModbusPollerTask` | `ModbusPoller`, `ModbusMaster` | 4 | 2 KB |
+| `SensorTask` | `SensorService`, `AlarmService` | 3 | 2 KB |
+| `CloudPublisherTask` | `CloudPublisher`, `MqttClient`, `StoreAndForward` | 2 | 8 KB |
+| `TimeServiceTask` | `TimeService`, `NtpClient` | 2 | 3 KB |
+| `UpdateServiceTask` | `UpdateService`, `FirmwareStore` | 1 | 4 KB |
+| `ConsoleTask` | `ConsoleService` | 1 | 2 KB |
+| `LifecycleTask` | `LifecycleController` | 1 | 1 KB |
+
+Stack sizes are conservative initial estimates; refined via
+`uxTaskGetStackHighWaterMark()` during integration *(D28)*.
+
+### 11.4 Architectural feedback from this phase
+
+Designing the task layout surfaced three decisions worth highlighting.
+The full set is recorded in §13.
+
+1. **`AlarmService` co-located with `SensorService`** in `SensorTask` —
+   Observer subscriber runs in producer's task context; the extra queue
+   and context switch is unjustified by REQ-NF-101 *(D21)*.
+
+2. **`TimeService` and `CloudPublisher` kept in separate tasks** despite
+   shared WiFi resource — different activation patterns (hourly vs
+   continuous) honour P5; WiFi protected by `wifi_mutex` *(D22)*.
+
+3. **ISRs reduced to acknowledge / capture / notify** — all driver state
+   machines run in task context; interrupt latency bounded by design
+   *(D27)*.
+
+### 11.5 LLD handoff
+
+The task tables establish the runtime structure. The LLD refines them
+into concrete task entry-point functions with measured WCETs, refined
+stack sizes, formal schedulability analysis where any task approaches
+its deadline, and per-IPC message type definitions.
+
+HLD Artefact #7 (Modbus Register Map) is the next forward-looking item.
 
 ---
 
-## 12. Architectural decisions log
+## 12. Modbus register map
+
+### 12.1 Purpose and scope
+
+This section presents the field-device-to-gateway Modbus RTU
+register-level interface. The full register-by-register specification
+— address layout, encoding conventions, function code support,
+exception responses, version policy, and test plan — is in the
+companion document `modbus-register-map.md`. This master HLD presents
+the address-space overview and the principal design decisions.
+
+The register map is the contract between the two boards. The Gateway's
+`ModbusPoller` and the Field Device's `ModbusRegisterMap` both conform
+to it. It is also the contract that any third-party Modbus master
+would use to read this device.
+
+### 12.2 Protocol parameters
+
+Per SRS §2.5: 9600 8N1, half-duplex RS-485, 200 ms master-side timeout
+(REQ-MB-050), 3 retries (REQ-MB-060). Slave address range 1..247 per
+Modbus RTU.
+
+### 12.3 Function code support
+
+Only four function codes are implemented:
+
+| FC | Use |
+|---|---|
+| FC03 — Read Holding Registers | Read configuration and command-state |
+| FC04 — Read Input Registers | Read sensor data, device state, metrics |
+| FC06 — Write Single Register | Single config / command write |
+| FC16 — Write Multiple Registers | Atomic block configuration write |
+
+Discrete-input (FC01, FC02) and coil access (FC05, FC15) are
+intentionally not supported — bit-level data is packed into 16-bit
+registers, keeping the slave to one access pattern. Unsupported
+function codes return exception **0x01 Illegal Function**.
+
+### 12.4 Address-space layout
+
+All addresses are 0-based on the wire. Generous gaps are reserved for
+future additions without renumbering.
+
+| Range | Category | Function codes | Access |
+|---|---|---|---|
+| 0x0000 – 0x000F | Identity and version | FC04 | R |
+| 0x0010 – 0x002F | Sensor readings | FC04 | R |
+| 0x0030 – 0x004F | Device state and metrics | FC04 | R |
+| 0x0100 – 0x01FF | Configuration | FC03 / FC06 / FC16 | RW |
+| 0x0200 – 0x02FF | Commands and control | FC03 / FC06 / FC16 | RW |
+
+Full per-register tables are in `modbus-register-map.md` §6.
+
+### 12.5 Encoding conventions
+
+The map uses three conventions uniformly:
+
+- **Big-endian byte order, big-endian word order** ("ABCD") for
+  multi-register values *(D30)*.
+- **Scaled integers** rather than IEEE-754 floats for physical
+  quantities — predictable decoders, no NaN/Inf, half the bandwidth
+  *(D29)*.
+- **Sentinel values** (`0x8000` for `int16`, `0xFFFF` for `uint16`,
+  `0xFFFFFFFF` for `uint32`) for "value unavailable" on sensor I/O
+  errors *(D34)*.
+
+### 12.6 Versioning policy
+
+Register `MAP_VERSION` (address 0x0000) provides a single compatibility
+signal. The Gateway reads it during link establishment (SD-00b) and
+binds the corresponding device profile from `DeviceProfileRegistry`
+*(D14, D17, D18, D33)*. Slaves reporting a version outside the
+Gateway's supported set are rejected from the polling allowlist
+(REQ-MB-120, REQ-MB-130).
+
+Bump policy and backward-compatible change definitions are in
+`modbus-register-map.md` §8.
+
+### 12.7 Architectural feedback from this phase
+
+Two decisions worth highlighting (full set in §14):
+
+1. **Magic value `0xA5A5` on destructive commands** — `CMD_SOFT_RESTART`
+   requires the magic; any other value is rejected with exception
+   **0x03**. Prevents accidental triggers from incorrect writes
+   *(D32)*.
+
+2. **Single access pattern (registers only, no coils/discrete inputs)**
+   — bit-level data is packed into `bitfield16` registers. Simplifies
+   the slave to one access pattern and reduces the protocol surface
+   without losing expressiveness *(D31)*.
+
+### 12.8 LLD handoff
+
+The LLD refines this artefact into:
+
+- **C struct definitions** for each register category — direct memory
+  layout that mirrors the on-wire representation.
+- **Validation logic** per write — range checks anchored to the table
+  rows.
+- **Sentinel-aware accessors** in `ModbusRegisterMap`.
+- **Unit tests** that exercise every register, including exception
+  paths.
+
+HLD Artefact #8 (Flash Partition Layout) is the final HLD artefact
+before LLD begins.
+
+---
+
+## 13. Flash partition layout
+
+### 13.1 Purpose and scope
+
+This section presents the non-volatile memory layout for both boards.
+The full partition tables, bootloader contract, metadata layout,
+wear-levelling strategy, and traceability are in the companion document
+`flash-partition-layout.md`. This master HLD presents the summary, the
+two partition diagrams, and the principal design decisions.
+
+The layout is the physical foundation for the bootloader, OTA
+(SD-06a–d), `ConfigStore`, `DeviceProfileRegistry`, and
+`CircularFlashLog`. Every address, sector boundary, and partition size
+is authoritative — the LLD-phase linker scripts and bootloader source
+derive their constants from this contract.
+
+### 13.2 Memory inventory
+
+| Board | On-chip flash | External QSPI flash |
+|---|---|---|
+| Field Device (STM32F469NI) | 2 MB, dual-bank, variable sector layout | 16 MB, 4 KB sectors |
+| Gateway (STM32L475VG) | 1 MB, uniform 2 KB sectors | 8 MB, 4 KB sectors |
+
+Datasheet references: UM1932 (F469) and UM2153 (L475).
+
+### 13.3 Field Device layout
+
+The Field Device does not support OTA *(D35)*. Single-bank firmware,
+no rollback, flashed via SWD.
+
+| Partition | Location | Size |
+|---|---|---|
+| Application firmware | On-chip 0x0800_0000 | 1 MB |
+| `ConfigStore` | QSPI 0x9000_0000 | 64 KB |
+| LCD assets | QSPI 0x9001_0000 | 1 MB |
+
+![Flash layout — Field Device](../diagrams/flash-layout-field-device.png)
+
+### 13.4 Gateway layout
+
+The Gateway supports OTA with dual-bank A/B firmware, atomic boot
+pointer swap, and self-check rollback.
+
+| Partition | Location | Size |
+|---|---|---|
+| Bootloader | On-chip 0x0800_0000 | 16 KB |
+| Metadata | On-chip 0x0800_4000 | 8 KB |
+| Bank A (firmware) | On-chip 0x0800_6000 | 480 KB |
+| Bank B (firmware) | On-chip 0x0807_E000 | 480 KB |
+| `ConfigStore` | QSPI 0x9000_0000 | 64 KB |
+| `CircularFlashLog` | QSPI 0x9001_0000 | 1 MB |
+| OTA staging | QSPI 0x9011_0000 | 4 MB |
+
+![Flash layout — Gateway](../diagrams/flash-layout-gateway.png)
+
+### 13.5 Bootloader contract
+
+The custom secondary bootloader on the Gateway (16 KB at the reset
+vector) performs the following at every reset:
+
+1. Read the boot pointer from metadata.
+2. Verify the indicated bank's image header (magic, version, CRC,
+   signature). On failure: switch boot pointer to the other bank, log
+   rollback, reboot.
+3. Check the `pending_self_check` flag. If set, the firmware is
+   responsible for clearing it after a successful self-check (SD-06d)
+   or for triggering a rollback on failure.
+4. Jump to the indicated bank's reset vector.
+
+The bootloader never accepts firmware over a network interface. OTA is
+the application firmware's responsibility, using the QSPI OTA staging
+partition as the download target.
+
+Full metadata layout in `flash-partition-layout.md` §7.1.
+
+### 13.6 Wear-levelling strategy
+
+- **`ConfigStore`** — A/B sector rotation across two 32 KB slots;
+  sequence number in slot header; power-loss-safe.
+- **`CircularFlashLog`** — sector-wrap ring buffer; persistent head
+  pointer in dedicated A/B-rotated sector.
+- **Metadata partition** — A/B sector rotation for frequently updated
+  fields (active bank, flag, rollback count).
+- **Firmware banks** — no wear concern; OTA frequency is well below
+  flash endurance.
+
+### 13.7 Architectural feedback from this phase
+
+Three decisions worth highlighting (full set in §14):
+
+1. **Both Gateway firmware banks on-chip** *(D37)* — caps firmware at
+   480 KB (well above the expected footprint) in exchange for instant
+   bank swap, XIP from both banks, and a simpler bootloader. No
+   QSPI-to-on-chip copy step on boot.
+
+2. **OTA staging on QSPI retained** *(D41)* — enables resumable
+   downloads and full-image signature verification before any on-chip
+   write to Bank B. Prevents partial-write corruption of the
+   destination bank.
+
+3. **A/B rotation applied uniformly to all wear-hot partitions**
+   *(D38, D39, D40)* — `ConfigStore`, metadata, and the log head
+   pointer all use the same protective pattern, simplifying both the
+   implementation review and the LLD test strategy.
+
+### 13.8 LLD handoff
+
+The LLD refines this artefact into the linker scripts, the bootloader
+source code, and the per-partition driver implementations.
+`flash-partition-layout.md` §10 lists the full LLD task surface.
+
+This is the final HLD artefact. Phase 2 (HLD) is structurally complete;
+the next gate is the Phase 2 → Phase 3 review, after which the master
+HLD bumps to version 1.0.
+
+---
+
+## 14. Architectural decisions log
 
 The following decisions were considered and resolved during the components and state machines phases. They are recorded here so an interview reviewer can see what was rejected as well as what was adopted.
 
-### 12.1 Decisions adopted
+### 14.1 Decisions adopted
 
 | Decision | Rationale |
 |----------|-----------|
@@ -689,9 +973,15 @@ The following decisions were considered and resolved during the components and s
 | DeviceProfileRegistry as first-class Application component (gateway only) | Industry EDS/GSD pattern; decouples register-map knowledge from firmware. Persistence delegated to ConfigStore. |
 | Pull-based downstream consumption represented via UML notes only | Consumers read on their own schedules per P7; redrawing each consumer would clutter the diagram without adding information. |
 | Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict. |
+| Field Device has no OTA; single-bank firmware | OTA is Gateway-only per project narrative (SD-06a–d, `UpdateService` on Gateway only); FD firmware updated via SWD |
+| Custom secondary bootloader on Gateway (16 KB) | STM32 ROM bootloader not used at runtime; required for OTA, dual-bank, and rollback logic |
+| Both Gateway firmware banks on-chip (480 KB each) | Instant swap (no QSPI-to-on-chip copy on boot); both banks XIP; simpler bootloader. Trade-off: caps firmware at 480 KB, well above the expected footprint |
+| Metadata partition uses A/B sector rotation for frequently updated fields | Spreads wear on the most write-hot fields; protects against power loss during metadata update |
+| `ConfigStore` uses A/B sector rotation across two 32 KB slots | Doubles effective endurance per logical config; power-loss-safe (previous slot remains valid until new slot CRC-verified) |
+| `CircularFlashLog` is a sector-wrap ring buffer with persistent head pointer | Continuous logging without endurance concern; head pointer in dedicated A/B-rotated sector |
+| OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Bank B |
 
-
-### 12.2 Decisions rejected
+### 14.2 Decisions rejected
 
 | Considered | Rejected because |
 |------------|------------------|
@@ -706,7 +996,14 @@ The following decisions were considered and resolved during the components and s
 | Per-channel alarm state machine at HLD level | Per-instance rather than per-system; trivial states (Clear, Active) with single guarded transition pair; deferred to LLD alongside per-channel data structures |
 | Modbus Master HSM with Online/Offline as composite states each containing the polling cycle | Visually duplicative of the polling cycle with no behavioural difference inside each composite; replaced with model-variable + transition-action hysteresis |
 | `Degraded` top-level state on the gateway lifecycle | Cloud loss is owned by the Cloud Connectivity sub-machine; surfacing it at gateway top level would duplicate logic and contradict REQ-NF-200 |
-
+| AlarmService runs in SensorTask (no separate task) | Observer subscriber in producer context; extra queue + context switch unjustified by REQ-NF-101 |
+| TimeService and CloudPublisher in separate tasks despite shared WiFi | Different activation patterns (hourly vs continuous); P5 honoured; WiFi protected by wifi_mutex |
+| UpdateServiceTask at priority 1 despite OTA criticality | OTA is rare and seconds-tolerant; criticality is correctness (signature, rollback), not scheduling priority |
+| LifecycleTask as dedicated task | Cross-task lifecycle events processed in one context; eliminates need for external mutex on lifecycle state machine |
+| Direct-to-task notification preferred for 1:1 single-event paths | Lighter than queue (no kernel object beyond TCB notification value) |
+| Priority inheritance enabled on all mutexes | Prevents unbounded priority inversion; FreeRTOS-standard practice |
+| ISRs perform only acknowledge / capture / notify | Bounded interrupt latency; all driver state machines in task context |
+| Stack sizes estimated; refined via uxTaskGetStackHighWaterMark | Conservative initial values minimise risk; runtime measurement provides real numbers |
 ---
 
 *This document is the master HLD. It is updated as each artefact is completed. Detailed specifications live in the companion files referenced in §1.1.*
