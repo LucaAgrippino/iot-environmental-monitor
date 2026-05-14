@@ -21,8 +21,7 @@ This document does **not** cover wire-level frame layout (CRC, byte
 stuffing, inter-frame silence) — those concerns are part of Modbus RTU
 itself and are handled by the `ModbusSlave` middleware on the Field
 Device and `ModbusMaster` on the Gateway. Nor does it cover task-level
-sequencing or IPC — those concerns belong to HLD Artefact #6 (Task
-Breakdown).
+sequencing or IPC — those concerns belong to `task-breakdown.md`.
 
 ---
 
@@ -33,14 +32,14 @@ Sourced from SRS §2.5 Modbus Communication.
 | Parameter | Value | Reference |
 |---|---|---|
 | Physical layer | RS-485 half-duplex | `vision.md` |
-| Baud rate | 9600 bps | REQ-MB-010 |
-| Data bits | 8 | REQ-MB-010 |
-| Parity | None | REQ-MB-010 |
-| Stop bits | 1 | REQ-MB-010 |
+| Baud rate | 9600 bps | REQ-MB-030 |
+| Data bits | 8 | REQ-MB-030 |
+| Parity | None | REQ-MB-030 |
+| Stop bits | 1 | REQ-MB-030 |
 | Slave address range | 1..247 (Modbus RTU standard) | — |
 | Default slave address | 1 *(configurable via provisioning, UC-16)* | — |
-| Response timeout (master-side) | 200 ms | REQ-MB-050 |
-| Retry count (master-side) | 3 | REQ-MB-060 |
+| Response timeout (master-side) | 200 ms | REQ-MB-050, REQ-NF-105 |
+| Retry count (master-side) | 3 | REQ-MB-060, REQ-NF-103 |
 | Inter-frame silence | 3.5 character times (~4 ms at 9600 8N1) | Modbus RTU spec |
 
 ---
@@ -85,7 +84,10 @@ additions without renumbering — a backward-compatible change.
 
 Read attempts on reserved addresses return exception **0x02 — Illegal
 Data Address**. Write attempts on input-register ranges or reserved
-ranges return the same.
+ranges return the same. This rule applies uniformly to all reserved
+addresses — both inter-section gaps (e.g., 0x0050–0x00FF) and intra-section
+reserved rows within a defined category (e.g., 0x0008–0x000F inside
+the identity block).
 
 ---
 
@@ -147,17 +149,17 @@ the persisted value.
 
 ### 6.1 Identity and version *(0x0000 – 0x000F, Input, FC04, R)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0000 | MAP_VERSION | uint16 | — | — | 1..65535 | 1 | Register map version. Gateway verifies during link establishment (SD-00b); mismatch outside supported range is fatal *(D14, D17)*. |
-| 0x0001 | DEVICE_ID_HI | uint16 | — | — | — | hw-fused | High word of device identifier. Concatenated with 0x0002 forms a uint32 unique device ID. Used by `DeviceProfileRegistry` for per-slave profile validation *(REQ-MB-120)*. |
-| 0x0002 | DEVICE_ID_LO | uint16 | — | — | — | hw-fused | Low word of device identifier. |
-| 0x0003 | HARDWARE_REV | uint16 | — | — | 0..65535 | 1 | Hardware revision code (encoded by vendor convention). |
-| 0x0004 | FW_VERSION_MAJOR | uint16 | — | — | 0..255 | 0 | Firmware major version (semver MAJOR). |
-| 0x0005 | FW_VERSION_MINOR | uint16 | — | — | 0..255 | 1 | Firmware minor version (semver MINOR). |
-| 0x0006 | FW_VERSION_PATCH | uint16 | — | — | 0..255 | 0 | Firmware patch version (semver PATCH). |
-| 0x0007 | VENDOR_CODE | uint16 | — | — | — | 0x1A45 | Vendor identifier (project-assigned). |
-| 0x0008 – 0x000F | *(reserved)* | — | — | — | — | — | Returns 0 on read; future identity fields. |
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0000 | MAP_VERSION | uint16 | — | — | 1..65535 | 1 | Firmware image | `ModbusPoller` | Register map version. Gateway verifies during link establishment (SD-00b); mismatch outside supported range is fatal *(D14, D17)*. |
+| 0x0001 | DEVICE_ID_HI | uint16 | — | — | — | hw-fused | Hardware OTP | `DeviceProfileRegistry` | High word of device identifier. Concatenated with 0x0002 forms a uint32 unique device ID *(REQ-MB-120, REQ-MB-111)*. |
+| 0x0002 | DEVICE_ID_LO | uint16 | — | — | — | hw-fused | Hardware OTP | `DeviceProfileRegistry` | Low word of device identifier *(REQ-MB-111)*. |
+| 0x0003 | HARDWARE_REV | uint16 | — | — | 0..65535 | 1 | Hardware OTP | `DeviceProfileRegistry` | Hardware revision code (encoded by vendor convention) *(REQ-MB-111)*. |
+| 0x0004 | FW_VERSION_MAJOR | uint16 | — | — | 0..255 | 0 | `FirmwareStore` | `ModbusPoller` | Firmware major version (semver MAJOR) *(REQ-MB-111)*. |
+| 0x0005 | FW_VERSION_MINOR | uint16 | — | — | 0..255 | 1 | `FirmwareStore` | `ModbusPoller` | Firmware minor version (semver MINOR) *(REQ-MB-111)*. |
+| 0x0006 | FW_VERSION_PATCH | uint16 | — | — | 0..255 | 0 | `FirmwareStore` | `ModbusPoller` | Firmware patch version (semver PATCH) *(REQ-MB-111)*. |
+| 0x0007 | VENDOR_CODE | uint16 | — | — | — | 0x1A45 | Factory constant | `ModbusPoller` | Vendor identifier (project-assigned) *(REQ-MB-111)*. |
+| 0x0008 – 0x000F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future identity fields. |
 
 ### 6.2 Sensor readings *(0x0010 – 0x002F, Input, FC04, R)*
 
@@ -165,30 +167,30 @@ All readings reflect the most recent successful sensor sample. On sensor
 I/O failure the corresponding register returns its type's sentinel
 value (§5.4).
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0010 | TEMPERATURE | int16 | ×0.01 | °C | −4000..8500 | sentinel | Ambient temperature from `HumidityTempDriver`. |
-| 0x0011 | HUMIDITY | uint16 | ×0.01 | %RH | 0..10000 | sentinel | Relative humidity from `HumidityTempDriver`. |
-| 0x0012 | PRESSURE | uint16 | ×0.1 | hPa | 3000..11000 | sentinel | Atmospheric pressure from `BarometerDriver`. |
-| 0x0013 – 0x002F | *(reserved)* | — | — | — | — | — | Future sensors (air quality, light, etc.). |
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0010 | TEMPERATURE | int16 | ×0.01 | °C | −4000..8500 | sentinel | `SensorService` | `ModbusPoller` | Ambient temperature *(REQ-SA-070, REQ-MB-010)*. On sensor I/O failure returns sentinel `0x8000`. |
+| 0x0011 | HUMIDITY | uint16 | ×0.01 | %RH | 0..10000 | sentinel | `SensorService` | `ModbusPoller` | Relative humidity *(REQ-SA-070, REQ-MB-010)*. On sensor I/O failure returns sentinel `0xFFFF`. |
+| 0x0012 | PRESSURE | uint16 | ×0.1 | hPa | 3000..11000 | sentinel | `SensorService` | `ModbusPoller` | Atmospheric pressure *(REQ-SA-070, REQ-MB-010)*. On sensor I/O failure returns sentinel `0xFFFF`. |
+| 0x0013 – 0x002F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future sensors (air quality, light, etc.). |
 
 ### 6.3 Device state and metrics *(0x0030 – 0x004F, Input, FC04, R)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0030 | DEVICE_STATE | enum16 | — | — | 0..4 | 0 | Field Device lifecycle state. `0`=Init, `1`=Operational, `2`=EditingConfig, `3`=Error, `4`=Shutdown. Source: `LifecycleController` (see `state-machines.md`). |
-| 0x0031 | ALARM_FLAGS | bitfield16 | — | — | — | 0 | Active alarms, one bit per condition (§6.3.1). |
-| 0x0032 | UPTIME_SECONDS_HI | uint16 | — | — | — | 0 | High word of seconds since boot (uint32). |
-| 0x0033 | UPTIME_SECONDS_LO | uint16 | — | — | — | 0 | Low word of seconds since boot. |
-| 0x0034 | MODBUS_RX_OK_COUNT_HI | uint16 | — | — | — | 0 | High word of frames received and processed successfully. Source: `IModbusSlaveStats`. |
-| 0x0035 | MODBUS_RX_OK_COUNT_LO | uint16 | — | — | — | 0 | Low word. |
-| 0x0036 | MODBUS_CRC_ERR_COUNT_HI | uint16 | — | — | — | 0 | High word of frames discarded due to CRC failure. |
-| 0x0037 | MODBUS_CRC_ERR_COUNT_LO | uint16 | — | — | — | 0 | Low word. |
-| 0x0038 | MODBUS_TIMEOUT_COUNT_HI | uint16 | — | — | — | 0 | High word of frame-completion timeouts (inter-frame silence violations). |
-| 0x0039 | MODBUS_TIMEOUT_COUNT_LO | uint16 | — | — | — | 0 | Low word. |
-| 0x003A | SENSOR_READ_ERR_COUNT_HI | uint16 | — | — | — | 0 | High word of failed sensor reads since boot. |
-| 0x003B | SENSOR_READ_ERR_COUNT_LO | uint16 | — | — | — | 0 | Low word. |
-| 0x003C – 0x004F | *(reserved)* | — | — | — | — | — | Future metrics. |
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0030 | DEVICE_STATE | enum16 | — | — | 0..3 | 0 | `LifecycleController` | `ModbusPoller` | Field Device lifecycle state. `0`=Init, `1`=Operational, `2`=EditingConfig, `3`=Faulted. See `state-machines.md` Machine 5. |
+| 0x0031 | ALARM_FLAGS | bitfield16 | — | — | — | 0 | `AlarmService` | `ModbusPoller` | Active alarms, one bit per condition (§6.3.1) *(REQ-AM-020)*. |
+| 0x0032 | UPTIME_SECONDS_HI | uint16 | — | — | — | 0 | `TimeProvider` | `ModbusPoller` | High word of seconds since boot (uint32) *(REQ-LD-070)*. |
+| 0x0033 | UPTIME_SECONDS_LO | uint16 | — | — | — | 0 | `TimeProvider` | `ModbusPoller` | Low word of seconds since boot *(REQ-LD-070)*. |
+| 0x0034 | MODBUS_RX_OK_COUNT_HI | uint16 | — | — | — | 0 | `IModbusSlaveStats` | `ModbusPoller` | High word of frames received and processed successfully *(REQ-LD-070)*. |
+| 0x0035 | MODBUS_RX_OK_COUNT_LO | uint16 | — | — | — | 0 | `IModbusSlaveStats` | `ModbusPoller` | Low word *(REQ-LD-070)*. |
+| 0x0036 | MODBUS_CRC_ERR_COUNT_HI | uint16 | — | — | — | 0 | `IModbusSlaveStats` | `ModbusPoller` | High word of frames discarded due to CRC failure *(REQ-LD-070)*. |
+| 0x0037 | MODBUS_CRC_ERR_COUNT_LO | uint16 | — | — | — | 0 | `IModbusSlaveStats` | `ModbusPoller` | Low word *(REQ-LD-070)*. |
+| 0x0038 | MODBUS_TIMEOUT_COUNT_HI | uint16 | — | — | — | 0 | `IModbusSlaveStats` | `ModbusPoller` | High word of frame-completion timeouts (inter-frame silence violations) *(REQ-LD-070)*. |
+| 0x0039 | MODBUS_TIMEOUT_COUNT_LO | uint16 | — | — | — | 0 | `IModbusSlaveStats` | `ModbusPoller` | Low word *(REQ-LD-070)*. |
+| 0x003A | SENSOR_READ_ERR_COUNT_HI | uint16 | — | — | — | 0 | `SensorService` | `ModbusPoller` | High word of failed sensor reads since boot *(REQ-LD-070)*. |
+| 0x003B | SENSOR_READ_ERR_COUNT_LO | uint16 | — | — | — | 0 | `SensorService` | `ModbusPoller` | Low word *(REQ-LD-070)*. |
+| 0x003C – 0x004F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future metrics. |
 
 #### 6.3.1 ALARM_FLAGS bit assignments
 
@@ -216,50 +218,56 @@ range return exception **0x03 — Illegal Data Value**.
 
 #### Temperature thresholds *(0x0100 – 0x010F)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0100 | TEMP_ALARM_LOW | int16 | ×0.01 | °C | −4000..8500 | −2000 (−20.00°C) | Low-temperature alarm threshold. |
-| 0x0101 | TEMP_ALARM_HIGH | int16 | ×0.01 | °C | −4000..8500 | 6000 (+60.00°C) | High-temperature alarm threshold. |
-| 0x0102 | TEMP_HYSTERESIS | uint16 | ×0.01 | °C | 0..1000 | 50 (0.50°C) | Hysteresis applied on alarm clear to suppress chatter. |
-| 0x0103 – 0x010F | *(reserved)* | — | — | — | — | — | Future temperature config. |
+Cross-register invariant: `TEMP_ALARM_LOW < TEMP_ALARM_HIGH` is required. A write that would create `TEMP_ALARM_LOW ≥ TEMP_ALARM_HIGH` returns exception **0x03 — Illegal Data Value** for the register being written.
+
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0100 | TEMP_ALARM_LOW | int16 | ×0.01 | °C | −4000..8500 | −2000 (−20.00°C) | `ConfigStore` | `AlarmService` | Low-temperature alarm threshold *(REQ-AM-000, REQ-AM-011)*. |
+| 0x0101 | TEMP_ALARM_HIGH | int16 | ×0.01 | °C | −4000..8500 | 6000 (+60.00°C) | `ConfigStore` | `AlarmService` | High-temperature alarm threshold *(REQ-AM-000, REQ-AM-011)*. |
+| 0x0102 | TEMP_HYSTERESIS | uint16 | ×0.01 | °C | 0..1000 | 50 (0.50°C) | `ConfigStore` | `AlarmService` | Hysteresis applied on alarm clear to suppress chatter *(REQ-AM-011)*. |
+| 0x0103 – 0x010F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future temperature config. |
 
 #### Humidity thresholds *(0x0110 – 0x011F)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0110 | HUMIDITY_ALARM_LOW | uint16 | ×0.01 | %RH | 0..10000 | 2000 (20.00%) | Low-humidity alarm threshold. |
-| 0x0111 | HUMIDITY_ALARM_HIGH | uint16 | ×0.01 | %RH | 0..10000 | 8000 (80.00%) | High-humidity alarm threshold. |
-| 0x0112 | HUMIDITY_HYSTERESIS | uint16 | ×0.01 | %RH | 0..1000 | 100 (1.00%) | Hysteresis on alarm clear. |
-| 0x0113 – 0x011F | *(reserved)* | — | — | — | — | — | Future humidity config. |
+Cross-register invariant: `HUMIDITY_ALARM_LOW < HUMIDITY_ALARM_HIGH` is required. A write that would create an inversion returns exception **0x03 — Illegal Data Value**.
+
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0110 | HUMIDITY_ALARM_LOW | uint16 | ×0.01 | %RH | 0..10000 | 2000 (20.00%) | `ConfigStore` | `AlarmService` | Low-humidity alarm threshold *(REQ-AM-000, REQ-AM-011)*. |
+| 0x0111 | HUMIDITY_ALARM_HIGH | uint16 | ×0.01 | %RH | 0..10000 | 8000 (80.00%) | `ConfigStore` | `AlarmService` | High-humidity alarm threshold *(REQ-AM-000, REQ-AM-011)*. |
+| 0x0112 | HUMIDITY_HYSTERESIS | uint16 | ×0.01 | %RH | 0..1000 | 100 (1.00%) | `ConfigStore` | `AlarmService` | Hysteresis on alarm clear *(REQ-AM-011)*. |
+| 0x0113 – 0x011F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future humidity config. |
 
 #### Pressure thresholds *(0x0120 – 0x012F)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0120 | PRESSURE_ALARM_LOW | uint16 | ×0.1 | hPa | 3000..11000 | 9500 (950.0 hPa) | Low-pressure alarm threshold. |
-| 0x0121 | PRESSURE_ALARM_HIGH | uint16 | ×0.1 | hPa | 3000..11000 | 10500 (1050.0 hPa) | High-pressure alarm threshold. |
-| 0x0122 | PRESSURE_HYSTERESIS | uint16 | ×0.1 | hPa | 0..100 | 10 (1.0 hPa) | Hysteresis on alarm clear. |
-| 0x0123 – 0x012F | *(reserved)* | — | — | — | — | — | Future pressure config. |
+Cross-register invariant: `PRESSURE_ALARM_LOW < PRESSURE_ALARM_HIGH` is required. A write that would create an inversion returns exception **0x03 — Illegal Data Value**.
+
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0120 | PRESSURE_ALARM_LOW | uint16 | ×0.1 | hPa | 3000..11000 | 9500 (950.0 hPa) | `ConfigStore` | `AlarmService` | Low-pressure alarm threshold *(REQ-AM-000, REQ-AM-011)*. |
+| 0x0121 | PRESSURE_ALARM_HIGH | uint16 | ×0.1 | hPa | 3000..11000 | 10500 (1050.0 hPa) | `ConfigStore` | `AlarmService` | High-pressure alarm threshold *(REQ-AM-000, REQ-AM-011)*. |
+| 0x0122 | PRESSURE_HYSTERESIS | uint16 | ×0.1 | hPa | 0..100 | 10 (1.0 hPa) | `ConfigStore` | `AlarmService` | Hysteresis on alarm clear *(REQ-AM-011)*. |
+| 0x0123 – 0x012F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future pressure config. |
 
 #### Acquisition parameters *(0x0130 – 0x013F)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0130 | SAMPLING_PERIOD_MS | uint16 | — | ms | 100..60000 | 100 | Sensor sampling period. REQ-SA-070. |
-| 0x0131 – 0x013F | *(reserved)* | — | — | — | — | — | Future acquisition config. |
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0130 | SAMPLING_PERIOD_MS | uint16 | — | ms | 100..60000 | 1000 | `ConfigStore` | `SensorService` | Sensor sampling period *(REQ-SA-070, REQ-SA-010, REQ-NF-110)*. Default 1000 ms = 1 Hz matches REQ-SA-010/REQ-NF-110. |
+| 0x0131 – 0x013F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future acquisition config. |
 
 #### LCD parameters *(0x0140 – 0x014F)*
 
-| Addr | Name | Type | Scale | Unit | Range | Default | Description |
-|---|---|---|---|---|---|---|---|
-| 0x0140 | LCD_BRIGHTNESS_PCT | uint16 | — | % | 0..100 | 80 | Backlight brightness percentage. |
-| 0x0141 | LCD_TIMEOUT_S | uint16 | — | s | 0..3600 | 0 | Auto-dim timeout; `0` disables. |
-| 0x0142 – 0x014F | *(reserved)* | — | — | — | — | — | Future LCD config. |
+| Addr | Name | Type | Scale | Unit | Range | Default | Source | Sink | Description |
+|---|---|---|---|---|---|---|---|---|---|
+| 0x0140 | LCD_BRIGHTNESS_PCT | uint16 | — | % | 0..100 | 80 | `ConfigStore` | `LcdUi` | Backlight brightness percentage *(REQ-LD-050, REQ-LD-100)*. |
+| 0x0141 | LCD_TIMEOUT_S | uint16 | — | s | 0..3600 | 0 | `ConfigStore` | `LcdUi` | Auto-dim timeout; `0` disables *(REQ-LD-050)*. |
+| 0x0142 – 0x014F | *(reserved)* | — | — | — | — | — | — | — | Returns exception **0x02 — Illegal Data Address** on read; future LCD config. |
 
 #### Reserved configuration ranges *(0x0150 – 0x01FF)*
 
-176 registers reserved for future configuration. Read returns 0; write
-returns exception **0x02 — Illegal Data Address**.
+176 registers reserved for future configuration. All accesses (read or
+write) return exception **0x02 — Illegal Data Address**.
 
 ### 6.5 Commands and control *(0x0200 – 0x02FF, Holding, FC03 / FC06 / FC16)*
 
@@ -268,12 +276,16 @@ value (or 0 if never written), which is useful for confirming a command
 was received. Destructive commands require a "magic" trigger value to
 prevent accidental triggers from incorrect writes.
 
-| Addr | Name | Type | Trigger value | Effect |
-|---|---|---|---|---|
-| 0x0200 | CMD_ACK_ALARM | uint16 | `0x0001` | Acknowledges all currently active alarms; clears `ALARM_FLAGS` (REQ-AM-040). |
-| 0x0201 | CMD_RESET_METRICS | uint16 | `0x0001` | Resets all Modbus and sensor metrics counters to 0. Does not affect uptime. |
-| 0x0202 | CMD_SOFT_RESTART | uint16 | `0xA5A5` | Triggers soft restart of the Field Device (UC-17). Any other value is rejected with exception **0x03**. Magic value prevents accidental triggers. |
-| 0x0203 – 0x02FF | *(reserved)* | — | — | Future commands. |
+| Addr | Name | Type | Trigger value | Effect | Source | Sink |
+|---|---|---|---|---|---|---|
+| 0x0200 | CMD_ACK_ALARM | uint16 | `0x0001` | Acknowledges all currently active alarms; clears `ALARM_FLAGS`. *(Requirement to be derived from UC-08/UC-09 in F-07 SRS fix pass.)* | ModbusPoller | AlarmService |
+| 0x0201 | CMD_RESET_METRICS | uint16 | `0x0001` | Resets all Modbus and sensor metrics counters to 0. Does not affect uptime. REQ-LD-070. | ModbusPoller | HealthMonitor |
+| 0x0202 | CMD_SOFT_RESTART | uint16 | `0xA5A5` | Triggers soft restart of the Field Device (UC-17). Any other value is rejected with exception **0x03**. Magic value prevents accidental triggers. | ModbusPoller | LifecycleController |
+| 0x0203 – 0x02FF | *(reserved)* | — | — | Returns exception **0x02 — Illegal Data Address** on any access. | — | — |
+
+An FC16 write that spans more than one command register (0x0200–0x02FF)
+returns exception **0x03 — Illegal Data Value**. The master must use
+FC06 to write each command register individually.
 
 ---
 
@@ -290,6 +302,16 @@ Busy, 0x07 NAK, 0x08 Memory Parity Error, 0x0A Gateway Path Unavailable,
 | 2 | 0x02 | Illegal Data Address | The requested register address is in a reserved range, or a write was attempted on a read-only register (input register or reserved holding). |
 | 3 | 0x03 | Illegal Data Value | A write value is outside the register's documented valid range, or the magic value mismatched on a destructive command. |
 | 4 | 0x04 | Slave Device Failure | An underlying read or write operation failed (sensor I/O error during register read, flash write fault during config persistence). |
+
+The table below shows which exceptions apply to each supported function
+code.
+
+| Exception | FC03 | FC04 | FC06 | FC16 | Notes |
+|---|---|---|---|---|---|
+| 0x01 Illegal Function | ✓ | ✓ | ✓ | ✓ | FC not in {3, 4, 6, 16} |
+| 0x02 Illegal Data Address | ✓ | ✓ | ✓ | ✓ | Reserved range or write to read-only register |
+| 0x03 Illegal Data Value | — | — | ✓ | ✓ | Out-of-range value, threshold inversion, or wrong magic |
+| 0x04 Slave Device Failure | — | ✓ | ✓ | ✓ | Sensor I/O error (FC04); flash write fault (FC06/FC16) |
 
 Validation failures (D14, REQ-MB-130) are logged by the slave and the
 exception is returned to the master. The master's behaviour on each
@@ -321,6 +343,11 @@ binds the corresponding device profile from `DeviceProfileRegistry`
 (D14, D17, D18). Slaves reporting a version outside the Gateway's
 supported set are rejected from the polling allowlist
 (REQ-MB-120, REQ-MB-130).
+
+The Gateway firmware v1.x supports MAP_VERSION = 1 only. Any slave
+reporting a different value is rejected from the polling allowlist
+during link establishment. This clause must be updated alongside §9
+whenever MAP_VERSION is bumped.
 
 ---
 
@@ -375,12 +402,19 @@ harness phase.
 - **TC-RM-025** — Disconnect a sensor and read its register. Expect
   the type's sentinel value (`0x8000` for `int16`, `0xFFFF` for
   `uint16`).
+- **TC-RM-026** — Write `TEMP_ALARM_HIGH` to 0x0BB8 (30.00 °C), then
+  write `TEMP_ALARM_LOW` to 0x1194 (45.00 °C) — inverted band. Expect
+  exception **0x03** on the second write. Verify `TEMP_ALARM_LOW` is
+  unchanged.
 
 ### 10.4 Command tests
 
 - **TC-RM-030** — Write `CMD_SOFT_RESTART` with correct magic
-  (`0xA5A5`). Verify FD restarts within REQ-MB-050 budget plus boot
-  time.
+  (`0xA5A5`). Verify FD restarts within the 5-second restart recovery
+  budget mandated by REQ-NF-202/REQ-NF-203. The Modbus master should
+  expect no Modbus response to the restart write (device reboots
+  immediately), then poll `MAP_VERSION` periodically until it responds
+  — no later than 5 seconds after the write.
 - **TC-RM-031** — Trigger alarm conditions (e.g., by adjusting
   thresholds to current readings). Verify `ALARM_FLAGS` bits set.
   Write `CMD_ACK_ALARM` with `0x0001`. Verify `ALARM_FLAGS` clears.
