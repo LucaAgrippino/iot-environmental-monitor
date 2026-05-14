@@ -107,13 +107,13 @@ Operational on a self-check.
 - **Do activity:** progress through sub-states below.
 - **Exit action:** stop Init time-budget timer.
 
-| # | Sub-state           | Activity                                                                | Failure handling                                            |
-|---|---------------------|-------------------------------------------------------------------------|-------------------------------------------------------------|
-| 1 | CheckingIntegrity   | Verify config / buffer / firmware partitions are not partially written  | Unrecoverable corruption → Faulted (REQ-NF-214)             |
-| 2 | LoadingConfig       | `ConfigStore.read()`; fall back to defaults on failure                  | Partial fallback OK, never fatal (SA-010, -020, -050)       |
-| 3 | BringingUpSensors   | Initialise on-board sensors with manufacturer defaults                  | ≥1 sensor OK → continue; all fail → Faulted                 |
-| 4 | StartingMiddleware  | Trigger Cloud Connectivity, NTP, Modbus Master sub-machines             | Sub-machines own their own failure recovery                 |
-| 5 | SelfChecking        | Verify sensors readable and Modbus link present                         | Pass → Operational; Fail → Faulted (DM-040)                 |
+| # | Sub-state           | Entry action | Do activity                                                             | Exit action | Failure handling                                            |
+|---|---------------------|--------------|-------------------------------------------------------------------------|-------------|-------------------------------------------------------------|
+| 1 | CheckingIntegrity   | none         | Verify config / buffer / firmware partitions are not partially written  | none        | Unrecoverable corruption → Faulted (REQ-NF-214)             |
+| 2 | LoadingConfig       | none         | `ConfigStore.read()`; fall back to defaults on failure                  | none        | Partial fallback OK, never fatal (SA-010, -020, -050)       |
+| 3 | BringingUpSensors   | none         | Initialise on-board sensors with manufacturer defaults                  | none        | ≥1 sensor OK → continue; all fail → Faulted                 |
+| 4 | StartingMiddleware  | none         | Trigger Cloud Connectivity, NTP, Modbus Master sub-machines             | none        | Sub-machines own their own failure recovery                 |
+| 5 | SelfChecking        | none         | Verify sensors readable and Modbus link present (REQ-DM-040)            | none        | Pass → Operational; Fail → Faulted                          |
 
 **Time budgets:**
 - Cold boot ≤ [TBD]s (REQ-NF-213) — includes WiFi association.
@@ -132,8 +132,9 @@ DM-030, -040; NF-202, -203, -213, -214; CC-050.
 The gateway does its job: sensors, alarms, Modbus polling, publishing,
 remote commands, CLI diagnostics.
 
-- **Entry action:** publish "restart success" to cloud if entered from
-  Restarting (REQ-DM-030); start all periodic timers.
+- **Entry action:** if `restart_flag` is set in the NV flags region,
+  publish "restart success" to cloud and clear the flag (REQ-DM-030);
+  start all periodic timers.
 - **Do activity:** run periodic activities listed in the internal-transition
   table below.
 - **Exit action:** stop periodic timers; flush in-flight Modbus transaction.
@@ -141,7 +142,12 @@ remote commands, CLI diagnostics.
 **Traceability:** SA-071, -080, -090, -100, -110..160, -170;
 AM-000, -010, -011, -020, -030; CC-000, -010, -020, -030, -040;
 TS-000 (periodic), -030, -040; DM-000, -001, -002, -090;
-LI-000..020, -130..160; NF-200, -210, -211, -212.
+LI-000..020, -130..160; NF-200, -205, -210, -211, -212.
+
+**Note (REQ-NF-205):** Sensor reinitialisation on failure is handled
+within `SensorService`'s internal recovery loop; the lifecycle machine
+stays in Operational. `SensorService` emits `unrecoverable_error` only
+if reinitialisation fails permanently → T15 (→ Faulted).
 
 ### EditingConfig — simple
 
@@ -150,13 +156,13 @@ alarm evaluation, and Modbus polling continue (handled by their own tasks
 and sub-machines below the lifecycle); but configuration parameters take
 effect only on confirmation, with rollback on failure.
 
-- **Entry action:** open provisioning menu on CLI; start
-  confirmation-timeout timer; snapshot current config for rollback.
+- **Entry action:** start confirmation-timeout timer.
 - **Do activity:** receive parameter inputs; validate each (LI-090);
   display feedback; await confirmation.
-- **Exit action:** close provisioning menu; clear timeout timer; on apply,
-  persist to flash and emit `internet_params_changed` so Cloud Connectivity
-  reconnects with the new credentials; on cancel/timeout, restore snapshot.
+- **Exit action:** close provisioning menu; clear timeout timer.
+
+*Snapshot, apply, and restore are owned exclusively by the incoming and
+outgoing transitions (T10, T11, T12) to avoid double invocation.*
 
 **Traceability:** LI-030, -040, -050, -060, -080, -090, -100, -110, -120,
 -0E2, -0E3; DM-090.
@@ -166,18 +172,17 @@ effect only on confirmation, with rollback on failure.
 Persist state and trigger a controlled MCU reset on remote command.
 
 - **Entry action:** persist pending writes (`ConfigStore.flush()`, buffer
-  flush); log restart cause; signal LED pattern.
+  flush); log restart cause; signal LED pattern; set `restart_flag` in NV
+  flags region (read by Operational entry on the next boot for DM-030).
 - **Do activity:** wait briefly for in-flight MQTT publish (bounded
   timeout); trigger MCU reset.
-- **Exit action:** none — the MCU resets; "exit" is the reset itself. The
-  next Init publishes DM-030 ("restart success") on this transition's
-  behalf.
+- **Exit action:** none — the MCU resets; "exit" is the reset itself.
 
 The restart-confirmation request (REQ-DM-020) lives in Operational, not
 Restarting. We only enter Restarting *after* confirmation. If declined
 (REQ-DM-021), no transition fires.
 
-**Traceability:** UC-17; DM-010, -020, -021, -030, -040.
+**Traceability:** UC-17; DM-010, -020, -021, -030. *(DM-040 traces to Init.SelfChecking on the subsequent boot.)*
 
 ### UpdatingFirmware — simple at top, composite in the Firmware Update machine
 
@@ -187,11 +192,10 @@ Delegates the update lifecycle to Machine 3 (Firmware Update). Marked
 - **Entry action:** acquire firmware-update mutex; suspend periodic
   telemetry publishing; log entry.
 - **Do activity:** delegated entirely to the Firmware Update sub-machine.
-- **Exit action:** release firmware-update mutex; report final outcome to
-  cloud (REQ-DM-055):
-  - on success → Restarting (boot the new image)
-  - on failure with rollback OK → Operational
-  - on unrecoverable failure → Faulted
+- **Exit action:** release firmware-update mutex.
+
+*Cloud outcome reporting (REQ-DM-055) is owned exclusively by T18,
+T19, and T20 to avoid multiple sends on the same event.*
 
 **Traceability at this level:** UC-18; DM-054, DM-055.
 
@@ -229,14 +233,24 @@ external/watchdog reset.
 | T11 | EditingConfig              | Operational                 | `confirmation_received`                        | `[validation_ok]`                              | `apply_and_persist(); emit internet_params_changed`        |
 | T12 | EditingConfig              | Operational                 | `cancel_received, confirmation_timeout`        | —                                              | `restore_snapshot()`                                       |
 | T13 | Operational                | Restarting                  | `restart_cmd_received`                         | `[user_confirmed]`                             | `persist_state(); log(restart_requested)`                  |
-| T14 | Operational                | UpdatingFirmware            | `ota_cmd_received`                             | `[authenticated && !update_in_progress]`       | `acquire_update_mutex()`                                   |
+| T14 | Operational                | UpdatingFirmware            | `ota_cmd_received`                             | `[authenticated && !update_in_progress]`       | `acquire_update_mutex(); emit update_started`              |
 | T15 | Operational                | Faulted                     | `watchdog_imminent, unrecoverable_error`       | —                                              | —                                                          |
 | T16 | EditingConfig              | Faulted                     | `watchdog_imminent, unrecoverable_error`       | —                                              | `restore_snapshot()`                                       |
 | T17 | Restarting                 | (MCU reset)                 | `reset_triggered`                              | —                                              | `NVIC_SystemReset()`                                       |
-| T18 | UpdatingFirmware           | Restarting                  | `update_done`                                  | `[update_success]`                             | `report_to_cloud(success); release_mutex()`                |
-| T19 | UpdatingFirmware           | Operational                 | `update_done`                                  | `[update_failed && rollback_ok]`               | `report_to_cloud(failed_rolled_back); release_mutex()`     |
-| T20 | UpdatingFirmware           | Faulted                     | `update_done`                                  | `[update_failed && !rollback_ok]`              | `release_mutex()`                                          |
+| T18 | UpdatingFirmware           | Restarting                  | `update_done`                                  | `[update_success]`                             | `report_to_cloud(success)`                                 |
+| T19 | UpdatingFirmware           | Operational                 | `update_done`                                  | `[update_failed && rollback_ok]`               | `report_to_cloud(failed_rolled_back)`                      |
+| T20 | UpdatingFirmware           | Faulted                     | `update_done`                                  | `[update_failed && !rollback_ok]`              | `report_to_cloud(failed_unrecoverable)`                    |
 | T21 | Faulted                    | (MCU reset)                 | `watchdog_expiry, external_reset`              | —                                              | —                                                          |
+
+*Mutex release for T18/T19/T20 is handled by the UpdatingFirmware exit action (see §UpdatingFirmware state).*
+
+### Internal transitions in UpdatingFirmware
+
+| #   | Event             | Guard | Action               |
+|-----|-------------------|-------|----------------------|
+| I18 | `reset_requested` | —     | `NVIC_SystemReset()` |
+
+*Machine 3 emits `reset_requested` instead of calling `NVIC_SystemReset()` directly. The Gateway Lifecycle owns the reset decision; this internal transition is the single canonical reset site during the OTA lifecycle. The UpdatingFirmware exit action does not fire for I18 (internal transitions do not exit the state), which is correct — the MCU restarts and re-enters Init, which detects the persisted flag and resumes Machine 3 at the appropriate entry-point.*
 
 ### Internal transitions in Operational
 
@@ -448,11 +462,12 @@ image *before* changing the boot pointer.
 Atomically commit the new image as the boot partition; current firmware
 retained (REQ-DM-073).
 
-- **Entry action:** set `pending_self_check` flag.
-- **Do activity:** update boot pointer (REQ-DM-070); persist; trigger
-  reboot.
-- **Exit action:** `NVIC_SystemReset()` — the transition action *is* the
-  reboot.
+- **Entry action:** none.
+- **Do activity:** update boot pointer (REQ-DM-070); await `apply_done`
+  from boot-pointer write.
+- **Exit action:** none — T7's action sets the flag, persists, and emits
+  `reset_requested`; the exit action is reachable and fires before T7's
+  action (UML order: exit action → transition action).
 
 **Traceability:** DM-070, -073, -074.
 
@@ -472,10 +487,11 @@ Verify the freshly-booted firmware is functional.
 
 Revert to the previous firmware after self-check failed.
 
-- **Entry action:** set `pending_rollback` flag; update boot pointer back
-  to the previous partition.
-- **Do activity:** persist; trigger reboot.
-- **Exit action:** `NVIC_SystemReset()`.
+- **Entry action:** none.
+- **Do activity:** await `rollback_ready` from boot-pointer revert.
+- **Exit action:** none — T11's action sets the flag, reverts the boot
+  pointer, persists, and emits `reset_requested`; exit action fires
+  before T11's action and is reachable.
 
 **Time budget:** ≤ 10 s end-to-end including the reboot (REQ-NF-204).
 
@@ -485,20 +501,22 @@ Revert to the previous firmware after self-check failed.
 
 New firmware accepted. Update lifecycle complete.
 
-- **Entry action:** clear update flags; report success to cloud
-  (REQ-DM-055); invalidate the now-old bank to free it for the next update.
+- **Entry action:** clear update flags; invalidate the now-old bank to free it for the next update.
 - **Do activity:** none — terminal.
-- **Exit action:** —.
+- **Exit action:** none.
+
+*Cloud success report (REQ-DM-055) is sent by Machine 1 T18 action, not here, to avoid double-send.*
 
 ### Failed — final
 
 Update did not complete successfully (download, validation, or self-check
 + rollback). Gateway is running on the previous firmware.
 
-- **Entry action:** `log_fault()`; clear update flags; report failure with
-  cause to cloud (REQ-DM-055); ensure inactive bank is invalidated.
+- **Entry action:** `log_fault()`; clear update flags; ensure inactive bank is invalidated.
 - **Do activity:** none — terminal.
-- **Exit action:** —.
+- **Exit action:** none.
+
+*Cloud failure report (REQ-DM-055) is sent by Machine 1 T19 or T20 action, not here, to avoid double-send.*
 
 ## Transition table
 
@@ -512,12 +530,12 @@ Update did not complete successfully (download, validation, or self-check
 | T4  | Downloading   | Failed         | `download_chunk_failure`    | `[retries == 3]`                     | `delete_partial_image()` (DM-052, -053)                                 |
 | T5  | Validating    | Applying       | `validation_done`           | `[signature_ok && image_ok]`         | —                                                                       |
 | T6  | Validating    | Failed         | `validation_done`           | `[!signature_ok || !image_ok]`       | `discard_image()` (DM-061, -062)                                        |
-| T7  | Applying      | (MCU reset)    | `apply_done`                | —                                    | `set_pending_self_check(); persist(); NVIC_SystemReset()`               |
+| T7  | Applying      | (MCU reset)    | `apply_done`                | —                                    | `set_pending_self_check(); persist(); emit reset_requested`             |
 | T8  | (entry-point) | SelfChecking   | `boot_with_pending_flag`    | `[pending_self_check]`               | resumed by gateway Init detecting flag                                  |
-| T9  | SelfChecking  | Committed      | `self_check_done`           | `[self_check_ok]`                    | `clear_flag(); report_success()`                                        |
+| T9  | SelfChecking  | Committed      | `self_check_done`           | `[self_check_ok]`                    | `clear_flag()`                                                          |
 | T10 | SelfChecking  | RollingBack    | `self_check_done`           | `[!self_check_ok]`                   | —                                                                       |
-| T11 | RollingBack   | (MCU reset)    | `rollback_ready`            | —                                    | `set_pending_rollback(); revert_boot_ptr(); persist(); NVIC_SystemReset()` |
-| T12 | (entry-point) | Failed         | `boot_with_rollback_flag`   | `[pending_rollback]`                 | `clear_flag(); report_failure()`                                        |
+| T11 | RollingBack   | (MCU reset)    | `rollback_ready`            | —                                    | `set_pending_rollback(); revert_boot_ptr(); persist(); emit reset_requested` |
+| T12 | (entry-point) | Failed         | `boot_with_rollback_flag`   | `[pending_rollback]`                 | `clear_flag()`                                                          |
 | T13 | Committed     | Idle           | `lifecycle_exits_updating`  | —                                    | —                                                                       |
 | T14 | Failed        | Idle           | `lifecycle_exits_updating`  | —                                    | —                                                                       |
 
@@ -564,8 +582,11 @@ Between polls. Polling timer drives the next transaction.
 
 Drive the request frame onto the RS-485 bus.
 
-- **Entry action:** `build_request_frame()` — function code, slave addr,
-  payload, CRC; enable TX driver; start UART transmit.
+- **Entry action:** enable TX driver; start UART transmit (frame already
+  built by the incoming transition action — T2 or T3).
+
+*`build_request_frame()` must NOT be called here: T3's command frame
+would be overwritten with a poll frame before transmission.*
 - **Do activity:** wait for `tx_complete`.
 - **Exit action:** disable TX driver (release the bus).
 
@@ -603,8 +624,8 @@ MB-0E1 (reject malformed), NF-103, NF-104, NF-215.
 | T1  | `[*]`              | Idle                | —                           | —                                                    | —                                                               |
 | T2  | Idle               | Transmitting        | `poll_timer_tick`           | `[poll_pending]`                                     | `build_request_frame()`                                         |
 | T3  | Idle               | Transmitting        | `command_to_send`           | —                                                    | `build_request_frame_for_incoming_command()`                    |
-| T4  | Transmitting       | AwaitingResponse    | `tx_complete`               | —                                                    | `start_response_timer_ms(200)`                                  |
-| T5  | AwaitingResponse   | ProcessingResponse  | `rx_complete`               | —                                                    | `stop_response_timer()`                                         |
+| T4  | Transmitting       | AwaitingResponse    | `tx_complete`               | —                                                    | —                                                               |
+| T5  | AwaitingResponse   | ProcessingResponse  | `rx_complete`               | —                                                    | —                                                               |
 | T6  | AwaitingResponse   | Transmitting        | `response_timer_expired`    | `[per_request_retries < 3]`                          | `per_request_retries++` (MB-060)                                |
 | T7  | AwaitingResponse   | Idle                | `response_timer_expired`    | `[per_request_retries == 3]`                         | `record_poll_failure()`                                         |
 | T8  | ProcessingResponse | Idle                | `processing_done`           | `[crc_ok && format_ok]`                              | `record_poll_success()`                                         |
@@ -671,13 +692,13 @@ essential → adds BringingUpLCD as a distinct Init sub-step).
 - **Do activity:** progress through sub-states below.
 - **Exit action:** stop Init time-budget timer.
 
-| # | Sub-state           | Activity                                                         | Failure handling                                            |
-|---|---------------------|------------------------------------------------------------------|-------------------------------------------------------------|
-| 1 | CheckingIntegrity   | Verify config / firmware partitions are not partially written    | Unrecoverable corruption → Faulted (REQ-NF-214)             |
-| 2 | LoadingConfig       | `ConfigStore.read()`; fall back to defaults on failure           | Partial fallback OK, never fatal (SA-010, -020, -050)       |
-| 3 | BringingUpSensors   | Initialise sensor simulation module                              | ≥1 sensor OK → continue; all fail → Faulted                 |
-| 4 | BringingUpLCD       | Initialise LCD driver and display layer                          | Failure → Faulted (LCD essential per REQ-LD-000)            |
-| 5 | StartingMiddleware  | Start Modbus Slave sub-machine; start AlarmService; start CLI    | Sub-machines own their own failure recovery                 |
+| # | Sub-state           | Entry action | Do activity                                                      | Exit action | Failure handling                                            |
+|---|---------------------|--------------|------------------------------------------------------------------|-------------|-------------------------------------------------------------|
+| 1 | CheckingIntegrity   | none         | Verify config / firmware partitions are not partially written    | none        | Unrecoverable corruption → Faulted (REQ-NF-214)             |
+| 2 | LoadingConfig       | none         | `ConfigStore.read()`; fall back to defaults on failure           | none        | Partial fallback OK, never fatal (SA-010, -020, -050)       |
+| 3 | BringingUpSensors   | none         | Initialise sensor simulation module                              | none        | ≥1 sensor OK → continue; all fail → Faulted                 |
+| 4 | BringingUpLCD       | none         | Initialise LCD driver and display layer                          | none        | Failure → Faulted (LCD essential per REQ-LD-000)            |
+| 5 | StartingMiddleware  | none         | Start Modbus Slave sub-machine; start AlarmService; start CLI    | none        | Sub-machines own their own failure recovery                 |
 
 Unlike the gateway, the field-device Init has **no SelfChecking sub-step**
 — REQ-DM-040 is gateway-only (UC-17). Sensor and LCD verification happens
@@ -700,7 +721,13 @@ registers, evaluate alarms, respond to gateway polls and CLI commands.
 
 **Traceability:** SA-070, -080, -090, -100, -110..160, -170;
 AM-000, -010, -011, -020; LD-010..090;
-LI-000..020, -130..160; MB-000; NF-205, -208, -212.
+LI-000..020, -130..160; MB-000; NF-208, -212.
+
+**Note (REQ-NF-205):** Sensor reinitialisation on failure is handled
+entirely within `SensorService`'s internal recovery loop; the lifecycle
+machine remains in Operational throughout. If `SensorService` cannot
+reinitialise a sensor, it emits `unrecoverable_error` → T13 (→ Faulted).
+NF-205 traces to `SensorService`, not to this state machine.
 
 ### EditingConfig — simple
 
@@ -709,14 +736,13 @@ acquisition and alarm evaluation continue (handled by their own tasks);
 but Modbus address and serial-port settings take effect only on
 confirmation, with rollback on failure.
 
-- **Entry action:** open provisioning menu on LCD (REQ-LD-100); start
-  confirmation-timeout timer; snapshot current config.
+- **Entry action:** start confirmation-timeout timer.
 - **Do activity:** receive parameter inputs; validate each (LI-090);
   display feedback on LCD; await confirmation.
-- **Exit action:** close provisioning menu; clear timeout timer; on apply,
-  persist (LI-110, -120, DM-090) and emit `modbus_address_changed` if
-  the address changed (consumed by Modbus Slave); on cancel/timeout,
-  restore snapshot.
+- **Exit action:** close provisioning menu; clear timeout timer.
+
+*Snapshot, apply, and restore are owned exclusively by T10, T11, T12
+to avoid double invocation.*
 
 **Traceability:** LI-030, -070, -080, -090, -100, -110, -120, -0E2, -0E3;
 LD-100..150; DM-090.
@@ -761,8 +787,7 @@ stays in a safe, observable state until external/watchdog reset.
 |-----|------------------------------------|---------------------|-------------------------------------------------------|
 | I1  | `polling_timer_tick`               | —                   | `SensorService.read_cycle()`                          |
 | I2  | `lcd_refresh_timer` (5 Hz)         | —                   | `GraphicsLibrary.refresh()` (NF-108)                  |
-| I3  | `new_processed_reading`            | —                   | `update_modbus_registers(); update_lcd_buffer()` (SA-150, MB-000) |
-| I4  | `new_processed_reading`            | —                   | `AlarmService.evaluate()` (AM-000..-020)              |
+| I3  | `new_processed_reading`            | —                   | `update_modbus_registers(); update_lcd_buffer()` (SA-150, MB-000); `AlarmService.evaluate()` (AM-000..-020) — register/LCD update always precedes alarm evaluation so alarm logic sees the latest values |
 | I5  | `modbus_time_push_received`        | —                   | `RtcDriver.set_time(); TimeProvider.mark_synced()`    |
 | I6  | `remote_read_received_via_modbus`  | —                   | `SensorService.read_now()` (SA-170)                   |
 | I7  | `cli_diagnostic_received`          | `[cmd_recognised]`  | `dispatch_and_respond()` (LI-000..020, -130..160)     |
@@ -808,9 +833,11 @@ Wait for an incoming Modbus frame on the RS-485 bus.
 - **Do activity:** wait for `frame_complete` event.
 - **Exit action:** disable RX; pass received frame buffer to processing.
 
-**Internal action:** on `new_processed_reading_available` event from
-SensorService, write the value to ModbusRegisterMap (REQ-MB-000).
-Does not change state.
+**Internal action:** on `new_processed_reading` event from
+SensorService, write the value via `IModbusRegisterMap` (REQ-MB-000).
+Does not change state. `IModbusRegisterMap` is a DIP interface owned by
+the Application layer; `ModbusSlave` depends on the abstraction only —
+the concrete binding is specified in LLD.
 
 **Traceability:** MB-000, MB-100 (address filter applies on exit).
 
@@ -857,7 +884,7 @@ Transmit the response frame back to the gateway over RS-485.
 
 | #   | In state | Event                              | Guard | Action                                          |
 |-----|----------|------------------------------------|-------|-------------------------------------------------|
-| I1  | Idle     | `new_processed_reading_available`  | —     | `ModbusRegisterMap.write(addr, value)` (MB-000) |
+| I1  | Idle     | `new_processed_reading`            | —     | `IModbusRegisterMap.write(addr, value)` (MB-000) — DIP interface; concrete binding specified in LLD |
 | I2  | Idle     | `modbus_address_changed`           | —     | update address filter                           |
 
 ### Why `response_required` is a guard, not a separate state
@@ -883,11 +910,11 @@ How the six machines couple at runtime.
 
 | Coupling                                     | Mechanism                                                                                        |
 |----------------------------------------------|--------------------------------------------------------------------------------------------------|
-| Gateway lifecycle ↔ Cloud Connectivity       | Init triggers Cloud Connectivity start (REQ-CC-050). Otherwise independent — gateway does not block on cloud (REQ-NF-200). |
-| Gateway lifecycle ↔ Firmware Update          | Top-level `UpdatingFirmware` composite delegates to FU machine. FU's `update_done` returns to gateway via T18/T19/T20. Applying → SelfChecking and RollingBack → Failed reboot chains both cross gateway-lifecycle Init in the new firmware via the entry-point pseudo-state. |
+| Gateway lifecycle ↔ Cloud Connectivity       | Init triggers Cloud Connectivity start (REQ-CC-050). Otherwise independent — gateway does not block on cloud (REQ-NF-200). Cloud Connectivity emits `internet_restored` (REQ-TS-0E1) on Connected entry; consumed by `NtpClient` to trigger an immediate resync. |
+| Gateway lifecycle ↔ Firmware Update          | Machine 1 T14 emits `update_started` (consumed by Machine 3 T2: Idle → Downloading). Machine 3 reaching Committed or Failed emits `update_done` (consumed by Machine 1 T18/T19/T20). Machine 1 exiting UpdatingFirmware via T18/T19/T20 emits `lifecycle_exits_updating` (consumed by Machine 3 T13/T14: terminal → Idle). Machine 3 T7 and T11 emit `reset_requested` instead of calling `NVIC_SystemReset()` directly; Machine 1 I18 (UpdatingFirmware internal transition) owns the single canonical reset call. The reboot-and-resume chain (Applying → SelfChecking; RollingBack → Failed) crosses gateway-lifecycle Init via the persisted-flag entry-point pseudo-state. |
 | Gateway lifecycle ↔ Modbus Master            | Init starts Modbus Master. Modbus failures surface via `node_offline` event (consumed by HealthMonitor / CloudPublisher); they do NOT change gateway top-level state. |
 | Gateway EditingConfig → Cloud Connectivity   | On apply, emits `internet_params_changed`; Cloud Connectivity force-disconnects and reconnects with new credentials (Connected → Disconnected via T7 of Machine 2). |
-| Cloud Connectivity ↔ Firmware Update         | FU uses CloudPublisher (which uses Cloud Connectivity) to receive image chunks and report results. If Cloud Connectivity drops mid-update, FU pauses in Downloading and resumes via REQ-DM-051. |
+| Cloud Connectivity ↔ Firmware Update         | FU uses CloudPublisher (which uses Cloud Connectivity) to receive image chunks and report results. REQ-DM-051 resumability is satisfied by persisting the download offset on every successful chunk (Machine 3 I1: `persist_offset()`); a connectivity-loss restart re-enters Downloading from the persisted offset without a separate Paused state. |
 
 ## Within the field device
 
@@ -895,7 +922,7 @@ How the six machines couple at runtime.
 |---------------------------------------------------------|----------------------------------------------------------------------------|
 | Field-device lifecycle ↔ Modbus Slave                   | Init.StartingMiddleware brings up the slave; thereafter it runs autonomously. |
 | Modbus Slave → Field-device lifecycle (Operational)     | A successful write to the time-push holding register (REQ-MB-020) emits `modbus_time_push_received`, consumed by Operational internal transition I5. |
-| Sensor pipeline (in Operational) → Modbus Slave         | New processed readings emit `new_processed_reading_available`, consumed by Modbus Slave internal transition I1 (write to register map). |
+| Sensor pipeline (in Operational) → Modbus Slave         | New processed readings emit `new_processed_reading` (canonical name), consumed by Machine 5 Operational I3 (register/LCD update + alarm evaluation). `ModbusSlave` I1 also reacts to this event via `IModbusRegisterMap` (DIP interface; P1-compliant). |
 | Field-device EditingConfig → Modbus Slave               | On Modbus-address change, emits `modbus_address_changed`; Slave updates its address filter without restarting (I2). |
 
 ## Across the physical boundary
@@ -906,6 +933,34 @@ How the six machines couple at runtime.
 
 Sequence diagrams (HLD Artefact #5) will illustrate these interactions
 concretely.
+
+---
+
+# Requirement derivation
+
+The table below maps each SRS functional area to the states, transitions,
+and guards that satisfy it, providing the reviewable forward-trace required
+by the gate checklist.
+
+| SRS area | States / transitions / guards | Justification |
+|---|---|---|
+| REQ-SA-000..-060 (boot / init) | Machine 1 Init sub-states 1–5; Machine 5 Init sub-states 1–5 | Sequential sub-state progression gates Operational entry on all-subsystems-up |
+| REQ-SA-070..-170 (sensor ops) | Machine 1 Operational I1–I8; Machine 5 Operational I1–I8 | Periodic read cycle (I1), alarm evaluation, LCD/Modbus update, remote read |
+| REQ-AM-000..-030 (alarms) | Machine 1 I2–I3; Machine 5 I3 (merged) | AlarmService evaluates after every new reading; CloudPublisher routes alarm events |
+| REQ-CC-050..-060 (MQTT/TLS) | Machine 2 Connecting entry; T2/T3 | TLS handshake, X.509 auth on every connect attempt |
+| REQ-BF-000..-020 (store-and-forward) | Machine 2 Disconnected do-activity; I2/I3 | Enqueue to CircularFlashLog; drop-oldest on overflow |
+| REQ-DM-010..-030 (remote restart) | Machine 1 T13, Restarting, T17 | Confirmation guard on T13; restart_flag enables DM-030 on next boot |
+| REQ-DM-040 (post-restart self-check) | Machine 1 Init sub-state 5 (SelfChecking) | Runs on every boot; result gates Operational entry |
+| REQ-DM-050..-080 (OTA lifecycle) | Machine 3 Downloading→Validating→Applying→SelfChecking→Committed/Failed | Each stage maps to one state; cryptographic check in Validating; boot-pointer flip in Applying |
+| REQ-DM-071..-074 (rollback) | Machine 3 RollingBack; Machine 1 I18 | Self-check failure triggers rollback; gateway lifecycle owns reset |
+| REQ-MB-000..-100 (Modbus protocol) | Machine 4 (master); Machine 6 (slave) | Half-duplex polling + command dispatch (master); address filter + frame dispatch (slave) |
+| REQ-NF-103..-104 (link hysteresis) | Machine 4 `record_poll_failure/success()` sidebar | Offline/online threshold tracked in transition action variables |
+| REQ-NF-200 (cloud loss non-blocking) | Machine 2 independence from Machine 1 top level | Cloud Connectivity sub-machine owns Disconnected; Machine 1 stays Operational |
+| REQ-NF-202..-204 (timing budgets) | Machine 1/5 Init time-budget timer; Machine 3 RollingBack ≤ 10 s | Timer started on Init entry; RollingBack traces NF-204 |
+| REQ-NF-205 (sensor reinit) | `SensorService` internal loop (not lifecycle) | Lifecycle stays Operational; permanent failure surfaces as `unrecoverable_error` |
+| REQ-LI-* (CLI provisioning) | Machine 1/5 EditingConfig; T10/T11/T12 | Snapshot-on-enter, apply-or-restore-on-exit, timeout guard |
+| REQ-LD-000..-240 (LCD) | Machine 5 Init.BringingUpLCD; Operational I2; EditingConfig | LCD init gates entry to Operational; 5 Hz refresh in Operational |
+| REQ-TS-030..-040 (time sync) | Machine 1 I6/I7; Machine 5 I5 | NTP resync periodic; time-push via Modbus |
 
 ---
 

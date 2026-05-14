@@ -1,8 +1,41 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.6 (HLD complete — pending gate review)
+**Version:** 0.7 (gate review remediation applied)
 **Date:** May 2026
 **Status:** In progress
+
+---
+
+## Contents
+
+| § | Section |
+|---|---------|
+| 1 | Introduction |
+| 2 | System context |
+| 3 | System architecture — physical topology |
+| 4 | Domain model |
+| 5 | Component design — Field Device |
+| 6 | Component design — Gateway |
+| 7 | Behavioural design — state machines |
+| 8 | Architectural patterns |
+| 9 | Hardware abstraction strategy |
+| 10 | Sequence diagrams |
+| 11 | Task design |
+| 12 | Modbus register map |
+| 13 | Flash partition layout |
+| 14 | Architectural decisions log |
+
+## Revision history
+
+| Version | Date | Summary of changes |
+|---------|------|--------------------|
+| 0.1 | Jan 2026 | Initial structure: introduction (§1), system context (§2), physical topology (§3) |
+| 0.2 | Feb 2026 | Domain model (§4); Field Device and Gateway component views (§5–§6) |
+| 0.3 | Mar 2026 | State machine designs (§7); architectural patterns and hardware abstraction strategy (§8–§9) |
+| 0.4 | Mar 2026 | Sequence diagrams (§10); DeviceProfileRegistry introduced via §10.4 architectural feedback |
+| 0.5 | Apr 2026 | FreeRTOS task design (§11); Modbus register map (§12); flash partition layout (§13) |
+| 0.6 | May 2026 | Architectural decisions log (§14); artefact set complete; submitted for Phase 2→3 gate review |
+| 0.7 | May 2026 | Gate review remediation: TOC, revision history, companion list, actor list, component counts, DeviceProfileRegistry in §6.1/§6.7, §7.6 FD Init fix, §9 virtual-hardware note, §10.4/§11.4 cross-ref fixes, §14.1 D## prefixes, duplicate removed, D21–D41 complete |
 
 ---
 
@@ -17,13 +50,19 @@ Where this document references detailed specifications, the source material is i
 - `vision.md` — system concept, scope, success criteria.
 - `SRS.md` — testable functional and non-functional requirements.
 - `use-case-descriptions.md` — narrative of every actor-system interaction.
-- `domain-model.md` — entity catalogue and relationships.
+- `domain-model.md` — entity catalogue and relationships. *(companion in preparation)*
 - `components.md` — full per-component responsibility and interface specification.
 - `state-machines.md` — runtime state machines of both nodes, with full state lists, transition tables, and traceability.
+- `sequence-diagrams.md` — 18 sequence diagrams with message tables and traceability.
+- `task-breakdown.md` — FreeRTOS task design, IPC strategy, and schedulability check.
+- `modbus-register-map.md` — full register-by-register specification, function code support, and test plan.
+- `flash-partition-layout.md` — non-volatile memory layout for both boards.
+- `architecture-principles.md` — numbered architectural principles (P1–P9) referenced throughout.
+- `diagram-colour-palette.md` — colour conventions used across all UML diagrams.
 
 ### 1.2 How to read this document
 
-Each architectural concern is presented through a *view* — a focused diagram answering one question. The document is layered: Section 2 sets the system context, Section 3 establishes the physical topology, Section 4 introduces the domain entities, Sections 5 and 6 decompose each node into software components, Section 7 describes the runtime behaviour through state machines, and Sections 8–9 explain the architectural patterns and hardware abstraction strategy that bind everything together.
+Each architectural concern is presented through a *view* — a focused diagram answering one question. The document is layered: Section 2 sets the system context, Section 3 establishes the physical topology, Section 4 introduces the domain entities, Sections 5 and 6 decompose each node into software components, Section 7 describes the runtime behaviour through state machines, and Sections 8–9 explain the architectural patterns and hardware abstraction strategy that bind everything together. Section 10 presents the sequence diagrams and the architectural feedback they generated. Section 11 covers the FreeRTOS task design. Sections 12 and 13 specify the Modbus register map and flash partition layout respectively. Section 14 is the decisions log — every design choice made during the HLD phase, with rationale and the alternatives rejected.
 
 The reader should expect to scroll through diagrams and prose in roughly equal measure. The diagrams anchor the structure; the prose carries the reasoning.
 
@@ -39,7 +78,7 @@ The HLD phase consists of the following artefacts:
 | 2 | Domain Model | Complete |
 | 3 | Component Diagrams (per board, multi-view) | Complete |
 | 4 | State Machine Diagrams | Complete |
-| 5 | Data Flow | Sequence Diagrams | Complete |
+| 5 | Sequence Diagrams | Complete |
 | 6 | FreeRTOS Task Breakdown | Complete |
 | 7 | Modbus Register Map | Complete |
 | 8 | Flash Partition Layout | Complete |
@@ -52,7 +91,7 @@ This document is updated incrementally as each artefact is completed.
 
 The system addresses a recurring problem in industrial environmental monitoring: sensor data is captured at remote sites but is not visible until a technician visits, alarms go unnoticed, and configuration changes require a physical visit. The Vision document (`vision.md`) details the problem statement and stakeholder needs.
 
-The system has three actors: a **Local Operator** physically present at the site, a **Remote Operator** working through a cloud interface, and a **Field Technician** maintaining the device.
+The system has three actors: a **Field Technician** physically present at the site performing installation, commissioning, and maintenance; a **Remote Operator** working through a cloud interface to monitor sensor data, configure thresholds, and issue commands; and **AWS IoT Core** (`«system»`), the cloud-side broker and rules engine that receives telemetry and delivers commands. These actors are defined in `vision.md` §4 and named consistently across all use cases in `use-case-descriptions.md`.
 
 ![Use Case Diagram](../diagrams/use-case-diagram.png)
 
@@ -84,19 +123,19 @@ The domain model captures the conceptual entities that the software manipulates 
 
 Thirteen entities cover the operational domain: sensor data (`Sensor`, `SensorReading`, `MeasurementValue`), alarms (`Alarm`, `AlarmThreshold`), system state (`Device`, `DeviceHealthSnapshot`), persistence (`Configuration`, `LogEntry`, `BufferedRecord`), commands (`Command`), and cloud-bound payloads (`Telemetry`, `FirmwareImage`).
 
-The `domain-model.md` companion document explains each entity, the relationships and their multiplicities, and the modelling decisions taken — notably the composition of `SensorReading` from one to three `MeasurementValue` instances (cardinality-based variation), the denormalisation of `Alarm` (so historical accuracy survives reconfiguration), and the polymorphic-by-composition treatment of `BufferedRecord` (preserving each payload's structure without inheritance).
+The `domain-model.md` companion document will explain each entity, the relationships and their multiplicities, and the modelling decisions taken — notably the composition of `SensorReading` from one to three `MeasurementValue` instances (cardinality-based variation), the denormalisation of `Alarm` (so historical accuracy survives reconfiguration), and the polymorphic-by-composition treatment of `BufferedRecord` (preserving each payload's structure without inheritance). *(Note: `domain-model.md` is in preparation. The entity narrative above is the authoritative summary until that companion is complete.)*
 
 ---
 
 ## 5. Component design — Field Device
 
-The Field Device firmware decomposes into 25 software components across four layers: Application, Middleware, Driver, and Hardware. The full per-component specification is in `components.md`. This section presents the components through five focused views, each answering one architectural question.
+The Field Device firmware decomposes into 25 software components across four layers: Application, Middleware, Driver, and Hardware (see §8.1 for the layered architecture definition). The full per-component specification is in `components.md`. This section presents the components through five focused views, each answering one architectural question *(D10)*.
 
 ### 5.1 Component overview
 
 The Field Device hosts eight application components, five middleware components, and twelve drivers. The complete list, with use case ownership and interface contracts, is in `components.md`.
 
-The application layer is dominated by data exposure (LcdUi for the screen, ModbusRegisterMap for the fieldbus, ConsoleService for the CLI) and data production (SensorService, AlarmService). It also includes `LifecycleController`, the explicit owner of the field-device top-level lifecycle state machine — coordinating Init sub-step sequencing, splash-screen progression, Operational ↔ EditingConfig transitions, and Faulted entry on unrecoverable conditions. The middleware layer hosts the protocol stack (ModbusSlave), the graphics library (LVGL), persistence (ConfigStore), and cross-cutting services (Logger, TimeProvider). The driver layer is direct register access via CMSIS, with two drivers — BarometerDriver and HumidityTempDriver — implemented in software per Vision §5.1.1 (the field device simulates its sensors).
+The application layer is dominated by data exposure (LcdUi for the screen, ModbusRegisterMap for the fieldbus, ConsoleService for the CLI) and data production (SensorService, AlarmService). It also includes `LifecycleController`, the explicit owner of the field-device top-level lifecycle state machine — coordinating Init sub-step sequencing, splash-screen progression, Operational ↔ EditingConfig transitions, and Faulted entry on unrecoverable conditions *(D11)*. The middleware layer hosts the protocol stack (ModbusSlave), the graphics library (LVGL), persistence (ConfigStore), and cross-cutting services (Logger, TimeProvider). The driver layer is direct register access via CMSIS, with two drivers — BarometerDriver and HumidityTempDriver — implemented in software per Vision §5.1.1 (the field device simulates its sensors).
 
 ### 5.2 Data flow view
 
@@ -114,7 +153,7 @@ This view answers: *how is alarm evaluation wired and where do thresholds come f
 
 ![Field Device — Sensor and Alarm Pipeline](../diagrams/component-field-device-sensor-and-alarm-pipeline.png)
 
-The sensor pipeline at the application level is event-driven. SensorService produces readings periodically, applies range validation (REQ-SA-120) and signal conditioning (REQ-SA-130, REQ-SA-140), and emits new-reading events to subscribers. AlarmService subscribes, reads thresholds and hysteresis settings from `IConfigProvider` (the read-side of ConfigService), and notifies its own subscribers when alarm state transitions occur.
+The sensor pipeline at the application level is event-driven. SensorService produces readings periodically, applies range validation (REQ-SA-120) and signal conditioning (REQ-SA-130, REQ-SA-140), and emits new-reading events to subscribers. AlarmService subscribes, reads thresholds and hysteresis settings from `IConfigProvider` (the read-side of ConfigService), and notifies its own subscribers when alarm state transitions occur *(D7)*.
 
 The driver-level acquisition path is shown on the data flow view; this view abstracts it away to keep focus on the alarm evaluation logic.
 
@@ -126,7 +165,7 @@ This view answers: *how is logging wired across the system?*
 
 Logger is a cross-cutting middleware service consumed by every Application and Middleware component for diagnostic output (REQ-NF-500). Drawing every Logger consumer connection on the other views would render them unreadable; the convention is to elide Logger from those views and document its consumers here.
 
-Logger uses RtcDriver directly to obtain timestamps, bypassing TimeProvider. This is a documented bootstrap exception: TimeProvider depends on Logger (it logs sync errors), so Logger cannot also depend on TimeProvider without creating a circular dependency.
+Logger uses RtcDriver directly to obtain timestamps, bypassing TimeProvider *(D8)*. This is a documented bootstrap exception: TimeProvider depends on Logger (it logs sync errors), so Logger cannot also depend on TimeProvider without creating a circular dependency.
 
 ### 5.5 System health and telemetry pipeline view
 
@@ -134,9 +173,9 @@ This view answers: *how do health metrics flow from producers to displays?*
 
 ![Field Device — System Health and Telemetry Pipeline](../diagrams/component-field-device-system-health-and-telemetry-pipeline.png)
 
-HealthMonitor is a passive collector at the application level. It exposes two interfaces: `IHealthSnapshot` (read-side, consumed by LcdUi, ConsoleService, and ModbusRegisterMap which exports it via Modbus to the Gateway) and `IHealthReport` (write-side, consumed by metric producers).
+HealthMonitor is a passive collector at the application level. It exposes two interfaces: `IHealthSnapshot` (read-side, consumed by LcdUi, ConsoleService, and ModbusRegisterMap which exports it via Modbus to the Gateway) and `IHealthReport` (write-side, consumed by metric producers) *(D2)*.
 
-Producers fall into two categories. Application-layer producers (SensorService, ModbusRegisterMap, ConfigService, etc.) push metrics directly. Middleware producers participate via the Metric Producer Pattern: ModbusSlave exposes `IModbusSlaveStats` for accumulated counters (CRC errors, timeouts, transaction counts), polled by ModbusRegisterMap and reported upward; TimeProvider, ConfigStore, and similar middleware components depend on `IHealthReport` for event-based metrics (sync state changes, persistence failures). The DIP relationship — `IHealthReport` owned by HealthMonitor (Application) but consumed by Middleware — is what preserves layering despite the bottom-up data flow.
+Producers fall into two categories. Application-layer producers (SensorService, ModbusRegisterMap, ConfigService, etc.) push metrics directly. Middleware producers participate via the Metric Producer Pattern (see §8.4): ModbusSlave exposes `IModbusSlaveStats` for accumulated counters (CRC errors, timeouts, transaction counts), polled by ModbusRegisterMap and reported upward *(D4)*; TimeProvider, ConfigStore, and similar middleware components depend on `IHealthReport` for event-based metrics (sync state changes, persistence failures). The DIP relationship (see §8.3) — `IHealthReport` owned by HealthMonitor (Application) but consumed by Middleware — is what preserves layering despite the bottom-up data flow *(D3)*.
 
 HealthMonitor also drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error).
 
@@ -146,19 +185,19 @@ This view answers: *how do parameter changes propagate from input to flash?*
 
 ![Field Device — Configuration and Persistence View](../diagrams/component-field-device-configuration-and-persistence.png)
 
-ConfigService applies Interface Segregation: writers consume `IConfigManager` (LcdUi, ConsoleService, ModbusRegisterMap for incoming writes from the Gateway), readers consume `IConfigProvider` (SensorService, AlarmService, ModbusRegisterMap for outgoing register exposure). Writes are validated, applied to in-memory state, and persisted via ConfigStore. ConfigStore wraps QspiFlashDriver and handles the wear-levelling and atomic-update concerns that belong in a persistence library, not in the application.
+ConfigService applies Interface Segregation *(D1)*: writers consume `IConfigManager` (LcdUi, ConsoleService, ModbusRegisterMap for incoming writes from the Gateway), readers consume `IConfigProvider` (SensorService, AlarmService, ModbusRegisterMap for outgoing register exposure). Writes are validated, applied to in-memory state, and persisted via ConfigStore. ConfigStore wraps QspiFlashDriver and handles the wear-levelling and atomic-update concerns that belong in a persistence library, not in the application.
 
 ---
 
 ## 6. Component design — Gateway
 
-The Gateway firmware decomposes into 32 software components: eleven application, seven middleware, fourteen drivers. It is more diverse than the Field Device because of its dual role as fieldbus master and cloud-facing edge.
+The Gateway firmware decomposes into 34 software components: twelve application, eight middleware, fourteen drivers. It is more diverse than the Field Device because of its dual role as fieldbus master and cloud-facing edge.
 
 ### 6.1 Component overview
 
-The application layer hosts the cloud-facing components (CloudPublisher, StoreAndForward), the fieldbus orchestrator (ModbusPoller), the time service (TimeService), the firmware update orchestrator (UpdateService), plus the same set of services found on the Field Device (HealthMonitor, SensorService, AlarmService, ConsoleService, ConfigService). The application layer also hosts `LifecycleController`, which owns the gateway top-level lifecycle — coordinating Init sub-steps, the restart-confirmation flow (UC-17), the firmware update handoff to UpdateService (UC-18), and Faulted entry on unrecoverable conditions.
+The application layer hosts the cloud-facing components (CloudPublisher, StoreAndForward), the fieldbus orchestrator (ModbusPoller), the time service (TimeService), the firmware update orchestrator (UpdateService), the device profile registry (DeviceProfileRegistry), plus the same set of services found on the Field Device (HealthMonitor, SensorService, AlarmService, ConsoleService, ConfigService). The application layer also hosts `LifecycleController`, which owns the gateway top-level lifecycle — coordinating Init sub-steps, the restart-confirmation flow (UC-17), the firmware update handoff to UpdateService (UC-18), and Faulted entry on unrecoverable conditions *(D11)*.
 
-The middleware layer adds the cloud and time protocols (MqttClient, NtpClient), the ring-buffer log over flash (CircularFlashLog), the firmware image manager (FirmwareStore), and the Modbus master stack (ModbusMaster). Logger, TimeProvider, and ConfigStore are present as on the Field Device.
+The middleware layer adds the cloud and time protocols (MqttClient, NtpClient), the ring-buffer log over flash (CircularFlashLog), the firmware image manager (FirmwareStore), and the Modbus master stack (ModbusMaster). Logger, TimeProvider, and ConfigStore are present as on the Field Device. The middleware layer thus counts eight components in total.
 
 The driver layer adds WiFi (over SPI) and the WiFi module's GPIO control lines, plus a software-reset driver used by the firmware update flow.
 
@@ -182,7 +221,7 @@ The cloud path runs from CloudPublisher through MqttClient and WifiDriver. MqttC
 
 When MQTT publish fails (connection lost, broker unreachable), CloudPublisher routes payloads into StoreAndForward, which appends them to CircularFlashLog. CircularFlashLog implements a chronological append-and-consume log over flash sectors, overwriting the oldest records when full. On reconnection, StoreAndForward replays buffered records in order.
 
-UpdateService orchestrates firmware updates per UC-18. It downloads the new image via MqttClient and delegates storage and signature verification (REQ-DM-070) to FirmwareStore, a middleware component that owns flash partition management. After verification succeeds, UpdateService commits the slot switch via FirmwareStore and triggers a reboot via ResetDriver. Separating image management (middleware) from update orchestration (application) keeps each concern testable in isolation.
+UpdateService orchestrates firmware updates per UC-18. It downloads the new image via MqttClient and delegates storage and signature verification (REQ-DM-070) to FirmwareStore, a middleware component that owns flash partition management *(D9)*. After verification succeeds, UpdateService commits the slot switch via FirmwareStore and triggers a reboot via ResetDriver. Separating image management (middleware) from update orchestration (application) keeps each concern testable in isolation.
 
 ### 6.4 System diagnostic and traceability view
 
@@ -200,13 +239,13 @@ The Gateway evaluates alarms only on its own sensor data. Field-device alarms ar
 
 ![Gateway — System Health and Telemetry Pipeline](../diagrams/component-gateway-system-health-and-telemetry-pipeline.png)
 
-Same DIP and Metric Producer Pattern as on the Field Device, with more producers. ModbusMaster exposes `IModbusMasterStats` (polled by ModbusPoller); MqttClient exposes `IMqttStats` (polled by CloudPublisher). The middleware event-pushers — TimeProvider, ConfigStore, NtpClient, CircularFlashLog — depend on `IHealthReport` directly. CloudPublisher both reads `IHealthSnapshot` (to publish health telemetry) and reports its own MQTT metrics via `IHealthReport`.
+Same DIP (see §8.3) and Metric Producer Pattern (see §8.4) as on the Field Device, with more producers *(D2, D3, D4)*. ModbusMaster exposes `IModbusMasterStats` (polled by ModbusPoller); MqttClient exposes `IMqttStats` (polled by CloudPublisher). The middleware event-pushers — TimeProvider, ConfigStore, NtpClient, CircularFlashLog — depend on `IHealthReport` directly. CloudPublisher both reads `IHealthSnapshot` (to publish health telemetry) and reports its own MQTT metrics via `IHealthReport`.
 
 ### 6.7 Configuration and persistence view
 
 ![Gateway — Configuration and Persistence](../diagrams/component-gateway-configuration-and-persistence.png)
 
-The same ConfigService split as on the Field Device. Writers (ConsoleService, CloudPublisher when receiving remote configuration commands) consume `IConfigManager`. Readers (SensorService, AlarmService, ModbusPoller) consume `IConfigProvider`. Persistence flows through ConfigStore to QspiFlashDriver.
+The same ConfigService split as on the Field Device *(D1)*. Writers (ConsoleService, CloudPublisher when receiving remote configuration commands) consume `IConfigManager`. Readers (SensorService, AlarmService, ModbusPoller) consume `IConfigProvider`. Persistence flows through ConfigStore to QspiFlashDriver. `DeviceProfileRegistry` also participates in this view: it exposes `IDeviceProfileManager` (write-side, for profile provisioning via ConsoleService or remote configuration) and `IDeviceProfileProvider` (read-side, consumed by ModbusPoller for the polling allowlist). Device profile persistence is delegated to ConfigStore, so profiles survive reboot without a separate flash partition *(D18)*.
 
 ---
 
@@ -229,7 +268,7 @@ The full state lists, transition tables, internal-transition tables, and traceab
 
 A seventh candidate — a per-channel alarm state machine (Clear ↔ Active with hysteresis) — is deliberately deferred to LLD. It is per-instance rather than per-system, the states are trivial (Clear, Active) with a single guarded transition pair, and including it at HLD level would clutter without adding clarity.
 
-State machine diagrams in this project show **structural transitions only**. Internal transitions, entry / do / exit actions, and other behavioural compartments are listed in `state-machines.md`, not on the diagrams. The diagrams answer *"what states exist and how do they connect?"*; the companion document answers *"what does each state actually do?"*. Separating the two keeps the diagrams readable and the behavioural specification authoritative in one place.
+State machine diagrams in this project show **structural transitions only** *(SM-1)*. Internal transitions, entry / do / exit actions, and other behavioural compartments are listed in `state-machines.md`, not on the diagrams. The diagrams answer *"what states exist and how do they connect?"*; the companion document answers *"what does each state actually do?"*. Separating the two keeps the diagrams readable and the behavioural specification authoritative in one place.
 
 ### 7.2 Gateway lifecycle
 
@@ -237,7 +276,7 @@ State machine diagrams in this project show **structural transitions only**. Int
 
 The richest top-level machine in the system. Six top-level states (Init, Operational, EditingConfig, Restarting, UpdatingFirmware, Faulted) plus a five-step composite Init (CheckingIntegrity → LoadingConfig → BringingUpSensors → StartingMiddleware → SelfChecking). Twenty-one state transitions and fifteen internal transitions handle the full operational lifecycle including remote restart with confirmation (UC-17), firmware update handoff (UC-18), CLI provisioning, and unrecoverable-fault entry.
 
-A key architectural decision is encoded here: the gateway lifecycle has no "Degraded" state, even though cloud connectivity may be lost at runtime. Per REQ-NF-200, cloud loss does not change the gateway's top-level mode — it only changes the Cloud Connectivity sub-machine's state (§7.3). Surfacing the distinction here would duplicate logic the sub-machine already owns. EditingConfig is promoted to a top-level state rather than an Operational sub-state because it carries a distinct exit timeout, snapshot/rollback semantics, and a cross-machine event (`internet_params_changed`) that triggers Cloud Connectivity to reconnect with new credentials.
+A key architectural decision is encoded here: the gateway lifecycle has no "Degraded" state, even though cloud connectivity may be lost at runtime *(D12)*. Per REQ-NF-200, cloud loss does not change the gateway's top-level mode — it only changes the Cloud Connectivity sub-machine's state (§7.3). Surfacing the distinction here would duplicate logic the sub-machine already owns. EditingConfig is promoted to a top-level state rather than an Operational sub-state because it carries a distinct exit timeout, snapshot/rollback semantics, and a cross-machine event (`internet_params_changed`) that triggers Cloud Connectivity to reconnect with new credentials *(SM-2)*.
 
 ### 7.3 Cloud connectivity (sub-machine)
 
@@ -253,7 +292,7 @@ The store-and-forward semantics mandated by REQ-BF-000, -010, -020 are encoded a
 
 Owned by `UpdateService`. The most state-rich machine in the system, spanning up to two MCU reboots. Eight states (Idle, Downloading, Validating, Applying, SelfChecking, RollingBack, Committed, Failed) with the dual-bank update sequence: download to inactive bank → verify signature and integrity → set inactive bank as boot → reboot → self-check in new firmware → commit or roll back.
 
-Reboots are not states. They are **transition actions** (`NVIC_SystemReset()`) followed by flag-driven resume on the next boot: gateway-lifecycle Init detects `pending_self_check` or `pending_rollback` and resumes this machine in the appropriate state via the entry-point pseudo-state shown on the diagram. A choice diamond branches on which flag is set, with a UML note documenting that this entry path fires only on the post-update boot — otherwise the machine remains in Idle across the reboot.
+Reboots are not states. They are **transition actions** (`NVIC_SystemReset()`) *(SM-4)* followed by flag-driven resume on the next boot: gateway-lifecycle Init detects `pending_self_check` or `pending_rollback` and resumes this machine in the appropriate state via the entry-point pseudo-state shown on the diagram. A choice diamond branches on which flag is set, with a UML note documenting that this entry path fires only on the post-update boot — otherwise the machine remains in Idle across the reboot.
 
 ### 7.5 Modbus master (sub-machine)
 
@@ -261,13 +300,13 @@ Reboots are not states. They are **transition actions** (`NVIC_SystemReset()`) f
 
 Owned by `ModbusPoller` (with protocol-level frame handling delegated to the `ModbusMaster` Middleware library). Active machine: drives transitions via internal timers. Four states (Idle, Transmitting, AwaitingResponse, ProcessingResponse) with the canonical Modbus polling cycle: send request, wait for response with 200 ms timeout (REQ-MB-050), retry up to three times on timeout (REQ-MB-060), record poll outcome.
 
-Link-state hysteresis (REQ-NF-103, NF-104, NF-215) — declaring the Modbus link offline after three consecutive failed polls and online after three consecutive successful polls — is modelled as transition actions on a `link_state` model variable, not as separate states. The yellow note on the diagram documents the hysteresis pseudocode. An alternative HSM with Online and Offline as composite states each containing the same polling sub-states was considered and rejected as visually redundant.
+Link-state hysteresis (REQ-NF-103, NF-104, NF-215) — declaring the Modbus link offline after three consecutive failed polls and online after three consecutive successful polls — is modelled as transition actions on a `link_state` model variable, not as separate states *(SM-3)*. The yellow note on the diagram documents the hysteresis pseudocode. An alternative HSM with Online and Offline as composite states each containing the same polling sub-states was considered and rejected as visually redundant.
 
 ### 7.6 Field device lifecycle
 
 ![Field Device Lifecycle](../diagrams/state-machine-field-device-lifecycle.png)
 
-Simpler than the gateway: no cloud, no firmware update, no remote restart. Four top-level states (Init, Operational, EditingConfig, Faulted) plus a five-step composite Init (CheckingIntegrity → LoadingConfig → BringingUpSensors → BringingUpLCD → StartingMiddleware). Note the differences from the gateway Init: BringingUpLCD replaces SelfChecking, because LCD is essential per REQ-LD-000 and there is no remote-restart self-check (UC-17 is gateway-only).
+Simpler than the gateway: no cloud, no firmware update, no remote restart. Four top-level states (Init, Operational, EditingConfig, Faulted) plus a five-step composite Init (CheckingIntegrity → LoadingConfig → BringingUpSensors → BringingUpLCD → StartingMiddleware). Note the differences from the gateway Init: the FD adds `BringingUpLCD` between `BringingUpSensors` and `StartingMiddleware`; it omits `SelfChecking` entirely because there is no post-update self-check on the FD (UC-17 is gateway-only and the FD has no OTA). The LCD brings-up step is essential per REQ-LD-000 *(SM-8)*.
 
 The field device's complexity lives mostly *inside* Operational rather than *across* states: ten internal transitions handle sensor polling, LCD refresh, alarm evaluation, Modbus register updates, time-push reception, on-demand reads, and CLI diagnostics. Like the gateway, EditingConfig is a top-level state rather than an Operational sub-state, with a cross-machine `modbus_address_changed` event that updates the Modbus Slave's address filter on apply.
 
@@ -339,19 +378,19 @@ This mixed approach matches industry convention. lwIP exposes statistics through
 
 ### 8.5 Observer (event-driven subscription)
 
-SensorService emits new-reading events. AlarmService subscribes. Each new reading triggers immediate alarm evaluation, satisfying REQ-NF-101 (one-polling-cycle alarm detection) without polling.
+SensorService emits new-reading events. AlarmService subscribes. Each new reading triggers immediate alarm evaluation, satisfying REQ-NF-101 (one-polling-cycle alarm detection) without polling *(D7)*.
 
 This avoids two failure modes of polling: alarm detection latency (waiting for the polling tick) and double polling (SensorService produces, AlarmService polls, the rates rarely align).
 
 ### 8.6 Mediator
 
-ModbusRegisterMap mediates between ConfigService (the configuration source) and ModbusSlave (the protocol stack). When a Modbus master writes to a configuration register, the write reaches ModbusSlave first; ModbusRegisterMap dispatches it to ConfigService for validation and application. When configuration changes affect protocol behaviour (slave address, baud rate), ModbusRegisterMap reads from ConfigService and pushes to ModbusSlave.
+ModbusRegisterMap mediates between ConfigService (the configuration source) and ModbusSlave (the protocol stack) *(D5)*. When a Modbus master writes to a configuration register, the write reaches ModbusSlave first; ModbusRegisterMap dispatches it to ConfigService for validation and application. When configuration changes affect protocol behaviour (slave address, baud rate), ModbusRegisterMap reads from ConfigService and pushes to ModbusSlave.
 
 This keeps ModbusSlave ignorant of project-specific configuration, allowing the protocol stack to remain a reusable middleware component.
 
 ### 8.7 Pull-based access
 
-When a producer feeds multiple consumers, prefer a pull interface (consumers query for data) over push (producer notifies each consumer). Producers stay unaware of consumers.
+When a producer feeds multiple consumers, prefer a pull interface (consumers query for data) over push (producer notifies each consumer). Producers stay unaware of consumers *(D6)*.
 
 SensorService exposes `ISensorService.get_latest()`. LcdUi, ModbusRegisterMap, ConsoleService, AlarmService all consume the same interface. SensorService adds or removes nothing when consumers change.
 
@@ -397,9 +436,11 @@ The drivers fall into three categories:
 
 The result: every peripheral access in the system is direct CMSIS code. No vendor library is imported above the driver layer. The interfaces consumed by Middleware and Application are vendor-neutral by construction.
 
+Vision §9 uses the term "virtual hardware layer" for this boundary. In this design, there is no separate fifth layer: the "virtual hardware layer" of Vision §9 is realised by the upward `IXxx` ports that each driver exposes. These interfaces are owned by the consuming Middleware or Application component (per DIP, §8.3), not by the driver itself. No additional abstraction layer is interposed between Driver and Middleware. The four-layer model of §8.1 is therefore complete and correct.
+
 For middleware that wraps a third-party library, the same boundary discipline applies. GraphicsLibrary on the Field Device wraps LVGL — a vendor-neutral, MIT-licensed C graphics library — and exposes `IGraphics` upward. LVGL is preferred over TouchGFX because TouchGFX's tooling assumes STM32CubeMX integration, conflicting with the portability stance.
 
-The Modbus protocol stack on both boards is implemented from scratch, not wrapped from FreeMODBUS or a vendor SDK. This decision is recorded in §11.1 with rationale.
+The Modbus protocol stack on both boards is implemented from scratch, not wrapped from FreeMODBUS or a vendor SDK *(SM-5)*. This decision is recorded in §14 with rationale.
 
 ---
 ## 10. Sequence diagrams
@@ -433,7 +474,7 @@ The conventions used across all sequence diagrams are documented in
 - Boundary actors (`«cloud»` AWS IoT Core, `«bootloader»` STM32 bootloader)
   mark the system boundary; their internal logic is out of HLD scope.
 - Pull-based downstream consumption (P7) is annotated by UML notes rather than
-  redrawn on every consumer.
+  redrawn on every consumer *(D19)*.
 - Each diagram is accompanied by a numbered message table; the diagram and
   table are kept synchronised by review. **The table is the contract.**
 
@@ -584,7 +625,7 @@ through `ConsoleService` and `ConfigService`.
 ### 10.4 Architectural feedback from this phase
 
 Drawing the sequence diagrams surfaced four substantive issues that fed back
-into the structural design. Each is recorded in §12.1.
+into the structural design. Each is recorded in §14.
 
 1. **Per-slave link state with profile binding.** SD-02 could not represent
    multi-slave allowlist behaviour (REQ-MB-100) without a registry of known
@@ -617,7 +658,7 @@ into the structural design. Each is recorded in §12.1.
 ### 10.5 LLD handoff
 
 The sequence diagrams establish the message-level contract between
-components. The LLD refines them into:
+components *(D20)*. The LLD refines them into:
 
 - **Per-task sequencing** — which FreeRTOS task runs which segment of each
   flow.
@@ -687,8 +728,8 @@ Stack sizes are conservative initial estimates; refined via
 
 ### 11.4 Architectural feedback from this phase
 
-Designing the task layout surfaced three decisions worth highlighting.
-The full set is recorded in §13.
+Designing the task layout surfaced several decisions worth highlighting.
+The full set is recorded in §14.
 
 1. **`AlarmService` co-located with `SensorService`** in `SensorTask` —
    Observer subscriber runs in producer's task context; the extra queue
@@ -696,11 +737,26 @@ The full set is recorded in §13.
 
 2. **`TimeService` and `CloudPublisher` kept in separate tasks** despite
    shared WiFi resource — different activation patterns (hourly vs
-   continuous) honour P5; WiFi protected by `wifi_mutex` *(D22)*.
+   continuous) honour P5; WiFi routed through `WifiTask`'s API *(D22)*.
 
 3. **ISRs reduced to acknowledge / capture / notify** — all driver state
    machines run in task context; interrupt latency bounded by design
    *(D27)*.
+
+4. **`UpdateServiceTask` at priority 1 despite OTA criticality** — OTA is
+   rare and seconds-tolerant; correctness (signature verification, rollback)
+   is the concern, not scheduling priority *(D23)*.
+
+5. **`LifecycleTask` as a dedicated task** — cross-task lifecycle events
+   processed in one context; eliminates need for an external mutex on the
+   lifecycle state machine *(D24)*.
+
+6. **Direct-to-task notification preferred for 1:1 single-event paths** —
+   lighter than a queue (no kernel object beyond the TCB notification value)
+   *(D25)*.
+
+7. **Priority inheritance enabled on all mutexes** — prevents unbounded
+   priority inversion; FreeRTOS-standard practice *(D26)*.
 
 ### 11.5 LLD handoff
 
@@ -880,7 +936,7 @@ pointer swap, and self-check rollback.
 ### 13.5 Bootloader contract
 
 The custom secondary bootloader on the Gateway (16 KB at the reset
-vector) performs the following at every reset:
+vector) *(D36)* performs the following at every reset:
 
 1. Read the boot pointer from metadata.
 2. Verify the indicated bank's image header (magic, version, CRC,
@@ -945,41 +1001,83 @@ The following decisions were considered and resolved during the components and s
 
 ### 14.1 Decisions adopted
 
-| Decision | Rationale |
-|----------|-----------|
-| ConfigService split into `IConfigManager` and `IConfigProvider` | ISP — readers and writers have different needs |
-| HealthMonitor split into `IHealthSnapshot` and `IHealthReport` | ISP — same reasoning, applied to health |
-| `IHealthReport` consumed by Middleware via DIP | Preserves layering while permitting bottom-up data flow |
-| Metric Producer Pattern: stats polling for counters, direct push for events | Matches industry convention; respects responsiveness requirements |
-| ModbusRegisterMap as Mediator between ConfigService and ModbusSlave | Keeps ModbusSlave reusable as a protocol library |
-| Pull-based access for sensor data | Decouples producer from consumers |
-| Event-driven Observer for SensorService → AlarmService | Satisfies REQ-NF-101 alarm detection latency |
-| Logger uses RtcDriver directly (not TimeProvider) | Bootstrap exception — avoids circular dependency |
-| FirmwareStore as middleware separating image management from update orchestration | Signature verification belongs with image storage, not with control flow |
-| Multi-view component diagrams (5 per Field Device, 6 per Gateway) | Each view answers one question; full graph stays in textual spec |
-| `LifecycleController` introduced as Application component owning each board's top-level lifecycle | Lifecycle is a coordination concern distinct from functional decomposition; explicit owner makes the state machines traceable to a real component rather than implicit in `main.c` |
-| No "Degraded" top-level state on the gateway lifecycle | REQ-NF-200 mandates that cloud loss does not change the gateway's top-level mode; cloud-down behaviour is owned by the Cloud Connectivity sub-machine. Promoting Degraded would duplicate sub-machine logic |
-| `EditingConfig` as a top-level state on both boards | Distinct exit timeout, snapshot/rollback semantics, and cross-machine credential-change events justify top-level promotion over Operational sub-state |
-| Modbus link-state hysteresis as model variable + transition actions, not separate states | Avoids an HSM with Online/Offline composites that would duplicate the polling cycle visually |
-| Reboots in Firmware Update are transition actions, not states | The machine resumes via persisted flags detected by gateway-lifecycle Init; entry-point pseudo-state + choice diamond render this on the diagram |
-| State machine diagrams show structural transitions only; behavioural compartments live in `state-machines.md` | Keeps diagrams readable; companion document is the authoritative behavioural specification |
-| Custom Modbus RTU implementation, not FreeMODBUS | Tightly scoped to project needs (function codes 03/04/06/16; minimal exception responses). Demonstrates protocol-level competence and respects the no-HAL-above-driver portability stance. Decision can still flip to FreeMODBUS after LLD design pass without losing the design work |
-| Periodic re-sync triggered by CloudPublisher via async event to TimeService | Connectivity state is owned by CloudPublisher; routing the trigger through it keeps TimeService decoupled from the timing source. RTOS software-timer event-style propagation. |
-| Per-slave probe with profile-bound device-ID validation; fall-through to Running on failure | Industry-standard deny-by-default; a slave that fails identity validation is excluded from the polling allowlist without blocking gateway boot. Supports the 5 s boot budget (REQ-NF-203). |
-| Per-slave probe with profile-bound device-ID validation; fall-through to Running on failure | Industry-standard deny-by-default; a slave that fails identity validation is excluded from the polling allowlist without blocking gateway boot. Supports the 5 s boot budget (REQ-NF-203). |
-| SD-06d self-check probes serial, not parallel | Three probes complete in ~500 ms worst-case; well within the 10 s rollback budget (REQ-NF-204). Coordination primitives not justified at this scale. |
-| Bootloader modelled as «bootloader» boundary actor | Analogous to «cloud» for AWS IoT Core; bootloader internal logic out of HLD scope. Cross-domain handoff preserved. |
-| Per-slave link state with profile binding | Supports REQ-MB-100; the polling allowlist is a derived view over DeviceProfileRegistry. |
-| DeviceProfileRegistry as first-class Application component (gateway only) | Industry EDS/GSD pattern; decouples register-map knowledge from firmware. Persistence delegated to ConfigStore. |
-| Pull-based downstream consumption represented via UML notes only | Consumers read on their own schedules per P7; redrawing each consumer would clutter the diagram without adding information. |
-| Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict. |
-| Field Device has no OTA; single-bank firmware | OTA is Gateway-only per project narrative (SD-06a–d, `UpdateService` on Gateway only); FD firmware updated via SWD |
-| Custom secondary bootloader on Gateway (16 KB) | STM32 ROM bootloader not used at runtime; required for OTA, dual-bank, and rollback logic |
-| Both Gateway firmware banks on-chip (480 KB each) | Instant swap (no QSPI-to-on-chip copy on boot); both banks XIP; simpler bootloader. Trade-off: caps firmware at 480 KB, well above the expected footprint |
-| Metadata partition uses A/B sector rotation for frequently updated fields | Spreads wear on the most write-hot fields; protects against power loss during metadata update |
-| `ConfigStore` uses A/B sector rotation across two 32 KB slots | Doubles effective endurance per logical config; power-loss-safe (previous slot remains valid until new slot CRC-verified) |
-| `CircularFlashLog` is a sector-wrap ring buffer with persistent head pointer | Continuous logging without endurance concern; head pointer in dedicated A/B-rotated sector |
-| OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Bank B |
+Decisions are labelled **D##** where a D## anchor exists in a companion document; supplementary decisions from `state-machines.md` are labelled **SM-N** with reference to that companion's unnumbered decisions section.
+
+#### From the components phase (`components.md`)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| **D1** | ConfigService split into `IConfigManager` and `IConfigProvider` | ISP — readers and writers have different needs |
+| **D2** | HealthMonitor split into `IHealthSnapshot` and `IHealthReport` | ISP — same reasoning, applied to health |
+| **D3** | `IHealthReport` consumed by Middleware via DIP | Preserves layering while permitting bottom-up data flow |
+| **D4** | Metric Producer Pattern: stats polling for counters, direct push for events | Matches industry convention; respects responsiveness requirements |
+| **D5** | ModbusRegisterMap as Mediator between ConfigService and ModbusSlave | Keeps ModbusSlave reusable as a protocol library |
+| **D6** | Pull-based access for sensor data | Decouples producer from consumers |
+| **D7** | Event-driven Observer for SensorService → AlarmService | Satisfies REQ-NF-101 alarm detection latency |
+| **D8** | Logger uses RtcDriver directly (not TimeProvider) | Bootstrap exception — avoids circular dependency |
+| **D9** | FirmwareStore as middleware separating image management from update orchestration | Signature verification belongs with image storage, not with control flow |
+| **D10** | Multi-view component diagrams (5 per Field Device, 6 per Gateway) | Each view answers one question; full graph stays in textual spec |
+| **D11** | `LifecycleController` introduced as Application component owning each board's top-level lifecycle | Lifecycle is a coordination concern distinct from functional decomposition; explicit owner makes the state machines traceable to a real component rather than implicit in `main.c` |
+| **D12** | No "Degraded" top-level state on the gateway lifecycle | REQ-NF-200 mandates that cloud loss does not change the gateway's top-level mode; cloud-down behaviour is owned by the Cloud Connectivity sub-machine. Promoting Degraded would duplicate sub-machine logic |
+
+#### From the state machines phase (`state-machines.md`)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| **SM-1** | State machine diagrams show structural transitions only; behavioural compartments live in `state-machines.md` | Keeps diagrams readable; companion document is the authoritative behavioural specification |
+| **SM-2** | `EditingConfig` as a top-level state on both boards | Distinct exit timeout, snapshot/rollback semantics, and cross-machine credential-change events justify top-level promotion over Operational sub-state |
+| **SM-3** | Modbus link-state hysteresis as model variable + transition actions, not separate states | Avoids an HSM with Online/Offline composites that would duplicate the polling cycle visually |
+| **SM-4** | Reboots in Firmware Update are transition actions, not states | The machine resumes via persisted flags detected by gateway-lifecycle Init; entry-point pseudo-state + choice diamond render this on the diagram |
+| **SM-5** | Custom Modbus RTU implementation, not FreeMODBUS | Tightly scoped to project needs (function codes 03/04/06/16; minimal exception responses). Demonstrates protocol-level competence and respects the no-HAL-above-driver portability stance. Decision can still flip to FreeMODBUS after LLD design pass without losing the design work |
+
+#### From the sequence diagrams phase (`sequence-diagrams.md`)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| **D13** | Periodic re-sync triggered by CloudPublisher via async event to TimeService (RTOS software-timer realisation) | Connectivity state is owned by CloudPublisher; routing the trigger through it keeps TimeService decoupled from the timing source |
+| **D14** | Per-slave probe with profile-bound device-ID validation; fall-through to Running on failure | Industry-standard deny-by-default; a slave that fails identity validation is excluded from the polling allowlist without blocking gateway boot. Supports the 5 s boot budget (REQ-NF-203) |
+| **D15** | SD-06d self-check probes serial, not parallel | Three probes complete in ~500 ms worst-case; well within the 10 s rollback budget (REQ-NF-204). Coordination primitives not justified at this scale |
+| **D16** | Bootloader modelled as «bootloader» boundary actor | Analogous to «cloud» for AWS IoT Core; bootloader internal logic out of HLD scope. Cross-domain handoff preserved |
+| **D17** | Per-slave link state with profile binding | Supports REQ-MB-100; the polling allowlist is a derived view over DeviceProfileRegistry |
+| **D18** | DeviceProfileRegistry as first-class Application component (gateway only) | Industry EDS/GSD pattern; decouples register-map knowledge from firmware. Persistence delegated to ConfigStore |
+| **D19** | Pull-based downstream consumption represented via UML notes only | Consumers read on their own schedules per P7; redrawing each consumer would clutter the diagram without adding information |
+| **D20** | Event-driven dispatch consistent with pull-based access | Events trigger access; data flows via pull. The two patterns are complementary, not in conflict |
+
+#### From the task design phase (`task-breakdown.md`)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| **D21** | `AlarmService` co-located with `SensorService` in `SensorTask` | Observer subscriber runs in producer context; extra queue + context switch unjustified by REQ-NF-101 |
+| **D22** | `TimeService` and `CloudPublisher` in separate tasks despite shared WiFi resource | Different activation patterns (hourly vs continuous) honour P5; WiFi I/O routed through `WifiTask`'s API |
+| **D23** | `UpdateServiceTask` at priority 1 despite OTA criticality | OTA is rare and seconds-tolerant; criticality is in correctness (signature verify, rollback), not scheduling priority |
+| **D24** | `LifecycleTask` as a dedicated task | Cross-task lifecycle events processed in one context; eliminates external mutex on lifecycle state machine |
+| **D25** | Direct-to-task notification preferred over queue for 1:1 single-event paths | Lighter than queue (no kernel object beyond TCB notification value) |
+| **D26** | Priority inheritance enabled on all mutexes | Prevents unbounded priority inversion; FreeRTOS-standard practice |
+| **D27** | ISRs perform only acknowledge / capture / notify | Keeps interrupt latency bounded; all driver state machines run in task context |
+| **D28** | Stack sizes initially estimated; refined via `uxTaskGetStackHighWaterMark` during integration | Conservative starting values minimise risk; runtime measurement gives the real numbers |
+
+#### From the Modbus register map phase (`modbus-register-map.md`)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| **D29** | Scaled integers for physical quantities, not IEEE-754 floats | Predictable decoders, no NaN/Inf risk, half the bandwidth |
+| **D30** | Big-endian byte order and big-endian word order ("ABCD") for multi-register values | Single uniform convention; no per-register endianness negotiation |
+| **D31** | Single access pattern — registers only, no coils or discrete inputs | Simplifies the slave to one access model; bit-level data packed into `bitfield16` registers |
+| **D32** | Magic value `0xA5A5` required on destructive commands (e.g., `CMD_SOFT_RESTART`) | Prevents accidental triggers from incorrect writes; any other value returns exception 0x03 |
+| **D33** | `MAP_VERSION` register as the single register-map compatibility signal | One register covers all backward-compatibility decisions; Gateway reads it during probe and selects the matching device profile |
+| **D34** | Sentinel values (`0x8000` for `int16`, `0xFFFF` for `uint16`, `0xFFFFFFFF` for `uint32`) for sensor I/O errors | Distinguishes "value unavailable" from zero/valid data at the register level without a separate status flag per channel |
+
+#### From the flash partition layout phase (`flash-partition-layout.md`)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| **D35** | Field Device has no OTA; single-bank firmware | OTA is Gateway-only per project narrative (SD-06a–d, `UpdateService` on Gateway only); FD firmware updated via SWD |
+| **D36** | Custom secondary bootloader on Gateway (16 KB) | STM32 ROM bootloader not used at runtime; required for OTA, dual-bank, and rollback logic |
+| **D37** | Both Gateway firmware banks on-chip (480 KB each) | Instant swap (no QSPI-to-on-chip copy on boot); both banks XIP; simpler bootloader. Trade-off: caps firmware at 480 KB, well above the expected footprint |
+| **D38** | Metadata partition uses A/B sector rotation for frequently updated fields | Spreads wear on the most write-hot fields; protects against power loss during metadata update |
+| **D39** | `ConfigStore` uses A/B sector rotation across two 32 KB slots | Doubles effective endurance per logical config; power-loss-safe (previous slot remains valid until new slot CRC-verified) |
+| **D40** | `CircularFlashLog` is a sector-wrap ring buffer with persistent head pointer | Continuous logging without endurance concern; head pointer in dedicated A/B-rotated sector |
+| **D41** | OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Bank B |
 
 ### 14.2 Decisions rejected
 
@@ -996,14 +1094,6 @@ The following decisions were considered and resolved during the components and s
 | Per-channel alarm state machine at HLD level | Per-instance rather than per-system; trivial states (Clear, Active) with single guarded transition pair; deferred to LLD alongside per-channel data structures |
 | Modbus Master HSM with Online/Offline as composite states each containing the polling cycle | Visually duplicative of the polling cycle with no behavioural difference inside each composite; replaced with model-variable + transition-action hysteresis |
 | `Degraded` top-level state on the gateway lifecycle | Cloud loss is owned by the Cloud Connectivity sub-machine; surfacing it at gateway top level would duplicate logic and contradict REQ-NF-200 |
-| AlarmService runs in SensorTask (no separate task) | Observer subscriber in producer context; extra queue + context switch unjustified by REQ-NF-101 |
-| TimeService and CloudPublisher in separate tasks despite shared WiFi | Different activation patterns (hourly vs continuous); P5 honoured; WiFi protected by wifi_mutex |
-| UpdateServiceTask at priority 1 despite OTA criticality | OTA is rare and seconds-tolerant; criticality is correctness (signature, rollback), not scheduling priority |
-| LifecycleTask as dedicated task | Cross-task lifecycle events processed in one context; eliminates need for external mutex on lifecycle state machine |
-| Direct-to-task notification preferred for 1:1 single-event paths | Lighter than queue (no kernel object beyond TCB notification value) |
-| Priority inheritance enabled on all mutexes | Prevents unbounded priority inversion; FreeRTOS-standard practice |
-| ISRs perform only acknowledge / capture / notify | Bounded interrupt latency; all driver state machines in task context |
-| Stack sizes estimated; refined via uxTaskGetStackHighWaterMark | Conservative initial values minimise risk; runtime measurement provides real numbers |
 ---
 
 *This document is the master HLD. It is updated as each artefact is completed. Detailed specifications live in the companion files referenced in §1.1.*
