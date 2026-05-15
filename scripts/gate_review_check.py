@@ -75,6 +75,80 @@ PASCAL_PAT = re.compile(r'\b[A-Z][a-z][A-Za-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+\b')
 LINK_PAT  = re.compile(r'\[(?:[^\]]*)\]\(([^)#][^)]*)\)')
 OPEN_PAT  = re.compile(r'\b(TBD|TODO|FIXME|XXX|\?\?\?)\b')
 
+# ── Structural extraction helpers ─────────────────────────────────────────────
+
+def _structural_components(comp_text: str) -> set[str]:
+    """
+    Extract component names from structural positions in components.md:
+      **NAME:** lines, bold **ComponentName** tokens, table cells whose
+      entire trimmed content is a single PascalCase identifier, and bullet
+      list items of the form '- ComponentName'.
+    Token filter: starts with uppercase, contains at least one lowercase,
+    length >= 3 (rejects all-caps acronyms like CMSIS, GPIO).
+    """
+    names: set[str] = set()
+    COMP_TOK = re.compile(r'^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*$')
+
+    for raw_line in comp_text.splitlines():
+        line = raw_line.strip()
+
+        # **NAME:** ComponentName  (spec blocks — most comprehensive source)
+        m = re.match(r'\*\*NAME:\*\*\s+(\S+)', line)
+        if m:
+            tok = m.group(1)
+            if COMP_TOK.match(tok):
+                names.add(tok)
+
+        # **ComponentName** bold prose (label lines have colons inside the bold,
+        # so **NAME:** / **LAYER:** etc. are never captured here)
+        for m in re.finditer(r'\*\*([A-Z][A-Za-z0-9]+)\*\*', line):
+            tok = m.group(1)
+            if COMP_TOK.match(tok):
+                names.add(tok)
+
+        # Table cells: entire trimmed cell is a single PascalCase identifier
+        if line.startswith('|') and not re.match(r'^\|[-:\s|]+$', line):
+            for cell in line.split('|'):
+                cell = cell.strip()
+                if COMP_TOK.match(cell):
+                    names.add(cell)
+
+        # Bullet list items: - ComponentName (optional trailing annotation)
+        m = re.match(r'^[-*]\s+([A-Z][A-Za-z0-9]+)', line)
+        if m:
+            tok = m.group(1)
+            if COMP_TOK.match(tok):
+                names.add(tok)
+
+    # Exclude structural/prose keywords that pass the token filter
+    _COMP_EXCLUDE = {
+        'Application', 'Middleware', 'Driver', 'Hardware', 'Software',
+        'Component', 'Interface', 'Peripheral', 'Layer',
+    }
+    names -= _COMP_EXCLUDE
+    return names
+
+
+def _structural_interfaces(comp_text: str) -> set[str]:
+    """
+    Extract interface names from **PROVIDES (upward):** lines (authoritative
+    definition point) and bold **IXxx** prose tokens in components.md.
+    Uses a slightly broader token pattern than IFACE_PAT so that names like
+    II2c (I2cDriver's interface) are captured.
+    """
+    names: set[str] = set()
+    IFACE_TOK = re.compile(r'\bI[A-Za-z][A-Za-z0-9]+\b')
+
+    for raw_line in comp_text.splitlines():
+        line = raw_line.strip()
+        if re.match(r'\*\*PROVIDES \(upward\):\*\*', line):
+            for m in IFACE_TOK.finditer(line):
+                names.add(m.group(0))
+        for m in re.finditer(r'\*\*(I[A-Za-z][A-Za-z0-9]+)\*\*', line):
+            names.add(m.group(1))
+
+    return {n for n in names if len(n) >= 4}
+
 # ── Check 1: Requirement-ID cross-reference ───────────────────────────────────
 
 def check_requirements(inputs: dict) -> tuple[list[str], bool]:
@@ -194,16 +268,7 @@ def check_components(inputs: dict) -> tuple[list[str], bool]:
 
     hld_text = inputs.get("hld")
 
-    # Extract PascalCase names from table rows in components.md
-    # Look for identifiers in | Component | ... | table rows
-    component_names: set[str] = set()
-    for line in comp_text.splitlines():
-        if line.startswith("|"):
-            for m in PASCAL_PAT.finditer(line):
-                name = m.group(0)
-                # Filter out column headers that are normal prose
-                if len(name) >= 4 and not name.lower().startswith(("compon", "descrip", "owner", "layer")):
-                    component_names.add(name)
+    component_names = _structural_components(comp_text)
 
     # Gather all companion texts
     companion_texts: dict[str, str] = {}
@@ -262,9 +327,7 @@ def check_interfaces(inputs: dict) -> tuple[list[str], bool]:
     if comp_text is None:
         return ["Inconclusive: components.md is missing"], True
 
-    iface_names: set[str] = set(IFACE_PAT.findall(comp_text))
-    # Filter out noise: must be at least 3 chars after "I"
-    iface_names = {n for n in iface_names if len(n) >= 4}
+    iface_names = _structural_interfaces(comp_text)
 
     hld_texts_map = {
         k: v for k, v in inputs.items()
@@ -437,18 +500,10 @@ def build_inventory(inputs: dict) -> dict[str, int]:
     inv["Use cases"] = len(set(UC_PAT.findall(uc))) if uc else 0
 
     comp = inputs.get("components", "")
-    component_names: set[str] = set()
-    if comp:
-        for line in comp.splitlines():
-            if line.startswith("|"):
-                for m in PASCAL_PAT.finditer(line):
-                    name = m.group(0)
-                    if len(name) >= 4 and not name.lower().startswith(
-                        ("compon", "descrip", "owner", "layer", "modbus", "field", "gateway")):
-                        component_names.add(name)
+    component_names = _structural_components(comp) if comp else set()
     inv["Components"] = len(component_names)
 
-    iface_names = {n for n in IFACE_PAT.findall(comp) if len(n) >= 4} if comp else set()
+    iface_names = _structural_interfaces(comp) if comp else set()
     inv["Interfaces"] = len(iface_names)
 
     hld = inputs.get("hld", "")

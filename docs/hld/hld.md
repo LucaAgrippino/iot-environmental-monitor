@@ -1,8 +1,8 @@
 # High-Level Design — IoT Environmental Monitoring Gateway
 
-**Version:** 0.7 (gate review remediation applied)
+**Version:** 1.0 (gate review remediation applied)
 **Date:** May 2026
-**Status:** In progress
+**Status:** Baseline
 
 ---
 
@@ -191,7 +191,7 @@ ConfigService applies Interface Segregation *(D1)*: writers consume `IConfigMana
 
 ## 6. Component design — Gateway
 
-The Gateway firmware decomposes into 34 software components: twelve application, eight middleware, fourteen drivers. It is more diverse than the Field Device because of its dual role as fieldbus master and cloud-facing edge.
+The Gateway firmware decomposes into 32 software components: twelve application, eight middleware, fourteen drivers. It is more diverse than the Field Device because of its dual role as fieldbus master and cloud-facing edge.
 
 ### 6.1 Component overview
 
@@ -199,7 +199,7 @@ The application layer hosts the cloud-facing components (CloudPublisher, StoreAn
 
 The middleware layer adds the cloud and time protocols (MqttClient, NtpClient), the ring-buffer log over flash (CircularFlashLog), the firmware image manager (FirmwareStore), and the Modbus master stack (ModbusMaster). Logger, TimeProvider, and ConfigStore are present as on the Field Device. The middleware layer thus counts eight components in total.
 
-The driver layer adds WiFi (over SPI) and the WiFi module's GPIO control lines, plus a software-reset driver used by the firmware update flow.
+The driver layer adds four I²C sensor drivers (ImuDriver, MagnetometerDriver, HumidityTempDriver, BarometerDriver) communicating through I2cDriver, WiFi over SPI (WifiDriver), the WiFi module GPIO control lines, and a software-reset driver (ResetDriver) used by the firmware update flow.
 
 ### 6.2 Data flow view
 
