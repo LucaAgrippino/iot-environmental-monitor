@@ -23,3 +23,8 @@ Thumbs.db
 # Visual Paradigm backups
 *.vpp.bak_*
 *.vpp.lck
+# VS Code workspace settings
+.vscode/
+
+# Temporary working files
+temp/
