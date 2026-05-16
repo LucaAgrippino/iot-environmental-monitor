@@ -149,7 +149,7 @@ docs/lld/
 | Tier | Path | Layer | Board(s) | Status |
 |---|---|---|---|---|
 | 1 | `drivers/gpio-driver.md` | Drivers | Both | Baselined |
-| 1 | `drivers/debug-uart-driver.md` | Drivers | Both | Planned |
+| 1 | `drivers/debug-uart-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/rtc-driver.md` | Drivers | Both | Planned |
 | 1 | `drivers/reset-driver.md` | Drivers | Gateway | Planned |
 | 1 | `drivers/exti-driver.md` | Drivers | Both | Planned |
@@ -203,7 +203,8 @@ Each completed companion adds one row.
 
 | Companion | HLD component(s) | HLD section | SRS requirements | Use case(s) |
 |---|---|---|---|---|
-| drivers/gpio-driver.mdGpioDriver | (Field Device, Gateway)components.md | §4 (both boards, driver layer) | REQ-NF-202 | — |
+| drivers/gpio-driver.md | GpioDriver (Field Device, Gateway) | components.md  §4 (both boards, driver layer) | REQ-NF-202 | — |
+| drivers/debug-uart-driver.md | DebugUartDriver (Field Device, Gateway) | components.md §4 (both boards, driver layer) | REQ-LI-010, REQ-LI-000 | UC-04 |
   
 
 ---
