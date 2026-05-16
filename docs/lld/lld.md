@@ -158,6 +158,8 @@ docs/lld/
 | 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/qspi-flash-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/sdram-driver.md` | Drivers | Field Device | Planned |
+| 3 | `drivers/simulated-sensor-drivers.md` | Drivers | Both | Baselined |
+| 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
 | 3 | `drivers/touchscreen-driver.md` | Drivers | Field Device | Planned |
 | 3 | `drivers/lcd-driver.md` | Drivers | Field Device | Planned |
@@ -212,6 +214,8 @@ Each completed companion adds one row.
 | docs/lld/drivers/modbus-uart-driver.md | ModbusUartDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-MB-030, REQ-NF-105, REQ-NF-201 | UC-07, UC-10, UC-13, UC-14, UC-19 |
 | docs/lld/drivers/qspi-flash-driver.md | QspiFlashDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer; flash-partition-layout.md (authoritative address map) | REQ-NF-402, REQ-NF-405, REQ-DM-074, REQ-DM-090, REQ-BF-000, CON-009 | UC-09, UC-10, UC-11, UC-12, UC-15, UC-18, UC-20 |
 | docs/lld/drivers/reset-driver.md | ResetDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | REQ-DM-010, REQ-NF-202, REQ-NF-203 | UC-17, UC-18, UC-20 |
+| docs/lld/drivers/simulated-sensor-drivers.md | BarometerDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
+| docs/lld/drivers/simulated-sensor-drivers.md | HumidityTempDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
   
 
 ---
