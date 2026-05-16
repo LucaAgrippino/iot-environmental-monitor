@@ -151,7 +151,7 @@ docs/lld/
 | 1 | `drivers/gpio-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/debug-uart-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/rtc-driver.md` | Drivers | Both | Baselined |
-| 1 | `drivers/reset-driver.md` | Drivers | Gateway | Planned |
+| 1 | `drivers/reset-driver.md` | Drivers | Gateway | Baselined |
 | 1 | `drivers/exti-driver.md` | Drivers | Both | Planned |
 | 2 | `drivers/i2c-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/spi-driver.md` | Drivers | Gateway | Baselined |
@@ -211,6 +211,7 @@ Each completed companion adds one row.
 | docs/lld/drivers/led-driver.md | LedDriver (Driver, both boards) | REQ-LD-200 (F-07 — not yet in SRS.md) | REQ-LD-250 | UC-02, UC-04, UC-06 (health/status display) |
 | docs/lld/drivers/modbus-uart-driver.md | ModbusUartDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-MB-030, REQ-NF-105, REQ-NF-201 | UC-07, UC-10, UC-13, UC-14, UC-19 |
 | docs/lld/drivers/qspi-flash-driver.md | QspiFlashDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer; flash-partition-layout.md (authoritative address map) | REQ-NF-402, REQ-NF-405, REQ-DM-074, REQ-DM-090, REQ-BF-000, CON-009 | UC-09, UC-10, UC-11, UC-12, UC-15, UC-18, UC-20 |
+| docs/lld/drivers/reset-driver.md | ResetDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | REQ-DM-010, REQ-NF-202, REQ-NF-203 | UC-17, UC-18, UC-20 |
   
 
 ---
