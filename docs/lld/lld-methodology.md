@@ -1,6 +1,6 @@
 # LLD Per-Companion Methodology
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** May 2026
 **Status:** Baselined
 
@@ -97,6 +97,8 @@ The init/deinit lifecycle (per `lld.md` §3.3) is mandatory. The storage strateg
 **Output:** Section §2 of the companion ("Public API") — the full header content, including the opaque type declaration, the status enum, every public function with its Doxygen block, and any vtable struct definition.
 
 **Validation:** Every PROVIDES interface from Step 1 maps to one or more functions in §2. Every function has a threading annotation. Every Doxygen block has `@brief`, `@param` for each parameter, and `@return`. P3 (ISP) applies — if the API mixes read and write concerns across distinct consumers, split it before continuing. P10 (naming) applies — interface names start with `I`, components are PascalCase, files are kebab-case.
+
+**Dependency conformance.** The header's `#include` list and the types named in the public API must stay within the dependencies declared in `components.md` `USES (downward)` for this component. If the natural API requires a type from outside that list (e.g., a `TaskHandle_t` when `USES` is only `CMSIS`), either (a) replace it with a primitive abstraction the consumer wires up — a function-pointer callback is the usual answer — or (b) escalate the `USES` line in `components.md` as an HLD change before continuing. **Never silently widen the dependency footprint at the LLD layer.**
 
 ### Step 3 — Internal design
 
@@ -245,6 +247,7 @@ A companion is ready for baseline when every item in this checklist holds. Luca 
 - Every function has a Doxygen block with `@brief`, `@param`, `@return`.
 - Naming follows `lld.md` §3.1 and P10.
 - The vtable-vs-direct-API choice is justified per interface.
+- The header's `#include` list and API types stay within `components.md` `USES (downward)`. Any wider dependency was either replaced by an abstraction (e.g., callback) or escalated as an HLD change first.
 
 **Internal design (§3)**
 - The private struct is defined.
