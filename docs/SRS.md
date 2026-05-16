@@ -172,7 +172,10 @@ polling interval
 - [REQ-LD-220] The system shall update the splash screen progress bar at the completion of each Init sub-step.
 - [REQ-LD-230] The system shall display the current Init sub-step name in human-readable form on the splash screen.
 - [REQ-LD-240] The system shall display the firmware version number on the splash screen.
-
+- [REQ-LD-250] The system shall use the on-board status LEDs to provide a visual indication of its operational state.
+- [REQ-LD-260] The green LED shall be illuminated when the system is in Operational state.
+- [REQ-LD-270] The green LED shall not be illuminated when the system is in Error state.
+- [REQ-LD-280] The red LED shall be illuminated when at least one alarm is active. *(Field Device only — the Gateway has no red LED.)*
 
 ### 2.4 Local Interface — CLI [LI] — 20 requirements
 
@@ -537,12 +540,15 @@ polling interval
 | REQ-LD-130 | UC-15 | §5.5 |
 | REQ-LD-140 | UC-15 | §5.5 |
 | REQ-LD-150 | UC-15 | §5.5, §5.9 |
-| REQ-LD-250 | UC-15 | §5.5 |
 | REQ-LD-200 | UC-01 | §5.5 |
 | REQ-LD-210 | UC-01 | §5.5 |
 | REQ-LD-220 | UC-01 | §5.5 |
 | REQ-LD-230 | UC-01 | §5.5 |
 | REQ-LD-240 | UC-01 | §5.5 |
+| REQ-LD-250 | UC-04, UC-06 | §5.5 |
+| REQ-LD-260 | UC-04, UC-06 | §5.5 |
+| REQ-LD-270 | UC-04, UC-06 | §5.5 |
+| REQ-LD-280 | UC-08 | §5.5 |
 | REQ-LI-000 | UC-04 | §5.6 |
 | REQ-LI-010 | UC-04 | §5.6 |
 | REQ-LI-020 | UC-04 | §5.6 |
