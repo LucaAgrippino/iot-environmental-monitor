@@ -148,7 +148,7 @@ docs/lld/
 
 | Tier | Path | Layer | Board(s) | Status |
 |---|---|---|---|---|
-| 1 | `drivers/gpio-driver.md` | Drivers | Both | In progress |
+| 1 | `drivers/gpio-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/debug-uart-driver.md` | Drivers | Both | Planned |
 | 1 | `drivers/rtc-driver.md` | Drivers | Both | Planned |
 | 1 | `drivers/reset-driver.md` | Drivers | Gateway | Planned |
@@ -203,7 +203,8 @@ Each completed companion adds one row.
 
 | Companion | HLD component(s) | HLD section | SRS requirements | Use case(s) |
 |---|---|---|---|---|
-| *(populated as companions land)* | | | | |
+| drivers/gpio-driver.mdGpioDriver | (Field Device, Gateway)components.md | §4 (both boards, driver layer) | REQ-NF-202 | — |
+  
 
 ---
 
