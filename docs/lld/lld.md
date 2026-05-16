@@ -155,7 +155,7 @@ docs/lld/
 | 1 | `drivers/exti-driver.md` | Drivers | Both | Planned |
 | 2 | `drivers/i2c-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/spi-driver.md` | Drivers | Gateway | Baselined |
-| 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Planned |
+| 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/qspi-flash-driver.md` | Drivers | Both | Planned |
 | 2 | `drivers/sdram-driver.md` | Drivers | Field Device | Planned |
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
@@ -209,6 +209,7 @@ Each completed companion adds one row.
 | docs/lld/drivers/i2c-driver.md | I2cDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-LD-050, REQ-SA-031, REQ-NF-100, REQ-NF-205 | UC-01 (FD touchscreen), UC-07 (GW sensor acquisition) |
 | docs/lld/drivers/spi-driver.md | SpiDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | CON-001 | UC-05, UC-09, UC-10, UC-11, UC-12 (all cloud paths through WifiDriver) |
 | docs/lld/drivers/led-driver.md | LedDriver (Driver, both boards) | REQ-LD-200 (F-07 — not yet in SRS.md) | REQ-LD-250 | UC-02, UC-04, UC-06 (health/status display) |
+| docs/lld/drivers/modbus-uart-driver.md | ModbusUartDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-MB-030, REQ-NF-105, REQ-NF-201 | UC-07, UC-10, UC-13, UC-14, UC-19 |
   
 
 ---
