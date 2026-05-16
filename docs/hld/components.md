@@ -215,7 +215,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** LedDriver
 **LAYER:** Driver
-**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-200).
+**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-250).
 **PROVIDES (upward):** ILed
 **USES (downward):** GpioDriver
 
@@ -285,7 +285,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** HealthMonitor
 **LAYER:** Application
-**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-200 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
+**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-250 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
 **PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*
 **USES (downward):** LedDriver, ILogger
 
@@ -473,7 +473,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** LedDriver
 **LAYER:** Driver
-**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-200).
+**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-250).
 **PROVIDES (upward):** ILed
 **USES (downward):** GpioDriver
 
@@ -569,7 +569,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** HealthMonitor
 **LAYER:** Application
-**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-200 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
+**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-250 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
 **PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*
 **USES (downward):** LedDriver, ILogger
 
