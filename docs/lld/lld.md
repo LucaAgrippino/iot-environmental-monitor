@@ -153,7 +153,7 @@ docs/lld/
 | 1 | `drivers/rtc-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/reset-driver.md` | Drivers | Gateway | Planned |
 | 1 | `drivers/exti-driver.md` | Drivers | Both | Planned |
-| 2 | `drivers/i2c-driver.md` | Drivers | Both | Planned |
+| 2 | `drivers/i2c-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/spi-driver.md` | Drivers | Gateway | Planned |
 | 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Planned |
 | 2 | `drivers/qspi-flash-driver.md` | Drivers | Both | Planned |
@@ -206,6 +206,7 @@ Each completed companion adds one row.
 | drivers/gpio-driver.md | GpioDriver (Field Device, Gateway) | components.md  §4 (both boards, driver layer) | REQ-NF-202 | — |
 | drivers/debug-uart-driver.md | DebugUartDriver (Field Device, Gateway) | components.md §4 (both boards, driver layer) | REQ-LI-010, REQ-LI-000 | UC-04 |
 | docs/lld/drivers/rtc-driver.md | RtcDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-NF-213, REQ-NF-212, REQ-TS-020, REQ-NF-210, REQ-NF-211 | UC-13 |
+| docs/lld/drivers/i2c-driver.md | I2cDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-LD-050, REQ-SA-031, REQ-NF-100, REQ-NF-205 | UC-01 (FD touchscreen), UC-07 (GW sensor acquisition) |
   
 
 ---
