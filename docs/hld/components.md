@@ -193,7 +193,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Reads touch coordinate events from the touchscreen controller (REQ-LD-050).
 **PROVIDES (upward):** ITouchscreen
-**USES (downward):** I2cDriver
+**USES (downward):** I2cDriver, ExtiDriver
 
 **NAME:** SdramDriver
 **LAYER:** Driver
