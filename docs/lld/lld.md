@@ -163,7 +163,7 @@ docs/lld/
 | 3 | `drivers/magnetometer-imu-drivers.md` | Drivers | Gateway | Baselined |
 | 3 | `drivers/touchscreen-driver.md` | Drivers | Field Device | Baselined |
 | 3 | `drivers/lcd-driver.md` | Drivers | Field Device | Baselined |
-| 3 | `drivers/wifi-driver.md` | Drivers | Gateway | Planned |
+| 3 | `drivers/wifi-driver.md` | Drivers | Gateway | Baselined |
 | 3 | `drivers/led-driver.md` | Drivers | Both | Baselined |
 | — | `middleware/<…>.md` | Middleware | Both | Planned (post-driver layer) |
 | — | `application/<…>.md` | Application | Both | Planned (post-middleware layer) |
@@ -221,6 +221,7 @@ Each completed companion adds one row.
 | docs/lld/drivers/touchscreen-driver.md | TouchscreenDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-000, REQ-LD-100 | UC-01, UC-03, UC-15 |
 | humidity-temp-barometer-drivers.md | Gateway | No DRDY ISR (STATUS_REG polling); HTS221 integer compensation with int32_t overflow proof; LPS22HB 24-bit sign-extend + BDU; GpioDriver dependency removed (GPA-O1); DRDY pin assignments to verify (GPA-O2) |
 | magnetometer-imu-drivers.md | Gateway | Two-phase init (DRDY/INT1 ISR); raw LSB output with documented sensitivity; GPB-O3 (EXTI port pins to verify); GPB-O1 (task-breakdown update required) |
+| wifi-driver.md | Gateway | AT-command-over-SPI; TCP socket API; TLS deferred to MqttClient (WIFI-D2); 16-bit SPI conflict with spi-driver.md (WIFI-O2 — fix first); GPIO pins to verify (WIFI-O3 — coding blocker) |
 ---
 
 *This document is the master LLD. It is updated as each companion is completed. Implementation-ready specifications live in the companion files referenced in §4.*
