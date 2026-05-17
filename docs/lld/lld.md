@@ -165,7 +165,7 @@ docs/lld/
 | 3 | `drivers/lcd-driver.md` | Drivers | Field Device | Baselined |
 | 3 | `drivers/wifi-driver.md` | Drivers | Gateway | Baselined |
 | 3 | `drivers/led-driver.md` | Drivers | Both | Baselined |
-| — | `middleware/<…>.md` | Middleware | Both | Planned (post-driver layer) |
+| — | `middleware/logger.md` | Middleware | Both | Baselined |
 | — | `application/<…>.md` | Application | Both | Planned (post-middleware layer) |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
@@ -223,6 +223,7 @@ Each completed companion adds one row.
 | magnetometer-imu-drivers.md | Gateway | Two-phase init (DRDY/INT1 ISR); raw LSB output with documented sensitivity; GPB-O3 (EXTI port pins to verify); GPB-O1 (task-breakdown update required) |
 | wifi-driver.md | Gateway | AT-command-over-SPI; TCP socket API; TLS deferred to MqttClient (WIFI-D2); 16-bit SPI conflict with spi-driver.md (WIFI-O2 — fix first); GPIO pins to verify (WIFI-O3 — coding blocker) |
 | exti-driver.md | Both | Sole owner of SYSCFG_EXTICRx + EXTI + NVIC; conflict detection via s_configured bitmap; platform register alias via macros (no split .c); NVIC priority passed by caller; EXTI-O1 (FreeRTOS priority boundary to verify) |
+| logger.md | Both | Bootstrap exception (RtcDriver direct); 256-byte static buf; 10 ms mutex timeout drops entry; LOG_DISABLE strips all calls; LOG-O1 (baud rate vs mutex hold — resolve before coding) |
 
 ---
 
