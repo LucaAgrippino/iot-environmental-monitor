@@ -166,8 +166,9 @@ docs/lld/
 | 3 | `drivers/wifi-driver.md` | Drivers | Gateway | Baselined |
 | 3 | `drivers/led-driver.md` | Drivers | Both | Baselined |
 | — | `middleware/logger.md` | Middleware | Both | Baselined |
-| — | `middleware/time-provider.md` | Middleware | Both | Baselined |
-| — | `middleware/modbus-slave.md` | Middleware | Both | Baselined |
+| — | `middleware/time-provider.md` | Middleware | Gateway | Baselined |
+| — | `middleware/modbus-slave.md` | Middleware | Field Device | Baselined |
+| — | `middleware/modbus-master-poller.md` | Middleware | Gateway | Baselined |
 | — | `application/<…>.md` | Application | Both | Planned (post-middleware layer) |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
@@ -228,6 +229,7 @@ Each completed companion adds one row.
 | logger.md | Both | Bootstrap exception (RtcDriver direct); 256-byte static buf; 10 ms mutex timeout drops entry; LOG_DISABLE strips all calls; LOG-O1 (baud rate vs mutex hold — resolve before coding) |
 | `time-provider.md` | `TimeProvider` (FD · GW) | `hld.md` §5.2, §5.5; `components.md` §Middleware | REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212 | UC-13 |
 | `modbus-slave.md` | `ModbusSlave` (FD) | `hld.md` §7.7; `components.md` §Middleware; `state-machines.md` Machine 6; `modbus-register-map.md` §2–§7 | REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1 | UC-01–UC-08, UC-13, UC-16, UC-17 |
+| `modbus-master-poller.md` | `ModbusMaster` (GW), `ModbusPoller` (GW) | `hld.md` §7.5; `components.md` §Middleware, §Application; `state-machines.md` Machine 4; `sequence-diagrams.md` SD-02, SD-00b; `modbus-register-map.md` §2–§3 | REQ-MB-010, MB-020, MB-030, MB-040, MB-050, MB-060, MB-080, MB-090, MB-100, MB-0E1; REQ-NF-103, NF-104, NF-105, NF-201, NF-215 | UC-07, UC-10, UC-13, UC-15, UC-16, UC-17 |
 
 ---
 
