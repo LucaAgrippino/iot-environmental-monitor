@@ -174,6 +174,7 @@ docs/lld/
 | — | `middleware/mqtt-client.md` | Middleware | Gateway | Baselined |
 | — | `middleware/circular-flash-log.md` | Middleware | Gateway | Baselined |
 | — | `middleware/firmware-store.md` | Middleware | Gateway | Baselined |
+| — | `middleware/graphics-library.md` | Middleware | Gateway | Baselined |
 | — | `application/<…>.md` | Application | Both | Planned (post-middleware layer) |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
@@ -240,6 +241,7 @@ Each completed companion adds one row.
 | `mqtt-client.md` | `MqttClient` (GW) | `hld.md` §6.3; `components.md` §Middleware; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-03, SD-04, SD-05, SD-06a–d | REQ-CC-050, REQ-CC-060, REQ-NF-206, REQ-NF-216, REQ-NF-300, REQ-NF-301, REQ-NF-302, REQ-NF-305 | UC-05, UC-06, UC-08, UC-14, UC-18 |
 | `circular-flash-log.md` | `CircularFlashLog` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.2; `sequence-diagrams.md` SD-04 | REQ-BF-000, REQ-BF-010, REQ-BF-020, REQ-NF-407 | UC-08, UC-14 |
 | `firmware-store.md` | `FirmwareStore` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.1, §5.2; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-06a–d | REQ-DM-050–052, DM-060, DM-061, DM-070–074, DM-080, REQ-NF-204, REQ-NF-304 | UC-18 |
+| `graphics-library.md` | `GraphicsLibrary` (FD) | `hld.md` §5.2; `components.md` §Middleware; `task-breakdown.md` §4.2, §4.4 | REQ-LD-000, REQ-LD-050, REQ-NF-108 | UC-02, UC-09, UC-10, UC-11, UC-12 |
 
 ---
 
