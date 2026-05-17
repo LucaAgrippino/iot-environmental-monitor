@@ -199,8 +199,7 @@ static imu_state_t s_imu;
 **Phase 1 (`magnetometer_init()` / `imu_init()`) — pre-scheduler:**
 
 1. Write sensor configuration registers (ODR, full scale, output mode).
-2. Configure DRDY/INT GPIO pin as input via GpioDriver (falling-edge trigger,
-   no pull-up — sensor drives the line actively).
+2. Configure DRDY/INT GPIO pin as input via GpioDriver (no pull — sensor drives the line actively). Call `exti_configure(line, port, EXTI_EDGE_RISING)` via ExtiDriver to set up the trigger.
 3. Do NOT enable the EXTI interrupt line — no task handle exists yet.
 4. Set `s_xxx.ready = false`.
 
@@ -225,14 +224,14 @@ EXTI IRQ handler in `stm32l4xx_it.c`:
 /* In stm32l4xx_it.c */
 void EXTI9_5_IRQHandler(void) {
     if (EXTI->PR1 & (1U << 8U)) {           /* LIS3MDL DRDY — EXTI8 */
-        EXTI->PR1 = (1U << 8U);             /* clear pending bit     */
+        exti_clear_pending(8U);             /* clear pending bit     */
         magnetometer_drdy_irq_handler();
     }
 }
 
 void EXTI15_10_IRQHandler(void) {
     if (EXTI->PR1 & (1U << 11U)) {          /* LSM6DSL INT1 — EXTI11 */
-        EXTI->PR1 = (1U << 11U);
+        exti_clear_pending(11U);
         imu_int1_irq_handler();
     }
 }
