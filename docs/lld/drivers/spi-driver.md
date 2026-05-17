@@ -72,8 +72,8 @@ typedef enum {
  * Configures SCK, MOSI, MISO as alternate-function outputs.
  * Mode 0 (CPOL=0, CPHA=0), 8-bit data, MSB first.
  * Clock speed: see §4.2 (SPID-O1 — baud rate divisor pending clock config).
- * Sets FRXTH=1 in CR2 to trigger RXNE after every byte (required for
- * correct 8-bit operation on L4 SPI — see §3.3).
+ * Sets FRXTH=0 in CR2 to trigger RXNE after every byte (required for
+ * correct 16-bit operation on L4 SPI — see §3.3).
  * Does NOT configure or assert NSS; NSS is managed by WifiDriver
  * via GpioDriver.
  *
@@ -102,11 +102,11 @@ spi_err_t spi_init(void);
  *
  * @param tx_buf  Pointer to bytes to transmit, or NULL for dummy bytes.
  * @param rx_buf  Pointer to receive buffer, or NULL to discard.
- * @param len     Number of bytes to exchange (must be ≥ 1).
+ * @param len     Number of 16-bit words to exchange (not bytes).
  * @return SPI_ERR_OK on success; SPI_ERR_TIMEOUT if a flag does not
  *         assert within the timeout window.
  */
-spi_err_t spi_transceive(const uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len);
+spi_err_t spi_transceive(const uint16_t *tx_buf, uint16_t *rx_buf, uint16_t len);
 ```
 
 ---
@@ -123,15 +123,15 @@ One SPI3 peripheral, one consumer, one task. No further state required. Consiste
 
 ### 3.2 Transfer loop
 
-The STM32L475 SPI peripheral (register-level, no HAL) follows this polling sequence per byte:
+The STM32L475 SPI peripheral (register-level, no HAL) follows this polling sequence per word:
 
 ```
-For each byte in [0, len):
+For each word in [0, len):
   1. Wait for TXE = 1 in SR     → SPI_ERR_TIMEOUT if expired
-  2. Write tx byte to DR         (or 0x00 if tx_buf is NULL)
+  2. Write tx word to DR         (or 0x0000 if tx_buf is NULL)
   3. Wait for RXNE = 1 in SR    → SPI_ERR_TIMEOUT if expired
-  4. Read rx byte from DR        (discard if rx_buf is NULL)
-After all bytes:
+  4. Read rx word from DR        (discard if rx_buf is NULL)
+After all words:
   5. Wait for BSY = 0 in SR     → SPI_ERR_TIMEOUT if expired
 ```
 
@@ -139,7 +139,7 @@ Step 5 (BSY check) ensures the last byte has fully clocked out before returning.
 
 ### 3.3 FRXTH — critical L4-specific configuration
 
-On STM32L4 SPI, `CR2.FRXTH` controls the FIFO RX threshold that asserts RXNE. The default (FRXTH=0) asserts RXNE only when the FIFO contains ≥ 2 bytes (half-full). For 8-bit transfers this means RXNE never asserts for the last byte of an odd-length transfer. **FRXTH must be set to 1** (assert RXNE after every byte) in `spi_init`. This is a frequent source of defects in L4 SPI drivers and must be verified against RM0351 §40.4.7 at implementation.
+On STM32L4 SPI, CR2.FRXTH controls the FIFO RX threshold that asserts RXNE. The ISM43362 requires 16-bit SPI frames (DS[3:0] = 1111 in CR2). For 16-bit frames, FRXTH must be 0 (RXNE asserts when FIFO contains ≥ 16 bits). Setting FRXTH=1 with 16-bit frames causes RXNE to fire after the first 8 bits only, producing corrupted reads. Verified against RM0351 §40.4.7. Note: the FRXTH=1 / 8-bit assumption recorded in an earlier draft of this companion was incorrect for the ISM43362 use case; corrected per WIFI-O2.
 
 ### 3.4 No ISR, no DMA, no callbacks
 
@@ -154,7 +154,8 @@ Consistent with the driver design pattern across all prior companions. The trans
 | Parameter | Value | Source |
 |---|---|---|
 | Mode | 0 (CPOL=0, CPHA=0) | ISM43362-M3G-L44 SPI protocol |
-| Data size | 8-bit | ISM43362 AT command protocol |
+| Data size | 16-bit (DS[3:0] = 1111 in SPI_CR2) | ISM43362 SPI protocol requirement |
+| FRXTH     | 0 (RXNE on ≥ 16-bit in FIFO)        | Required for 16-bit frames; see §3.3 |
 | Bit order | MSB first | ISM43362 SPI protocol |
 | Full-duplex | Yes | SPI3 master mode |
 
@@ -208,7 +209,7 @@ Host-platform tests (Unity framework). The CMSIS `SPI3` macro is redirected via 
 
 | ID | Test case | Expected result |
 |---|---|---|
-| T-SPI-01 | `spi_init`: verify SPI3 enabled, Mode 0, 8-bit, FRXTH=1 | CR1: CPOL=0, CPHA=0, SPE=1; CR2: DS=0111 (8-bit), FRXTH=1 |
+| T-SPI-01 | `spi_init`: verify SPI3 enabled, Mode 0, 8-bit, FRXTH=1 | CR1: CPOL=0, CPHA=0, SPE=1; CR2: DS=1111 (16-bit), FRXTH=0 |
 | T-SPI-02 | `spi_transceive` happy path, full-duplex: 4 bytes | All 4 tx bytes written to DR in order; all 4 rx bytes captured from DR |
 | T-SPI-03 | `spi_transceive` with tx_buf=NULL: 2 bytes | 0x00 dummy bytes written to DR; rx bytes captured |
 | T-SPI-04 | `spi_transceive` with rx_buf=NULL: 2 bytes | tx bytes written normally; RXNE read and discarded without writing rx_buf |
