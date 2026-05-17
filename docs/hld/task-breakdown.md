@@ -210,6 +210,10 @@ priority + round-robin is acceptable; neither preempts the other.
 | Touchscreen ISR → `LcdUiTask` | `«notify»` (bit 1 — touch event) | Distinct from refresh tick |
 | `DSI_LTDC_IRQHandler` → `LcdUiTask` | `«notify»` (bit 2 — frame done) | Signals DMA flush complete; task rearms DMA for next frame. |
 | 100 ms timer → `SensorTask` | `«notify»` | Periodic tick |
+| `LIS3MDL_DRDY_IRQHandler` ISR → `SensorTask` | `«notify»` (bit MAG_DRDY_BIT) | DRDY fires when magnetometer data is ready; SensorTask gates `magnetometer_read()` on this bit |
+| `LSM6DSL_INT1_IRQHandler` ISR → `SensorTask` | `«notify»` (bit IMU_INT1_BIT) | INT1 fires when accel + gyro data are ready; SensorTask gates `imu_read()` on this bit |
+| `LIS3MDL_DRDY_IRQHandler` ISR → `SensorTask` | `«notify»` (bit MAG_DRDY_BIT) | DRDY fires when magnetometer data is ready; SensorTask gates `magnetometer_read()` on this bit |
+| `LSM6DSL_INT1_IRQHandler` ISR → `SensorTask` | `«notify»` (bit IMU_INT1_BIT) | INT1 fires when accel + gyro data are ready; SensorTask gates `imu_read()` on this bit |
 | `DebugUartDriver` ISR → `ConsoleTask` | `«notify»` | Single-event "line received" |
 | Any task → `LifecycleTask` | `«queue»` (depth 4) | Multiple sources, decoupled |
 | Any task → `ConfigService` | direct call (`ConfigService` is reactive) | No IPC needed; mutex guards internal state |
@@ -334,6 +338,10 @@ No driver state machine logic runs in ISR context. No `printf`, no
 | GW | `USART_debug_IRQHandler` | Debug UART RX | `ConsoleTask` | `«notify»` |
 | GW | `SPI_wifi_IRQHandler` | WiFi data ready (cmd/data) | `WifiTask` | `«notify»` |
 | Both | `SysTick_Handler` | 1 ms FreeRTOS tick | Kernel | (kernel internal) |
+| GW | `EXTI9_5_IRQHandler` (EXTI8) | LIS3MDL DRDY | `SensorTask` | `«notify»` (MAG_DRDY_BIT) |
+| GW | `EXTI15_10_IRQHandler` (EXTI11) | LSM6DSL INT1 | `SensorTask` | `«notify»` (IMU_INT1_BIT) |
+| GW | `EXTI9_5_IRQHandler` (EXTI8) | LIS3MDL DRDY | `SensorTask` | `«notify»` (MAG_DRDY_BIT) |
+| GW | `EXTI15_10_IRQHandler` (EXTI11) | LSM6DSL INT1 | `SensorTask` | `«notify»` (IMU_INT1_BIT) |
 
 Note: `SPI_wifi_IRQHandler` signals `WifiTask` via direct-to-task notification
 (`xTaskNotifyFromISR`). No other task accesses the WiFi SPI peripheral
