@@ -157,7 +157,7 @@ docs/lld/
 | 2 | `drivers/spi-driver.md` | Drivers | Gateway | Baselined |
 | 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/qspi-flash-driver.md` | Drivers | Both | Baselined |
-| 2 | `drivers/sdram-driver.md` | Drivers | Field Device | Planned |
+| 2 | `drivers/sdram-driver.md` | Drivers | Field Device | Baselined |
 | 3 | `drivers/simulated-sensor-drivers.md` | Drivers | Both | Baselined |
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
@@ -216,7 +216,8 @@ Each completed companion adds one row.
 | docs/lld/drivers/reset-driver.md | ResetDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | REQ-DM-010, REQ-NF-202, REQ-NF-203 | UC-17, UC-18, UC-20 |
 | docs/lld/drivers/simulated-sensor-drivers.md | BarometerDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
 | docs/lld/drivers/simulated-sensor-drivers.md | HumidityTempDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
-  
+| docs/lld/drivers/sdram-driver.md | SdramDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-403 | UC-01, UC-02, UC-03, UC-15 |
+
 
 ---
 
