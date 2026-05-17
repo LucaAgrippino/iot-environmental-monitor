@@ -170,6 +170,7 @@ docs/lld/
 | — | `middleware/modbus-slave.md` | Middleware | Field Device | Baselined |
 | — | `middleware/modbus-master-poller.md` | Middleware | Gateway | Baselined |
 | — | `middleware/config-store.md` | Middleware | Both | Baselined |
+| — | `middleware/ntp-client.md` | Middleware | Gateway | Baselined |
 | — | `application/<…>.md` | Application | Both | Planned (post-middleware layer) |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
@@ -232,6 +233,7 @@ Each completed companion adds one row.
 | `modbus-slave.md` | `ModbusSlave` (FD) | `hld.md` §7.7; `components.md` §Middleware; `state-machines.md` Machine 6; `modbus-register-map.md` §2–§7 | REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1 | UC-01–UC-08, UC-13, UC-16, UC-17 |
 | `modbus-master-poller.md` | `ModbusMaster` (GW), `ModbusPoller` (GW) | `hld.md` §7.5; `components.md` §Middleware, §Application; `state-machines.md` Machine 4; `sequence-diagrams.md` SD-02, SD-00b; `modbus-register-map.md` §2–§3 | REQ-MB-010, MB-020, MB-030, MB-040, MB-050, MB-060, MB-080, MB-090, MB-100, MB-0E1; REQ-NF-103, NF-104, NF-105, NF-201, NF-215 | UC-07, UC-10, UC-13, UC-15, UC-16, UC-17 |
 | `config-store.md` | `ConfigStore` (FD · GW) | `hld.md` §5.6, §13.3, §13.4, §13.6; `components.md` §Middleware; `flash-partition-layout.md` §6.1 | REQ-DM-090, REQ-NF-214 | UC-15, UC-16 |
+| `ntp-client.md` | `NtpClient` (GW) | `hld.md` §6.1; `components.md` §Middleware; `sequence-diagrams.md` SD-09 | REQ-TS-010 | UC-13 |
 
 ---
 
