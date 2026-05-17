@@ -162,7 +162,7 @@ docs/lld/
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
 | 3 | `drivers/touchscreen-driver.md` | Drivers | Field Device | Planned |
-| 3 | `drivers/lcd-driver.md` | Drivers | Field Device | Planned |
+| 3 | `drivers/lcd-driver.md` | Drivers | Field Device | Baselined |
 | 3 | `drivers/wifi-driver.md` | Drivers | Gateway | Planned |
 | 3 | `drivers/led-driver.md` | Drivers | Both | Baselined |
 | — | `middleware/<…>.md` | Middleware | Both | Planned (post-driver layer) |
@@ -217,6 +217,7 @@ Each completed companion adds one row.
 | docs/lld/drivers/simulated-sensor-drivers.md | BarometerDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
 | docs/lld/drivers/simulated-sensor-drivers.md | HumidityTempDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
 | docs/lld/drivers/sdram-driver.md | SdramDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-403 | UC-01, UC-02, UC-03, UC-15 |
+| docs/lld/drivers/lcd-driver.md | LcdDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-108, REQ-NF-403 | UC-01, UC-02, UC-03, UC-08, UC-15 |
 
 
 ---
