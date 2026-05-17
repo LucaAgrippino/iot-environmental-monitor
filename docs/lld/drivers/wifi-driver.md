@@ -120,6 +120,7 @@ stack (e.g., mbedTLS over `wifi_tcp_send/recv`). See WIFI-O1.
 |------------|-------------------|--------------|
 | SpiDriver | Yes | Yes — all SPI3 transactions via `spi_transceive()` |
 | GpioDriver | Yes | Yes — NSS, RST, WAKEUP, BOOT0 driven; DRDY read |
+| ExtiDriver | No (add) | Yes — `exti_configure()` in Phase 1, `exti_enable()` in Phase 2 |
 
 P3 (ISP): IWifi is a single interface consumed by WifiTask only (D29).
 No further split is warranted at this abstraction level.
@@ -235,7 +236,7 @@ accepted a command. The ISR calls the registered callback:
 /* In stm32l4xx_it.c */
 void EXTI1_IRQHandler(void) {
     if (EXTI->PR1 & (1U << 1U)) {
-        EXTI->PR1 = (1U << 1U);    /* clear pending */
+        exti_clear_pending(1U);    /* clear pending */
         wifi_datardy_irq_handler();
     }
 }
@@ -282,7 +283,7 @@ exists post-scheduler.
 3. Wait 500 ms for module boot (blocking delay — pre-scheduler, acceptable).
 4. Configure WAKEUP GPIO → high (normal operation, not power-save).
 5. Configure NSS GPIO → high (deasserted, idle).
-6. Configure DRDY GPIO → input (EXTI1 falling+rising edge, interrupt disabled).
+6. Configure DRDY GPIO → input via GpioDriver (no pull). Call `exti_configure(1, EXTI_PORT_X, EXTI_EDGE_RISING)` via ExtiDriver (port X to be confirmed per WIFI-O3).
 7. Call `prv_at_command("AT\r", ...)` in polling mode (no DRDY ISR yet)
    to verify module is alive.
 8. Call `prv_at_command("AT+GMR\r", ...)` — check firmware version.
