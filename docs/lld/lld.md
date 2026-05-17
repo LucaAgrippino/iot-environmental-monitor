@@ -152,7 +152,7 @@ docs/lld/
 | 1 | `drivers/debug-uart-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/rtc-driver.md` | Drivers | Both | Baselined |
 | 1 | `drivers/reset-driver.md` | Drivers | Gateway | Baselined |
-| 1 | `drivers/exti-driver.md` | Drivers | Both | Planned |
+| 1 | `drivers/exti-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/i2c-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/spi-driver.md` | Drivers | Gateway | Baselined |
 | 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Baselined |
@@ -222,6 +222,8 @@ Each completed companion adds one row.
 | humidity-temp-barometer-drivers.md | Gateway | No DRDY ISR (STATUS_REG polling); HTS221 integer compensation with int32_t overflow proof; LPS22HB 24-bit sign-extend + BDU; GpioDriver dependency removed (GPA-O1); DRDY pin assignments to verify (GPA-O2) |
 | magnetometer-imu-drivers.md | Gateway | Two-phase init (DRDY/INT1 ISR); raw LSB output with documented sensitivity; GPB-O3 (EXTI port pins to verify); GPB-O1 (task-breakdown update required) |
 | wifi-driver.md | Gateway | AT-command-over-SPI; TCP socket API; TLS deferred to MqttClient (WIFI-D2); 16-bit SPI conflict with spi-driver.md (WIFI-O2 — fix first); GPIO pins to verify (WIFI-O3 — coding blocker) |
+| exti-driver.md | Both | Sole owner of SYSCFG_EXTICRx + EXTI + NVIC; conflict detection via s_configured bitmap; platform register alias via macros (no split .c); NVIC priority passed by caller; EXTI-O1 (FreeRTOS priority boundary to verify) |
+
 ---
 
 *This document is the master LLD. It is updated as each companion is completed. Implementation-ready specifications live in the companion files referenced in §4.*
