@@ -167,6 +167,7 @@ docs/lld/
 | 3 | `drivers/led-driver.md` | Drivers | Both | Baselined |
 | — | `middleware/logger.md` | Middleware | Both | Baselined |
 | — | `middleware/time-provider.md` | Middleware | Both | Baselined |
+| — | `middleware/modbus-slave.md` | Middleware | Both | Baselined |
 | — | `application/<…>.md` | Application | Both | Planned (post-middleware layer) |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
@@ -226,6 +227,7 @@ Each completed companion adds one row.
 | exti-driver.md | Both | Sole owner of SYSCFG_EXTICRx + EXTI + NVIC; conflict detection via s_configured bitmap; platform register alias via macros (no split .c); NVIC priority passed by caller; EXTI-O1 (FreeRTOS priority boundary to verify) |
 | logger.md | Both | Bootstrap exception (RtcDriver direct); 256-byte static buf; 10 ms mutex timeout drops entry; LOG_DISABLE strips all calls; LOG-O1 (baud rate vs mutex hold — resolve before coding) |
 | `time-provider.md` | `TimeProvider` (FD · GW) | `hld.md` §5.2, §5.5; `components.md` §Middleware | REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212 | UC-13 |
+| `modbus-slave.md` | `ModbusSlave` (FD) | `hld.md` §7.7; `components.md` §Middleware; `state-machines.md` Machine 6; `modbus-register-map.md` §2–§7 | REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1 | UC-01–UC-08, UC-13, UC-16, UC-17 |
 
 ---
 
