@@ -158,8 +158,8 @@ docs/lld/
 | 2 | `drivers/modbus-uart-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/qspi-flash-driver.md` | Drivers | Both | Baselined |
 | 2 | `drivers/sdram-driver.md` | Drivers | Field Device | Baselined |
-| 3 | `drivers/simulated-sensor-drivers.md` | Drivers | Both | Baselined |
-| 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
+| 3 | `drivers/simulated-sensor-drivers.md` | Drivers | Field Device | Baselined |
+| 3 | `drivers/humidity-temp-barometer-drivers.md` | Drivers | Gateway | Baselined |
 | 3 | `drivers/<one per sensor>.md` | Drivers | Both | Planned |
 | 3 | `drivers/touchscreen-driver.md` | Drivers | Field Device | Baselined |
 | 3 | `drivers/lcd-driver.md` | Drivers | Field Device | Baselined |
@@ -219,7 +219,7 @@ Each completed companion adds one row.
 | docs/lld/drivers/sdram-driver.md | SdramDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-403 | UC-01, UC-02, UC-03, UC-15 |
 | docs/lld/drivers/lcd-driver.md | LcdDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-108, REQ-NF-403 | UC-01, UC-02, UC-03, UC-08, UC-15 |
 | docs/lld/drivers/touchscreen-driver.md | TouchscreenDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-000, REQ-LD-100 | UC-01, UC-03, UC-15 |
-
+| humidity-temp-barometer-drivers.md | Gateway | No DRDY ISR (STATUS_REG polling); HTS221 integer compensation with int32_t overflow proof; LPS22HB 24-bit sign-extend + BDU; GpioDriver dependency removed (GPA-O1); DRDY pin assignments to verify (GPA-O2) |
 ---
 
 *This document is the master LLD. It is updated as each companion is completed. Implementation-ready specifications live in the companion files referenced in §4.*
