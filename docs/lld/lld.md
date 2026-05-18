@@ -185,6 +185,7 @@ docs/lld/
 | — | `application/cloud-publisher.md` | Application | Gateway | Baselined |
 | — | `application/store-and-forward.md` | Application | Gateway | Baselined |
 | — | `application/time-service.md` | Application | Gateway | Baselined |
+| — | `application/device-profile-registry.md` | Application | Gateway | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -261,6 +262,7 @@ Each completed companion adds one row.
 | `cloud-publisher.md` | `CloudPublisher` (GW) | `hld.md` §6.2, §6.3, §6.5; `components.md` GW application layer | REQ-CC-000, CC-010, CC-020, CC-030, CC-040, CC-050, CC-060, CC-070, CC-071, CC-080, CC-090; REQ-BF-000, BF-010, BF-020; REQ-DM-000, DM-002; REQ-NF-106, NF-111, NF-112, NF-113, NF-200, NF-206, NF-207, NF-216 | UC-05, UC-06, UC-09, UC-10, UC-11, UC-12, UC-15 |
 | `store-and-forward.md` | `StoreAndForward` (GW) | `hld.md` §6.5; `components.md` GW application layer; `flash-partition-layout.md` §6.2 | REQ-BF-000, BF-010, BF-020; REQ-CC-010 (occupancy in health metrics) | UC-06, UC-10, UC-11, UC-12 |
 | `time-service.md` | `TimeService` (GW) | `hld.md` §6.4; `components.md` GW application layer; `sequence-diagrams.md` SD-09 | REQ-TS-000, TS-010, TS-020, TS-030, TS-040, TS-0E1 | UC-13 |
+| `device-profile-registry.md` | `DeviceProfileRegistry` (GW) | `hld.md` §14 (D14, D17, D18); `components.md` GW application layer; `sequence-diagrams.md` SD-00b, SD-07 | REQ-MB-100, MB-110, MB-111, MB-120, MB-130; REQ-DM-090, DM-100, DM-101 | UC-07, UC-15, UC-16, UC-19 |
 
 ---
 
