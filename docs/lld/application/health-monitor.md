@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 HealthMonitor is a passive aggregator. It maintains a consolidated
 `device_health_snapshot_t` in RAM, updated continuously by producers
@@ -125,7 +125,7 @@ typedef enum {
 
 ---
 
-## 4. Provided interfaces
+## 2. Public API
 
 ### 4.1 `IHealthReport` — write side (used by producers)
 
@@ -322,7 +322,7 @@ both blinking for alarm. See HM-O2.
 
 ---
 
-## 7. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* health_monitor.c */
@@ -363,7 +363,15 @@ must not acquire a mutex internally that could be held by another task
 
 ---
 
-## 9. Host-side unit test stubs
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -383,7 +391,7 @@ Minimum test cases:
 
 ---
 
-## 10. Open items
+## 8. Open items
 
 | ID    | Item |
 |-------|------|

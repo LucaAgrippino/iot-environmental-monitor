@@ -12,7 +12,7 @@
 
 ---
 
-## 1. Why combined
+## 1. Sources
 
 AlarmService is co-hosted in `SensorTask`. Its evaluation runs as the
 new-reading callback registered with SensorService — when `SensorService`
@@ -104,7 +104,7 @@ typedef enum {
 
 ---
 
-## 4. SensorService — provided interface `ISensorService`
+## 2. Public API — provided interface `ISensorService`
 
 ```c
 /**
@@ -315,7 +315,7 @@ a misconfigured hysteresis from making alarms impossible to clear.
 
 ---
 
-## 8. Internal state
+## 3. Internal design
 
 ```c
 /* sensor_service.c */
@@ -421,7 +421,15 @@ alarms make physical sense, and the threshold semantics are non-trivial.
 
 ---
 
-## 12. Host-side unit test stubs
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -456,7 +464,7 @@ Minimum test cases — AlarmService:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
 | ID    | Item |
 |-------|------|

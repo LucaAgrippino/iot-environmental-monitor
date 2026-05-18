@@ -10,7 +10,7 @@ current time to the field device via `IModbusPoller`.
 
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -33,7 +33,7 @@ current time to the field device via `IModbusPoller`.
 
 ---
 
-## 3. Interface — `ITimeService`
+## 2. Public API — `ITimeService`
 
 ```c
 /* application/include/i_time_service.h */
@@ -162,7 +162,7 @@ P7); `TimeService` does not push the state.
 
 ---
 
-## 8. Internal structure
+## 3. Internal design
 
 ```c
 typedef struct {
@@ -180,7 +180,11 @@ typedef struct {
 
 ---
 
-## 9. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -247,7 +251,7 @@ Stack: 512 words / 2 KB. NTP sync involves a blocking UDP call inside
 
 ---
 
-## 13. Test plan
+## 7. Unit-test plan
 
 ### 13.1 Unit tests — `tests/application/test_time_service.c`
 
@@ -277,7 +281,7 @@ Mocks: `TimeProvider`, `NtpClient`, `IModbusPoller`, `IConfigProvider`,
 
 ---
 
-## 14. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

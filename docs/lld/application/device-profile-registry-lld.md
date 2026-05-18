@@ -12,7 +12,7 @@ and from remote configuration, and delegates persistence to
 
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -68,7 +68,7 @@ the profile itself — it is pure configuration (D18).
 
 ---
 
-## 4. Interfaces
+## 2. Public API
 
 ### 4.1 `IDeviceProfileProvider` (read-only)
 
@@ -117,7 +117,7 @@ struct IDeviceProfileManager {
 
 ---
 
-## 5. Internal structure
+## 3. Internal design
 
 ```c
 typedef struct {
@@ -311,7 +311,11 @@ call (from the next write operation) will overwrite with the latest state.
 
 ---
 
-## 10. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -366,7 +370,7 @@ buffer needed.
 
 ---
 
-## 13. Test plan
+## 7. Unit-test plan
 
 ### 13.1 Unit tests — `tests/application/test_device_profile_registry.c`
 
@@ -403,7 +407,7 @@ Mocks: `IConfigStore`, `ILogger`.
 
 ---
 
-## 14. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

@@ -12,7 +12,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 LifecycleController owns the top-level lifecycle state machine on each
 board. Its two roles:
@@ -82,7 +82,7 @@ typedef struct {
 
 ---
 
-## 3. Provided interface — `ILifecycle`
+## 2. Public API — `ILifecycle`
 
 ```c
 /**
@@ -280,7 +280,7 @@ Exit: hardware reset only. No `LC_EVENT_*` causes Faulted exit.
 
 ---
 
-## 9. Internal state
+## 3. Internal design
 
 ```c
 /* lifecycle_controller.c */
@@ -374,7 +374,15 @@ logic (queue-post, reset-cause detection, EditingConfig timeout).
 
 ---
 
-## 13. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 All subsystem calls (`sensor_service_init()`, `config_store_load()`, etc.)
 are replaced with stubs that return configurable success/failure codes.
@@ -396,7 +404,7 @@ Minimum test cases:
 
 ---
 
-## 14. Open items
+## 8. Open items
 
 | ID    | Item |
 |-------|------|

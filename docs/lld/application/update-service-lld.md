@@ -11,7 +11,7 @@ to two MCU reboots via a flag-based resume protocol.
 
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -49,7 +49,7 @@ data structures, algorithms, concurrency, and test plan.
 
 ---
 
-## 3. Interface — `IUpdateService`
+## 2. Public API — `IUpdateService`
 
 ```c
 typedef struct IUpdateService IUpdateService;
@@ -79,7 +79,7 @@ typedef struct {
 
 ---
 
-## 4. Internal state and persistence
+## 3. Internal design
 
 ### 4.1 Runtime context
 
@@ -343,7 +343,11 @@ runs within it.
 
 ---
 
-## 10. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -417,7 +421,7 @@ After init, `LifecycleController` checks the NVM flags region:
 
 ---
 
-## 14. Test plan
+## 7. Unit-test plan
 
 ### 14.1 Unit tests — `tests/application/test_update_service.c`
 
@@ -454,7 +458,7 @@ Mocks: `IMqttClient` (chunk injection), `IFirmwareStore`, `IResetDriver`,
 
 ---
 
-## 15. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

@@ -9,7 +9,7 @@ and buffer-occupancy reporting. Its sole caller is `CloudPublisher`.
 
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -40,7 +40,7 @@ and buffer-occupancy reporting. Its sole caller is `CloudPublisher`.
 
 ---
 
-## 3. Interface — `IStoreAndForward`
+## 2. Public API — `IStoreAndForward`
 
 ```c
 /* application/include/i_store_and_forward.h */
@@ -91,7 +91,7 @@ struct IStoreAndForward {
 
 ---
 
-## 4. Internal structure
+## 3. Internal design
 
 ```c
 #define SAF_STAGE_BUF_SIZE  (SAF_TOPIC_MAX + 1U + 2U + SAF_PAYLOAD_MAX)
@@ -295,7 +295,11 @@ partition split between Logger and SAF within the 1 MB region is a
 
 ---
 
-## 10. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -346,7 +350,7 @@ holds ~62 entries (62 minutes). The exact split is a CFL LLD decision
 
 ---
 
-## 13. Test plan
+## 7. Unit-test plan
 
 ### 13.1 Unit tests — `tests/application/test_store_and_forward.c`
 
@@ -381,7 +385,7 @@ consume_oldest, count_valid_entries) and drives the return values.
 
 ---
 
-## 14. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

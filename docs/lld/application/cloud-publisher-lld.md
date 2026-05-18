@@ -11,7 +11,7 @@ connection is unavailable.
 
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -75,7 +75,7 @@ is down, publish calls route to `StoreAndForward` instead of `MqttClient`.
 
 ---
 
-## 4. Publish paths
+## 2. Public API
 
 ### 4.1 Telemetry (REQ-CC-000, NF-111, NF-206)
 
@@ -324,7 +324,7 @@ the FD; `"gateway"` for alarms raised on the GW's own sensors.
 
 ---
 
-## 9. Concurrency model
+## 3. Internal design
 
 | State | Access context | Mutex |
 |---|---|---|
@@ -340,7 +340,11 @@ blocking `SensorTask`.
 
 ---
 
-## 10. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -410,7 +414,7 @@ peak stack frame < 512 B.
 
 ---
 
-## 13. Test plan
+## 7. Unit-test plan
 
 ### 13.1 Unit tests — `tests/application/test_cloud_publisher.c`
 
@@ -443,7 +447,7 @@ peak stack frame < 512 B.
 
 ---
 
-## 14. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

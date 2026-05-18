@@ -50,7 +50,7 @@ Operational.
 
 ---
 
-## 2. Component summary
+## 1. Sources
 
 Per `components.md` (FD Application layer):
 
@@ -531,7 +531,7 @@ timestamp reflects when the sensor last attempted a read (per
 
 ---
 
-## 10. Concurrency model
+## 3. Internal design
 
 ### 10.1 Single-task ownership
 
@@ -558,7 +558,7 @@ state (`sub_state`, `pending`, `committed`) are accessed only within
 
 ---
 
-## 11. Public interface
+## 2. Public API
 
 `LcdUi` provides no interface to other components (it is at the top of
 the Application stack). Its public API is limited to lifecycle management:
@@ -590,7 +590,11 @@ architectural impact.
 
 ---
 
-## 12. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -669,7 +673,7 @@ estimated < 512 B.
 
 ---
 
-## 15. Test plan
+## 7. Unit-test plan
 
 ### 15.1 Unit tests — `tests/application/test_lcd_ui.c`
 
@@ -712,7 +716,7 @@ call arguments (label text set, spinbox value, widget visibility).
 
 ---
 
-## 16. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

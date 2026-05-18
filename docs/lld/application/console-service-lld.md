@@ -10,7 +10,7 @@ board-specific command sets.
 
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | FD | GW |
 |---|---|---|
@@ -75,7 +75,7 @@ Configured at init; `DebugUartDriver` owns the register-level setup.
 
 ---
 
-## 4. Command dispatch — command table
+## 2. Public API — command table
 
 A `static const` array of `cmd_entry_t`. Lookup is a linear scan on the
 first token (~20 entries maximum; worst-case scan is negligible at human
@@ -288,7 +288,11 @@ in a later engineering pass.
 
 ---
 
-## 8. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -309,7 +313,7 @@ the prompt is always reprinted after any command outcome.
 
 ---
 
-## 9. Concurrency model
+## 3. Internal design
 
 `ConsoleService` state (`line_buf`, `ring_buf`, `prov_pending`,
 `cfg_pending`) is accessed only within `ConsoleTask`. No mutex needed
@@ -361,7 +365,7 @@ No dynamic allocation post-init (P8).
 
 ---
 
-## 12. Test plan
+## 7. Unit-test plan
 
 ### 12.1 Unit tests — `tests/application/test_console_service.c`
 
@@ -399,7 +403,7 @@ No dynamic allocation post-init (P8).
 
 ---
 
-## 13. Open items
+## 8. Open items
 
 | ID | Item |
 |---|---|

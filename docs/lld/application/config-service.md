@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 ConfigService maintains the live in-memory configuration for the system
 and owns the validate → apply → persist pipeline for every parameter
@@ -113,7 +113,7 @@ typedef enum {
 
 ---
 
-## 4. Provided interfaces
+## 2. Public API
 
 ### 4.1 `IConfigProvider` — read side
 
@@ -280,7 +280,7 @@ handles firmware upgrades that add or remove config fields. See CS-O1.
 
 ---
 
-## 7. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* config_service.c */
@@ -382,7 +382,15 @@ so they always see a fully loaded config on their first `get_params()` call.
 
 ---
 
-## 11. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -407,7 +415,7 @@ Minimum test cases:
 
 ---
 
-## 12. Open items
+## 8. Open items
 
 | ID    | Item |
 |-------|------|
