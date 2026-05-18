@@ -176,6 +176,7 @@ docs/lld/
 | — | `middleware/firmware-store.md` | Middleware | Gateway | Baselined |
 | — | `middleware/graphics-library.md` | Middleware | Gateway | Baselined |
 | — | `application/lifecycle-controller.md` | Application | Both | Baselined |
+| — | `application/sensor-alarm-service.md` | Application | Both | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -243,7 +244,7 @@ Each completed companion adds one row.
 | `firmware-store.md` | `FirmwareStore` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.1, §5.2; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-06a–d | REQ-DM-050–052, DM-060, DM-061, DM-070–074, DM-080, REQ-NF-204, REQ-NF-304 | UC-18 |
 | `graphics-library.md` | `GraphicsLibrary` (FD) | `hld.md` §5.2; `components.md` §Middleware; `task-breakdown.md` §4.2, §4.4 | REQ-LD-000, REQ-LD-050, REQ-NF-108 | UC-02, UC-09, UC-10, UC-11, UC-12 |
 | `lifecycle-controller.md` | `LifecycleController` (FD · GW) | `hld.md` §7.1, §7.2, §7.6; `state-machines.md` Machine 1, Machine 5; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–060, REQ-DM-010–030, REQ-DM-040, REQ-DM-071–072, REQ-NF-202, REQ-NF-203, REQ-NF-213, REQ-NF-214, REQ-LD-200–240 | UC-01, UC-17, UC-18, UC-20 |
-
+| `sensor-alarm-service.md` | `SensorService` (FD · GW), `AlarmService` (FD · GW) | `hld.md` §5.3; `components.md` §Application; `sequence-diagrams.md` SD-01; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–SA-171, REQ-AM-000–AM-040 | UC-07, UC-08, UC-09, UC-14 |
 ---
 
 *This document is the master LLD. It is updated as each companion is completed. Implementation-ready specifications live in the companion files referenced in §4.*
