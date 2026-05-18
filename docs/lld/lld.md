@@ -178,6 +178,7 @@ docs/lld/
 | — | `application/lifecycle-controller.md` | Application | Both | Baselined |
 | — | `application/sensor-alarm-service.md` | Application | Both | Baselined |
 | — | `application/config-service.md` | Application | Both | Baselined |
+| — | `application/health-monitor.md` | Application | Both | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -247,6 +248,7 @@ Each completed companion adds one row.
 | `lifecycle-controller.md` | `LifecycleController` (FD · GW) | `hld.md` §7.1, §7.2, §7.6; `state-machines.md` Machine 1, Machine 5; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–060, REQ-DM-010–030, REQ-DM-040, REQ-DM-071–072, REQ-NF-202, REQ-NF-203, REQ-NF-213, REQ-NF-214, REQ-LD-200–240 | UC-01, UC-17, UC-18, UC-20 |
 | `sensor-alarm-service.md` | `SensorService` (FD · GW), `AlarmService` (FD · GW) | `hld.md` §5.3; `components.md` §Application; `sequence-diagrams.md` SD-01; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–SA-171, REQ-AM-000–AM-040 | UC-07, UC-08, UC-09, UC-14 |
 | `config-service.md` | `ConfigService` (FD · GW) | `hld.md` §5.6; `components.md` §Application, §ISP; `sequence-diagrams.md` SD-07, SD-08 | REQ-DM-000, DM-001, DM-002, DM-090, REQ-SA-000, SA-010, SA-020, SA-050, REQ-LI-030–130, REQ-MB-100 | UC-15, UC-16 |
+| `health-monitor.md` | `HealthMonitor` (FD · GW) | `hld.md` §5.5, §6.4; `components.md` §Application, §Metric Producer Pattern, §DIP; `sequence-diagrams.md` SD-03b | REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208 | UC-04, UC-06 |
 
 ---
 
