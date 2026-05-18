@@ -8,7 +8,7 @@
 
 ---
 
-## 1. Scope
+## 1. Sources
 
 This document covers two Gateway driver components that share the same
 bus (I2C2), the same consumer (SensorService via SensorTask), and the same
@@ -24,7 +24,7 @@ drivers. No platform-split `.c` files are required.
 
 ---
 
-## 2. Source references (Step 1)
+### 1.1 Source references
 
 | Source | Relevant section |
 |--------|-----------------|
@@ -43,7 +43,7 @@ drivers. No platform-split `.c` files are required.
 
 ---
 
-## 3. API — Step 2 (API + dependency-conformance check + P3 review)
+## 2. Public API
 
 ### 3.1 HumidityTempDriver — IHumidityTemp
 
@@ -127,7 +127,7 @@ No further split is needed at driver level.
 
 ---
 
-## 4. Internal design (Step 3)
+## 3. Internal design
 
 ### 4.1 Module structure
 
@@ -268,7 +268,7 @@ without blocking SensorTask for a full ODR period.
 
 ---
 
-## 5. Hardware contract (Step 4)
+## 4. Hardware contract
 
 ### 5.1 HTS221
 
@@ -331,7 +331,7 @@ without blocking SensorTask for a full ODR period.
 
 ---
 
-## 6. Sequence integration (Step 5)
+## 5. Sequence integration
 
 Both drivers are called from SensorTask in the SD-01 nominal flow.
 
@@ -376,7 +376,7 @@ init function before `vTaskStartScheduler()`. No two-phase init required.
 
 ---
 
-## 7. Error handling (Step 6)
+## 6. Error and fault behaviour
 
 | Condition | HumidityTempDriver response | BarometerDriver response |
 |-----------|----------------------------|--------------------------|
@@ -392,7 +392,7 @@ layer decide.
 
 ---
 
-## 8. Test plan (Step 7)
+## 7. Unit-test plan
 
 ### HumidityTempDriver
 
@@ -421,7 +421,7 @@ All tests run on host (PC) using Unity. Mock I2C: `#define I2C_INSTANCE (&mock_i
 
 ---
 
-## 9. Open items and decisions log (Step 8)
+## 8. Open items
 
 ### Decisions
 

@@ -8,7 +8,7 @@
 
 ---
 
-## 1. Scope
+## 1. Sources
 
 This document covers two Gateway driver components that share I2C2 and use
 the DRDY/INT GPIO interrupt line to notify SensorTask when data is ready.
@@ -30,7 +30,7 @@ task handle, which only exists after the scheduler starts.
 
 ---
 
-## 2. Source references (Step 1)
+### 1.1 Source references
 
 | Source | Relevant section |
 |--------|-----------------|
@@ -48,7 +48,7 @@ task handle, which only exists after the scheduler starts.
 
 ---
 
-## 3. API — Step 2 (API + dependency-conformance check + P3 review)
+## 2. Public API
 
 ### 3.1 MagnetometerDriver — IMagnetometer
 
@@ -159,7 +159,7 @@ split needed.
 
 ---
 
-## 4. Internal design (Step 3)
+## 3. Internal design
 
 ### 4.1 Module structure
 
@@ -323,7 +323,7 @@ Auto-increment on LSM6DSL I2C: enabled by default.
 
 ---
 
-## 5. Hardware contract (Step 4)
+## 4. Hardware contract
 
 ### 5.1 LIS3MDL
 
@@ -388,7 +388,7 @@ eliminates practical `ERR_NOT_READY` conditions.
 
 ---
 
-## 6. Sequence integration (Step 5)
+## 5. Sequence integration
 
 ### Nominal read flow (per SensorTask 100 ms cycle)
 
@@ -431,7 +431,7 @@ added to the SensorTask IPC primitives table (§5.4). See GPB-O1.
 
 ---
 
-## 7. Error handling (Step 6)
+## 6. Error and fault behaviour
 
 | Condition | MagnetometerDriver | ImuDriver |
 |-----------|-------------------|-----------|
@@ -447,7 +447,7 @@ return error codes.
 
 ---
 
-## 8. Test plan (Step 7)
+## 7. Unit-test plan
 
 ### MagnetometerDriver
 
@@ -483,7 +483,7 @@ All tests run on host (PC) using Unity. Mock I2C via
 
 ---
 
-## 9. Open items and decisions log (Step 8)
+## 8. Open items
 
 ### Decisions
 

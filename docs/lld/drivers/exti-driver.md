@@ -7,7 +7,7 @@
 
 ---
 
-## 1. Scope and rationale
+## 1. Sources
 
 ExtiDriver is the sole owner of the EXTI and SYSCFG_EXTICRx peripheral
 configuration on both boards. It was identified during the WifiDriver
@@ -40,7 +40,7 @@ the need is demonstrated (it is — see above).
 
 ---
 
-## 2. Source references (Step 1)
+### 1.1 Source references
 
 | Source | Relevant section |
 |--------|-----------------|
@@ -55,7 +55,7 @@ the need is demonstrated (it is — see above).
 
 ---
 
-## 3. API — Step 2
+## 2. Public API
 
 ```c
 /* exti_driver.h */
@@ -143,7 +143,7 @@ SYSCFG + EXTI + NVIC. The two are complementary.
 
 ---
 
-## 4. Internal design (Step 3)
+## 3. Internal design
 
 ### 4.1 Module structure
 
@@ -251,7 +251,7 @@ EXTI line → IRQn mapping (both boards, lines 0–15):
 
 ---
 
-## 5. Hardware contract (Step 4)
+## 4. Hardware contract
 
 ExtiDriver accesses two peripheral blocks:
 
@@ -282,7 +282,7 @@ Verify against `FreeRTOSConfig.h` at implementation (EXTI-O1).
 
 ---
 
-## 6. Sequence integration (Step 5)
+## 5. Sequence integration
 
 ExtiDriver calls occur within the two-phase init of each consumer driver.
 No task interaction — ExtiDriver is passive, called synchronously.
@@ -306,7 +306,7 @@ direct `EXTI->PR1 = (1U << N)` write is replaced with
 
 ---
 
-## 7. Error handling (Step 6)
+## 6. Error and fault behaviour
 
 | Condition | Response |
 |-----------|----------|
@@ -322,7 +322,7 @@ build; it is a programming error, not a runtime error.
 
 ---
 
-## 8. Test plan (Step 7)
+## 7. Unit-test plan
 
 Host-platform tests (Unity). CMSIS `EXTI` and `SYSCFG` macros redirected
 to mock structs via `#define EXTI (&mock_exti)` and
@@ -347,7 +347,7 @@ Test file: `tests/drivers/test_exti_driver.c`.
 
 ---
 
-## 9. Open items and decisions log (Step 8)
+## 8. Open items
 
 ### Decisions
 
