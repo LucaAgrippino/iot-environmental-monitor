@@ -6,6 +6,11 @@
 **Consumes:** `ILed` (LedDriver), `ILogger`  
 **SRS traces:** REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208  
 **HLD ref:** `components.md` §Application — HealthMonitor; §"Metric Producer Pattern" (P5); §DIP; `hld.md` §5.5, §6.4; `sequence-diagrams.md` SD-03b
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** HealthMonitor in `components.md` (FD + GW application layer)
 
 ---
 

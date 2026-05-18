@@ -10,6 +10,11 @@ It is owned by `LifecycleController` during Init, which drives it directly
 via `GraphicsLibrary`. `LcdUi` takes over once the system enters
 Operational.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** LcdUi in `components.md` (FD application layer)
 ---
 
 ## 1. Purpose and scope

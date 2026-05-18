@@ -6,6 +6,11 @@
 **Consumes:** `IWifi` (WifiDriver), `ILogger`  
 **SRS traces:** REQ-CC-050, REQ-CC-060, REQ-NF-206, REQ-NF-216, REQ-NF-300, REQ-NF-301, REQ-NF-302, REQ-NF-305  
 **HLD ref:** `components.md` §Middleware — MqttClient; `state-machines.md` Machine 3; `hld.md` §6.3; `sequence-diagrams.md` SD-03, SD-04, SD-05, SD-06a–d
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** MqttClient in `components.md` (GW middleware layer)
 
 ---
 

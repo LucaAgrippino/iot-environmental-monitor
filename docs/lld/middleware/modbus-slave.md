@@ -6,6 +6,11 @@
 **Consumes:** `IModbusUart` (ModbusUartDriver), `IModbusRegisterMap` *(DIP — see §3)*, `ILogger`  
 **SRS traces:** REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1  
 **HLD ref:** `components.md` §Middleware — ModbusSlave; `state-machines.md` Machine 6; `hld.md` §7.7; `modbus-register-map.md` §2–§7
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ModbusSlave in `components.md` (FD middleware layer)
 
 ---
 

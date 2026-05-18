@@ -7,6 +7,11 @@ Policy wrapper over `CircularFlashLog` that provides the drop-oldest
 enqueue strategy, two-phase dequeue/confirm for power-loss-safe drain,
 and buffer-occupancy reporting. Its sole caller is `CloudPublisher`.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** StoreAndForward in `components.md` (GW application layer)
 ---
 
 ## 1. Sources

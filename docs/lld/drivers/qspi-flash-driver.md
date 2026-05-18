@@ -5,6 +5,9 @@
 **Board scope:** Field Device (STM32F469, 16 MB) and Gateway (B-L475E-IOT01A, 8 MB MX25R6435F)
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** QspiFlashDriver in `components.md` (FD + GW driver layer)
 
 ---
 

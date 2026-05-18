@@ -6,6 +6,11 @@
 **Consumes:** `ILcd` (LcdDriver), `ITouchscreen` (TouchscreenDriver), `ILogger`  
 **SRS traces:** REQ-LD-000, REQ-LD-050, REQ-NF-108  
 **HLD ref:** `components.md` §Middleware — GraphicsLibrary; `hld.md` §5.2; `task-breakdown.md` §4.2 (`LcdUiTask`), §4.4 (IPC)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** GraphicsLibrary in `components.md` (FD middleware layer)
 
 ---
 

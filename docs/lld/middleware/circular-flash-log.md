@@ -6,6 +6,11 @@
 **Consumes:** `IQspiFlash` (QspiFlashDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-BF-000, REQ-BF-010, REQ-BF-020, REQ-NF-407  
 **HLD ref:** `components.md` §Middleware — CircularFlashLog; `hld.md` §6.3; `flash-partition-layout.md` §5.2 (D40, D41); `sequence-diagrams.md` SD-04
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** CircularFlashLog in `components.md` (GW middleware layer)
 
 ---
 

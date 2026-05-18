@@ -6,6 +6,11 @@
 **Consumes:** `IConfigStore`, `ILogger`  
 **SRS traces:** REQ-DM-000, REQ-DM-001, REQ-DM-002, REQ-DM-090; REQ-SA-000, REQ-SA-010, REQ-SA-020, REQ-SA-050; REQ-LI-030–LI-130; REQ-MB-100  
 **HLD ref:** `components.md` §Application — ConfigService; §"Interface Segregation (ISP)"; `hld.md` §5.6; `sequence-diagrams.md` SD-07 (GW remote config), SD-08 (FD CLI config)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ConfigService in `components.md` (FD + GW application layer)
 
 ---
 

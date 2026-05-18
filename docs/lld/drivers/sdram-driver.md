@@ -5,6 +5,9 @@
 **Board scope:** Field Device (STM32F469) only
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** SdramDriver in `components.md` (FD driver layer)
 
 ---
 

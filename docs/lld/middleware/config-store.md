@@ -6,6 +6,11 @@
 **Consumes:** `IQspiFlash` (QspiFlashDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-DM-090, REQ-NF-214  
 **HLD ref:** `components.md` §Middleware — ConfigStore; `hld.md` §5.6, §13.3, §13.4, §13.6; `flash-partition-layout.md` §6.1 (D39)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ConfigStore in `components.md` (FD + GW middleware layer)
 
 ---
 

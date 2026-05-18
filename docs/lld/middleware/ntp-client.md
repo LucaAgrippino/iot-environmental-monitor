@@ -6,6 +6,11 @@
 **Consumes:** `IWifi` (WifiDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-TS-010  
 **HLD ref:** `components.md` §Middleware — NtpClient; `sequence-diagrams.md` SD-09; `hld.md` §6.1
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** NtpClient in `components.md` (GW middleware layer)
 
 ---
 

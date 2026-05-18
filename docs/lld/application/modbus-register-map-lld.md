@@ -10,6 +10,11 @@ defines the **data contract** (register addresses, types, encoding,
 exception responses). This companion *references* that contract — it does
 not duplicate the per-register tables.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ModbusRegisterMap in `components.md` (FD application layer)
 ---
 
 ## 1. Purpose and scope

@@ -4,6 +4,10 @@
 **Branch:** `feature/lld-logger`  
 **Status:** Draft  
 **Methodology:** lld-methodology.md v1.1, steps 1–8  
+**Version:** 0.1
+**Date:** May 2026
+
+**HLD anchor:** Logger in `components.md` (FD + GW middleware layer)
 
 ---
 

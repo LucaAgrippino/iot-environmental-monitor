@@ -9,6 +9,11 @@
 **SRS traces (FD add.):** REQ-LD-200, REQ-LD-210, REQ-LD-220, REQ-LD-230, REQ-LD-240  
 **SRS traces (GW add.):** REQ-DM-010, REQ-DM-020, REQ-DM-030, REQ-DM-071, REQ-DM-072  
 **HLD ref:** `state-machines.md` Machine 1 (GW), Machine 5 (FD); `hld.md` §7.1, §7.2, §7.6; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** LifecycleController in `components.md` (FD + GW application layer)
 
 ---
 

@@ -5,6 +5,9 @@
 **Board scope:** Gateway (B-L475E-IOT01A) only
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** SpiDriver in `components.md` (GW driver layer)
 
 ---
 

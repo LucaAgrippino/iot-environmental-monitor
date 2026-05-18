@@ -10,6 +10,11 @@ allowlist to `ModbusPoller`, supports profile management from the CLI
 and from remote configuration, and delegates persistence to
 `ConfigStore`.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** DeviceProfileRegistry in `components.md` (GW application layer)
 ---
 
 ## 1. Sources

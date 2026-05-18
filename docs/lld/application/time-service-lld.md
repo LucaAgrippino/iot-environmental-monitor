@@ -8,6 +8,11 @@ delta sanity check before accepting a new timestamp, writes the
 synchronised time to the RTC via `TimeProvider`, and propagates the
 current time to the field device via `IModbusPoller`.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** TimeService in `components.md` (GW application layer)
 ---
 
 ## 1. Sources

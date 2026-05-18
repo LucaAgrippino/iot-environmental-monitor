@@ -9,6 +9,11 @@ reboot, self-check, and commit-or-rollback — as specified by Firmware
 Update state machine (Machine 3, `state-machines.md` §7.4). Spans up
 to two MCU reboots via a flag-based resume protocol.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** UpdateService in `components.md` (GW application layer)
 ---
 
 ## 1. Sources

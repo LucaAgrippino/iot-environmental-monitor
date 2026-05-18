@@ -9,6 +9,11 @@ handler. Polls `IMqttStats` and reports connectivity metrics via
 `IHealthReport`. Integrates with `StoreAndForward` when the cloud
 connection is unavailable.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** CloudPublisher in `components.md` (GW application layer)
 ---
 
 ## 1. Sources

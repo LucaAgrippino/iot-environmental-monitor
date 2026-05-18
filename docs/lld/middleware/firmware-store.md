@@ -6,6 +6,11 @@
 **Consumes:** `IQspiFlash` (QspiFlashDriver), `ILogger`  
 **SRS traces:** REQ-DM-050, REQ-DM-051, REQ-DM-052, REQ-DM-060, REQ-DM-061, REQ-DM-070, REQ-DM-071, REQ-DM-072, REQ-DM-073, REQ-DM-074, REQ-DM-080, REQ-NF-204, REQ-NF-304  
 **HLD ref:** `components.md` §Middleware — FirmwareStore; `flash-partition-layout.md` §5.1, §5.2 (D36–D41); `state-machines.md` Machine 3; `sequence-diagrams.md` SD-06a–d
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** FirmwareStore in `components.md` (GW middleware layer)
 
 ---
 

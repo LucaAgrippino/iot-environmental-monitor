@@ -10,6 +10,11 @@
 - `ModbusPoller` → `IModbusMaster`, `IModbusMasterStats`, `IDeviceProfileProvider` (DeviceProfileRegistry), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-MB-010, MB-020, MB-030, MB-040, MB-050, MB-060, MB-080, MB-090, MB-100, MB-110, MB-120, MB-130, MB-0E1; REQ-NF-103, NF-104, NF-105, NF-201, NF-215  
 **HLD ref:** `components.md` §Middleware — ModbusMaster; §Application — ModbusPoller; `state-machines.md` Machine 4; `hld.md` §7.5; `sequence-diagrams.md` SD-02, SD-00b; `modbus-register-map.md` §2–§3
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ModbusMaster + ModbusPoller in `components.md` (GW middleware layer)
 
 ---
 

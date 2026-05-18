@@ -5,6 +5,9 @@
 **Board scope:** Field Device (STM32F469, I2C1) and Gateway (B-L475E-IOT01A, I2C2)
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** I2cDriver in `components.md` (FD + GW driver layer)
 
 ---
 

@@ -6,6 +6,11 @@
 **Consumes:** `IRtc` (RtcDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212  
 **HLD ref:** `components.md` §Middleware — TimeProvider; `hld.md` §5.2, §5.5
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** TimeProvider in `components.md` (FD + GW middleware layer)
 
 ---
 

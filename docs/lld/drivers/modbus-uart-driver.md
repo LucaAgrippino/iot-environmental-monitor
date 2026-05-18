@@ -5,6 +5,9 @@
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** ModbusUartDriver in `components.md` (FD + GW driver layer)
 
 ---
 

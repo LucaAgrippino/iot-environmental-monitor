@@ -8,6 +8,11 @@ component — command parsing, dispatch, provisioning workflow,
 operational configuration workflow, self-test execution, and
 board-specific command sets.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ConsoleService in `components.md` (FD + GW application layer)
 ---
 
 ## 1. Sources
