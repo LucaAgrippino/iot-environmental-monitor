@@ -13,7 +13,7 @@
 
 ---
 
-## 1. Why a combined companion
+## 1. Sources
 
 ModbusMaster and ModbusPoller are separate components at different layers,
 but they implement **one state machine together** (`state-machines.md`
@@ -25,7 +25,7 @@ made explicit in every section below.
 
 ---
 
-## 2. Responsibility boundary
+## 3. Internal design
 
 | Concern | Owner |
 |---------|-------|
@@ -65,7 +65,7 @@ typedef struct {
 
 ---
 
-## 4. ModbusMaster
+## 2. Public API
 
 ### 4.1 Data types
 
@@ -410,7 +410,15 @@ owned by `ModbusUartDriver`. No two-phase init beyond the ordering above.
 
 ---
 
-## 9. Host-side unit test stubs
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -441,7 +449,7 @@ Minimum ModbusPoller test cases:
 
 ---
 
-## 10. Open items
+## 8. Open items
 
 | ID      | Item |
 |---------|------|

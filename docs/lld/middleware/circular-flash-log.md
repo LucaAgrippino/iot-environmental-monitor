@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 CircularFlashLog implements a FIFO ring buffer over QSPI flash sectors.
 It is the persistence backing for `StoreAndForward` — outbound MQTT
@@ -123,7 +123,7 @@ in RAM only. On boot it is recovered from the ring scan (§6.2).
 
 ---
 
-## 6. Provided interface — `ICircularFlashLog`
+## 2. Public API — `ICircularFlashLog`
 
 ```c
 /**
@@ -301,7 +301,7 @@ need to re-derive it.
 
 ---
 
-## 10. Internal state
+## 3. Internal design
 
 ```c
 /* circular_flash_log.c */
@@ -340,7 +340,15 @@ mutex at that point.
 
 ---
 
-## 12. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -365,7 +373,7 @@ Minimum test cases:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
 | ID     | Item |
 |--------|------|

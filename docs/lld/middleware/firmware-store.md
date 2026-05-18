@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 FirmwareStore manages firmware image storage across three flash regions:
 
@@ -137,7 +137,7 @@ typedef enum {
 
 ---
 
-## 6. Provided interface — `IFirmwareStore`
+## 2. Public API — `IFirmwareStore`
 
 ```c
 /**
@@ -347,7 +347,7 @@ restarts from the last safe byte.
 
 ---
 
-## 10. Internal state
+## 3. Internal design
 
 ```c
 /* firmware_store.c */
@@ -381,7 +381,15 @@ firmware_store_init()        ← reads metadata; loads OTA public key from CertS
 
 ---
 
-## 12. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -411,7 +419,7 @@ Minimum test cases:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
 | ID    | Item |
 |-------|------|

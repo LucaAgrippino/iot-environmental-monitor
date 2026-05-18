@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 NtpClient issues a single SNTPv4 request to a configurable server list and
 returns the server's time reference to its caller (`TimeService`). It owns
@@ -100,7 +100,7 @@ typedef enum {
 
 ---
 
-## 5. Provided interface — `INtpClient`
+## 2. Public API — `INtpClient`
 
 ```c
 /**
@@ -214,7 +214,7 @@ Both are direct-push events (Metric Producer Pattern — events → push).
 
 ---
 
-## 9. Internal state
+## 3. Internal design
 
 ```c
 /* ntp_client.c */
@@ -246,7 +246,15 @@ which is gated on the Cloud Connectivity state machine reaching Connected.
 
 ---
 
-## 11. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -274,7 +282,7 @@ Minimum test cases:
 
 ---
 
-## 12. Open items
+## 8. Open items
 
 | ID     | Item |
 |--------|------|

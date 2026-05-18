@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 GraphicsLibrary wraps LVGL (Light and Versatile Graphics Library) and
 owns its driver integration — how pixels reach the screen and how touch
@@ -86,7 +86,7 @@ not portable across graphics libraries — that trade-off is accepted.
 
 ---
 
-## 5. Provided interface — `IGraphics`
+## 2. Public API — `IGraphics`
 
 ```c
 /**
@@ -278,7 +278,7 @@ FreeRTOS and adding application code there risks priority inversion.
 
 ---
 
-## 10. Internal state
+## 3. Internal design
 
 ```c
 /* graphics_library.c */
@@ -353,7 +353,15 @@ documented as safe from any task context. `graphics_process()` calls
 
 ---
 
-## 14. Host-side simulator
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 LVGL ships a PC simulator (SDL2-based) that allows `LcdUi` development
 on a host machine without target hardware. Set up the simulator during
@@ -378,7 +386,7 @@ Minimum manual test scenarios in the simulator:
 
 ---
 
-## 15. Open items
+## 8. Open items
 
 | ID    | Item |
 |-------|------|

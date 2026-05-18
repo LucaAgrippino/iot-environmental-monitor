@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 ConfigStore persists the system configuration across reboots as a single
 opaque blob over QSPI flash. It owns the A/B slot rotation and CRC32
@@ -93,7 +93,7 @@ typedef enum {
 
 ---
 
-## 5. Provided interface — `IConfigStore`
+## 2. Public API — `IConfigStore`
 
 ```c
 /**
@@ -235,7 +235,7 @@ config_store_load(data_out, len_out, max_len):
 
 ---
 
-## 8. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* config_store.c — static module state */
@@ -314,7 +314,15 @@ The component is identical on both boards. Board-specific values are in
 
 ---
 
-## 12. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -339,7 +347,7 @@ Minimum test cases:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
 | ID     | Item |
 |--------|------|

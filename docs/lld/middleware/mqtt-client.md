@@ -9,7 +9,7 @@
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 MqttClient owns the MQTT 3.1.1 protocol and the TLS 1.2 session beneath
 it. Its two jobs:
@@ -127,7 +127,7 @@ typedef void (*mqtt_disconnect_cb_t)(void);
 
 ---
 
-## 5. Provided interfaces
+## 2. Public API
 
 ### 5.1 `IMqttClient`
 
@@ -325,7 +325,7 @@ allocation.
 
 ---
 
-## 11. Internal state
+## 3. Internal design
 
 ```c
 /* mqtt_client.c */
@@ -367,7 +367,15 @@ MqttClient — all socket I/O is blocking within CloudPublisherTask.
 
 ---
 
-## 13. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -393,7 +401,7 @@ Minimum test cases:
 
 ---
 
-## 14. Open items
+## 8. Open items
 
 | ID      | Item |
 |---------|------|
