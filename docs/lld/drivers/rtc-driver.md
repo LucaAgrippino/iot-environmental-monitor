@@ -8,7 +8,7 @@
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -23,7 +23,7 @@ Both consumers are passive (task-breakdown.md §4.1, §5.1). All calls run in th
 
 ---
 
-## 2. API — `IRtc` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check (lld-methodology.md v1.1 §Step 2)
 
@@ -269,7 +269,7 @@ Not applicable. The RTC is clocked from LSE, not APB. The unresolved PCLK values
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 ### 6.1 Error propagation (P8 — architecture-principles.md, §6)
 
@@ -290,7 +290,7 @@ When `INITS = 0`, the driver writes the default epoch to the RTC. The value is d
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests (Unity framework, target-independent). The CMSIS `RTC` macro is redirected to a statically allocated `RTC_TypeDef` mock instance via a preprocessor `#define RTC (&mock_rtc)` in the test build. No linker tricks required.
 

@@ -8,7 +8,7 @@
 
 ---
 
-## 1. Source summary
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -34,7 +34,7 @@
 
 ---
 
-## 2. API
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -200,13 +200,13 @@ LTDC timing registers (SSCR, BPCR, AWCR, TWCR) encode the horizontal/vertical sy
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 On `LCD_ERR_TIMEOUT` from `lcd_init()`, the BringingUpLCD Init sub-state fails → Faulted. The LCD is essential (REQ-LD-000). Failure is non-recoverable at boot.
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 The DSI and LTDC peripherals cannot be realistically mocked on a host. Primary verification is integration on hardware.
 

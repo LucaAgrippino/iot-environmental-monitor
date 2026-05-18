@@ -8,7 +8,7 @@
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -30,7 +30,7 @@
 
 ---
 
-## 2. API — `IReset` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -121,13 +121,13 @@ No SD changes required.
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 None applicable. The function cannot fail and does not return.
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 `NVIC_SystemReset()` cannot be called in a host-platform test (it would reset or crash the test runner). The test strategy is to mock it via a weak-symbol override or function pointer substitution.
 

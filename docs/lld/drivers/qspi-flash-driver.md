@@ -8,7 +8,7 @@
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Field Device | Gateway |
 |---|---|---|
@@ -41,7 +41,7 @@
 
 ---
 
-## 2. API — `IQspiFlash` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -297,7 +297,7 @@ No new sequence diagrams are required for this driver.
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 | Error | Consumer response |
 |---|---|
@@ -309,7 +309,7 @@ No new sequence diagrams are required for this driver.
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests (Unity framework). The QUADSPI peripheral is mocked via `#define QUADSPI (&mock_quadspi)`. Command sequences are verified by inspecting the mock's register state after each call.
 
