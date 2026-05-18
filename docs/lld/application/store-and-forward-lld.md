@@ -392,8 +392,8 @@ consume_oldest, count_valid_entries) and drives the return values.
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **SAF-O1** | Capacity calculation uses worst-case entry size (4170 bytes). Actual average entry size (telemetry ~800 bytes, alarms ~300 bytes) would give 3–5× higher capacity. Consider a two-tier estimate at integration once real payloads are measured. |
 | **SAF-O2** | Partition split within the 1 MB QSPI CFL allocation between Logger and SAF — deferred to `circular-flash-log.md` LLD companion. |
 | **CFL-O2** | Boot scan latency ~40 ms (expected). If >100 ms at integration, add CFL tail pointer to eliminate scan. |

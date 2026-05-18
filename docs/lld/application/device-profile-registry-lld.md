@@ -414,8 +414,8 @@ Mocks: `IConfigStore`, `ILogger`.
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **DPR-O1** | `expected_map_version` → polling descriptor binding: the static descriptor table lives in `ModbusPoller`. Confirm the exact field name and lookup API when `ModbusPoller` LLD is finalised. |
 | **DPR-O2** | Deserialisation schema versioning: if `device_profile_t` layout changes in a future firmware version, the stored blob will be incompatible. Add a schema version prefix to the blob (single byte) at first implementation. Cross-reference CS-O1. |
 

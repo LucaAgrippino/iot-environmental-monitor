@@ -773,8 +773,8 @@ Unity host-side tests. All providers mocked.
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **MRM-O1** | Schema-version migration when `MAP_VERSION` bumps — handled by ConfigService / ConfigStore, but MRM may need a compatibility check at init. Cross-reference **CS-O1**. |
 | **MRM-O2** | FC16 block-write transaction span across config + command registers — confirm against `ModbusPoller`'s actual usage; recommend keeping FC16 to contiguous configuration ranges only. |
 | **MRM-O3** | *(Resolved by session confirmation)* — `MODBUS_SLAVE_ADDR` write takes effect immediately; the response to the changeover FC06 goes out on the old address; the master retries on the new address. |

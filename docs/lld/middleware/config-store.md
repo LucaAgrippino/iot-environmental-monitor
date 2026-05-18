@@ -354,8 +354,8 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID     | Item |
-|--------|------|
-| CS-O1  | `CONFIG_STORE_MAX_DATA_BYTES` (32 712) must be verified against the actual serialised config struct size when ConfigService LLD is produced. If the struct exceeds this limit, the slot layout must be revised. |
-| CS-O2  | QSPI flash driver interface (`IQspiFlash`) — erase and write granularity must match the slot layout. Specifically: erase unit must be ≤ 4 KB (sector erase, not bulk erase) and write unit must support byte-granular writes. Confirm at QspiFlashDriver LLD companion. |
-| CS-O3  | Seq_number overflow — `uint32_t` gives 4 294 967 295 write cycles before wrap. At one config write per day, this exceeds 11 000 years. No overflow handling needed; document the bound in code comments. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| CS-O1  | `CONFIG_STORE_MAX_DATA_BYTES` (32 712) must be verified against the actual serialised config struct size when ConfigService LLD is produced. If the struct exceeds this limit, the slot layout must be revised. | Verify at ConfigService LLD — struct must fit CONFIG_STORE_MAX_DATA_BYTES | Open |
+| CS-O2  | QSPI flash driver interface (`IQspiFlash`) — erase and write granularity must match the slot layout. Specifically: erase unit must be ≤ 4 KB (sector erase, not bulk erase) and write unit must support byte-granular writes. Confirm at QspiFlashDriver LLD companion. | Confirm at QspiFlashDriver LLD — erase/write granularity check | Open |
+| CS-O3  | Seq_number overflow — `uint32_t` gives 4 294 967 295 write cycles before wrap. At one config write per day, this exceeds 11 000 years. No overflow handling needed; document the bound in code comments. | Document overflow bound in code comments; no implementation change needed | Open |

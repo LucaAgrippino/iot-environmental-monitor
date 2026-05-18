@@ -456,9 +456,9 @@ Minimum ModbusPoller test cases:
 
 ## 8. Open items
 
-| ID      | Item |
-|---------|------|
-| MBM-O1  | Command queue depth — 4 is provisional. Confirm at integration by measuring peak queue occupancy under worst-case concurrent callers (TimeService + ConsoleService + UpdateService). |
-| MBM-O2  | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. |
-| MBM-O3  | Response timer implementation — FreeRTOS software timer vs hardware timer. Software timer has jitter of one tick period (1 ms at 1 kHz tick). At 200 ms timeout this is 0.5% jitter — acceptable. Confirm if hardware timer is required for tighter tolerance. |
-| MBM-O4  | FC03 (Read Holding Registers) support — ModbusMaster must support FC03 for config reads (modbus-register-map.md §3). `modbus_master_transact()` is FC-agnostic (frame is pre-built by caller); no additional API change needed. Confirm at implementation. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| MBM-O1  | Command queue depth — 4 is provisional. Confirm at integration by measuring peak queue occupancy under worst-case concurrent callers (TimeService + ConsoleService + UpdateService). | Measure peak queue occupancy at integration under worst-case callers | Open |
+| MBM-O2  | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. | Address when second Modbus slave is added to the system | Open |
+| MBM-O3  | Response timer implementation — FreeRTOS software timer vs hardware timer. Software timer has jitter of one tick period (1 ms at 1 kHz tick). At 200 ms timeout this is 0.5% jitter — acceptable. Confirm if hardware timer is required for tighter tolerance. | Confirm timing tolerance requirement at integration; software timer assumed sufficient | Open |
+| MBM-O4  | FC03 (Read Holding Registers) support — ModbusMaster must support FC03 for config reads (modbus-register-map.md §3). `modbus_master_transact()` is FC-agnostic (frame is pre-built by caller); no additional API change needed. Confirm at implementation. | Confirm FC03 support at implementation — API is FC-agnostic by design | Open |

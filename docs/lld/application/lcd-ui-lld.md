@@ -723,8 +723,8 @@ call arguments (label text set, spinbox value, widget visibility).
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **LCD-O1** | Editable-field widget: spinbox chosen per scope brief. Confirm behaviour on large range (e.g., pressure alarm hi 800–1100 hPa) — may need explicit step size configuration per spinbox. |
 | **LCD-O2** | Confirming-state timeout: **30 s** (provisional, matching LC-O4). Implemented via `lv_timer_create()` in LcdUiTask context. |
 | **LCD-O3** | Refresh skip on identical data — per-widget last-value cache recommended as a nice-to-have for CPU efficiency; deferred to integration phase. |

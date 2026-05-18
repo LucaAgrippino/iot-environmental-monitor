@@ -380,8 +380,8 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID     | Item |
-|--------|------|
-| CFL-O1 | Maximum record size (4 078 bytes) must accommodate the largest caller payload. OTA download chunks (SD-06b) are the candidate upper bound — UpdateService LLD must confirm per-chunk size ≤ 4 078 bytes. If chunks are larger, the record format must be redesigned (multi-sector spanning or chunk-splitting at the caller). |
-| CFL-O2 | Boot scan latency — measured at integration. If >100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer, eliminating the scan entirely. |
-| CFL-O3 | Sector-boundary alignment of records — current design allows multiple records per sector if they fit. Alternative: one record per sector (simpler erase granularity, wastes flash). Decision: pack records (current) to maximise buffer capacity and minimise erase frequency. Revisit only if CFL-O1 forces a redesign. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| CFL-O1 | Maximum record size (4 078 bytes) must accommodate the largest caller payload. OTA download chunks (SD-06b) are the candidate upper bound — UpdateService LLD must confirm per-chunk size ≤ 4 078 bytes. If chunks are larger, the record format must be redesigned (multi-sector spanning or chunk-splitting at the caller). | Confirm at UpdateService LLD — chunk size must fit CFL_MAX_RECORD_BYTES | Open |
+| CFL-O2 | Boot scan latency — measured at integration. If >100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer, eliminating the scan entirely. | Measure boot-scan latency at integration; add persisted tail pointer if > 100 ms | Open |
+| CFL-O3 | Sector-boundary alignment of records — current design allows multiple records per sector if they fit. Alternative: one record per sector (simpler erase granularity, wastes flash). Decision: pack records (current) to maximise buffer capacity and minimise erase frequency. Revisit only if CFL-O1 forces a redesign. | Design decision confirmed (pack records); revisit only if CFL-O1 forces redesign | Open |

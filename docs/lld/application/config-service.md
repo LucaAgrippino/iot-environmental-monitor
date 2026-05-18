@@ -422,8 +422,8 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| CS-O1 | Schema version migration — when `schema_version` mismatch is detected, the current behaviour is "discard and apply defaults." A future requirement may need partial migration (preserve valid fields, default only new ones). Design the migration path when the first firmware upgrade requiring it is planned. |
-| CS-O2 | Mutex-free read safety — the decision to allow mutex-free reads relies on natural-alignment atomic reads on Cortex-M4. Strings (`mqtt_broker`, `ntp_servers`) are not atomically readable. Reads of string fields must acquire the mutex. Document this per-field in the code; add an assertion that string fields are only read under the mutex. |
-| CS-O3 | `config_params_t` size — must be verified to fit within `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes). At current estimated size (~500 bytes), this is not a concern. Record the actual struct size in a build-time `static_assert`. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| CS-O1 | Schema version migration — when `schema_version` mismatch is detected, the current behaviour is "discard and apply defaults." A future requirement may need partial migration (preserve valid fields, default only new ones). Design the migration path when the first firmware upgrade requiring it is planned. | Design migration path when first firmware upgrade requiring it is planned | Open |
+| CS-O2 | Mutex-free read safety — the decision to allow mutex-free reads relies on natural-alignment atomic reads on Cortex-M4. Strings (`mqtt_broker`, `ntp_servers`) are not atomically readable. Reads of string fields must acquire the mutex. Document this per-field in the code; add an assertion that string fields are only read under the mutex. | Document mutex requirement per string field in code; add assertion | Open |
+| CS-O3 | `config_params_t` size — must be verified to fit within `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes). At current estimated size (~500 bytes), this is not a concern. Record the actual struct size in a build-time `static_assert`. | Add static_assert for struct size at implementation; verify against MAX_DATA_BYTES | Open |

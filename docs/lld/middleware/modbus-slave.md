@@ -370,7 +370,7 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID      | Item |
-|---------|------|
-| MBS-O1  | FC16 spanning address boundaries — confirm behaviour when the requested register range crosses a category boundary (e.g. 0x01FE–0x0201 spanning config into commands). Current decision: return exception 0x02 if any address in the range is invalid. Validate against `modbus-register-map.md` §4 during implementation. |
-| MBS-O2  | `modbus_uart_transmit()` TC-flag wait strategy — confirm whether `ModbusUartDriver` uses DMA + TC interrupt or polling. Affects whether `tx_complete` notification comes from an ISR or inline. Resolved at `ModbusUartDriver` LLD companion. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| MBS-O1  | FC16 spanning address boundaries — confirm behaviour when the requested register range crosses a category boundary (e.g. 0x01FE–0x0201 spanning config into commands). Current decision: return exception 0x02 if any address in the range is invalid. Validate against `modbus-register-map.md` §4 during implementation. | Validate boundary behaviour against modbus-register-map.md §4 at implementation | Open |
+| MBS-O2  | `modbus_uart_transmit()` TC-flag wait strategy — confirm whether `ModbusUartDriver` uses DMA + TC interrupt or polling. Affects whether `tx_complete` notification comes from an ISR or inline. Resolved at `ModbusUartDriver` LLD companion. | Resolve at ModbusUartDriver LLD companion — DMA vs polling TC-flag strategy | Open |

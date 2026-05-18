@@ -411,9 +411,9 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| LC-O1 | Config snapshot buffer size — `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes) makes `LifecycleControllerState` very large for a static variable. Confirm it fits in BSS without pushing other static data out of budget. Alternative: allocate the snapshot buffer separately in a dedicated BSS section. |
-| LC-O2 | Init timeout budget (REQ-NF-213, value TBD) — a hardware timer started on Init entry must fire and push `LC_EVENT_UNRECOVERABLE_FAULT` if the total Init duration exceeds the budget. Timer not yet specified; implement at coding time once the TBD value is set. |
-| LC-O3 | Start-gate event group bit — the bit index for gating other tasks must be allocated from a project-wide event group map (similar to the RTC backup register map). Not yet produced. |
-| LC-O4 | Restart confirmation timeout (GW, REQ-DM-020) — value TBD in SRS. Provisional: 30 seconds. Implement as a FreeRTOS software timer started on `LC_EVENT_RESTART_REQUESTED`; on expiry post `LC_EVENT_CONFIG_EDIT_CANCEL` (or a dedicated LC_EVENT_RESTART_TIMEOUT) to reset `restart_pending`. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| LC-O1 | Config snapshot buffer size — `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes) makes `LifecycleControllerState` very large for a static variable. Confirm it fits in BSS without pushing other static data out of budget. Alternative: allocate the snapshot buffer separately in a dedicated BSS section. | Verify BSS budget at integration; consider dedicated BSS section if too large | Open |
+| LC-O2 | Init timeout budget (REQ-NF-213, value TBD) — a hardware timer started on Init entry must fire and push `LC_EVENT_UNRECOVERABLE_FAULT` if the total Init duration exceeds the budget. Timer not yet specified; implement at coding time once the TBD value is set. | Implement timer at coding time once REQ-NF-213 TBD value is resolved in SRS | Open |
+| LC-O3 | Start-gate event group bit — the bit index for gating other tasks must be allocated from a project-wide event group map (similar to the RTC backup register map). Not yet produced. | Allocate bit from project-wide event-group map when that map is produced | Open |
+| LC-O4 | Restart confirmation timeout (GW, REQ-DM-020) — value TBD in SRS. Provisional: 30 seconds. Implement as a FreeRTOS software timer started on `LC_EVENT_RESTART_REQUESTED`; on expiry post `LC_EVENT_CONFIG_EDIT_CANCEL` (or a dedicated LC_EVENT_RESTART_TIMEOUT) to reset `restart_pending`. | Implement FreeRTOS software timer at coding time once SRS TBD value resolved | Open |

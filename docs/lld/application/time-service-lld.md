@@ -288,8 +288,8 @@ Mocks: `TimeProvider`, `NtpClient`, `IModbusPoller`, `IConfigProvider`,
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **TS-O1** | REQ-TS-030 "on initial connection" — currently satisfied by the first periodic NTP sync at boot. If the Modbus link is not up at boot sync time, the push is deferred to the next sync. Evaluate at integration whether an explicit event-driven push on `link_established` is needed. |
 | **NTP-O2** | DNS dependency: if `WifiDriver` does not expose DNS resolution, `NtpClient` must be provisioned with NTP server IP addresses instead of hostnames. Confirm DNS availability during WifiDriver LLD phase. |
 

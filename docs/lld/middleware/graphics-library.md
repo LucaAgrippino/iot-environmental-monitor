@@ -393,9 +393,9 @@ Minimum manual test scenarios in the simulator:
 
 ## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| GL-O1 | Draw buffer strategy — confirm Option A (partial buffer) produces acceptable visual quality at 5 Hz on the sensor screen during integration. If tearing is visible on screen transitions, switch to Option B (VSync-gated full-framebuffer mode). |
-| GL-O2 | `lcd_driver_blit()` blocking vs DMA-async — if LcdDriver uses DMA to transfer from the partial draw buffer to SDRAM, `lv_disp_flush_ready()` must be called from the DMA transfer-complete ISR/callback, not inline in `flush_cb`. Confirm at LcdDriver LLD. |
-| GL-O3 | DMA2D acceleration — `LV_USE_GPU_STM32_DMA2D 1` enables LVGL to use DMA2D for fill and copy operations. STM32F469 has DMA2D; enabling it is expected to halve render time per dirty region. Confirm at integration by comparing `lv_task_handler()` execution time with and without. |
-| GL-O4 | LVGL PC simulator — confirm SDL2 availability in the development environment (Limerick laptop). If SDL2 is unavailable, use LVGL's framebuffer-to-BMP export mode as a fallback for visual review. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| GL-O1 | Draw buffer strategy — confirm Option A (partial buffer) produces acceptable visual quality at 5 Hz on the sensor screen during integration. If tearing is visible on screen transitions, switch to Option B (VSync-gated full-framebuffer mode). | Evaluate visual quality at integration; switch to Option B if tearing observed | Open |
+| GL-O2 | `lcd_driver_blit()` blocking vs DMA-async — if LcdDriver uses DMA to transfer from the partial draw buffer to SDRAM, `lv_disp_flush_ready()` must be called from the DMA transfer-complete ISR/callback, not inline in `flush_cb`. Confirm at LcdDriver LLD. | Confirm at LcdDriver LLD companion — DMA async vs blocking flush | Open |
+| GL-O3 | DMA2D acceleration — `LV_USE_GPU_STM32_DMA2D 1` enables LVGL to use DMA2D for fill and copy operations. STM32F469 has DMA2D; enabling it is expected to halve render time per dirty region. Confirm at integration by comparing `lv_task_handler()` execution time with and without. | Benchmark lv_task_handler() at integration with/without DMA2D enabled | Open |
+| GL-O4 | LVGL PC simulator — confirm SDL2 availability in the development environment (Limerick laptop). If SDL2 is unavailable, use LVGL's framebuffer-to-BMP export mode as a fallback for visual review. | Check SDL2 availability on development machine; use BMP-export fallback if absent | Open |

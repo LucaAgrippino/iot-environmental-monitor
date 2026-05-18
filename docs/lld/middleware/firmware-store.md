@@ -426,9 +426,9 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| FS-O1 | `firmware_store_apply()` duration — estimated 500 ms at 240 sectors × 2 ms. Measure at integration; if watchdog period is shorter than this, the watchdog must be kicked within the apply loop or suspended for the duration (document the suspension explicitly). |
-| FS-O2 | OTA public key provisioning path — the public key must be written to the CertStore partition during manufacturing/provisioning. Confirm the provisioning tool writes it at the correct CertStore sub-offset. FirmwareStore needs that offset defined in `cert_store_config.h`. |
-| FS-O3 | SHA-256 streaming chunk size — 4 KB sector-by-sector is proposed. Confirm that the QspiFlashDriver read API supports 4 KB reads efficiently without introducing an extra 4 KB RAM buffer in FirmwareStore (driver may already have an internal buffer). |
-| FS-O4 | mbedTLS ECDSA-P256 RAM cost — stack allocation of `mbedtls_ecdsa_context` (~1.5 KB) inside `firmware_store_verify()`. Must be verified against UpdateServiceTask stack budget alongside the existing mbedTLS usage in CloudPublisherTask. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| FS-O1 | `firmware_store_apply()` duration — estimated 500 ms at 240 sectors × 2 ms. Measure at integration; if watchdog period is shorter than this, the watchdog must be kicked within the apply loop or suspended for the duration (document the suspension explicitly). | Measure at integration; add watchdog kick or suspend if duration > WDG period | Open |
+| FS-O2 | OTA public key provisioning path — the public key must be written to the CertStore partition during manufacturing/provisioning. Confirm the provisioning tool writes it at the correct CertStore sub-offset. FirmwareStore needs that offset defined in `cert_store_config.h`. | Confirm with provisioning-tool owner; define CertStore sub-offset in cert_store_config.h | Open |
+| FS-O3 | SHA-256 streaming chunk size — 4 KB sector-by-sector is proposed. Confirm that the QspiFlashDriver read API supports 4 KB reads efficiently without introducing an extra 4 KB RAM buffer in FirmwareStore (driver may already have an internal buffer). | Confirm at QspiFlashDriver LLD — check 4 KB read efficiency | Open |
+| FS-O4 | mbedTLS ECDSA-P256 RAM cost — stack allocation of `mbedtls_ecdsa_context` (~1.5 KB) inside `firmware_store_verify()`. Must be verified against UpdateServiceTask stack budget alongside the existing mbedTLS usage in CloudPublisherTask. | Verify against UpdateServiceTask stack budget at integration (static-stack analysis) | Open |

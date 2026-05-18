@@ -305,8 +305,8 @@ the primary validation path.
 
 ## 8. Open items
 
-| ID     | Item                                                                                  |
-|--------|---------------------------------------------------------------------------------------|
-| TP-O1  | `TIME_PROVIDER_SYNC_INTERVAL_S` — [TBD], driven by REQ-NF-210 / REQ-NF-211. Determined at integration testing via RTC drift measurement. |
-| TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. Not yet produced. |
-| TP-O3  | `TIME_PROVIDER_SANITY_DELTA_S` — NTP delta sanity threshold. Decided in TimeService LLD companion (GW). TimeProvider needs the value to compile `time_provider_config.h`. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| TP-O1  | `TIME_PROVIDER_SYNC_INTERVAL_S` — [TBD], driven by REQ-NF-210 / REQ-NF-211. Determined at integration testing via RTC drift measurement. | Determine via RTC drift measurement at integration; set in time_provider_config.h | Open |
+| TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. Not yet produced. | Allocate from project-wide backup-register map when that map is produced | Open |
+| TP-O3  | `TIME_PROVIDER_SANITY_DELTA_S` — NTP delta sanity threshold. Decided in TimeService LLD companion (GW). TimeProvider needs the value to compile `time_provider_config.h`. | Confirm threshold value at TimeService LLD companion (GW) | Open |

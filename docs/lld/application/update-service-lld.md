@@ -465,8 +465,8 @@ Mocks: `IMqttClient` (chunk injection), `IFirmwareStore`, `IResetDriver`,
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **US-O1** | Watchdog kick during `fw_store->apply()` — Option A (callback) vs Option B (direct IWatchdog). Resolve at `FirmwareStore` LLD phase. |
 | **US-O2** | `ILifecycle.get_self_check_result()` — this method does not yet appear in `LifecycleController`'s interface. Add it in a follow-up `lifecycle-controller.md` update. |
 | **US-O3** | NVM persistence region within the metadata partition — exact byte offsets for `us_persistent_t` to be defined in `flash-partition-layout.md` §10 (LLD handoff section). |

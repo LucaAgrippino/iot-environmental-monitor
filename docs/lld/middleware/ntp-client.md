@@ -289,8 +289,8 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID     | Item |
-|--------|------|
-| NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` is provisional. Validate against worst-case WiFi + internet RTT during integration. Increase to 5000 ms if public NTP servers prove slow. |
-| NTP-O2 | DNS resolution via WifiDriver — confirm that `wifi_driver_dns_lookup()` exists in the WifiDriver API surface (WIFI-O4 from session summary). If not, NtpClient must accept IP addresses only and DNS resolution must be done above (TimeService or ConfigService). |
-| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; document the constraint. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` is provisional. Validate against worst-case WiFi + internet RTT during integration. Increase to 5000 ms if public NTP servers prove slow. | Validate query timeout at integration against worst-case WiFi + internet RTT | Open |
+| NTP-O2 | DNS resolution via WifiDriver — confirm that `wifi_driver_dns_lookup()` exists in the WifiDriver API surface (WIFI-O4 from session summary). If not, NtpClient must accept IP addresses only and DNS resolution must be done above (TimeService or ConfigService). | Confirm wifi_driver_dns_lookup() existence at WifiDriver LLD companion | Open |
+| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; document the constraint. | Document IPv4-only constraint; no action required | Open |

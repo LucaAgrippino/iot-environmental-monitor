@@ -454,8 +454,8 @@ peak stack frame < 512 B.
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **CP-O1** | `IUpdateService` interface not yet defined (UpdateService LLD pending). `cloud_publisher_init` accepts it as `void *update_svc` until UpdateService companion is done. |
 | **CP-O2** | `IModbusPoller.get_latest_fd_readings()` — confirm this method exists in the ModbusPoller LLD companion when produced; the telemetry serialiser depends on it. |
 | **CP-O3** | MQTT-O3 (MQTT_PKT_BUF_SIZE 4096) — verify the largest possible telemetry payload (all sensors + field device values + metadata) fits within 4096 bytes with room for MQTT overhead. |

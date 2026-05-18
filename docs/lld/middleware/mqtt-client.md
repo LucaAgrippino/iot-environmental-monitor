@@ -408,10 +408,10 @@ Minimum test cases:
 
 ## 8. Open items
 
-| ID      | Item |
-|---------|------|
-| MQTT-O1 | mbedTLS RAM requirement: mbedTLS SSL context ≈ 36 KB + TX/RX buffers (configurable, typically 16 KB each). At minimal config (reduced cipher suite, small buffers) total is ~35–50 KB. Must be verified against the 128 KB SRAM budget (REQ-NF-400) during integration. WIFI-O1 from session summary. |
-| MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional value: 10 000 ms. TLS handshake with AWS IoT Core is the bottleneck (~2–5 s on typical WiFi). Validate at integration. |
-| MQTT-O3 | `MQTT_PKT_BUF_SIZE = 4096` is provisional. Must exceed the largest expected payload. Health payload is the largest (full metric set, JSON, ~1–2 KB estimated). Firmware download chunks (SD-06b) are the upper bound — confirm max OTA chunk size from UpdateService LLD. |
-| MQTT-O4 | QoS 1 PUBACK timeout — not yet defined. Provisional: 5 000 ms. Validate at integration. |
-| MQTT-O5 | Certificate storage partition address and format — depends on QspiFlashDriver LLD. MqttClient receives cert pointers from LifecycleController; it does not access flash directly. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| MQTT-O1 | mbedTLS RAM requirement: mbedTLS SSL context ≈ 36 KB + TX/RX buffers (configurable, typically 16 KB each). At minimal config (reduced cipher suite, small buffers) total is ~35–50 KB. Must be verified against the 128 KB SRAM budget (REQ-NF-400) during integration. WIFI-O1 from session summary. | Verify mbedTLS SRAM footprint against REQ-NF-400 budget at integration | Open |
+| MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional value: 10 000 ms. TLS handshake with AWS IoT Core is the bottleneck (~2–5 s on typical WiFi). Validate at integration. | Validate TLS handshake timing at integration; adjust timeout if needed | Open |
+| MQTT-O3 | `MQTT_PKT_BUF_SIZE = 4096` is provisional. Must exceed the largest expected payload. Health payload is the largest (full metric set, JSON, ~1–2 KB estimated). Firmware download chunks (SD-06b) are the upper bound — confirm max OTA chunk size from UpdateService LLD. | Confirm max OTA chunk size at UpdateService LLD — must fit MQTT_PKT_BUF_SIZE | Open |
+| MQTT-O4 | QoS 1 PUBACK timeout — not yet defined. Provisional: 5 000 ms. Validate at integration. | Validate PUBACK timeout at integration against observed AWS IoT Core RTT | Open |
+| MQTT-O5 | Certificate storage partition address and format — depends on QspiFlashDriver LLD. MqttClient receives cert pointers from LifecycleController; it does not access flash directly. | Confirm cert partition address/format at QspiFlashDriver LLD | Open |

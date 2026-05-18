@@ -410,8 +410,8 @@ No dynamic allocation post-init (P8).
 
 ## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **CS-O4** | GW `components.md` entry omits `IConfigManager` — correct in a follow-up PR alongside this companion. |
 | **CS-O5** | Self-test depth: driver-level loopback and destructive flash verify not implementable without adding driver interfaces to `ConsoleService`. Evaluate at integration whether the current depth is acceptable for REQ-LI-130. |
 | **CS-O6** | Certificate provisioning (REQ-LI-060): certificates may be hundreds of bytes. The `prov set mqtt-cert` workflow needs a multi-line paste mode (e.g., `prov cert-begin` / `prov cert-end`). Define exact UX at implementation time. |
