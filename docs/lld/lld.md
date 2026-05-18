@@ -182,6 +182,7 @@ docs/lld/
 | — | `application/modbus-register-map.md` | Application | Field Device | Baselined |
 | — | `application/lcd-ui.md` | Application | Field Device | Baselined |
 | — | `application/console-service.md` | Application | Both | Baselined |
+| — | `application/cloud-publisher.md` | Application | Gateway | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -255,6 +256,7 @@ Each completed companion adds one row.
 | `modbus-register-map.md` | `ModbusRegisterMap` (FD) | `hld.md` §5.6, §8.6, §12; `components.md` FD §3 | REQ-MB-000, MB-010, MB-020, MB-040, MB-070, MB-080, MB-090, MB-100, MB-0E1, MB-110, MB-111; REQ-LD-070; REQ-AM-020; REQ-NF-101 | UC-06, UC-07, UC-13, UC-15 |
 | `lcd-ui.md` | `LcdUi` (FD) | `hld.md` §5.2, §5.5, §5.6; `components.md` FD application layer | REQ-LD-000, LD-010, LD-020, LD-030, LD-040, LD-050, LD-060, LD-070, LD-080, LD-090, LD-100, LD-110, LD-120, LD-130, LD-140, LD-150, LD-0E1; REQ-NF-108 | UC-01, UC-02, UC-03, UC-08, UC-15 |
 | `console-service.md` | `ConsoleService` (FD · GW) | `hld.md` §5.2, §5.6; `components.md` FD + GW application layer | REQ-LI-000, LI-010, LI-020, LI-030, LI-040, LI-050, LI-060, LI-070, LI-080, LI-090, LI-100, LI-110, LI-120, LI-130, LI-140, LI-150, LI-160, LI-0E1, LI-0E2, LI-0E3; REQ-DM-090 | UC-04, UC-16 |
+| `cloud-publisher.md` | `CloudPublisher` (GW) | `hld.md` §6.2, §6.3, §6.5; `components.md` GW application layer | REQ-CC-000, CC-010, CC-020, CC-030, CC-040, CC-050, CC-060, CC-070, CC-071, CC-080, CC-090; REQ-BF-000, BF-010, BF-020; REQ-DM-000, DM-002; REQ-NF-106, NF-111, NF-112, NF-113, NF-200, NF-206, NF-207, NF-216 | UC-05, UC-06, UC-09, UC-10, UC-11, UC-12, UC-15 |
 
 ---
 
