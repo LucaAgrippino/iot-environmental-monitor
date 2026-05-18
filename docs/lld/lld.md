@@ -186,6 +186,7 @@ docs/lld/
 | — | `application/store-and-forward.md` | Application | Gateway | Baselined |
 | — | `application/time-service.md` | Application | Gateway | Baselined |
 | — | `application/device-profile-registry.md` | Application | Gateway | Baselined |
+| — | `application/update-service.md` | Application | Gateway | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -263,6 +264,7 @@ Each completed companion adds one row.
 | `store-and-forward.md` | `StoreAndForward` (GW) | `hld.md` §6.5; `components.md` GW application layer; `flash-partition-layout.md` §6.2 | REQ-BF-000, BF-010, BF-020; REQ-CC-010 (occupancy in health metrics) | UC-06, UC-10, UC-11, UC-12 |
 | `time-service.md` | `TimeService` (GW) | `hld.md` §6.4; `components.md` GW application layer; `sequence-diagrams.md` SD-09 | REQ-TS-000, TS-010, TS-020, TS-030, TS-040, TS-0E1 | UC-13 |
 | `device-profile-registry.md` | `DeviceProfileRegistry` (GW) | `hld.md` §14 (D14, D17, D18); `components.md` GW application layer; `sequence-diagrams.md` SD-00b, SD-07 | REQ-MB-100, MB-110, MB-111, MB-120, MB-130; REQ-DM-090, DM-100, DM-101 | UC-07, UC-15, UC-16, UC-19 |
+| `update-service.md` | `UpdateService` (GW) | `docs/state-machines.md` §7.4 (Machine 3); `sequence-diagrams.md` SD-06a–d; `flash-partition-layout.md` §5, §7 | REQ-DM-050, DM-051, DM-052, DM-053, DM-054, DM-055, DM-056, DM-060, DM-061, DM-062, DM-070, DM-071, DM-072, DM-073, DM-074, DM-080 | UC-18, UC-19, UC-20 |
 
 ---
 
