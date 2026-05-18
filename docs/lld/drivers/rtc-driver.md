@@ -1,0 +1,341 @@
+# RtcDriver — LLD Companion
+
+**Document:** `docs/lld/drivers/rtc-driver.md`
+**Version:** 0.1 (draft — pending Luca review)
+**Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
+**Layer:** Driver
+**Status:** Draft
+
+---
+
+## 1. Source summary (Step 1 recap)
+
+| Attribute | Value | Source |
+|---|---|---|
+| Responsibility | Keeps wall-clock time across reboots using the backup-domain RTC | `components.md` |
+| PROVIDES (upward) | `IRtc` | `components.md` |
+| USES (downward) | CMSIS | `components.md` |
+| Root requirement | REQ-NF-213 | `SRS.md` §3.2 |
+| Consumers | `Logger` (read, bootstrap exception), `TimeProvider` (read + write) | `components.md` preamble |
+| Hardware | Backup-domain RTC; LSE 32.768 kHz crystal on both boards | UM1932 §4.3.2, UM2153 block diagram |
+
+Both consumers are passive (task-breakdown.md §4.1, §5.1). All calls run in the calling task's context. No ISR, no DMA, no callback is required.
+
+---
+
+## 2. API — `IRtc` interface
+
+### 2.1 Dependency-conformance check (lld-methodology.md v1.1 §Step 2)
+
+The public header (`rtc_driver.h`) must `#include` only what is in `USES (downward): CMSIS`. Permitted includes are `stm32f469xx.h` / `stm32l475xx.h` (via a board-agnostic `<device.h>` wrapper) and `stdint.h` / `stdbool.h` (C standard library — no dependency on any project component). No FreeRTOS headers. No `gpio_driver.h`. Confirmed clean.
+
+### 2.2 P3 (Interface Segregation) consideration
+
+`Logger` is read-only (`get_time` only); `TimeProvider` is read + write (`get_time`, `set_time`, `is_backup_valid`). P3 (architecture-principles.md) prescribes splitting when reader and writer consumers exist. However:
+
+- The interface is only three functions — already minimal.
+- The Logger dependency is a documented bootstrap exception, not a normal architectural pattern. Splitting the interface for a deliberate exception adds structural complexity without clarity benefit.
+- In OOP-in-C, two separate function-pointer tables would be required.
+
+**Decision:** do not split `IRtc`. Document that Logger uses only `get_time` and must not call `set_time`. This constraint is enforced by code review, not by the type system. The interface remains `IRtc` with all three operations, consistent with P10 naming (architecture-principles.md).
+
+### 2.3 Data types
+
+```c
+/**
+ * @brief Calendar date and time, all fields in binary (not BCD).
+ *
+ * The driver converts to/from the hardware BCD format internally.
+ * Consumers never handle BCD.
+ *
+ * year:   2000..2099 (stored as full year, e.g. 2026)
+ * month:  1..12
+ * day:    1..31
+ * hour:   0..23 (24-hour format; 12-hour mode disabled in hardware)
+ * minute: 0..59
+ * second: 0..59
+ */
+typedef struct {
+    uint16_t year;
+    uint8_t  month;
+    uint8_t  day;
+    uint8_t  hour;
+    uint8_t  minute;
+    uint8_t  second;
+} rtc_datetime_t;
+
+/**
+ * @brief Error codes returned by all RtcDriver operations.
+ *
+ * Naming follows the cross-cutting convention established in lld.md §3.2:
+ * <module>_err_t, not _status_t.
+ */
+typedef enum {
+    RTC_ERR_OK           = 0,  /**< Operation succeeded. */
+    RTC_ERR_INIT_TIMEOUT = 1,  /**< INITF flag did not assert within timeout. */
+    RTC_ERR_SYNC_TIMEOUT = 2,  /**< RSF flag did not assert after exiting init mode. */
+} rtc_err_t;
+
+```
+
+### 2.4 Public API (`rtc_driver.h`)
+
+```c
+/**
+ * @brief Initialise the RTC peripheral.
+ *
+ * Must be called once from main() before the FreeRTOS scheduler starts,
+ * so that Logger can read timestamps during the Init phase (bootstrap
+ * exception — components.md §1 preamble).
+ *
+ * Behaviour:
+ *  - Checks whether the backup domain survived the last reset (RTC_ISR.INITS).
+ *  - If the backup domain is valid, the calendar is left unchanged.
+ *  - If the backup domain was reset (INITS = 0), the RTC is initialised
+ *    with the default epoch (RTCD-O1 — see §8) and marked not synchronised.
+ *  - Configures 24-hour format (RTC_CR.FMT = 0) if re-initialising.
+ *  - Configures the prescaler for a 1 Hz calendar clock from a 32.768 kHz
+ *    LSE source (PREDIV_A = 127, PREDIV_S = 255).
+ *
+ * @return RTC_ERR_OK on success; RTC_ERR_INIT_TIMEOUT if INITF does not
+ *         assert within the timeout window.
+ */
+rtc_err_t rtc_init(void);
+
+/**
+ * @brief Read the current wall-clock time from the RTC.
+ *
+ * Safe to call from any task context. Caller serialises concurrent calls
+ * (driver is not internally synchronised — established convention,
+ * lld-methodology.md v1.1).
+ *
+ * If called immediately after rtc_set_time(), the RSF flag must be clear;
+ * the driver waits for RSF before reading to ensure the shadow registers
+ * are consistent (see §4, hardware contract).
+ *
+ * @param[out] dt Pointer to caller-allocated rtc_datetime_t; populated on
+ *               RTC_ERR_OK. Zeroed on error.
+ * @return RTC_ERR_OK on success; RTC_ERR_SYNC_TIMEOUT if RSF does not
+ *         assert within the timeout window.
+ */
+rtc_err_t rtc_get_time(rtc_datetime_t *dt);
+
+/**
+ * @brief Write a new wall-clock time to the RTC.
+ *
+ * Called by TimeProvider after a successful NTP synchronisation (REQ-TS-020).
+ * Must NOT be called by Logger (bootstrap exception — Logger is read-only).
+ *
+ * Sequence: unlock WPR → enter init mode (wait INITF) → write TR/DR →
+ * exit init mode → lock WPR → wait RSF.
+ *
+ * @param dt  Pointer to the new date/time (must not be NULL).
+ * @return RTC_ERR_OK on success; RTC_ERR_INIT_TIMEOUT or
+ *         RTC_ERR_SYNC_TIMEOUT on hardware timeout.
+ */
+rtc_err_t rtc_set_time(const rtc_datetime_t *dt);
+
+/**
+ * @brief Return whether the backup domain survived the last reset.
+ *
+ * Returns true if RTC_ISR.INITS was set at init time, meaning the calendar
+ * has been previously initialised and the backup supply preserved it.
+ * Returns false if the backup domain was reset, meaning the calendar was
+ * reinitialised to the default epoch — timestamps are not meaningful until
+ * a successful rtc_set_time() call.
+ *
+ * TimeProvider uses this flag to decide the initial sync state reported
+ * through IHealthReport and to gate the "synchronised" flag exposed via
+ * ITimeProvider (REQ-NF-212).
+ *
+ * @return true if backup domain was valid at init; false otherwise.
+ */
+bool rtc_is_backup_valid(void);
+```
+
+---
+
+## 3. Internal design
+
+### 3.1 Module-level state (rtc_driver.c — not exposed in header)
+
+There is exactly one RTC peripheral per board. The driver is a singleton; no handle is passed between caller and driver.
+
+```c
+static bool s_backup_valid = false; /* Captured once at rtc_init(); immutable thereafter. */
+```
+
+The peripheral is accessed directly via the CMSIS `RTC` macro (`RTC_TypeDef *` pointing to the fixed peripheral base address). No pointer indirection is needed at runtime.
+
+### 3.2 BCD conversion helpers (internal linkage)
+
+The STM32 RTC stores hours, minutes, seconds, and date in BCD. Consumers receive and supply binary values. Two `static` helper pairs are defined in `rtc_driver.c`:
+
+```c
+static uint8_t bcd_to_bin(uint8_t bcd);   /* e.g. 0x23 → 23 */
+static uint8_t bin_to_bcd(uint8_t bin);   /* e.g. 23 → 0x23 */
+```
+
+Year is handled separately: the RTC stores the year offset from 2000 as a two-digit BCD value (00..99). `rtc_get_time` adds 2000; `rtc_set_time` subtracts 2000 before converting.
+
+### 3.3 Write protection unlock/lock
+
+The STM32 RTC WPR register protects TR, DR, and CR from accidental writes. The sequence is:
+
+```c
+/* Unlock */
+handle->regs->WPR = 0xCA;
+handle->regs->WPR = 0x53;
+
+/* ... write operations ... */
+
+/* Lock — any invalid key re-enables protection */
+handle->regs->WPR = 0xFF;
+```
+
+This sequence wraps every call to `rtc_set_time` and the init-mode entry inside `rtc_init`.
+
+### 3.4 Init mode entry (used by `rtc_init` and `rtc_set_time`)
+
+```
+1. Set RTC_ISR.INIT = 1.
+2. Poll RTC_ISR.INITF until set (hardware takes up to 2 RTCCLK cycles).
+3. Apply the timeout defined in §4. If timeout expires → RTC_ERR_INIT_TIMEOUT.
+4. Write TR and DR registers.
+5. Clear RTC_ISR.INIT = 0.
+6. Poll RTC_ISR.RSF until set (calendar shadow registers re-synchronised).
+7. If RSF timeout expires → RTC_ERR_SYNC_TIMEOUT.
+```
+
+Step 6 is mandatory before `rtc_get_time` returns valid data after a write. `rtc_get_time` also polls RSF before reading if RSF is not already set (e.g., immediately after power-on before the first calendar update tick).
+
+### 3.5 No ISR, no DMA, no callbacks
+
+The driver has no interrupt handler and registers no callbacks. This is consistent with the passive consumer model confirmed in task-breakdown.md. The wakeup timer and alarm features of the STM32 RTC peripheral are not used in this project scope.
+
+---
+
+## 4. Hardware contract
+
+### 4.1 Clock source — both boards
+
+| Board | Crystal | LSE frequency | PREDIV_A | PREDIV_S | Calendar tick |
+|---|---|---|---|---|---|
+| STM32F469 (FD) | X3 (UM1932 §4.3.2) | 32.768 kHz | 127 | 255 | 1 Hz |
+| STM32L475 (GW) | X2 (UM2153 block diagram) | 32.768 kHz | 127 | 255 | 1 Hz |
+
+The prescaler formula is: f_calendar = f_LSE / (PREDIV_A + 1) / (PREDIV_S + 1) = 32768 / 128 / 256 = 1 Hz.
+
+These values must only be written during init mode if the backup domain was reset. If the backup domain survived (INITS = 1), the prescaler is already set correctly and must not be overwritten.
+
+### 4.2 Timeout budgets
+
+| Wait condition | Maximum duration (from RM) | Driver timeout | Notes |
+|---|---|---|---|
+| INITF after INIT=1 | 2 RTCCLK cycles ≈ 61 µs | 2 ms (generous margin) | RTCCLK = LSE = 32.768 kHz |
+| RSF after INIT=0 | 2 RTCCLK + 2 APB cycles | 2 ms | APB clock varies; 2 ms covers worst case at minimum APB |
+
+Timeouts are polled (busy-wait), not RTOS-blocked. The total worst-case blocking time for `rtc_set_time` is ≤ 4 ms. This is acceptable; the only caller is `TimeProvider`, which runs in `TimeServiceTask` (GW, hourly) or is called from the NTP write path, neither of which has a hard latency requirement shorter than 4 ms.
+
+For `rtc_get_time` called by `Logger`, RSF is normally already set (calendar updates every 1 Hz); the RSF wait is typically zero cycles in steady state.
+
+### 4.3 Backup domain reset detection
+
+`RTC_ISR.INITS` (bit 4) is set by hardware when the calendar has been initialised at least once since the last backup domain reset. Reading INITS at the start of `rtc_init` is the canonical way to detect whether a cold-start epoch load is required. This is consistent on both F469 (RM0386) and L475 (RM0351).
+
+**Flag captured once at init:** `s_backup_valid = (RTC->ISR & RTC_ISR_INITS) != 0`. The flag is then immutable for the lifetime of the module.
+
+### 4.4 Cross-target register compatibility
+
+Both `stm32f469xx.h` and `stm32l475xx.h` define `RTC_TypeDef` with the same relevant registers (`TR`, `DR`, `CR`, `ISR`, `PRER`, `WPR`, `SSR`). The register field bit positions are identical for the fields used by this driver. The only structural difference (L475 has 32 backup registers vs 20 on F469) is irrelevant — this driver does not use the backup registers.
+
+**Action required (Luca at implementation):** Verify the WPR key sequence and INITF/RSF timeout behaviour against RM0386 §27 (F469) and RM0351 §38 (L475) before writing code. Both RMs are required reading; the CMSIS headers alone are not sufficient for the init state machine.
+
+### 4.5 DUART-O2 interaction
+
+Not applicable. The RTC is clocked from LSE, not APB. The unresolved PCLK values (DUART-O2) have no effect on RTC timing.
+
+---
+
+## 5. Sequence integration
+
+`RtcDriver` appears in one existing sequence diagram:
+
+**SD-09 (time synchronisation):** message "write RTC" (REQ-TS-020) maps to `rtc_set_time`. The call path is `TimeService` → `TimeProvider` → `rtc_set_time(&dt)`. No new sequence diagram is needed for the driver itself; the existing SD-09 in `sequence-diagrams.md` is sufficient.
+
+**Logger bootstrap path:** `Logger` calls `rtc_get_time` inside its timestamp-formatting routine. This call occurs pre-scheduler (during Init) and in any task context post-scheduler. It is not modelled in any sequence diagram — the bootstrap exception is documented in `components.md` and in §2.2 above.
+
+**No SD changes required.** SD-09 "write RTC" message is the driver's only sequence-diagram surface. No escalation to `sequence-diagrams.md` is needed.
+
+---
+
+## 6. Error handling
+
+### 6.1 Error propagation (P8 — architecture-principles.md, §6)
+
+Every function returns `rtc_err_t`. No silent failures. The caller decides what to do on error.
+
+| Caller | Error received | Expected response |
+|---|---|---|
+| `TimeProvider` (set_time) | `RTC_ERR_INIT_TIMEOUT` or `RTC_ERR_SYNC_TIMEOUT` | Log via Logger; push event via IHealthReport; retain previous time |
+| `Logger` (get_time) | `RTC_ERR_SYNC_TIMEOUT` | Return zeroed `rtc_datetime_t`; format timestamp as `0000-00-00 00:00:00` — diagnostic log entry remains useful even with an invalid timestamp |
+
+### 6.2 Logger error handling detail
+
+Logger is the bootstrap exception consumer. If `rtc_get_time` fails, Logger must not call Logger recursively to report the error (infinite recursion). The error must be swallowed silently for the bootstrap path only. This is the accepted cost of the bootstrap exception pattern (documented in `components.md` §1 preamble and `hld.md` §14.1).
+
+### 6.3 Default epoch on backup domain reset
+
+When `INITS = 0`, the driver writes the default epoch to the RTC. The value is defined as a named constant in `rtc_driver.c` (not magic numbers — BARR-C §3.2). The default epoch value is deferred to RTCD-O1 (§8).
+
+---
+
+## 7. Test plan
+
+Host-platform tests (Unity framework, target-independent). The CMSIS `RTC` macro is redirected to a statically allocated `RTC_TypeDef` mock instance via a preprocessor `#define RTC (&mock_rtc)` in the test build. No linker tricks required.
+
+| ID | Test case | Expected result |
+|---|---|---|
+| T-RTC-01 | `rtc_init` when INITS = 0: verify prescaler written, epoch set to default, `backup_valid = false` | PREDIV_A = 127, PREDIV_S = 255 written; TR/DR set to default epoch; `rtc_is_backup_valid` returns `false` |
+| T-RTC-02 | `rtc_init` when INITS = 1: verify no prescaler write, no epoch overwrite, `backup_valid = true` | PRER register untouched; TR/DR unchanged; `rtc_is_backup_valid` returns `true` |
+| T-RTC-03 | `rtc_get_time` happy path: mock TR = 0x162359, DR = 0x261231 (BCD) | Returns `{2026, 12, 31, 16, 23, 59}` |
+| T-RTC-04 | `rtc_get_time` BCD boundary: TR = 0x000000, DR = 0x000101 | Returns `{2000, 1, 1, 0, 0, 0}` |
+| T-RTC-05 | `rtc_set_time` happy path: call with `{2026, 5, 16, 10, 30, 00}` | WPR unlocked (0xCA, 0x53); INIT bit set; TR = 0x103000, DR = 0x260516 written; INIT cleared; WPR locked (0xFF) |
+| T-RTC-06 | `rtc_set_time` INIT timeout: force INITF never set | Returns `RTC_ERR_INIT_TIMEOUT`; TR/DR not written |
+| T-RTC-07 | `rtc_set_time` RSF timeout: INITF sets normally, RSF never sets | Returns `RTC_ERR_SYNC_TIMEOUT` |
+| T-RTC-08 | `rtc_get_time` RSF not set on entry: mock RSF initially clear, then sets | Blocks until RSF set; returns correct datetime |
+| T-RTC-09 | `rtc_get_time` RSF timeout: RSF never sets | Returns `RTC_ERR_SYNC_TIMEOUT`; `dt` zeroed |
+| T-RTC-10 | `rtc_is_backup_valid` after init with INITS = 1 | Returns `true` |
+| T-RTC-11 | `rtc_is_backup_valid` after init with INITS = 0 | Returns `false` |
+
+Test file: `tests/drivers/test_rtc_driver.c`.
+
+---
+
+## 8. Open items
+
+| ID | Item | Owner | Resolution path |
+|---|---|---|---|
+| RTCD-O1 | Default epoch value when backup domain is reset. Candidate: `2000-01-01 00:00:00` (RTC hardware year-offset origin). Confirm before implementation. | Luca | Decide at implementation; define as a named constant in `rtc_driver.c` |
+| RTCD-O2 | RSF wait timeout value under minimum APB clock. 2 ms assumed; verify against system clock configuration once `clock-config.md` companion is produced. DUART-O2 (unresolved PCLK values) is the dependency. | Luca | Resolve when `clock-config.md` lands |
+| RTCD-O3 | Logger timestamps are unsynchronised and unmarked until NTP sync. Logger does not pass through TimeProvider and therefore cannot query the sync-state flag. This is the accepted cost of the bootstrap exception. Document explicitly in the Logger companion when produced. | Claude (Logger companion) | Noted here; actioned in Logger LLD |
+| RTCD-O4 | Verify INITS flag behaviour on L475 after a full power-cycle (VDD and VBAT both removed). RM0351 §38.3 covers reset conditions; confirm INITS is reliably cleared when backup domain loses power. | Luca | Check RM0351 §38 at implementation |
+
+**Inherited open items with no surface area in this companion:**
+- O1 (WiFi SPI driver naming): not applicable.
+- O2 (worst-case stack measurements): not applicable.
+- O3 (hardware watchdog): the RTC wakeup timer is not used. IWDG is the watchdog mechanism (REQ-NF-109). No interaction with this driver.
+
+---
+
+## 9. Decisions log
+
+| ID | Decision | Rationale |
+|---|---|---|
+| RTCD-D1 | API uses binary calendar values; BCD conversion is internal | Consumers (Logger, TimeProvider) have no reason to handle BCD; conversion is a driver responsibility. Prevents BCD arithmetic errors in upper layers. |
+| RTCD-D2 | No ISP split of `IRtc` | Interface is three functions — already minimal. Logger's read-only constraint is enforced by convention, not type system. Adding two function-pointer tables for a documented exception case adds complexity without clarity. |
+| RTCD-D3 | Singleton module (no handle parameter) | There is exactly one RTC peripheral per board. A handle adds no value and contradicts the pattern established in prior driver companions. Module-level static state is simpler and equally correct. |
+| RTCD-D4 | No FreeRTOS primitives in driver | Consistent with all prior driver companions. Caller serialises as needed. |
+| RTCD-D5 | Prescaler only written on backup domain reset | Writing the prescaler when the backup domain is valid corrupts the running calendar. The INITS check gates this safely. |
+| RTCD-D6 | Busy-wait polling for INITF and RSF, not RTOS block | The total wait is ≤ 4 ms; both consumers can tolerate this. Adding an RTOS-aware timeout would import a FreeRTOS dependency into the driver, violating the established no-RTOS-in-drivers convention. |
+| RTCD-D7 | `rtc_get_time` waits for RSF | Avoids returning stale shadow-register values immediately after a set. The alternative (document that callers must wait) would push hardware knowledge into the middleware layer, violating P1. |

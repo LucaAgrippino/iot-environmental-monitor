@@ -160,6 +160,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - RtcDriver
 - I2cDriver
 - GpioDriver
+- ExtiDriver
 
 ## 4. Responsibility sentences and interfaces — Field Device
 
@@ -193,7 +194,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Reads touch coordinate events from the touchscreen controller (REQ-LD-050).
 **PROVIDES (upward):** ITouchscreen
-**USES (downward):** I2cDriver
+**USES (downward):** I2cDriver, ExtiDriver
 
 **NAME:** SdramDriver
 **LAYER:** Driver
@@ -215,7 +216,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** LedDriver
 **LAYER:** Driver
-**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-200).
+**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-250).
 **PROVIDES (upward):** ILed
 **USES (downward):** GpioDriver
 
@@ -235,6 +236,12 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Configures GPIO pins and provides read/write access to single-pin digital I/O (REQ-NF-202).
 **PROVIDES (upward):** IGpio
+**USES (downward):** CMSIS
+
+**NAME:** ExtiDriver
+**LAYER:** Driver
+**RESPONSIBILITY:** Configures EXTI interrupt lines: maps GPIO ports via SYSCFG_EXTICRx, sets trigger edges, manages IMR and NVIC enable/disable. Provides conflict detection to prevent two drivers from claiming the same line (REQ-LD-050).
+**PROVIDES (upward):** IExti
 **USES (downward):** CMSIS
 
 ### Middleware layer
@@ -285,7 +292,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** HealthMonitor
 **LAYER:** Application
-**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-200 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
+**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-250 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
 **PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*
 **USES (downward):** LedDriver, ILogger
 
@@ -418,6 +425,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - I2cDriver
 - SpiDriver
 - GpioDriver
+- ExtiDriver
 
 ## 4. Responsibility sentences and interfaces — Gateway
 
@@ -433,19 +441,19 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Sends and receives data between the MCU and the external WiFi module via AT commands. Exposes link-level state (RSSI, connection status) to its consumer (REQ-CC-050, CON-001).
 **PROVIDES (upward):** IWifi
-**USES (downward):** SpiDriver, GpioDriver
+**USES (downward):** SpiDriver, ExtiDriver
 
 **NAME:** MagnetometerDriver
 **LAYER:** Driver
 **RESPONSIBILITY:** Provides 3-axis magnetic field readings to the layer above (REQ-SA-031).
 **PROVIDES (upward):** IMagnetometer
-**USES (downward):** I2cDriver, GpioDriver
+**USES (downward):** I2cDriver, ExtiDriver
 
 **NAME:** ImuDriver
 **LAYER:** Driver
 **RESPONSIBILITY:** Provides 3-axis accelerometer and 3-axis gyroscope readings to the layer above (REQ-SA-071).
 **PROVIDES (upward):** IImu
-**USES (downward):** I2cDriver, GpioDriver
+**USES (downward):** I2cDriver, ExtiDriver
 
 **NAME:** BarometerDriver
 **LAYER:** Driver
@@ -473,7 +481,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** LedDriver
 **LAYER:** Driver
-**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-200).
+**RESPONSIBILITY:** Controls the on/off state of the board LEDs (REQ-LD-250).
 **PROVIDES (upward):** ILed
 **USES (downward):** GpioDriver
 
@@ -505,6 +513,12 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Configures GPIO pins and provides read/write access to single-pin digital I/O (REQ-NF-202).
 **PROVIDES (upward):** IGpio
+**USES (downward):** CMSIS
+
+**NAME:** ExtiDriver
+**LAYER:** Driver
+**RESPONSIBILITY:** Configures EXTI interrupt lines: maps GPIO ports via SYSCFG_EXTICRx, sets trigger edges, manages IMR and NVIC enable/disable. Provides conflict detection to prevent two drivers from claiming the same line (REQ-CC-050, REQ-SA-031, REQ-SA-071).
+**PROVIDES (upward):** IExti
 **USES (downward):** CMSIS
 
 ### Middleware layer
@@ -569,7 +583,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** HealthMonitor
 **LAYER:** Application
-**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-200 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
+**RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-250 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
 **PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*
 **USES (downward):** LedDriver, ILogger
 
