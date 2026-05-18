@@ -180,6 +180,7 @@ docs/lld/
 | — | `application/config-service.md` | Application | Both | Baselined |
 | — | `application/health-monitor.md` | Application | Both | Baselined |
 | — | `application/modbus-register-map.md` | Application | Field Device | Baselined |
+| — | `application/lcd-ui.md` | Application | Field Device | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -251,7 +252,7 @@ Each completed companion adds one row.
 | `config-service.md` | `ConfigService` (FD · GW) | `hld.md` §5.6; `components.md` §Application, §ISP; `sequence-diagrams.md` SD-07, SD-08 | REQ-DM-000, DM-001, DM-002, DM-090, REQ-SA-000, SA-010, SA-020, SA-050, REQ-LI-030–130, REQ-MB-100 | UC-15, UC-16 |
 | `health-monitor.md` | `HealthMonitor` (FD · GW) | `hld.md` §5.5, §6.4; `components.md` §Application, §Metric Producer Pattern, §DIP; `sequence-diagrams.md` SD-03b | REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208 | UC-04, UC-06 |
 | `modbus-register-map.md` | `ModbusRegisterMap` (FD) | `hld.md` §5.6, §8.6, §12; `components.md` FD §3 | REQ-MB-000, MB-010, MB-020, MB-040, MB-070, MB-080, MB-090, MB-100, MB-0E1, MB-110, MB-111; REQ-LD-070; REQ-AM-020; REQ-NF-101 | UC-06, UC-07, UC-13, UC-15 |
-
+| `lcd-ui.md` | `LcdUi` (FD) | `hld.md` §5.2, §5.5, §5.6; `components.md` FD application layer | REQ-LD-000, LD-010, LD-020, LD-030, LD-040, LD-050, LD-060, LD-070, LD-080, LD-090, LD-100, LD-110, LD-120, LD-130, LD-140, LD-150, LD-0E1; REQ-NF-108 | UC-01, UC-02, UC-03, UC-08, UC-15 |
 ---
 
 *This document is the master LLD. It is updated as each companion is completed. Implementation-ready specifications live in the companion files referenced in §4.*
