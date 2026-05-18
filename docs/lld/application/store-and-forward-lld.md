@@ -7,9 +7,14 @@ Policy wrapper over `CircularFlashLog` that provides the drop-oldest
 enqueue strategy, two-phase dequeue/confirm for power-loss-safe drain,
 and buffer-occupancy reporting. Its sole caller is `CloudPublisher`.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** StoreAndForward in `components.md` (GW application layer)
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -40,7 +45,7 @@ and buffer-occupancy reporting. Its sole caller is `CloudPublisher`.
 
 ---
 
-## 3. Interface — `IStoreAndForward`
+## 2. Public API — `IStoreAndForward`
 
 ```c
 /* application/include/i_store_and_forward.h */
@@ -91,7 +96,7 @@ struct IStoreAndForward {
 
 ---
 
-## 4. Internal structure
+## 3. Internal design
 
 ```c
 #define SAF_STAGE_BUF_SIZE  (SAF_TOPIC_MAX + 1U + 2U + SAF_PAYLOAD_MAX)
@@ -295,7 +300,11 @@ partition split between Logger and SAF within the 1 MB region is a
 
 ---
 
-## 10. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -346,7 +355,7 @@ holds ~62 entries (62 minutes). The exact split is a CFL LLD decision
 
 ---
 
-## 13. Test plan
+## 7. Unit-test plan
 
 ### 13.1 Unit tests — `tests/application/test_store_and_forward.c`
 
@@ -381,10 +390,10 @@ consume_oldest, count_valid_entries) and drives the return values.
 
 ---
 
-## 14. Open items
+## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **SAF-O1** | Capacity calculation uses worst-case entry size (4170 bytes). Actual average entry size (telemetry ~800 bytes, alarms ~300 bytes) would give 3–5× higher capacity. Consider a two-tier estimate at integration once real payloads are measured. |
 | **SAF-O2** | Partition split within the 1 MB QSPI CFL allocation between Logger and SAF — deferred to `circular-flash-log.md` LLD companion. |
 | **CFL-O2** | Boot scan latency ~40 ms (expected). If >100 ms at integration, add CFL tail pointer to eliminate scan. |

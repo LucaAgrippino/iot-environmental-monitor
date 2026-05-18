@@ -6,10 +6,15 @@
 **Consumes:** `IRtc` (RtcDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212  
 **HLD ref:** `components.md` §Middleware — TimeProvider; `hld.md` §5.2, §5.5
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** TimeProvider in `components.md` (FD + GW middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 TimeProvider wraps RtcDriver and exposes a single timestamping interface to
 all application and middleware consumers. Its two jobs:
@@ -69,7 +74,7 @@ sync flag is threaded through layers.
 
 ---
 
-## 3. Provided interface — `ITimeProvider`
+## 2. Public API — `ITimeProvider`
 
 ```c
 /**
@@ -198,7 +203,7 @@ of successful vs failed NTP queries) are not owned here — they belong to
 
 ---
 
-## 7. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* time_provider.c — static module state */
@@ -238,7 +243,15 @@ in UNSYNCHRONISED state regardless.
 
 ---
 
-## 9. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 /* For tests compiled on the host (no RTC hardware) */
@@ -290,10 +303,10 @@ the primary validation path.
 
 ---
 
-## 11. Open items
+## 8. Open items
 
-| ID     | Item                                                                                  |
-|--------|---------------------------------------------------------------------------------------|
-| TP-O1  | `TIME_PROVIDER_SYNC_INTERVAL_S` — [TBD], driven by REQ-NF-210 / REQ-NF-211. Determined at integration testing via RTC drift measurement. |
-| TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. Not yet produced. |
-| TP-O3  | `TIME_PROVIDER_SANITY_DELTA_S` — NTP delta sanity threshold. Decided in TimeService LLD companion (GW). TimeProvider needs the value to compile `time_provider_config.h`. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| TP-O1  | `TIME_PROVIDER_SYNC_INTERVAL_S` — [TBD], driven by REQ-NF-210 / REQ-NF-211. Determined at integration testing via RTC drift measurement. | Determine via RTC drift measurement at integration; set in time_provider_config.h | Open |
+| TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. Not yet produced. | Allocate from project-wide backup-register map when that map is produced | Open |
+| TP-O3  | `TIME_PROVIDER_SANITY_DELTA_S` — NTP delta sanity threshold. Decided in TimeService LLD companion (GW). TimeProvider needs the value to compile `time_provider_config.h`. | Confirm threshold value at TimeService LLD companion (GW) | Open |

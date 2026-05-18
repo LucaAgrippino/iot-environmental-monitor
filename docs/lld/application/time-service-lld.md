@@ -8,9 +8,14 @@ delta sanity check before accepting a new timestamp, writes the
 synchronised time to the RTC via `TimeProvider`, and propagates the
 current time to the field device via `IModbusPoller`.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** TimeService in `components.md` (GW application layer)
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -33,7 +38,7 @@ current time to the field device via `IModbusPoller`.
 
 ---
 
-## 3. Interface — `ITimeService`
+## 2. Public API — `ITimeService`
 
 ```c
 /* application/include/i_time_service.h */
@@ -162,7 +167,7 @@ P7); `TimeService` does not push the state.
 
 ---
 
-## 8. Internal structure
+## 3. Internal design
 
 ```c
 typedef struct {
@@ -180,7 +185,11 @@ typedef struct {
 
 ---
 
-## 9. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -247,7 +256,7 @@ Stack: 512 words / 2 KB. NTP sync involves a blocking UDP call inside
 
 ---
 
-## 13. Test plan
+## 7. Unit-test plan
 
 ### 13.1 Unit tests — `tests/application/test_time_service.c`
 
@@ -277,10 +286,10 @@ Mocks: `TimeProvider`, `NtpClient`, `IModbusPoller`, `IConfigProvider`,
 
 ---
 
-## 14. Open items
+## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **TS-O1** | REQ-TS-030 "on initial connection" — currently satisfied by the first periodic NTP sync at boot. If the Modbus link is not up at boot sync time, the push is deferred to the next sync. Evaluate at integration whether an explicit event-driven push on `link_established` is needed. |
 | **NTP-O2** | DNS dependency: if `WifiDriver` does not expose DNS resolution, `NtpClient` must be provisioned with NTP server IP addresses instead of hostnames. Confirm DNS availability during WifiDriver LLD phase. |
 

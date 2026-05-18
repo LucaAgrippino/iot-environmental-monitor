@@ -10,10 +10,15 @@
 - `ModbusPoller` → `IModbusMaster`, `IModbusMasterStats`, `IDeviceProfileProvider` (DeviceProfileRegistry), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-MB-010, MB-020, MB-030, MB-040, MB-050, MB-060, MB-080, MB-090, MB-100, MB-110, MB-120, MB-130, MB-0E1; REQ-NF-103, NF-104, NF-105, NF-201, NF-215  
 **HLD ref:** `components.md` §Middleware — ModbusMaster; §Application — ModbusPoller; `state-machines.md` Machine 4; `hld.md` §7.5; `sequence-diagrams.md` SD-02, SD-00b; `modbus-register-map.md` §2–§3
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ModbusMaster + ModbusPoller in `components.md` (GW middleware layer)
 
 ---
 
-## 1. Why a combined companion
+## 1. Sources
 
 ModbusMaster and ModbusPoller are separate components at different layers,
 but they implement **one state machine together** (`state-machines.md`
@@ -25,7 +30,7 @@ made explicit in every section below.
 
 ---
 
-## 2. Responsibility boundary
+## 3. Internal design
 
 | Concern | Owner |
 |---------|-------|
@@ -65,7 +70,7 @@ typedef struct {
 
 ---
 
-## 4. ModbusMaster
+## 2. Public API
 
 ### 4.1 Data types
 
@@ -410,7 +415,15 @@ owned by `ModbusUartDriver`. No two-phase init beyond the ordering above.
 
 ---
 
-## 9. Host-side unit test stubs
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -441,11 +454,11 @@ Minimum ModbusPoller test cases:
 
 ---
 
-## 10. Open items
+## 8. Open items
 
-| ID      | Item |
-|---------|------|
-| MBM-O1  | Command queue depth — 4 is provisional. Confirm at integration by measuring peak queue occupancy under worst-case concurrent callers (TimeService + ConsoleService + UpdateService). |
-| MBM-O2  | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. |
-| MBM-O3  | Response timer implementation — FreeRTOS software timer vs hardware timer. Software timer has jitter of one tick period (1 ms at 1 kHz tick). At 200 ms timeout this is 0.5% jitter — acceptable. Confirm if hardware timer is required for tighter tolerance. |
-| MBM-O4  | FC03 (Read Holding Registers) support — ModbusMaster must support FC03 for config reads (modbus-register-map.md §3). `modbus_master_transact()` is FC-agnostic (frame is pre-built by caller); no additional API change needed. Confirm at implementation. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| MBM-O1  | Command queue depth — 4 is provisional. Confirm at integration by measuring peak queue occupancy under worst-case concurrent callers (TimeService + ConsoleService + UpdateService). | Measure peak queue occupancy at integration under worst-case callers | Open |
+| MBM-O2  | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. | Address when second Modbus slave is added to the system | Open |
+| MBM-O3  | Response timer implementation — FreeRTOS software timer vs hardware timer. Software timer has jitter of one tick period (1 ms at 1 kHz tick). At 200 ms timeout this is 0.5% jitter — acceptable. Confirm if hardware timer is required for tighter tolerance. | Confirm timing tolerance requirement at integration; software timer assumed sufficient | Open |
+| MBM-O4  | FC03 (Read Holding Registers) support — ModbusMaster must support FC03 for config reads (modbus-register-map.md §3). `modbus_master_transact()` is FC-agnostic (frame is pre-built by caller); no additional API change needed. Confirm at implementation. | Confirm FC03 support at implementation — API is FC-agnostic by design | Open |

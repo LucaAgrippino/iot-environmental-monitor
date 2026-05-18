@@ -9,10 +9,15 @@
 **AlarmService consumes:** `ISensorService`, `IConfigProvider`, `ILogger`  
 **SRS traces:** REQ-SA-000–SA-171; REQ-AM-000–AM-040  
 **HLD ref:** `components.md` §Application — SensorService, AlarmService; `hld.md` §5.3; `sequence-diagrams.md` SD-01; `task-breakdown.md` §4.2 (FD), §5.2 (GW)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** SensorService + AlarmService in `components.md` (FD + GW application layer)
 
 ---
 
-## 1. Why combined
+## 1. Sources
 
 AlarmService is co-hosted in `SensorTask`. Its evaluation runs as the
 new-reading callback registered with SensorService — when `SensorService`
@@ -104,7 +109,7 @@ typedef enum {
 
 ---
 
-## 4. SensorService — provided interface `ISensorService`
+## 2. Public API — provided interface `ISensorService`
 
 ```c
 /**
@@ -315,7 +320,7 @@ a misconfigured hysteresis from making alarms impossible to clear.
 
 ---
 
-## 8. Internal state
+## 3. Internal design
 
 ```c
 /* sensor_service.c */
@@ -421,7 +426,15 @@ alarms make physical sense, and the threshold semantics are non-trivial.
 
 ---
 
-## 12. Host-side unit test stubs
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -456,11 +469,11 @@ Minimum test cases — AlarmService:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| SS-O1 | IIR filter alpha value — [TBD] in REQ-SA-140. Provisional 0.1. Confirm with sensor characterisation data or customer spec. Must be validated to be in range (0, 1) exclusive at init. |
-| SS-O2 | REQ-SA-090 "most recent [TBD] readings per sensor" — TBD not yet resolved. Decision: store only the latest reading (N=1) unless a specific requirement for historical access emerges. If N > 1 is required, add a static ring buffer per sensor inside SensorService. |
-| SS-O3 | IMU and magnetometer alarm evaluation (GW) — deferred. Per-axis thresholds and magnitude thresholds have different physical interpretations. Design at coding time when customer threshold requirements are confirmed. |
-| SS-O4 | WCET measurement — the 3 ms (FD) / 5 ms (GW) budget must be verified by timing `sensor_service_run_cycle()` under debugger at target speed before sign-off. Record in `task-breakdown.md` §8 when measured. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| SS-O1 | IIR filter alpha value — [TBD] in REQ-SA-140. Provisional 0.1. Confirm with sensor characterisation data or customer spec. Must be validated to be in range (0, 1) exclusive at init. | Confirm IIR alpha with sensor characterisation data or customer spec before coding | Open |
+| SS-O2 | REQ-SA-090 "most recent [TBD] readings per sensor" — TBD not yet resolved. Decision: store only the latest reading (N=1) unless a specific requirement for historical access emerges. If N > 1 is required, add a static ring buffer per sensor inside SensorService. | Implement N=1 (latest reading only); revisit if historical access is required | Open |
+| SS-O3 | IMU and magnetometer alarm evaluation (GW) — deferred. Per-axis thresholds and magnitude thresholds have different physical interpretations. Design at coding time when customer threshold requirements are confirmed. | Design per-axis/magnitude thresholds at coding time once customer spec confirmed | Open |
+| SS-O4 | WCET measurement — the 3 ms (FD) / 5 ms (GW) budget must be verified by timing `sensor_service_run_cycle()` under debugger at target speed before sign-off. Record in `task-breakdown.md` §8 when measured. | Time sensor_service_run_cycle() on target under debugger; record in task-breakdown.md §8 | Open |

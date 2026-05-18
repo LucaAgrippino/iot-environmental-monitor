@@ -6,10 +6,15 @@
 **Consumes:** `ILcd` (LcdDriver), `ITouchscreen` (TouchscreenDriver), `ILogger`  
 **SRS traces:** REQ-LD-000, REQ-LD-050, REQ-NF-108  
 **HLD ref:** `components.md` §Middleware — GraphicsLibrary; `hld.md` §5.2; `task-breakdown.md` §4.2 (`LcdUiTask`), §4.4 (IPC)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** GraphicsLibrary in `components.md` (FD middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 GraphicsLibrary wraps LVGL (Light and Versatile Graphics Library) and
 owns its driver integration — how pixels reach the screen and how touch
@@ -86,7 +91,7 @@ not portable across graphics libraries — that trade-off is accepted.
 
 ---
 
-## 5. Provided interface — `IGraphics`
+## 2. Public API — `IGraphics`
 
 ```c
 /**
@@ -278,7 +283,7 @@ FreeRTOS and adding application code there risks priority inversion.
 
 ---
 
-## 10. Internal state
+## 3. Internal design
 
 ```c
 /* graphics_library.c */
@@ -353,7 +358,15 @@ documented as safe from any task context. `graphics_process()` calls
 
 ---
 
-## 14. Host-side simulator
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 LVGL ships a PC simulator (SDL2-based) that allows `LcdUi` development
 on a host machine without target hardware. Set up the simulator during
@@ -378,11 +391,11 @@ Minimum manual test scenarios in the simulator:
 
 ---
 
-## 15. Open items
+## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| GL-O1 | Draw buffer strategy — confirm Option A (partial buffer) produces acceptable visual quality at 5 Hz on the sensor screen during integration. If tearing is visible on screen transitions, switch to Option B (VSync-gated full-framebuffer mode). |
-| GL-O2 | `lcd_driver_blit()` blocking vs DMA-async — if LcdDriver uses DMA to transfer from the partial draw buffer to SDRAM, `lv_disp_flush_ready()` must be called from the DMA transfer-complete ISR/callback, not inline in `flush_cb`. Confirm at LcdDriver LLD. |
-| GL-O3 | DMA2D acceleration — `LV_USE_GPU_STM32_DMA2D 1` enables LVGL to use DMA2D for fill and copy operations. STM32F469 has DMA2D; enabling it is expected to halve render time per dirty region. Confirm at integration by comparing `lv_task_handler()` execution time with and without. |
-| GL-O4 | LVGL PC simulator — confirm SDL2 availability in the development environment (Limerick laptop). If SDL2 is unavailable, use LVGL's framebuffer-to-BMP export mode as a fallback for visual review. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| GL-O1 | Draw buffer strategy — confirm Option A (partial buffer) produces acceptable visual quality at 5 Hz on the sensor screen during integration. If tearing is visible on screen transitions, switch to Option B (VSync-gated full-framebuffer mode). | Evaluate visual quality at integration; switch to Option B if tearing observed | Open |
+| GL-O2 | `lcd_driver_blit()` blocking vs DMA-async — if LcdDriver uses DMA to transfer from the partial draw buffer to SDRAM, `lv_disp_flush_ready()` must be called from the DMA transfer-complete ISR/callback, not inline in `flush_cb`. Confirm at LcdDriver LLD. | Confirm at LcdDriver LLD companion — DMA async vs blocking flush | Open |
+| GL-O3 | DMA2D acceleration — `LV_USE_GPU_STM32_DMA2D 1` enables LVGL to use DMA2D for fill and copy operations. STM32F469 has DMA2D; enabling it is expected to halve render time per dirty region. Confirm at integration by comparing `lv_task_handler()` execution time with and without. | Benchmark lv_task_handler() at integration with/without DMA2D enabled | Open |
+| GL-O4 | LVGL PC simulator — confirm SDL2 availability in the development environment (Limerick laptop). If SDL2 is unavailable, use LVGL's framebuffer-to-BMP export mode as a fallback for visual review. | Check SDL2 availability on development machine; use BMP-export fallback if absent | Open |

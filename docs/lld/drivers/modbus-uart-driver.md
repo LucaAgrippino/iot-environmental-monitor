@@ -5,10 +5,13 @@
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** ModbusUartDriver in `components.md` (FD + GW driver layer)
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -45,7 +48,7 @@ Both are single consumers on their respective boards — one task owns the drive
 
 ---
 
-## 2. API — `IModbusUart` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -290,7 +293,7 @@ No SD changes required. The existing SD-02 messages accurately describe the driv
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 ### 6.1 TX errors
 
@@ -306,7 +309,7 @@ If `s_rx_len` reaches 256 (maximum ADU size) before IDLE fires, the driver switc
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests (Unity framework). The USART peripheral is mocked via `#define USARTx (&mock_usart)` per target. The ISR is tested by calling `USART_modbus_IRQHandler()` directly with the mock register bank in predetermined states.
 

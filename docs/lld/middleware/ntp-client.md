@@ -6,10 +6,15 @@
 **Consumes:** `IWifi` (WifiDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-TS-010  
 **HLD ref:** `components.md` §Middleware — NtpClient; `sequence-diagrams.md` SD-09; `hld.md` §6.1
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** NtpClient in `components.md` (GW middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 NtpClient issues a single SNTPv4 request to a configurable server list and
 returns the server's time reference to its caller (`TimeService`). It owns
@@ -100,7 +105,7 @@ typedef enum {
 
 ---
 
-## 5. Provided interface — `INtpClient`
+## 2. Public API — `INtpClient`
 
 ```c
 /**
@@ -214,7 +219,7 @@ Both are direct-push events (Metric Producer Pattern — events → push).
 
 ---
 
-## 9. Internal state
+## 3. Internal design
 
 ```c
 /* ntp_client.c */
@@ -246,7 +251,15 @@ which is gated on the Cloud Connectivity state machine reaching Connected.
 
 ---
 
-## 11. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -274,10 +287,10 @@ Minimum test cases:
 
 ---
 
-## 12. Open items
+## 8. Open items
 
-| ID     | Item |
-|--------|------|
-| NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` is provisional. Validate against worst-case WiFi + internet RTT during integration. Increase to 5000 ms if public NTP servers prove slow. |
-| NTP-O2 | DNS resolution via WifiDriver — confirm that `wifi_driver_dns_lookup()` exists in the WifiDriver API surface (WIFI-O4 from session summary). If not, NtpClient must accept IP addresses only and DNS resolution must be done above (TimeService or ConfigService). |
-| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; document the constraint. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` is provisional. Validate against worst-case WiFi + internet RTT during integration. Increase to 5000 ms if public NTP servers prove slow. | Validate query timeout at integration against worst-case WiFi + internet RTT | Open |
+| NTP-O2 | DNS resolution via WifiDriver — confirm that `wifi_driver_dns_lookup()` exists in the WifiDriver API surface (WIFI-O4 from session summary). If not, NtpClient must accept IP addresses only and DNS resolution must be done above (TimeService or ConfigService). | Confirm wifi_driver_dns_lookup() existence at WifiDriver LLD companion | Open |
+| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; document the constraint. | Document IPv4-only constraint; no action required | Open |

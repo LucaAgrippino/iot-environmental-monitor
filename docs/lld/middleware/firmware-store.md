@@ -6,10 +6,15 @@
 **Consumes:** `IQspiFlash` (QspiFlashDriver), `ILogger`  
 **SRS traces:** REQ-DM-050, REQ-DM-051, REQ-DM-052, REQ-DM-060, REQ-DM-061, REQ-DM-070, REQ-DM-071, REQ-DM-072, REQ-DM-073, REQ-DM-074, REQ-DM-080, REQ-NF-204, REQ-NF-304  
 **HLD ref:** `components.md` §Middleware — FirmwareStore; `flash-partition-layout.md` §5.1, §5.2 (D36–D41); `state-machines.md` Machine 3; `sequence-diagrams.md` SD-06a–d
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** FirmwareStore in `components.md` (GW middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 FirmwareStore manages firmware image storage across three flash regions:
 
@@ -137,7 +142,7 @@ typedef enum {
 
 ---
 
-## 6. Provided interface — `IFirmwareStore`
+## 2. Public API — `IFirmwareStore`
 
 ```c
 /**
@@ -347,7 +352,7 @@ restarts from the last safe byte.
 
 ---
 
-## 10. Internal state
+## 3. Internal design
 
 ```c
 /* firmware_store.c */
@@ -381,7 +386,15 @@ firmware_store_init()        ← reads metadata; loads OTA public key from CertS
 
 ---
 
-## 12. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -411,11 +424,11 @@ Minimum test cases:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| FS-O1 | `firmware_store_apply()` duration — estimated 500 ms at 240 sectors × 2 ms. Measure at integration; if watchdog period is shorter than this, the watchdog must be kicked within the apply loop or suspended for the duration (document the suspension explicitly). |
-| FS-O2 | OTA public key provisioning path — the public key must be written to the CertStore partition during manufacturing/provisioning. Confirm the provisioning tool writes it at the correct CertStore sub-offset. FirmwareStore needs that offset defined in `cert_store_config.h`. |
-| FS-O3 | SHA-256 streaming chunk size — 4 KB sector-by-sector is proposed. Confirm that the QspiFlashDriver read API supports 4 KB reads efficiently without introducing an extra 4 KB RAM buffer in FirmwareStore (driver may already have an internal buffer). |
-| FS-O4 | mbedTLS ECDSA-P256 RAM cost — stack allocation of `mbedtls_ecdsa_context` (~1.5 KB) inside `firmware_store_verify()`. Must be verified against UpdateServiceTask stack budget alongside the existing mbedTLS usage in CloudPublisherTask. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| FS-O1 | `firmware_store_apply()` duration — estimated 500 ms at 240 sectors × 2 ms. Measure at integration; if watchdog period is shorter than this, the watchdog must be kicked within the apply loop or suspended for the duration (document the suspension explicitly). | Measure at integration; add watchdog kick or suspend if duration > WDG period | Open |
+| FS-O2 | OTA public key provisioning path — the public key must be written to the CertStore partition during manufacturing/provisioning. Confirm the provisioning tool writes it at the correct CertStore sub-offset. FirmwareStore needs that offset defined in `cert_store_config.h`. | Confirm with provisioning-tool owner; define CertStore sub-offset in cert_store_config.h | Open |
+| FS-O3 | SHA-256 streaming chunk size — 4 KB sector-by-sector is proposed. Confirm that the QspiFlashDriver read API supports 4 KB reads efficiently without introducing an extra 4 KB RAM buffer in FirmwareStore (driver may already have an internal buffer). | Confirm at QspiFlashDriver LLD — check 4 KB read efficiency | Open |
+| FS-O4 | mbedTLS ECDSA-P256 RAM cost — stack allocation of `mbedtls_ecdsa_context` (~1.5 KB) inside `firmware_store_verify()`. Must be verified against UpdateServiceTask stack budget alongside the existing mbedTLS usage in CloudPublisherTask. | Verify against UpdateServiceTask stack budget at integration (static-stack analysis) | Open |

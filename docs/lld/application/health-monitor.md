@@ -6,10 +6,15 @@
 **Consumes:** `ILed` (LedDriver), `ILogger`  
 **SRS traces:** REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208  
 **HLD ref:** `components.md` §Application — HealthMonitor; §"Metric Producer Pattern" (P5); §DIP; `hld.md` §5.5, §6.4; `sequence-diagrams.md` SD-03b
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** HealthMonitor in `components.md` (FD + GW application layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 HealthMonitor is a passive aggregator. It maintains a consolidated
 `device_health_snapshot_t` in RAM, updated continuously by producers
@@ -125,7 +130,7 @@ typedef enum {
 
 ---
 
-## 4. Provided interfaces
+## 2. Public API
 
 ### 4.1 `IHealthReport` — write side (used by producers)
 
@@ -322,7 +327,7 @@ both blinking for alarm. See HM-O2.
 
 ---
 
-## 7. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* health_monitor.c */
@@ -363,7 +368,15 @@ must not acquire a mutex internally that could be held by another task
 
 ---
 
-## 9. Host-side unit test stubs
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -383,10 +396,10 @@ Minimum test cases:
 
 ---
 
-## 10. Open items
+## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| HM-O1 | FD health-poll caller — stack watermarks on the FD must be polled somewhere. Options: (a) LifecycleTask on a slow timer (10 min), (b) ModbusRegisterMap on each Modbus health register access. Decide at FD integration — does not affect the HealthMonitor API. |
-| HM-O2 | GW LED mapping — the STM32L475 has only LD3 and LD4 (green and blue per UM2153). Orange and red patterns from the FD design cannot be directly replicated. Decide whether to use LD3/LD4 blink codes (e.g., alternating blink = alarm) or omit the alarm LED pattern on the GW. |
-| HM-O3 | `device_health_snapshot_t` size — estimate ~200 bytes. Verify with `sizeof()` at coding time; add a `static_assert` to catch unexpected growth. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| HM-O1 | FD health-poll caller — stack watermarks on the FD must be polled somewhere. Options: (a) LifecycleTask on a slow timer (10 min), (b) ModbusRegisterMap on each Modbus health register access. Decide at FD integration — does not affect the HealthMonitor API. | Decide health-poll caller at FD integration — LifecycleTask or ModbusRegisterMap | Open |
+| HM-O2 | GW LED mapping — the STM32L475 has only LD3 and LD4 (green and blue per UM2153). Orange and red patterns from the FD design cannot be directly replicated. Decide whether to use LD3/LD4 blink codes (e.g., alternating blink = alarm) or omit the alarm LED pattern on the GW. | Decide GW LED blink-code mapping at integration; document in HealthMonitor code | Open |
+| HM-O3 | `device_health_snapshot_t` size — estimate ~200 bytes. Verify with `sizeof()` at coding time; add a `static_assert` to catch unexpected growth. | Add static_assert for snapshot size at implementation | Open |

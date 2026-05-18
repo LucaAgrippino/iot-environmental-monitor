@@ -10,6 +10,11 @@ defines the **data contract** (register addresses, types, encoding,
 exception responses). This companion *references* that contract — it does
 not duplicate the per-register tables.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ModbusRegisterMap in `components.md` (FD application layer)
 ---
 
 ## 1. Purpose and scope
@@ -54,7 +59,7 @@ not duplicate the per-register tables.
 
 ---
 
-## 2. Component summary
+## 1. Sources
 
 Per `components.md` (FD Application layer):
 
@@ -105,7 +110,7 @@ Per `components.md` (FD Application layer):
 
 ---
 
-## 4. Interface — `IModbusRegisterMap`
+## 2. Public API — `IModbusRegisterMap`
 
 The DIP contract consumed by `ModbusSlave`. Defined in
 `application/include/i_modbus_register_map.h` (Application owns the header,
@@ -172,7 +177,7 @@ holds the interface pointer for the lifetime of the system; no rebinding.
 
 ---
 
-## 5. Internal structure
+## 3. Internal design
 
 ### 5.1 Public type — opaque
 
@@ -635,7 +640,11 @@ perspective beyond the natural propagation through `SensorService`.
 
 ---
 
-## 11. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ### 11.1 Internal error enum
 
@@ -727,7 +736,7 @@ ensures `ModbusSlaveTask` does not begin until step 3 completes.
 
 ---
 
-## 14. Test plan
+## 7. Unit-test plan
 
 ### 14.1 Unit tests — `tests/application/test_modbus_register_map.c`
 
@@ -762,10 +771,10 @@ Unity host-side tests. All providers mocked.
 
 ---
 
-## 15. Open items
+## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **MRM-O1** | Schema-version migration when `MAP_VERSION` bumps — handled by ConfigService / ConfigStore, but MRM may need a compatibility check at init. Cross-reference **CS-O1**. |
 | **MRM-O2** | FC16 block-write transaction span across config + command registers — confirm against `ModbusPoller`'s actual usage; recommend keeping FC16 to contiguous configuration ranges only. |
 | **MRM-O3** | *(Resolved by session confirmation)* — `MODBUS_SLAVE_ADDR` write takes effect immediately; the response to the changeover FC06 goes out on the old address; the master retries on the new address. |

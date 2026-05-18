@@ -5,10 +5,13 @@
 **Board scope:** Field Device (STM32F469) only
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** TouchscreenDriver in `components.md` (FD driver layer)
 
 ---
 
-## 1. Source summary
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -29,7 +32,7 @@
 
 ---
 
-## 2. API
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -183,7 +186,7 @@ FT6206 7-bit I2C address is 0x38 (standard). Verify from UM1932 schematic (addre
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 On `TS_ERR_I2C` from `touchscreen_init()`, the BringingUpLCD Init sub-state fails → Faulted. The LCD is essential (REQ-LD-000); touchscreen failure prevents configuration and alarm screen interaction and is non-recoverable at boot.
 
@@ -193,7 +196,7 @@ On `TS_ERR_NO_DATA`, GraphicsLibrary discards the call silently (spurious IRQ or
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests. I2C transactions are mocked by substituting `i2c_write_read()` with a test stub. The EXTI IRQ is tested by calling `EXTI_touch_IRQHandler()` directly.
 

@@ -9,10 +9,15 @@
 **SRS traces (FD add.):** REQ-LD-200, REQ-LD-210, REQ-LD-220, REQ-LD-230, REQ-LD-240  
 **SRS traces (GW add.):** REQ-DM-010, REQ-DM-020, REQ-DM-030, REQ-DM-071, REQ-DM-072  
 **HLD ref:** `state-machines.md` Machine 1 (GW), Machine 5 (FD); `hld.md` §7.1, §7.2, §7.6; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** LifecycleController in `components.md` (FD + GW application layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 LifecycleController owns the top-level lifecycle state machine on each
 board. Its two roles:
@@ -82,7 +87,7 @@ typedef struct {
 
 ---
 
-## 3. Provided interface — `ILifecycle`
+## 2. Public API — `ILifecycle`
 
 ```c
 /**
@@ -280,7 +285,7 @@ Exit: hardware reset only. No `LC_EVENT_*` causes Faulted exit.
 
 ---
 
-## 9. Internal state
+## 3. Internal design
 
 ```c
 /* lifecycle_controller.c */
@@ -374,7 +379,15 @@ logic (queue-post, reset-cause detection, EditingConfig timeout).
 
 ---
 
-## 13. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 All subsystem calls (`sensor_service_init()`, `config_store_load()`, etc.)
 are replaced with stubs that return configurable success/failure codes.
@@ -396,11 +409,11 @@ Minimum test cases:
 
 ---
 
-## 14. Open items
+## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| LC-O1 | Config snapshot buffer size — `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes) makes `LifecycleControllerState` very large for a static variable. Confirm it fits in BSS without pushing other static data out of budget. Alternative: allocate the snapshot buffer separately in a dedicated BSS section. |
-| LC-O2 | Init timeout budget (REQ-NF-213, value TBD) — a hardware timer started on Init entry must fire and push `LC_EVENT_UNRECOVERABLE_FAULT` if the total Init duration exceeds the budget. Timer not yet specified; implement at coding time once the TBD value is set. |
-| LC-O3 | Start-gate event group bit — the bit index for gating other tasks must be allocated from a project-wide event group map (similar to the RTC backup register map). Not yet produced. |
-| LC-O4 | Restart confirmation timeout (GW, REQ-DM-020) — value TBD in SRS. Provisional: 30 seconds. Implement as a FreeRTOS software timer started on `LC_EVENT_RESTART_REQUESTED`; on expiry post `LC_EVENT_CONFIG_EDIT_CANCEL` (or a dedicated LC_EVENT_RESTART_TIMEOUT) to reset `restart_pending`. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| LC-O1 | Config snapshot buffer size — `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes) makes `LifecycleControllerState` very large for a static variable. Confirm it fits in BSS without pushing other static data out of budget. Alternative: allocate the snapshot buffer separately in a dedicated BSS section. | Verify BSS budget at integration; consider dedicated BSS section if too large | Open |
+| LC-O2 | Init timeout budget (REQ-NF-213, value TBD) — a hardware timer started on Init entry must fire and push `LC_EVENT_UNRECOVERABLE_FAULT` if the total Init duration exceeds the budget. Timer not yet specified; implement at coding time once the TBD value is set. | Implement timer at coding time once REQ-NF-213 TBD value is resolved in SRS | Open |
+| LC-O3 | Start-gate event group bit — the bit index for gating other tasks must be allocated from a project-wide event group map (similar to the RTC backup register map). Not yet produced. | Allocate bit from project-wide event-group map when that map is produced | Open |
+| LC-O4 | Restart confirmation timeout (GW, REQ-DM-020) — value TBD in SRS. Provisional: 30 seconds. Implement as a FreeRTOS software timer started on `LC_EVENT_RESTART_REQUESTED`; on expiry post `LC_EVENT_CONFIG_EDIT_CANCEL` (or a dedicated LC_EVENT_RESTART_TIMEOUT) to reset `restart_pending`. | Implement FreeRTOS software timer at coding time once SRS TBD value resolved | Open |

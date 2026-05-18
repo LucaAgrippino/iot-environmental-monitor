@@ -5,10 +5,13 @@
 **Board scope:** Field Device (STM32F469, I2C1) and Gateway (B-L475E-IOT01A, I2C2)
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** I2cDriver in `components.md` (FD + GW driver layer)
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Field Device | Gateway |
 |---|---|---|
@@ -27,7 +30,7 @@ Both boards satisfy the established "caller serialises" convention without any a
 
 ---
 
-## 2. API — `II2c` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -268,7 +271,7 @@ No shared register-level code between the two implementations. The v1 and v2 per
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 ### 6.1 Error propagation
 
@@ -286,7 +289,7 @@ Every function returns `i2c_err_t`. No silent failures. Consumer response per er
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests (Unity framework). The CMSIS peripheral pointer is redirected via `#define I2C1 (&mock_i2c)` / `#define I2C2 (&mock_i2c)` in the test build. Because v1 and v2 have different register layouts, each implementation file has its own mock `I2C_TypeDef` instance matching the correct struct definition for that target.
 

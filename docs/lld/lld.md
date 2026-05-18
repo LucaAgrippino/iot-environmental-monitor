@@ -37,7 +37,7 @@ The HLD is authoritative. The LLD refines.
 | Runtime state | `state-machines.md` | Specify entry / do / exit as concrete function calls; expose state via a status enum. |
 | Runtime interaction | `sequence-diagrams.md` | Specify which function handles each message; specify IPC primitives in detail. |
 | FreeRTOS task layout | `task-breakdown.md` | Specify task entry-point function names, measured WCETs, refined stack sizes, message types per queue. |
-| Modbus register map | `modbus-register-map.md` | Specify the register-access dispatcher; specify the encoding helpers. |
+| Modbus register map | `application/modbus-register-map-lld.md` | Specify the register-access dispatcher; specify the encoding helpers. |
 | Flash partitions | `flash-partition-layout.md` | Specify the linker script regions; specify the bootloader contract code. |
 | Architectural principles | `architecture-principles.md` | Cite P1–P10 in every companion's rationale section. |
 | Hardware abstraction stance | `hld.md` §9 | Honour CMSIS-only above silicon, no HAL above the driver layer. |
@@ -179,14 +179,14 @@ docs/lld/
 | — | `application/sensor-alarm-service.md` | Application | Both | Baselined |
 | — | `application/config-service.md` | Application | Both | Baselined |
 | — | `application/health-monitor.md` | Application | Both | Baselined |
-| — | `application/modbus-register-map.md` | Application | Field Device | Baselined |
-| — | `application/lcd-ui.md` | Application | Field Device | Baselined |
-| — | `application/console-service.md` | Application | Both | Baselined |
-| — | `application/cloud-publisher.md` | Application | Gateway | Baselined |
-| — | `application/store-and-forward.md` | Application | Gateway | Baselined |
-| — | `application/time-service.md` | Application | Gateway | Baselined |
-| — | `application/device-profile-registry.md` | Application | Gateway | Baselined |
-| — | `application/update-service.md` | Application | Gateway | Baselined |
+| — | `application/modbus-register-map-lld.md` | Application | Field Device | Baselined |
+| — | `application/lcd-ui-lld.md` | Application | Field Device | Baselined |
+| — | `application/console-service-lld.md` | Application | Both | Baselined |
+| — | `application/cloud-publisher-lld.md` | Application | Gateway | Baselined |
+| — | `application/store-and-forward-lld.md` | Application | Gateway | Baselined |
+| — | `application/time-service-lld.md` | Application | Gateway | Baselined |
+| — | `application/device-profile-registry-lld.md` | Application | Gateway | Baselined |
+| — | `application/update-service-lld.md` | Application | Gateway | Baselined |
 | — | `cross-cutting/<…>.md` | Cross-cutting | — | As needed |
 
 `exti-driver.md` is added to the Tier 1 list per the GpioDriver companion §8 (GPIO-O2) — EXTI configuration is intentionally outside the GPIO driver, so a separate driver is required for any consumer that needs interrupt-driven pin events.
@@ -225,46 +225,46 @@ Each completed companion adds one row.
 
 | Companion | HLD component(s) | HLD section | SRS requirements | Use case(s) |
 |---|---|---|---|---|
-| drivers/gpio-driver.md | GpioDriver (Field Device, Gateway) | components.md  §4 (both boards, driver layer) | REQ-NF-202 | — |
-| drivers/debug-uart-driver.md | DebugUartDriver (Field Device, Gateway) | components.md §4 (both boards, driver layer) | REQ-LI-010, REQ-LI-000 | UC-04 |
-| docs/lld/drivers/rtc-driver.md | RtcDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-NF-213, REQ-NF-212, REQ-TS-020, REQ-NF-210, REQ-NF-211 | UC-13 |
-| docs/lld/drivers/i2c-driver.md | I2cDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-LD-050, REQ-SA-031, REQ-NF-100, REQ-NF-205 | UC-01 (FD touchscreen), UC-07 (GW sensor acquisition) |
-| docs/lld/drivers/spi-driver.md | SpiDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | CON-001 | UC-05, UC-09, UC-10, UC-11, UC-12 (all cloud paths through WifiDriver) |
-| docs/lld/drivers/led-driver.md | LedDriver (Driver, both boards) | REQ-LD-200 (F-07 — not yet in SRS.md) | REQ-LD-250 | UC-02, UC-04, UC-06 (health/status display) |
-| docs/lld/drivers/modbus-uart-driver.md | ModbusUartDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-MB-030, REQ-NF-105, REQ-NF-201 | UC-07, UC-10, UC-13, UC-14, UC-19 |
-| docs/lld/drivers/qspi-flash-driver.md | QspiFlashDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer; flash-partition-layout.md (authoritative address map) | REQ-NF-402, REQ-NF-405, REQ-DM-074, REQ-DM-090, REQ-BF-000, CON-009 | UC-09, UC-10, UC-11, UC-12, UC-15, UC-18, UC-20 |
-| docs/lld/drivers/reset-driver.md | ResetDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | REQ-DM-010, REQ-NF-202, REQ-NF-203 | UC-17, UC-18, UC-20 |
-| docs/lld/drivers/simulated-sensor-drivers.md | BarometerDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
-| docs/lld/drivers/simulated-sensor-drivers.md | HumidityTempDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
-| docs/lld/drivers/sdram-driver.md | SdramDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-403 | UC-01, UC-02, UC-03, UC-15 |
-| docs/lld/drivers/lcd-driver.md | LcdDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-108, REQ-NF-403 | UC-01, UC-02, UC-03, UC-08, UC-15 |
-| docs/lld/drivers/touchscreen-driver.md | TouchscreenDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-000, REQ-LD-100 | UC-01, UC-03, UC-15 |
-| humidity-temp-barometer-drivers.md | Gateway | No DRDY ISR (STATUS_REG polling); HTS221 integer compensation with int32_t overflow proof; LPS22HB 24-bit sign-extend + BDU; GpioDriver dependency removed (GPA-O1); DRDY pin assignments to verify (GPA-O2) |
-| magnetometer-imu-drivers.md | Gateway | Two-phase init (DRDY/INT1 ISR); raw LSB output with documented sensitivity; GPB-O3 (EXTI port pins to verify); GPB-O1 (task-breakdown update required) |
-| wifi-driver.md | Gateway | AT-command-over-SPI; TCP socket API; TLS deferred to MqttClient (WIFI-D2); 16-bit SPI conflict with spi-driver.md (WIFI-O2 — fix first); GPIO pins to verify (WIFI-O3 — coding blocker) |
-| exti-driver.md | Both | Sole owner of SYSCFG_EXTICRx + EXTI + NVIC; conflict detection via s_configured bitmap; platform register alias via macros (no split .c); NVIC priority passed by caller; EXTI-O1 (FreeRTOS priority boundary to verify) |
-| logger.md | Both | Bootstrap exception (RtcDriver direct); 256-byte static buf; 10 ms mutex timeout drops entry; LOG_DISABLE strips all calls; LOG-O1 (baud rate vs mutex hold — resolve before coding) |
-| `time-provider.md` | `TimeProvider` (FD · GW) | `hld.md` §5.2, §5.5; `components.md` §Middleware | REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212 | UC-13 |
-| `modbus-slave.md` | `ModbusSlave` (FD) | `hld.md` §7.7; `components.md` §Middleware; `state-machines.md` Machine 6; `modbus-register-map.md` §2–§7 | REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1 | UC-01–UC-08, UC-13, UC-16, UC-17 |
-| `modbus-master-poller.md` | `ModbusMaster` (GW), `ModbusPoller` (GW) | `hld.md` §7.5; `components.md` §Middleware, §Application; `state-machines.md` Machine 4; `sequence-diagrams.md` SD-02, SD-00b; `modbus-register-map.md` §2–§3 | REQ-MB-010, MB-020, MB-030, MB-040, MB-050, MB-060, MB-080, MB-090, MB-100, MB-0E1; REQ-NF-103, NF-104, NF-105, NF-201, NF-215 | UC-07, UC-10, UC-13, UC-15, UC-16, UC-17 |
-| `config-store.md` | `ConfigStore` (FD · GW) | `hld.md` §5.6, §13.3, §13.4, §13.6; `components.md` §Middleware; `flash-partition-layout.md` §6.1 | REQ-DM-090, REQ-NF-214 | UC-15, UC-16 |
-| `ntp-client.md` | `NtpClient` (GW) | `hld.md` §6.1; `components.md` §Middleware; `sequence-diagrams.md` SD-09 | REQ-TS-010 | UC-13 |
-| `mqtt-client.md` | `MqttClient` (GW) | `hld.md` §6.3; `components.md` §Middleware; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-03, SD-04, SD-05, SD-06a–d | REQ-CC-050, REQ-CC-060, REQ-NF-206, REQ-NF-216, REQ-NF-300, REQ-NF-301, REQ-NF-302, REQ-NF-305 | UC-05, UC-06, UC-08, UC-14, UC-18 |
-| `circular-flash-log.md` | `CircularFlashLog` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.2; `sequence-diagrams.md` SD-04 | REQ-BF-000, REQ-BF-010, REQ-BF-020, REQ-NF-407 | UC-08, UC-14 |
-| `firmware-store.md` | `FirmwareStore` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.1, §5.2; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-06a–d | REQ-DM-050–052, DM-060, DM-061, DM-070–074, DM-080, REQ-NF-204, REQ-NF-304 | UC-18 |
-| `graphics-library.md` | `GraphicsLibrary` (FD) | `hld.md` §5.2; `components.md` §Middleware; `task-breakdown.md` §4.2, §4.4 | REQ-LD-000, REQ-LD-050, REQ-NF-108 | UC-02, UC-09, UC-10, UC-11, UC-12 |
-| `lifecycle-controller.md` | `LifecycleController` (FD · GW) | `hld.md` §7.1, §7.2, §7.6; `state-machines.md` Machine 1, Machine 5; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–060, REQ-DM-010–030, REQ-DM-040, REQ-DM-071–072, REQ-NF-202, REQ-NF-203, REQ-NF-213, REQ-NF-214, REQ-LD-200–240 | UC-01, UC-17, UC-18, UC-20 |
-| `sensor-alarm-service.md` | `SensorService` (FD · GW), `AlarmService` (FD · GW) | `hld.md` §5.3; `components.md` §Application; `sequence-diagrams.md` SD-01; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–SA-171, REQ-AM-000–AM-040 | UC-07, UC-08, UC-09, UC-14 |
-| `config-service.md` | `ConfigService` (FD · GW) | `hld.md` §5.6; `components.md` §Application, §ISP; `sequence-diagrams.md` SD-07, SD-08 | REQ-DM-000, DM-001, DM-002, DM-090, REQ-SA-000, SA-010, SA-020, SA-050, REQ-LI-030–130, REQ-MB-100 | UC-15, UC-16 |
-| `health-monitor.md` | `HealthMonitor` (FD · GW) | `hld.md` §5.5, §6.4; `components.md` §Application, §Metric Producer Pattern, §DIP; `sequence-diagrams.md` SD-03b | REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208 | UC-04, UC-06 |
-| `modbus-register-map.md` | `ModbusRegisterMap` (FD) | `hld.md` §5.6, §8.6, §12; `components.md` FD §3 | REQ-MB-000, MB-010, MB-020, MB-040, MB-070, MB-080, MB-090, MB-100, MB-0E1, MB-110, MB-111; REQ-LD-070; REQ-AM-020; REQ-NF-101 | UC-06, UC-07, UC-13, UC-15 |
-| `lcd-ui.md` | `LcdUi` (FD) | `hld.md` §5.2, §5.5, §5.6; `components.md` FD application layer | REQ-LD-000, LD-010, LD-020, LD-030, LD-040, LD-050, LD-060, LD-070, LD-080, LD-090, LD-100, LD-110, LD-120, LD-130, LD-140, LD-150, LD-0E1; REQ-NF-108 | UC-01, UC-02, UC-03, UC-08, UC-15 |
-| `console-service.md` | `ConsoleService` (FD · GW) | `hld.md` §5.2, §5.6; `components.md` FD + GW application layer | REQ-LI-000, LI-010, LI-020, LI-030, LI-040, LI-050, LI-060, LI-070, LI-080, LI-090, LI-100, LI-110, LI-120, LI-130, LI-140, LI-150, LI-160, LI-0E1, LI-0E2, LI-0E3; REQ-DM-090 | UC-04, UC-16 |
-| `cloud-publisher.md` | `CloudPublisher` (GW) | `hld.md` §6.2, §6.3, §6.5; `components.md` GW application layer | REQ-CC-000, CC-010, CC-020, CC-030, CC-040, CC-050, CC-060, CC-070, CC-071, CC-080, CC-090; REQ-BF-000, BF-010, BF-020; REQ-DM-000, DM-002; REQ-NF-106, NF-111, NF-112, NF-113, NF-200, NF-206, NF-207, NF-216 | UC-05, UC-06, UC-09, UC-10, UC-11, UC-12, UC-15 |
-| `store-and-forward.md` | `StoreAndForward` (GW) | `hld.md` §6.5; `components.md` GW application layer; `flash-partition-layout.md` §6.2 | REQ-BF-000, BF-010, BF-020; REQ-CC-010 (occupancy in health metrics) | UC-06, UC-10, UC-11, UC-12 |
-| `time-service.md` | `TimeService` (GW) | `hld.md` §6.4; `components.md` GW application layer; `sequence-diagrams.md` SD-09 | REQ-TS-000, TS-010, TS-020, TS-030, TS-040, TS-0E1 | UC-13 |
-| `device-profile-registry.md` | `DeviceProfileRegistry` (GW) | `hld.md` §14 (D14, D17, D18); `components.md` GW application layer; `sequence-diagrams.md` SD-00b, SD-07 | REQ-MB-100, MB-110, MB-111, MB-120, MB-130; REQ-DM-090, DM-100, DM-101 | UC-07, UC-15, UC-16, UC-19 |
-| `update-service.md` | `UpdateService` (GW) | `docs/state-machines.md` §7.4 (Machine 3); `sequence-diagrams.md` SD-06a–d; `flash-partition-layout.md` §5, §7 | REQ-DM-050, DM-051, DM-052, DM-053, DM-054, DM-055, DM-056, DM-060, DM-061, DM-062, DM-070, DM-071, DM-072, DM-073, DM-074, DM-080 | UC-18, UC-19, UC-20 |
+| `drivers/gpio-driver.md` | GpioDriver (Field Device, Gateway) | components.md  §4 (both boards, driver layer) | REQ-NF-202 | — |
+| `drivers/debug-uart-driver.md` | DebugUartDriver (Field Device, Gateway) | components.md §4 (both boards, driver layer) | REQ-LI-010, REQ-LI-000 | UC-04 |
+| `drivers/rtc-driver.md` | RtcDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-NF-213, REQ-NF-212, REQ-TS-020, REQ-NF-210, REQ-NF-211 | UC-13 |
+| `drivers/i2c-driver.md` | I2cDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-LD-050, REQ-SA-031, REQ-NF-100, REQ-NF-205 | UC-01 (FD touchscreen), UC-07 (GW sensor acquisition) |
+| `drivers/spi-driver.md` | SpiDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | CON-001 | UC-05, UC-09, UC-10, UC-11, UC-12 (all cloud paths through WifiDriver) |
+| `drivers/led-driver.md` | LedDriver (Driver, both boards) | REQ-LD-200 (F-07 — not yet in SRS.md) | REQ-LD-250 | UC-02, UC-04, UC-06 (health/status display) |
+| `drivers/modbus-uart-driver.md` | ModbusUartDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer | REQ-MB-030, REQ-NF-105, REQ-NF-201 | UC-07, UC-10, UC-13, UC-14, UC-19 |
+| `drivers/qspi-flash-driver.md` | QspiFlashDriver (Driver, both boards) | components.md — Field Device §4 Driver layer; Gateway §4 Driver layer; flash-partition-layout.md (authoritative address map) | REQ-NF-402, REQ-NF-405, REQ-DM-074, REQ-DM-090, REQ-BF-000, CON-009 | UC-09, UC-10, UC-11, UC-12, UC-15, UC-18, UC-20 |
+| `drivers/reset-driver.md` | ResetDriver (Driver, Gateway only) | components.md — Gateway §4 Driver layer | REQ-DM-010, REQ-NF-202, REQ-NF-203 | UC-17, UC-18, UC-20 |
+| `drivers/simulated-sensor-drivers.md` | BarometerDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
+| `drivers/simulated-sensor-drivers.md` | HumidityTempDriver (Driver, Field Device, simulated) | components.md — Field Device §4 Driver layer | REQ-SA-030, REQ-SA-040, REQ-SA-060, REQ-SA-070, REQ-SA-080, REQ-SA-0E1 | UC-07 |
+| `drivers/sdram-driver.md` | SdramDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-403 | UC-01, UC-02, UC-03, UC-15 |
+| `drivers/lcd-driver.md` | LcdDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-010, REQ-NF-108, REQ-NF-403 | UC-01, UC-02, UC-03, UC-08, UC-15 |
+| `drivers/touchscreen-driver.md` | TouchscreenDriver (Driver, Field Device only) | components.md — Field Device §4 Driver layer | REQ-LD-000, REQ-LD-100 | UC-01, UC-03, UC-15 |
+| `drivers/humidity-temp-barometer-drivers.md` | HumidityTempDriver + BarometerDriver (GW) | No DRDY ISR (STATUS_REG polling); HTS221 integer compensation with int32_t overflow proof; LPS22HB 24-bit sign-extend + BDU; GpioDriver dependency removed (GPA-O1); DRDY pin assignments to verify (GPA-O2) |
+| `drivers/magnetometer-imu-drivers.md` | MagnetometerDriver + ImuDriver (GW) | Two-phase init (DRDY/INT1 ISR); raw LSB output with documented sensitivity; GPB-O3 (EXTI port pins to verify); GPB-O1 (task-breakdown update required) |
+| `drivers/wifi-driver.md` | WifiDriver (GW) | AT-command-over-SPI; TCP socket API; TLS deferred to MqttClient (WIFI-D2); 16-bit SPI conflict with spi-driver.md (WIFI-O2 — fix first); GPIO pins to verify (WIFI-O3 — coding blocker) |
+| `drivers/exti-driver.md` | ExtiDriver (FD + GW) | Sole owner of SYSCFG_EXTICRx + EXTI + NVIC; conflict detection via s_configured bitmap; platform register alias via macros (no split .c); NVIC priority passed by caller; EXTI-O1 (FreeRTOS priority boundary to verify) |
+| `middleware/logger.md` | Logger (FD + GW) | Bootstrap exception (RtcDriver direct); 256-byte static buf; 10 ms mutex timeout drops entry; LOG_DISABLE strips all calls; LOG-O1 (baud rate vs mutex hold — resolve before coding) |
+| `middleware/time-provider.md` | `TimeProvider` (FD · GW) | `hld.md` §5.2, §5.5; `components.md` §Middleware | REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212 | UC-13 |
+| `middleware/modbus-slave.md` | `ModbusSlave` (FD) | `hld.md` §7.7; `components.md` §Middleware; `state-machines.md` Machine 6; `modbus-register-map.md` §2–§7 | REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1 | UC-01–UC-08, UC-13, UC-16, UC-17 |
+| `middleware/modbus-master-poller.md` | `ModbusMaster` (GW), `ModbusPoller` (GW) | `hld.md` §7.5; `components.md` §Middleware, §Application; `state-machines.md` Machine 4; `sequence-diagrams.md` SD-02, SD-00b; `modbus-register-map.md` §2–§3 | REQ-MB-010, MB-020, MB-030, MB-040, MB-050, MB-060, MB-080, MB-090, MB-100, MB-0E1; REQ-NF-103, NF-104, NF-105, NF-201, NF-215 | UC-07, UC-10, UC-13, UC-15, UC-16, UC-17 |
+| `middleware/config-store.md` | `ConfigStore` (FD · GW) | `hld.md` §5.6, §13.3, §13.4, §13.6; `components.md` §Middleware; `flash-partition-layout.md` §6.1 | REQ-DM-090, REQ-NF-214 | UC-15, UC-16 |
+| `middleware/ntp-client.md` | `NtpClient` (GW) | `hld.md` §6.1; `components.md` §Middleware; `sequence-diagrams.md` SD-09 | REQ-TS-010 | UC-13 |
+| `middleware/mqtt-client.md` | `MqttClient` (GW) | `hld.md` §6.3; `components.md` §Middleware; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-03, SD-04, SD-05, SD-06a–d | REQ-CC-050, REQ-CC-060, REQ-NF-206, REQ-NF-216, REQ-NF-300, REQ-NF-301, REQ-NF-302, REQ-NF-305 | UC-05, UC-06, UC-08, UC-14, UC-18 |
+| `middleware/circular-flash-log.md` | `CircularFlashLog` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.2; `sequence-diagrams.md` SD-04 | REQ-BF-000, REQ-BF-010, REQ-BF-020, REQ-NF-407 | UC-08, UC-14 |
+| `middleware/firmware-store.md` | `FirmwareStore` (GW) | `hld.md` §6.3; `components.md` §Middleware; `flash-partition-layout.md` §5.1, §5.2; `state-machines.md` Machine 3; `sequence-diagrams.md` SD-06a–d | REQ-DM-050–052, DM-060, DM-061, DM-070–074, DM-080, REQ-NF-204, REQ-NF-304 | UC-18 |
+| `middleware/graphics-library.md` | `GraphicsLibrary` (FD) | `hld.md` §5.2; `components.md` §Middleware; `task-breakdown.md` §4.2, §4.4 | REQ-LD-000, REQ-LD-050, REQ-NF-108 | UC-02, UC-09, UC-10, UC-11, UC-12 |
+| `application/lifecycle-controller.md` | `LifecycleController` (FD · GW) | `hld.md` §7.1, §7.2, §7.6; `state-machines.md` Machine 1, Machine 5; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–060, REQ-DM-010–030, REQ-DM-040, REQ-DM-071–072, REQ-NF-202, REQ-NF-203, REQ-NF-213, REQ-NF-214, REQ-LD-200–240 | UC-01, UC-17, UC-18, UC-20 |
+| `application/sensor-alarm-service.md` | `SensorService` (FD · GW), `AlarmService` (FD · GW) | `hld.md` §5.3; `components.md` §Application; `sequence-diagrams.md` SD-01; `task-breakdown.md` §4.2, §5.2 | REQ-SA-000–SA-171, REQ-AM-000–AM-040 | UC-07, UC-08, UC-09, UC-14 |
+| `application/config-service.md` | `ConfigService` (FD · GW) | `hld.md` §5.6; `components.md` §Application, §ISP; `sequence-diagrams.md` SD-07, SD-08 | REQ-DM-000, DM-001, DM-002, DM-090, REQ-SA-000, SA-010, SA-020, SA-050, REQ-LI-030–130, REQ-MB-100 | UC-15, UC-16 |
+| `application/health-monitor.md` | `HealthMonitor` (FD · GW) | `hld.md` §5.5, §6.4; `components.md` §Application, §Metric Producer Pattern, §DIP; `sequence-diagrams.md` SD-03b | REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208 | UC-04, UC-06 |
+| `application/modbus-register-map-lld.md` | `ModbusRegisterMap` (FD) | `hld.md` §5.6, §8.6, §12; `components.md` FD §3 | REQ-MB-000, MB-010, MB-020, MB-040, MB-070, MB-080, MB-090, MB-100, MB-0E1, MB-110, MB-111; REQ-LD-070; REQ-AM-020; REQ-NF-101 | UC-06, UC-07, UC-13, UC-15 |
+| `application/lcd-ui-lld.md` | `LcdUi` (FD) | `hld.md` §5.2, §5.5, §5.6; `components.md` FD application layer | REQ-LD-000, LD-010, LD-020, LD-030, LD-040, LD-050, LD-060, LD-070, LD-080, LD-090, LD-100, LD-110, LD-120, LD-130, LD-140, LD-150, LD-0E1; REQ-NF-108 | UC-01, UC-02, UC-03, UC-08, UC-15 |
+| `application/console-service-lld.md` | `ConsoleService` (FD · GW) | `hld.md` §5.2, §5.6; `components.md` FD + GW application layer | REQ-LI-000, LI-010, LI-020, LI-030, LI-040, LI-050, LI-060, LI-070, LI-080, LI-090, LI-100, LI-110, LI-120, LI-130, LI-140, LI-150, LI-160, LI-0E1, LI-0E2, LI-0E3; REQ-DM-090 | UC-04, UC-16 |
+| `application/cloud-publisher-lld.md` | `CloudPublisher` (GW) | `hld.md` §6.2, §6.3, §6.5; `components.md` GW application layer | REQ-CC-000, CC-010, CC-020, CC-030, CC-040, CC-050, CC-060, CC-070, CC-071, CC-080, CC-090; REQ-BF-000, BF-010, BF-020; REQ-DM-000, DM-002; REQ-NF-106, NF-111, NF-112, NF-113, NF-200, NF-206, NF-207, NF-216 | UC-05, UC-06, UC-09, UC-10, UC-11, UC-12, UC-15 |
+| `application/store-and-forward-lld.md` | `StoreAndForward` (GW) | `hld.md` §6.5; `components.md` GW application layer; `flash-partition-layout.md` §6.2 | REQ-BF-000, BF-010, BF-020; REQ-CC-010 (occupancy in health metrics) | UC-06, UC-10, UC-11, UC-12 |
+| `application/time-service-lld.md` | `TimeService` (GW) | `hld.md` §6.4; `components.md` GW application layer; `sequence-diagrams.md` SD-09 | REQ-TS-000, TS-010, TS-020, TS-030, TS-040, TS-0E1 | UC-13 |
+| `application/device-profile-registry-lld.md` | `DeviceProfileRegistry` (GW) | `hld.md` §14 (D14, D17, D18); `components.md` GW application layer; `sequence-diagrams.md` SD-00b, SD-07 | REQ-MB-100, MB-110, MB-111, MB-120, MB-130; REQ-DM-090, DM-100, DM-101 | UC-07, UC-15, UC-16, UC-19 |
+| `application/update-service-lld.md` | `UpdateService` (GW) | `docs/state-machines.md` §7.4 (Machine 3); `sequence-diagrams.md` SD-06a–d; `flash-partition-layout.md` §5, §7 | REQ-DM-050, DM-051, DM-052, DM-053, DM-054, DM-055, DM-056, DM-060, DM-061, DM-062, DM-070, DM-071, DM-072, DM-073, DM-074, DM-080 | UC-18, UC-19, UC-20 |
 
 ---
 

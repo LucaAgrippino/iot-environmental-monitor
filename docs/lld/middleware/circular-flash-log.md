@@ -6,10 +6,15 @@
 **Consumes:** `IQspiFlash` (QspiFlashDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-BF-000, REQ-BF-010, REQ-BF-020, REQ-NF-407  
 **HLD ref:** `components.md` §Middleware — CircularFlashLog; `hld.md` §6.3; `flash-partition-layout.md` §5.2 (D40, D41); `sequence-diagrams.md` SD-04
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** CircularFlashLog in `components.md` (GW middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 CircularFlashLog implements a FIFO ring buffer over QSPI flash sectors.
 It is the persistence backing for `StoreAndForward` — outbound MQTT
@@ -123,7 +128,7 @@ in RAM only. On boot it is recovered from the ring scan (§6.2).
 
 ---
 
-## 6. Provided interface — `ICircularFlashLog`
+## 2. Public API — `ICircularFlashLog`
 
 ```c
 /**
@@ -301,7 +306,7 @@ need to re-derive it.
 
 ---
 
-## 10. Internal state
+## 3. Internal design
 
 ```c
 /* circular_flash_log.c */
@@ -340,7 +345,15 @@ mutex at that point.
 
 ---
 
-## 12. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -365,10 +378,10 @@ Minimum test cases:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
-| ID     | Item |
-|--------|------|
-| CFL-O1 | Maximum record size (4 078 bytes) must accommodate the largest caller payload. OTA download chunks (SD-06b) are the candidate upper bound — UpdateService LLD must confirm per-chunk size ≤ 4 078 bytes. If chunks are larger, the record format must be redesigned (multi-sector spanning or chunk-splitting at the caller). |
-| CFL-O2 | Boot scan latency — measured at integration. If >100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer, eliminating the scan entirely. |
-| CFL-O3 | Sector-boundary alignment of records — current design allows multiple records per sector if they fit. Alternative: one record per sector (simpler erase granularity, wastes flash). Decision: pack records (current) to maximise buffer capacity and minimise erase frequency. Revisit only if CFL-O1 forces a redesign. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| CFL-O1 | Maximum record size (4 078 bytes) must accommodate the largest caller payload. OTA download chunks (SD-06b) are the candidate upper bound — UpdateService LLD must confirm per-chunk size ≤ 4 078 bytes. If chunks are larger, the record format must be redesigned (multi-sector spanning or chunk-splitting at the caller). | Confirm at UpdateService LLD — chunk size must fit CFL_MAX_RECORD_BYTES | Open |
+| CFL-O2 | Boot scan latency — measured at integration. If >100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer, eliminating the scan entirely. | Measure boot-scan latency at integration; add persisted tail pointer if > 100 ms | Open |
+| CFL-O3 | Sector-boundary alignment of records — current design allows multiple records per sector if they fit. Alternative: one record per sector (simpler erase granularity, wastes flash). Decision: pack records (current) to maximise buffer capacity and minimise erase frequency. Revisit only if CFL-O1 forces a redesign. | Design decision confirmed (pack records); revisit only if CFL-O1 forces redesign | Open |

@@ -6,10 +6,15 @@
 **Consumes:** `IConfigStore`, `ILogger`  
 **SRS traces:** REQ-DM-000, REQ-DM-001, REQ-DM-002, REQ-DM-090; REQ-SA-000, REQ-SA-010, REQ-SA-020, REQ-SA-050; REQ-LI-030–LI-130; REQ-MB-100  
 **HLD ref:** `components.md` §Application — ConfigService; §"Interface Segregation (ISP)"; `hld.md` §5.6; `sequence-diagrams.md` SD-07 (GW remote config), SD-08 (FD CLI config)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ConfigService in `components.md` (FD + GW application layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 ConfigService maintains the live in-memory configuration for the system
 and owns the validate → apply → persist pipeline for every parameter
@@ -113,7 +118,7 @@ typedef enum {
 
 ---
 
-## 4. Provided interfaces
+## 2. Public API
 
 ### 4.1 `IConfigProvider` — read side
 
@@ -280,7 +285,7 @@ handles firmware upgrades that add or remove config fields. See CS-O1.
 
 ---
 
-## 7. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* config_service.c */
@@ -382,7 +387,15 @@ so they always see a fully loaded config on their first `get_params()` call.
 
 ---
 
-## 11. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -407,10 +420,10 @@ Minimum test cases:
 
 ---
 
-## 12. Open items
+## 8. Open items
 
-| ID    | Item |
-|-------|------|
-| CS-O1 | Schema version migration — when `schema_version` mismatch is detected, the current behaviour is "discard and apply defaults." A future requirement may need partial migration (preserve valid fields, default only new ones). Design the migration path when the first firmware upgrade requiring it is planned. |
-| CS-O2 | Mutex-free read safety — the decision to allow mutex-free reads relies on natural-alignment atomic reads on Cortex-M4. Strings (`mqtt_broker`, `ntp_servers`) are not atomically readable. Reads of string fields must acquire the mutex. Document this per-field in the code; add an assertion that string fields are only read under the mutex. |
-| CS-O3 | `config_params_t` size — must be verified to fit within `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes). At current estimated size (~500 bytes), this is not a concern. Record the actual struct size in a build-time `static_assert`. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| CS-O1 | Schema version migration — when `schema_version` mismatch is detected, the current behaviour is "discard and apply defaults." A future requirement may need partial migration (preserve valid fields, default only new ones). Design the migration path when the first firmware upgrade requiring it is planned. | Design migration path when first firmware upgrade requiring it is planned | Open |
+| CS-O2 | Mutex-free read safety — the decision to allow mutex-free reads relies on natural-alignment atomic reads on Cortex-M4. Strings (`mqtt_broker`, `ntp_servers`) are not atomically readable. Reads of string fields must acquire the mutex. Document this per-field in the code; add an assertion that string fields are only read under the mutex. | Document mutex requirement per string field in code; add assertion | Open |
+| CS-O3 | `config_params_t` size — must be verified to fit within `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes). At current estimated size (~500 bytes), this is not a concern. Record the actual struct size in a build-time `static_assert`. | Add static_assert for struct size at implementation; verify against MAX_DATA_BYTES | Open |

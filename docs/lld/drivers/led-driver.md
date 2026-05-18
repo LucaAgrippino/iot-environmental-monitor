@@ -5,10 +5,13 @@
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** LedDriver in `components.md` (FD + GW driver layer)
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Field Device | Gateway |
 |---|---|---|
@@ -35,7 +38,7 @@ Pin assignments are from the UM1932 and UM2153 schematics. Verify against the bo
 
 ---
 
-## 2. API — `ILed` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -172,13 +175,13 @@ LED GPIO pins must be configured as push-pull output, no pull-up, medium speed. 
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 `HealthMonitor` is the sole caller. On `LED_ERR_INVALID_ID`, `HealthMonitor` should log the event via `ILogger` and continue — a missing LED is not a fatal condition. No escalation to `IHealthReport` is needed; the LED state is an output, not a monitored resource.
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests (Unity framework). GpioDriver calls are intercepted via a mock `IGpio` implementation substituted at link time (stub functions that record calls and return `GPIO_ERR_OK`).
 

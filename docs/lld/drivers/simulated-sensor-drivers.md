@@ -5,10 +5,13 @@
 **Board scope:** Field Device (STM32F469) only
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** BarometerDriver + HumidityTempDriver (simulated) in `components.md` (FD driver layer)
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 Both drivers are covered in one companion because they are structurally identical: simulated, no hardware dependency, same consumer, same task context, same error model.
 
@@ -39,7 +42,7 @@ The simulation must produce values within these ranges. Values outside the range
 
 ---
 
-## 2. API
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -252,7 +255,7 @@ The fault injection path (3', 5') is the most valuable part of this driver from 
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 On `BARO_ERR_FAULT` or `HT_ERR_FAULT`, `SensorService`:
 
@@ -265,7 +268,7 @@ The drivers have no further obligation on error — they return the error code a
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Both drivers are pure software — all tests run on the host without any mock register banks.
 

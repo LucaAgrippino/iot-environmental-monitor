@@ -9,9 +9,14 @@ reboot, self-check, and commit-or-rollback — as specified by Firmware
 Update state machine (Machine 3, `state-machines.md` §7.4). Spans up
 to two MCU reboots via a flag-based resume protocol.
 
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** UpdateService in `components.md` (GW application layer)
 ---
 
-## 1. Component summary
+## 1. Sources
 
 | Field | Value |
 |---|---|
@@ -49,7 +54,7 @@ data structures, algorithms, concurrency, and test plan.
 
 ---
 
-## 3. Interface — `IUpdateService`
+## 2. Public API — `IUpdateService`
 
 ```c
 typedef struct IUpdateService IUpdateService;
@@ -79,7 +84,7 @@ typedef struct {
 
 ---
 
-## 4. Internal state and persistence
+## 3. Internal design
 
 ### 4.1 Runtime context
 
@@ -343,7 +348,11 @@ runs within it.
 
 ---
 
-## 10. Error handling
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
 
 ```c
 typedef enum {
@@ -417,7 +426,7 @@ After init, `LifecycleController` checks the NVM flags region:
 
 ---
 
-## 14. Test plan
+## 7. Unit-test plan
 
 ### 14.1 Unit tests — `tests/application/test_update_service.c`
 
@@ -454,10 +463,10 @@ Mocks: `IMqttClient` (chunk injection), `IFirmwareStore`, `IResetDriver`,
 
 ---
 
-## 15. Open items
+## 8. Open items
 
-| ID | Item |
-|---|---|
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
 | **US-O1** | Watchdog kick during `fw_store->apply()` — Option A (callback) vs Option B (direct IWatchdog). Resolve at `FirmwareStore` LLD phase. |
 | **US-O2** | `ILifecycle.get_self_check_result()` — this method does not yet appear in `LifecycleController`'s interface. Add it in a follow-up `lifecycle-controller.md` update. |
 | **US-O3** | NVM persistence region within the metadata partition — exact byte offsets for `us_persistent_t` to be defined in `flash-partition-layout.md` §10 (LLD handoff section). |

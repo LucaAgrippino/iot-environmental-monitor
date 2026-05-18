@@ -6,10 +6,15 @@
 **Consumes:** `IWifi` (WifiDriver), `ILogger`  
 **SRS traces:** REQ-CC-050, REQ-CC-060, REQ-NF-206, REQ-NF-216, REQ-NF-300, REQ-NF-301, REQ-NF-302, REQ-NF-305  
 **HLD ref:** `components.md` §Middleware — MqttClient; `state-machines.md` Machine 3; `hld.md` §6.3; `sequence-diagrams.md` SD-03, SD-04, SD-05, SD-06a–d
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** MqttClient in `components.md` (GW middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 MqttClient owns the MQTT 3.1.1 protocol and the TLS 1.2 session beneath
 it. Its two jobs:
@@ -127,7 +132,7 @@ typedef void (*mqtt_disconnect_cb_t)(void);
 
 ---
 
-## 5. Provided interfaces
+## 2. Public API
 
 ### 5.1 `IMqttClient`
 
@@ -325,7 +330,7 @@ allocation.
 
 ---
 
-## 11. Internal state
+## 3. Internal design
 
 ```c
 /* mqtt_client.c */
@@ -367,7 +372,15 @@ MqttClient — all socket I/O is blocking within CloudPublisherTask.
 
 ---
 
-## 13. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -393,12 +406,12 @@ Minimum test cases:
 
 ---
 
-## 14. Open items
+## 8. Open items
 
-| ID      | Item |
-|---------|------|
-| MQTT-O1 | mbedTLS RAM requirement: mbedTLS SSL context ≈ 36 KB + TX/RX buffers (configurable, typically 16 KB each). At minimal config (reduced cipher suite, small buffers) total is ~35–50 KB. Must be verified against the 128 KB SRAM budget (REQ-NF-400) during integration. WIFI-O1 from session summary. |
-| MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional value: 10 000 ms. TLS handshake with AWS IoT Core is the bottleneck (~2–5 s on typical WiFi). Validate at integration. |
-| MQTT-O3 | `MQTT_PKT_BUF_SIZE = 4096` is provisional. Must exceed the largest expected payload. Health payload is the largest (full metric set, JSON, ~1–2 KB estimated). Firmware download chunks (SD-06b) are the upper bound — confirm max OTA chunk size from UpdateService LLD. |
-| MQTT-O4 | QoS 1 PUBACK timeout — not yet defined. Provisional: 5 000 ms. Validate at integration. |
-| MQTT-O5 | Certificate storage partition address and format — depends on QspiFlashDriver LLD. MqttClient receives cert pointers from LifecycleController; it does not access flash directly. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| MQTT-O1 | mbedTLS RAM requirement: mbedTLS SSL context ≈ 36 KB + TX/RX buffers (configurable, typically 16 KB each). At minimal config (reduced cipher suite, small buffers) total is ~35–50 KB. Must be verified against the 128 KB SRAM budget (REQ-NF-400) during integration. WIFI-O1 from session summary. | Verify mbedTLS SRAM footprint against REQ-NF-400 budget at integration | Open |
+| MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional value: 10 000 ms. TLS handshake with AWS IoT Core is the bottleneck (~2–5 s on typical WiFi). Validate at integration. | Validate TLS handshake timing at integration; adjust timeout if needed | Open |
+| MQTT-O3 | `MQTT_PKT_BUF_SIZE = 4096` is provisional. Must exceed the largest expected payload. Health payload is the largest (full metric set, JSON, ~1–2 KB estimated). Firmware download chunks (SD-06b) are the upper bound — confirm max OTA chunk size from UpdateService LLD. | Confirm max OTA chunk size at UpdateService LLD — must fit MQTT_PKT_BUF_SIZE | Open |
+| MQTT-O4 | QoS 1 PUBACK timeout — not yet defined. Provisional: 5 000 ms. Validate at integration. | Validate PUBACK timeout at integration against observed AWS IoT Core RTT | Open |
+| MQTT-O5 | Certificate storage partition address and format — depends on QspiFlashDriver LLD. MqttClient receives cert pointers from LifecycleController; it does not access flash directly. | Confirm cert partition address/format at QspiFlashDriver LLD | Open |

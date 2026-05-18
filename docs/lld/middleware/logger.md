@@ -4,10 +4,14 @@
 **Branch:** `feature/lld-logger`  
 **Status:** Draft  
 **Methodology:** lld-methodology.md v1.1, steps 1–8  
+**Version:** 0.1
+**Date:** May 2026
+
+**HLD anchor:** Logger in `components.md` (FD + GW middleware layer)
 
 ---
 
-## 1. Scope
+## 1. Sources
 
 Logger is a cross-cutting Middleware component consumed by virtually every
 Application and Middleware component on both boards. It formats
@@ -25,7 +29,7 @@ UART output sink (REQ-NF-500).
 
 ---
 
-## 2. Source references (Step 1)
+### 1.1 Source references
 
 | Source | Relevant section |
 |--------|-----------------|
@@ -39,7 +43,7 @@ UART output sink (REQ-NF-500).
 
 ---
 
-## 3. API — Step 2
+## 2. Public API
 
 ### 3.1 ILogger
 
@@ -110,7 +114,7 @@ and documented.
 
 ---
 
-## 4. Internal design (Step 3)
+## 3. Internal design
 
 ### 4.1 Module structure
 
@@ -190,7 +194,7 @@ This allows startup logging from `board_init()` before any task runs.
 
 ---
 
-## 5. Hardware contract (Step 4)
+## 4. Hardware contract
 
 Logger has no direct hardware access. It delegates to:
 
@@ -206,7 +210,7 @@ Logger has no direct hardware access. It delegates to:
 
 ---
 
-## 6. Sequence integration (Step 5)
+## 5. Sequence integration
 
 Logger is passive — called synchronously from the caller's task context.
 No task owns Logger. The mutex serialises concurrent callers.
@@ -229,7 +233,7 @@ received, not in the ISR itself.
 
 ---
 
-## 7. Error handling (Step 6)
+## 6. Error and fault behaviour
 
 | Condition | Response |
 |-----------|----------|
@@ -244,7 +248,7 @@ must never depend on a log call succeeding.
 
 ---
 
-## 8. Test plan (Step 7)
+## 7. Unit-test plan
 
 Host-platform tests (Unity). Mock `debug_uart_write` captures output into
 a test buffer. Mock `rtc_get_time` returns a fixed time or a not-set flag.
@@ -266,7 +270,7 @@ Test file: `tests/middleware/test_logger.c`.
 
 ---
 
-## 9. Open items and decisions log (Step 8)
+## 8. Open items
 
 ### Decisions
 

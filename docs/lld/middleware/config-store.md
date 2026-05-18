@@ -6,10 +6,15 @@
 **Consumes:** `IQspiFlash` (QspiFlashDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-DM-090, REQ-NF-214  
 **HLD ref:** `components.md` §Middleware — ConfigStore; `hld.md` §5.6, §13.3, §13.4, §13.6; `flash-partition-layout.md` §6.1 (D39)
+**Version:** 0.1
+**Date:** May 2026
+**Status:** Draft
+
+**HLD anchor:** ConfigStore in `components.md` (FD + GW middleware layer)
 
 ---
 
-## 1. Responsibility
+## 1. Sources
 
 ConfigStore persists the system configuration across reboots as a single
 opaque blob over QSPI flash. It owns the A/B slot rotation and CRC32
@@ -93,7 +98,7 @@ typedef enum {
 
 ---
 
-## 5. Provided interface — `IConfigStore`
+## 2. Public API — `IConfigStore`
 
 ```c
 /**
@@ -235,7 +240,7 @@ config_store_load(data_out, len_out, max_len):
 
 ---
 
-## 8. Internal state and thread safety
+## 3. Internal design
 
 ```c
 /* config_store.c — static module state */
@@ -314,7 +319,15 @@ The component is identical on both boards. Board-specific values are in
 
 ---
 
-## 12. Host-side unit test stub
+## 5. Sequence integration
+
+See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
+
+## 6. Error and fault behaviour
+
+Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+
+## 7. Unit-test plan
 
 ```c
 #ifdef UNIT_TEST
@@ -339,10 +352,10 @@ Minimum test cases:
 
 ---
 
-## 13. Open items
+## 8. Open items
 
-| ID     | Item |
-|--------|------|
-| CS-O1  | `CONFIG_STORE_MAX_DATA_BYTES` (32 712) must be verified against the actual serialised config struct size when ConfigService LLD is produced. If the struct exceeds this limit, the slot layout must be revised. |
-| CS-O2  | QSPI flash driver interface (`IQspiFlash`) — erase and write granularity must match the slot layout. Specifically: erase unit must be ≤ 4 KB (sector erase, not bulk erase) and write unit must support byte-granular writes. Confirm at QspiFlashDriver LLD companion. |
-| CS-O3  | Seq_number overflow — `uint32_t` gives 4 294 967 295 write cycles before wrap. At one config write per day, this exceeds 11 000 years. No overflow handling needed; document the bound in code comments. |
+| ID | Item | Resolution path | Status |
+|--------|------|-----------------|--------|
+| CS-O1  | `CONFIG_STORE_MAX_DATA_BYTES` (32 712) must be verified against the actual serialised config struct size when ConfigService LLD is produced. If the struct exceeds this limit, the slot layout must be revised. | Verify at ConfigService LLD — struct must fit CONFIG_STORE_MAX_DATA_BYTES | Open |
+| CS-O2  | QSPI flash driver interface (`IQspiFlash`) — erase and write granularity must match the slot layout. Specifically: erase unit must be ≤ 4 KB (sector erase, not bulk erase) and write unit must support byte-granular writes. Confirm at QspiFlashDriver LLD companion. | Confirm at QspiFlashDriver LLD — erase/write granularity check | Open |
+| CS-O3  | Seq_number overflow — `uint32_t` gives 4 294 967 295 write cycles before wrap. At one config write per day, this exceeds 11 000 years. No overflow handling needed; document the bound in code comments. | Document overflow bound in code comments; no implementation change needed | Open |

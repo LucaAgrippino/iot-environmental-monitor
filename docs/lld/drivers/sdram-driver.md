@@ -5,10 +5,13 @@
 **Board scope:** Field Device (STM32F469) only
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** SdramDriver in `components.md` (FD driver layer)
 
 ---
 
-## 1. Source summary
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -24,7 +27,7 @@
 
 ---
 
-## 2. API
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -136,13 +139,13 @@ None. SdramDriver is not a sequence diagram participant.
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 On `SDRAM_ERR_TIMEOUT`, the BringingUpLCD Init sub-state fails and the FD enters Faulted (`state-machines.md` §3.1, failure handling column). The LCD is essential (REQ-LD-000); SDRAM initialisation failure is non-recoverable at boot.
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform testing is limited — the FMC peripheral cannot be realistically mocked for a full timing sequence. The primary test strategy is integration testing on hardware.
 

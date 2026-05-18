@@ -4,10 +4,14 @@
 **Branch:** `feature/lld-wifi-driver`  
 **Status:** Draft  
 **Methodology:** lld-methodology.md v1.1, steps 1–8  
+**Version:** 0.1
+**Date:** May 2026
+
+**HLD anchor:** WifiDriver in `components.md` (GW driver layer)
 
 ---
 
-## 1. Scope
+## 1. Sources
 
 WifiDriver is the most complex Gateway driver. It controls the Inventek
 ISM43362-M3G-L44 embedded WiFi module via an AT-command protocol over SPI3.
@@ -20,7 +24,7 @@ WiFi peripheral per D29.
 
 ---
 
-## 2. Source references (Step 1)
+### 1.1 Source references
 
 | Source | Relevant section |
 |--------|-----------------|
@@ -35,7 +39,7 @@ WiFi peripheral per D29.
 
 ---
 
-## 3. API — Step 2 (API + dependency-conformance + P3 review)
+## 2. Public API
 
 ### 3.1 IWifi
 
@@ -127,7 +131,7 @@ No further split is warranted at this abstraction level.
 
 ---
 
-## 4. Internal design (Step 3)
+## 3. Internal design
 
 ### 4.1 Module structure
 
@@ -308,7 +312,7 @@ slot index to the AT command, and returns the `socket_id` to the caller.
 
 ---
 
-## 5. Hardware contract (Step 4)
+## 4. Hardware contract
 
 ### 5.1 SPI bus
 
@@ -347,7 +351,7 @@ action is required to enable it; it is controlled by hardware.
 
 ---
 
-## 6. Sequence integration (Step 5)
+## 5. Sequence integration
 
 ### Nominal cloud publish path (SD-03 reference)
 
@@ -394,7 +398,7 @@ any mutex on the SPI bus and matches the ISR-to-fixed-task-handle contract
 
 ---
 
-## 7. Error handling (Step 6)
+## 6. Error and fault behaviour
 
 | Condition | Response |
 |-----------|----------|
@@ -413,7 +417,7 @@ block the ISM43362 from responding to future transactions.
 
 ---
 
-## 8. Test plan (Step 7)
+## 7. Unit-test plan
 
 WifiDriver is the hardest driver to unit-test on the host because the AT
 command engine depends on a request-response SPI cycle with DRDY timing.
@@ -452,7 +456,7 @@ echo — performed on the actual board during integration testing.
 
 ---
 
-## 9. Open items and decisions log (Step 8)
+## 8. Open items
 
 ### Decisions
 

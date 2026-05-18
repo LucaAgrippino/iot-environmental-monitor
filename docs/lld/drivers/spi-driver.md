@@ -5,10 +5,13 @@
 **Board scope:** Gateway (B-L475E-IOT01A) only
 **Layer:** Driver
 **Status:** Draft
+**Date:** May 2026
+
+**HLD anchor:** SpiDriver in `components.md` (GW driver layer)
 
 ---
 
-## 1. Source summary (Step 1 recap)
+## 1. Sources
 
 | Attribute | Value | Source |
 |---|---|---|
@@ -29,7 +32,7 @@
 
 ---
 
-## 2. API — `ISpi` interface
+## 2. Public API
 
 ### 2.1 Dependency-conformance check
 
@@ -191,7 +194,7 @@ SPID-O1 shares the same root dependency (APB1/PCLK1 clock configuration) as DUAR
 
 ---
 
-## 6. Error handling
+## 6. Error and fault behaviour
 
 ### 6.1 Error propagation
 
@@ -203,7 +206,7 @@ Unlike I2cDriver (§3.5 of that companion), SPI has no equivalent to a stuck-SDA
 
 ---
 
-## 7. Test plan
+## 7. Unit-test plan
 
 Host-platform tests (Unity framework). The CMSIS `SPI3` macro is redirected via `#define SPI3 (&mock_spi)` in the test build, substituting a statically allocated `SPI_TypeDef` instance.
 
