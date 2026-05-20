@@ -145,6 +145,7 @@ typedef enum {
  *
  * Creates the mutex. Zeroes the snapshot. Must be called once during
  * Init before any producer calls IHealthReport.
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
  */
 health_monitor_err_t health_monitor_init(void);
 
@@ -160,6 +161,7 @@ health_monitor_err_t health_monitor_init(void);
  * @param  event  Event identifier.
  * @param  param  Event-specific parameter (sensor_id, fault_code, etc.).
  *                Pass 0 if not applicable.
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
  */
 health_monitor_err_t health_monitor_push_event(health_event_t event,
                                                 uint32_t       param);
@@ -169,6 +171,7 @@ health_monitor_err_t health_monitor_push_event(health_event_t event,
  *
  * Called by ModbusRegisterMap each cycle after polling IModbusSlaveStats.
  * Acquires mutex; copies stats fields atomically.
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
  */
 health_monitor_err_t health_monitor_update_modbus_slave_stats(
     const modbus_slave_stats_t *stats);
@@ -178,6 +181,8 @@ health_monitor_err_t health_monitor_update_modbus_slave_stats(
  *
  * Called by ModbusPoller each health-report cycle after polling
  * IModbusMasterStats.
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 health_monitor_err_t health_monitor_update_modbus_master_stats(
     const modbus_master_stats_t *stats);
@@ -187,6 +192,8 @@ health_monitor_err_t health_monitor_update_modbus_master_stats(
  *
  * Called by CloudPublisher each health-report cycle after polling
  * IMqttStats.
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 health_monitor_err_t health_monitor_update_mqtt_stats(
     const mqtt_stats_t *stats);
@@ -196,6 +203,8 @@ health_monitor_err_t health_monitor_update_mqtt_stats(
  *
  * Called by StoreAndForward when occupancy changes (after each
  * enqueue or consume).
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 health_monitor_err_t health_monitor_update_buffer_occupancy(
     uint32_t entry_count);
@@ -207,6 +216,8 @@ health_monitor_err_t health_monitor_update_buffer_occupancy(
  * One call covers all tasks.
  *
  * @param  watermarks  Array of HEALTH_TASK_COUNT watermark values (words).
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 health_monitor_err_t health_monitor_update_stack_watermarks(
     const uint16_t watermarks[HEALTH_TASK_COUNT]);
@@ -225,6 +236,7 @@ health_monitor_err_t health_monitor_update_stack_watermarks(
  * CLI query), CloudPublisher (GW, periodic health publish — SD-03b).
  *
  * @param[out] snap_out  Filled with the current snapshot.
+ * @return HEALTH_MONITOR_ERR_OK on success; non-zero error code on failure.
  */
 health_monitor_err_t health_monitor_get_snapshot(
     device_health_snapshot_t *snap_out);
@@ -234,6 +246,7 @@ health_monitor_err_t health_monitor_get_snapshot(
  *
  * Called by LifecycleController on entering Faulted. Overrides the
  * normal LED state machine.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 void health_monitor_set_led_fault(void);
 
@@ -253,6 +266,7 @@ void health_monitor_set_led_fault(void);
  *            flags), lifecycle state.
  *
  * Thread-safe — acquires internal mutex.
+ * @return HEALTH_ADMIN_ERR_OK on success; non-zero error code on failure.
  */
 health_admin_err_t health_monitor_reset_metrics(void);
 

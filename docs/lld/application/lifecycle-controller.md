@@ -102,6 +102,7 @@ typedef enum {
  * Called by HealthMonitor, ConsoleService, and (on GW) CloudPublisher
  * to include lifecycle state in health payloads.
  * Thread-safe — reads a volatile state variable.
+ * @return Current state value.
  */
 lifecycle_state_t lifecycle_get_state(void);
 
@@ -110,6 +111,8 @@ lifecycle_state_t lifecycle_get_state(void);
  *
  * Determined from RCC reset-status flags and the watchdog RTC backup
  * register at startup. Exposed in health payloads (REQ-NF-202).
+ * @return lifecycle_reset_cause_t result.
+ * @note Threading: thread-safe.
  */
 lifecycle_reset_cause_t lifecycle_get_reset_cause(void);
 
@@ -144,6 +147,7 @@ bool lifecycle_post_event(lifecycle_event_t event);
  * @param  cmd  Command to dispatch.
  * @return LIFECYCLE_ERR_OK on success; LIFECYCLE_ERR_NOT_INIT if not
  *         initialised; LIFECYCLE_ERR_NULL_ARG for unknown command.
+ * @note Threading: thread-safe.
  */
 lifecycle_err_t lifecycle_handle_remote_command(lifecycle_remote_cmd_t cmd);
 

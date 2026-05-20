@@ -139,6 +139,8 @@ in RAM only. On boot it is recovered from the ring scan (§6.2).
  * qspi_flash_driver_init().
  *
  * @param  health  IHealthReport handle for overflow event push.
+ * @return CFL_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 cfl_err_t circular_flash_log_init(IHealthReport *health);
 
@@ -155,6 +157,8 @@ cfl_err_t circular_flash_log_init(IHealthReport *health);
  *
  * @param  data  Payload to store.
  * @param  len   Byte count; must be ≤ CFL_MAX_RECORD_BYTES.
+ * @return CFL_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 cfl_err_t circular_flash_log_append(const uint8_t *data, uint32_t len);
 
@@ -168,6 +172,7 @@ cfl_err_t circular_flash_log_append(const uint8_t *data, uint32_t len);
  * @param[out] len_out   Set to the record's data_len on success.
  * @param[in]  max_len   Size of data_out.
  * @return CFL_ERR_EMPTY if no records exist.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 cfl_err_t circular_flash_log_peek_oldest(uint8_t  *data_out,
                                           uint32_t *len_out,
@@ -180,6 +185,7 @@ cfl_err_t circular_flash_log_peek_oldest(uint8_t  *data_out,
  * persistent head pointer in the metadata zone.
  *
  * @return CFL_ERR_EMPTY if no records exist.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 cfl_err_t circular_flash_log_consume_oldest(void);
 
@@ -190,11 +196,14 @@ cfl_err_t circular_flash_log_consume_oldest(void);
  * be enqueued (REQ-BF-020). Pushes HEALTH_EVENT_BUFFER_OVERFLOW.
  *
  * @return CFL_ERR_EMPTY if no records exist to drop.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 cfl_err_t circular_flash_log_drop_oldest(void);
 
 /**
  * @brief  Query whether the ring is empty.
+ * @return CFL_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 cfl_err_t circular_flash_log_is_empty(bool *empty_out);
 
@@ -203,6 +212,8 @@ cfl_err_t circular_flash_log_is_empty(bool *empty_out);
  *
  * @param[out] entry_count  Number of records in the ring.
  * @param[out] byte_count   Total data bytes stored (excludes overhead).
+ * @return CFL_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 cfl_err_t circular_flash_log_get_occupancy(uint32_t *entry_count,
                                             uint32_t *byte_count);

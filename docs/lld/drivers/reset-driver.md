@@ -69,6 +69,7 @@ The driver cannot enforce this ordering — it is a caller contract documented h
  *   - LifecycleController (LifecycleTask) for controlled restart (UC-17).
  *   - UpdateService (UpdateServiceTask) for OTA bank swap (SD-06c) and
  *     rollback (SD-06d).
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 void reset_trigger(void);
 ```

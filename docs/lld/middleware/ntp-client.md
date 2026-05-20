@@ -112,6 +112,8 @@ typedef enum {
  * @brief  Initialise NtpClient.
  *
  * @param  health  IHealthReport handle for failure event push.
+ * @return NTP_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 ntp_client_err_t ntp_client_init(ihealth_report_t *health);
 
@@ -136,6 +138,8 @@ ntp_client_err_t ntp_client_init(ihealth_report_t *health);
  *                        has no DNS resolver (see §6).
  * @param  server_count   Number of entries; must be ≤ NTP_CLIENT_MAX_SERVERS.
  * @param[out] unix_epoch_out  Set to Unix epoch seconds on success.
+ * @return NTP_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 ntp_client_err_t ntp_client_query(const char * const *server_list,
                                    uint8_t             server_count,

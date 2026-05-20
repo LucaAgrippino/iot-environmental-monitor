@@ -96,6 +96,14 @@ typedef enum {
  * Returns EXTI_ERR_CONFLICT if the line is already configured.
  * Call from Phase 1 (pre-scheduler).
  */
+/**
+ * @brief Configure an EXTI line for a given GPIO port and trigger edge.
+ * @param[in,out] line  (description TBD)
+ * @param[in,out] port  (description TBD)
+ * @param[in,out] edge  (description TBD)
+ * @return EXTI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 exti_err_t exti_configure(uint8_t line, exti_port_t port, exti_edge_t edge);
 
 /*
@@ -103,10 +111,23 @@ exti_err_t exti_configure(uint8_t line, exti_port_t port, exti_edge_t edge);
  * Caller must have called exti_configure() for this line first.
  * Call from Phase 2 (post-scheduler, inside driver's attach_callback()).
  */
+/**
+ * @brief Enable an EXTI line and set its NVIC interrupt priority.
+ * @param[in,out] line  (description TBD)
+ * @param[in,out] nvic_priority  (description TBD)
+ * @return EXTI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 exti_err_t exti_enable(uint8_t line, uint32_t nvic_priority);
 
 /*
  * Disable the EXTI interrupt: clears IMR bit and disables NVIC.
+ */
+/**
+ * @brief Disable an EXTI line.
+ * @param[in,out] line  (description TBD)
+ * @return EXTI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 exti_err_t exti_disable(uint8_t line);
 
@@ -114,6 +135,11 @@ exti_err_t exti_disable(uint8_t line);
  * Clear the EXTI pending flag for the given line.
  * Called from the ISR handler in stm32xxx_it.c before invoking the
  * driver-specific handler.
+ */
+/**
+ * @brief Clear the pending flag for an EXTI line.
+ * @param[in,out] line  (description TBD)
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 void exti_clear_pending(uint8_t line);
 

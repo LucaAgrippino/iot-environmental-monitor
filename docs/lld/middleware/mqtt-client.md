@@ -145,6 +145,8 @@ typedef void (*mqtt_disconnect_cb_t)(void);
  *
  * @param  msg_cb         Inbound message callback (subscribed topics).
  * @param  disconnect_cb  Connection-loss callback.
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 mqtt_client_err_t mqtt_client_init(mqtt_message_cb_t    msg_cb,
                                     mqtt_disconnect_cb_t disconnect_cb);
@@ -164,6 +166,8 @@ mqtt_client_err_t mqtt_client_init(mqtt_message_cb_t    msg_cb,
  *
  * @param  cfg  Connection parameters (broker endpoint, port, client ID,
  *              cert/key pointers, CA cert pointer).
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_connect(const mqtt_connect_cfg_t *cfg);
 
@@ -172,6 +176,8 @@ mqtt_client_err_t mqtt_client_connect(const mqtt_connect_cfg_t *cfg);
  *
  * Graceful disconnect — does not invoke disconnect_cb.
  * Called by CloudPublisher on controlled shutdown (UC-17).
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_disconnect(void);
 
@@ -189,6 +195,8 @@ mqtt_client_err_t mqtt_client_disconnect(void);
  * @param  payload    Message payload.
  * @param  len        Payload byte count.
  * @param  qos        MQTT_QOS_0 or MQTT_QOS_1.
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_publish(const char    *topic,
                                        const uint8_t *payload,
@@ -203,6 +211,8 @@ mqtt_client_err_t mqtt_client_publish(const char    *topic,
  * Internally calls coreMQTT's MQTT_ProcessLoop().
  * Delivers inbound messages via msg_cb.
  * Detects keep-alive timeout → invokes disconnect_cb.
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_process(void);
 ```
@@ -217,10 +227,14 @@ mqtt_client_err_t mqtt_client_process(void);
  * Pattern — counters → poll). Includes RSSI sampled from WifiDriver.
  * Thread-safe: all stats updated only in CloudPublisherTask context.
  * No mutex required — single-task caller model.
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
  */
 mqtt_client_err_t mqtt_client_get_stats(mqtt_stats_t *stats_out);
 
-/** @brief  Reset all counters (triggered by CMD_RESET_METRICS). */
+/** @brief  Reset all counters (triggered by CMD_RESET_METRICS).
+ * @return MQTT_CLIENT_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 mqtt_client_err_t mqtt_client_reset_stats(void);
 ```
 

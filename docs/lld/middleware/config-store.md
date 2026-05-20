@@ -108,6 +108,8 @@ typedef enum {
  * is accessible. Does NOT load config — load is a separate call.
  *
  * @param  health  IHealthReport handle for failure event push.
+ * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 config_store_err_t config_store_init(IHealthReport *health);
 
@@ -125,6 +127,8 @@ config_store_err_t config_store_init(IHealthReport *health);
  * @param[out] data_out   Caller-supplied buffer; receives config blob.
  * @param[out] len_out    Set to the blob byte count on success.
  * @param[in]  max_len    Size of data_out buffer in bytes.
+ * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 config_store_err_t config_store_load(void     *data_out,
                                      uint32_t *len_out,
@@ -142,6 +146,7 @@ config_store_err_t config_store_load(void     *data_out,
  *
  * @param[in]  data  Opaque config blob.
  * @param[in]  len   Byte count; must be ≤ CONFIG_STORE_MAX_DATA_BYTES.
+ * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
  */
 config_store_err_t config_store_save(const void *data, uint32_t len);
 
@@ -151,6 +156,8 @@ config_store_err_t config_store_save(const void *data, uint32_t len);
  * Called by LifecycleController during Init.CheckingIntegrity (REQ-NF-214).
  * Returns OK if at least one slot has a valid CRC32. Does not modify state.
  * Pushes HEALTH_EVENT_CONFIG_NO_VALID_SLOT if both slots invalid.
+ * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 config_store_err_t config_store_check_integrity(void);
 
@@ -160,6 +167,8 @@ config_store_err_t config_store_check_integrity(void);
  * Called by ConsoleService on factory-reset command. Erases all 16 sectors.
  * After this call, the next config_store_load() returns
  * CONFIG_STORE_ERR_NO_VALID_SLOT — the caller must supply defaults.
+ * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 config_store_err_t config_store_erase(void);
 ```

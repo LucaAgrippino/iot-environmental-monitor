@@ -103,6 +103,7 @@ not portable across graphics libraries — that trade-off is accepted.
  * lv_indev_drv_register().
  *
  * @return GRAPHICS_ERR_OK on success.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 graphics_err_t graphics_init(void);
 
@@ -137,6 +138,7 @@ void graphics_tick_increment(uint32_t elapsed_ms);
  * Never call from ISR context.
  *
  * @return GRAPHICS_ERR_OK; GRAPHICS_ERR_NOT_INIT if not initialised.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 graphics_err_t graphics_process(void);
 

@@ -87,6 +87,7 @@ typedef enum {
  * sets the initial state to off. Must be called once after gpio_init().
  *
  * @return LED_ERR_OK on success.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 led_err_t led_init(void);
 
@@ -96,6 +97,7 @@ led_err_t led_init(void);
  * @param id  LED to turn on.
  * @return LED_ERR_OK on success; LED_ERR_INVALID_ID if the LED is not
  *         fitted on this board.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 led_err_t led_on(led_id_t id);
 
@@ -105,6 +107,7 @@ led_err_t led_on(led_id_t id);
  * @param id  LED to turn off.
  * @return LED_ERR_OK on success; LED_ERR_INVALID_ID if the LED is not
  *         fitted on this board.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 led_err_t led_off(led_id_t id);
 
@@ -114,6 +117,7 @@ led_err_t led_off(led_id_t id);
  * @param id  LED to toggle.
  * @return LED_ERR_OK on success; LED_ERR_INVALID_ID if the LED is not
  *         fitted on this board.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 led_err_t led_toggle(led_id_t id);
 ```

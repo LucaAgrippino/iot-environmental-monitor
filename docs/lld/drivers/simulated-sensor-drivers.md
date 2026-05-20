@@ -88,6 +88,7 @@ typedef struct {
  *
  * @return BARO_ERR_OK always (simulation init cannot fail unless fault
  *         injection is pre-armed — see barometer_inject_fault()).
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 baro_err_t barometer_init(void);
 
@@ -101,6 +102,7 @@ baro_err_t barometer_init(void);
  *
  * @param[out] reading  Populated on BARO_ERR_OK. Must not be NULL.
  * @return BARO_ERR_OK or BARO_ERR_FAULT.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 baro_err_t barometer_read(baro_reading_t *reading);
 
@@ -118,6 +120,7 @@ baro_err_t barometer_read(baro_reading_t *reading);
  * Only the test harness and CLI service call it directly.
  *
  * @param inject  true to inject faults; false to resume normal operation.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 void barometer_inject_fault(bool inject);
 ```
@@ -159,6 +162,7 @@ typedef struct {
  * Seeds both simulations with default values (REQ-SA-030).
  *
  * @return HT_ERR_OK always.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 ht_err_t humidity_temp_init(void);
 
@@ -170,11 +174,13 @@ ht_err_t humidity_temp_init(void);
  *
  * @param[out] reading  Populated on HT_ERR_OK. Must not be NULL.
  * @return HT_ERR_OK or HT_ERR_FAULT.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 ht_err_t humidity_temp_read(ht_reading_t *reading);
 
 /**
  * @brief Arm or disarm fault injection (same semantics as barometer_inject_fault).
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 void humidity_temp_inject_fault(bool inject);
 ```

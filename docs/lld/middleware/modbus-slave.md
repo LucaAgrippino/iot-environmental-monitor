@@ -120,6 +120,7 @@ typedef struct {
  * @param  slave_addr  Initial slave address (1..247, REQ-MB-100).
  * @param  task_handle FreeRTOS task handle for direct-to-task notification.
  * @return MODBUS_SLAVE_ERR_OK or MODBUS_SLAVE_ERR_NULL_ARG.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 modbus_slave_err_t modbus_slave_init(const IModbusRegisterMap *reg_map,
                                      uint8_t                   slave_addr,
@@ -135,6 +136,7 @@ modbus_slave_err_t modbus_slave_init(const IModbusRegisterMap *reg_map,
  * Blocking: waits for tx_complete notification before returning.
  *
  * @return MODBUS_SLAVE_ERR_OK (silent drop is not an error at this level).
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 modbus_slave_err_t modbus_slave_process(void);
 
@@ -170,6 +172,8 @@ modbus_slave_err_t modbus_slave_get_stats(modbus_slave_stats_t *stats_out);
  * @brief  Reset all counters to zero.
  *
  * Triggered by CMD_RESET_METRICS register write (REQ-LD-070).
+ * @return MODBUS_SLAVE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 modbus_slave_err_t modbus_slave_reset_stats(void);
 ```

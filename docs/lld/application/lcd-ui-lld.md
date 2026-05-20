@@ -595,6 +595,11 @@ lcd_ui_err_t lcd_ui_init(lcd_ui_t             *self,
                          const IHealthSnapshot *health,
                          ILogger              *log);
 
+/**
+ * @brief FreeRTOS task body for LcdUiTask — runs the screen-render and touch loop.
+ * @param[in,out] self  (description TBD)
+ * @note Threading: entry point for a FreeRTOS task. Never call directly from application code.
+ */
 void lcd_ui_task_body(lcd_ui_t *self);   /* passed as xTaskCreate pvParameters */
 ```
 

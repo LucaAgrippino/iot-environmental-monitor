@@ -117,6 +117,7 @@ typedef void (*modbus_uart_rx_cb_t)(modbus_uart_event_t event, void *context);
  * Must be called once from main() before the FreeRTOS scheduler starts.
  *
  * @return MODBUS_UART_ERR_OK on success.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 modbus_uart_err_t modbus_uart_init(void);
 
@@ -132,6 +133,7 @@ modbus_uart_err_t modbus_uart_init(void);
  * @param callback  Function to call from the ISR on RX_DONE or RX_ERROR.
  *                  Must not be NULL.
  * @param context   Opaque pointer passed unchanged to the callback.
+ * @note Threading: task-context only, non-blocking. Call before the scheduler starts; callback executes in ISR context.
  */
 void modbus_uart_attach_rx(modbus_uart_rx_cb_t callback, void *context);
 
@@ -153,6 +155,7 @@ void modbus_uart_attach_rx(modbus_uart_rx_cb_t callback, void *context);
  *         TXE or TC does not assert within the timeout; MODBUS_UART_ERR_BUSY
  *         if a prior transmit is still in progress (should not occur in
  *         normal single-task operation).
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 modbus_uart_err_t modbus_uart_transmit(const uint8_t *frame, uint16_t len);
 
