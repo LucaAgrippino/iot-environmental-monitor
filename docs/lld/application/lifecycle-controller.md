@@ -3,8 +3,8 @@
 **Layer:** Application  
 **Boards:** Field Device (FD) · Gateway (GW)  
 **Provides:** `ILifecycle`  
-**Consumes (FD):** `IConfigStore`, `IConfigService`, `ISensorService`, `IGraphics`, `ILogger`  
-**Consumes (GW):** `IConfigStore`, `IConfigService`, `ISensorService`, `ICloudPublisher`, `IModbusPoller`, `IUpdateService`, `ITimeService`, `IFirmwareStore`, `IResetDriver`, `ILogger`  
+**Consumes (FD):** `IConfigStore`, `IConfigService`, `ISensorService`, `IAlarmService`, `IConsoleService`, `IGraphicsLibrary`, `ILogger`  
+**Consumes (GW):** `IConfigStore`, `IConfigService`, `ISensorService`, `IAlarmService`, `ICloudPublisher`, `IModbusPoller`, `IUpdateService`, `ITimeService`, `IConsoleService`, `IFirmwareStore`, `IResetDriver`, `IHealthAdmin`, `ILogger`  
 **SRS traces (both):** REQ-SA-000–060, REQ-DM-040, REQ-NF-202, REQ-NF-203, REQ-NF-213, REQ-NF-214  
 **SRS traces (FD add.):** REQ-LD-200, REQ-LD-210, REQ-LD-220, REQ-LD-230, REQ-LD-240  
 **SRS traces (GW add.):** REQ-DM-010, REQ-DM-020, REQ-DM-030, REQ-DM-071, REQ-DM-072  
@@ -83,6 +83,12 @@ typedef struct {
     lifecycle_event_type_t type;
     uint32_t               param;   /* event-specific payload (e.g. fault code) */
 } lifecycle_event_t;
+
+/* Remote commands issued via Modbus or MQTT (LLD-D12, LLD-D15) */
+typedef enum {
+    LC_REMOTE_CMD_SOFT_RESTART   = 0,  /* Modbus 0x0202 — two-step confirmation required */
+    LC_REMOTE_CMD_RESET_METRICS  = 1,  /* Modbus 0x0201 — dispatch to IHealthAdmin       */
+} lifecycle_remote_cmd_t;
 ```
 
 ---
@@ -117,10 +123,48 @@ lifecycle_reset_cause_t lifecycle_get_reset_cause(void);
  * @return true if enqueued; false if queue full.
  */
 bool lifecycle_post_event(lifecycle_event_t event);
+
+/**
+ * @brief  Dispatch a remote command received via Modbus or MQTT.
+ *
+ * LifecycleController is the single dispatch point for all remote
+ * commands that affect system state (LLD-D12, LLD-D15). This keeps
+ * ModbusRegisterMap and CloudPublisher free of direct cross-component
+ * coupling.
+ *
+ * Commands and their dispatch targets:
+ *   LC_REMOTE_CMD_SOFT_RESTART  — posts LC_EVENT_RESTART_REQUESTED to
+ *                                  LifecycleTask (GW only; two-step
+ *                                  confirmation handled there).
+ *   LC_REMOTE_CMD_RESET_METRICS — calls health_admin->reset_metrics().
+ *
+ * Called from ModbusRegisterMap write handler (called in ModbusSlaveTask
+ * context on FD, ModbusPollerTask context on GW).
+ *
+ * @param  cmd  Command to dispatch.
+ * @return LIFECYCLE_ERR_OK on success; LIFECYCLE_ERR_NOT_INIT if not
+ *         initialised; LIFECYCLE_ERR_NULL_ARG for unknown command.
+ */
+lifecycle_err_t lifecycle_handle_remote_command(lifecycle_remote_cmd_t cmd);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (ILifecycle — LLD-D10)                   */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    lifecycle_state_t       (*get_state)(void);
+    lifecycle_reset_cause_t (*get_reset_cause)(void);
+    bool                    (*post_event)(lifecycle_event_t event);
+    lifecycle_err_t         (*handle_remote_command)(lifecycle_remote_cmd_t cmd);
+} ilifecycle_t;
+
+/** Singleton pointer to the LifecycleController vtable (FD + GW). */
+extern const ilifecycle_t * const lifecycle_controller;
 ```
 
-`lifecycle_post_event()` is the only call other components make at
-runtime. LifecycleController is otherwise entirely reactive.
+`lifecycle_post_event()` and `lifecycle_handle_remote_command()` are the
+only calls other components make at runtime. LifecycleController is
+otherwise entirely reactive.
 
 ---
 
@@ -309,6 +353,30 @@ static LifecycleControllerState s_lc;
 coherent value without a mutex. All writes to `s_lc.state` happen inside
 `LifecycleTask` — no concurrent write path exists.
 
+**Remote command dispatch (LLD-D12, LLD-D15).** LifecycleController is
+the single dispatch point for all remote commands that affect system
+state. LLD-D12 established this for cloud-originated commands; LLD-D15
+extends the same pattern to Modbus-originated commands. The consequence
+is that ModbusRegisterMap and CloudPublisher never reach cross-layer
+components directly for state-changing commands — they call
+`lifecycle_controller->handle_remote_command()` instead.
+
+`handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)` calls
+`health_admin->reset_metrics()` directly from the caller's task context
+(ModbusSlaveTask / ModbusPollerTask) — it does not post to LifecycleTask.
+This is deliberate: metric reset has no lifecycle-state side-effects and
+must not block on queue availability.
+
+`handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART)` posts
+`LC_EVENT_RESTART_REQUESTED` to LifecycleTask, which enforces the
+two-step confirmation requirement (REQ-DM-020) before calling
+`reset_driver_soft_reset()`.
+
+CMD_ACK_ALARM continues to dispatch directly to AlarmService
+(`alarm_service->ack_all()`) from ModbusRegisterMap — it is not routed
+via LifecycleController because alarm acknowledgment has no lifecycle-
+state dependency (LLD-D14).
+
 The config snapshot buffer (`CONFIG_STORE_MAX_DATA_BYTES` ≤ 32 712 bytes)
 is the largest field. This places `s_lc` in static storage, not on the
 stack — annotate clearly in the code. See LC-O1.
@@ -406,6 +474,9 @@ Minimum test cases:
 - GW: pending_rollback on boot → `update_service_resume_after_rollback()` called.
 - `LC_EVENT_UNRECOVERABLE_FAULT` in any state → state == FAULTED.
 - `lifecycle_get_state()` from another task context → correct state returned.
+- `handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)` → `health_admin->reset_metrics()` called once; returns `LIFECYCLE_ERR_OK`.
+- `handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART)` → `LC_EVENT_RESTART_REQUESTED` posted to queue.
+- `handle_remote_command` with unknown command value → `LIFECYCLE_ERR_NULL_ARG`.
 
 ---
 
