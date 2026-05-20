@@ -143,6 +143,63 @@ mutex is held — see §8.
 
 ## 6. Algorithms
 
+### 6.0 Storage model — LLD-D17
+
+**Decision:** the initial implementation embeds a static const default profile
+table directly in firmware flash. At boot, `dpr_load_from_store()` seeds the
+runtime registry from ConfigStore; if ConfigStore returns an empty result (first
+boot or factory reset), the registry is seeded instead from the compile-time
+default table:
+
+```c
+/* device_profile_registry.c — compiled into firmware */
+static const device_profile_t s_default_profiles[] = {
+    /* { slave_addr, expected_map_version, description } */
+    { 1, 0x0100, "Field Device #1 (default)" },
+};
+static const uint8_t s_default_profile_count =
+    (uint8_t)(sizeof(s_default_profiles) / sizeof(s_default_profiles[0]));
+```
+
+**Rationale (LLD-D17).** The field device roster is known at firmware build
+time for the first production deployment. Embedding the defaults eliminates a
+dependency on a provisioned ConfigStore entry for system startup, reduces
+the risk of a factory-blank gateway failing to poll anything, and avoids a
+mandatory provisioning step during manufacturing.
+
+**Interface seam (future migration path).** `IDeviceProfileProvider` and
+`IDeviceProfileManager` are the stable interface boundaries. The static const
+table is an implementation detail of the concrete registry instance. A future
+revision can replace the static table with a ConfigStore-only or cloud-sourced
+boot load without any change to `ModbusPoller`, `ConsoleService`, or
+`ConfigService` — they all consume the interfaces, not the implementation.
+
+**Singleton vtable (LLD-D10).**
+
+```c
+/* device_profile_registry.h */
+
+typedef struct {
+    dpr_err_t (*get_by_addr)(uint8_t slave_addr, device_profile_t *out);
+    uint8_t   (*get_allowlist)(uint8_t *out_addrs, uint8_t max_count);
+    uint8_t   (*get_count)(void);
+} idevice_profile_provider_t;
+
+typedef struct {
+    dpr_err_t (*add_or_update)(const device_profile_t *profile);
+    dpr_err_t (*remove)(uint8_t slave_addr);
+} idevice_profile_manager_t;
+
+extern const idevice_profile_provider_t * const device_profile_provider;
+extern const idevice_profile_manager_t  * const device_profile_manager;
+```
+
+The ctx-based `IDeviceProfileProvider` / `IDeviceProfileManager` structs above
+(§4.1, §4.2) document the interface contract; the singleton vtables are the
+LLD-D10-conformant wire-up. Unit tests substitute mock vtables via the same
+`*(const idevice_profile_provider_t **)&device_profile_provider = &mock;`
+pattern used elsewhere.
+
 ### 6.1 `get_by_addr`
 
 ```
