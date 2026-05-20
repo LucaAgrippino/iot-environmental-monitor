@@ -74,10 +74,16 @@ typedef struct {
  * <module>_err_t, not _status_t.
  */
 typedef enum {
-    RTC_ERR_OK           = 0,  /**< Operation succeeded. */
-    RTC_ERR_INIT_TIMEOUT = 1,  /**< INITF flag did not assert within timeout. */
-    RTC_ERR_SYNC_TIMEOUT = 2,  /**< RSF flag did not assert after exiting init mode. */
+    RTC_ERR_OK             = 0,  /**< Operation succeeded. */
+    RTC_ERR_INIT_TIMEOUT   = 1,  /**< INITF flag did not assert within timeout. */
+    RTC_ERR_SYNC_TIMEOUT   = 2,  /**< RSF flag did not assert after exiting init mode. */
+    RTC_ERR_NULL_ARG       = 3,  /**< Null pointer passed to an output parameter. */
+    RTC_ERR_BACKUP_BOUNDS  = 4,  /**< Backup register index out of range for this board. */
 } rtc_err_t;
+
+/* Maximum backup register indices per board (LLD-D16). */
+#define RTC_BACKUP_MAX_IDX_F469  19U   /* STM32F469: BKP0R..BKP19R (20 registers) */
+#define RTC_BACKUP_MAX_IDX_L475  31U   /* STM32L475: BKPR[0..31]   (32 registers) */
 
 ```
 
@@ -154,6 +160,52 @@ rtc_err_t rtc_set_time(const rtc_datetime_t *dt);
  * @return true if backup domain was valid at init; false otherwise.
  */
 bool rtc_is_backup_valid(void);
+
+/**
+ * @brief Read one RTC backup register.
+ *
+ * RTC backup registers survive warm resets (watchdog, soft reset, NRST pin)
+ * as long as VBAT or VDD supplies the backup domain. They do not survive a
+ * full power-off on boards where VBAT is tied to VDD (see §4.5).
+ *
+ * DBP (PWR_CR.DBP on F469, PWR_CR1.DBP on L475) must be set before the
+ * backup domain can be accessed. rtc_init() sets DBP and leaves it set for
+ * the application's lifetime; callers do not need to manage DBP.
+ *
+ * @param  idx      Backup register index. Valid range: 0..19 on F469,
+ *                  0..31 on L475. Returns RTC_ERR_BACKUP_BOUNDS if exceeded.
+ * @param[out] out  Set to the 32-bit register value on RTC_ERR_OK.
+ * @return RTC_ERR_OK, RTC_ERR_NULL_ARG, or RTC_ERR_BACKUP_BOUNDS.
+ */
+rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out);
+
+/**
+ * @brief Write one RTC backup register.
+ *
+ * Same DBP and VBAT constraints as rtc_read_backup(). No WPR unlock needed —
+ * backup registers are not protected by WPR (only TR, DR, and CR are).
+ *
+ * @param  idx    Backup register index. Valid range: 0..19 on F469, 0..31 on L475.
+ * @param  value  32-bit value to write.
+ * @return RTC_ERR_OK or RTC_ERR_BACKUP_BOUNDS.
+ */
+rtc_err_t rtc_write_backup(uint8_t idx, uint32_t value);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (IRtc — LLD-D10)                         */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    rtc_err_t (*init)(void);
+    rtc_err_t (*get_time)(rtc_datetime_t *dt);
+    rtc_err_t (*set_time)(const rtc_datetime_t *dt);
+    bool      (*is_backup_valid)(void);
+    rtc_err_t (*read_backup)(uint8_t idx, uint32_t *out);
+    rtc_err_t (*write_backup)(uint8_t idx, uint32_t value);
+} irtc_t;
+
+/** Singleton pointer to the RtcDriver vtable (FD + GW). */
+extern const irtc_t * const rtc_driver;
 ```
 
 ---
@@ -250,11 +302,48 @@ For `rtc_get_time` called by `Logger`, RSF is normally already set (calendar upd
 
 ### 4.4 Cross-target register compatibility
 
-Both `stm32f469xx.h` and `stm32l475xx.h` define `RTC_TypeDef` with the same relevant registers (`TR`, `DR`, `CR`, `ISR`, `PRER`, `WPR`, `SSR`). The register field bit positions are identical for the fields used by this driver. The only structural difference (L475 has 32 backup registers vs 20 on F469) is irrelevant — this driver does not use the backup registers.
+Both `stm32f469xx.h` and `stm32l475xx.h` define `RTC_TypeDef` with the same relevant registers (`TR`, `DR`, `CR`, `ISR`, `PRER`, `WPR`, `SSR`). The register field bit positions are identical for the fields used by this driver.
+
+**Backup register count differs by board (LLD-D16):**
+
+| Board | Backup registers | Valid `idx` range | CMSIS access |
+|-------|-----------------|-------------------|--------------|
+| STM32F469 (FD) | 20 (BKP0R..BKP19R) | 0..19 | `RTC->BKPR[idx]` |
+| STM32L475 (GW) | 32 (BKP0R..BKP31R) | 0..31 | `RTC->BKPR[idx]` |
+
+`rtc_read_backup` / `rtc_write_backup` check `idx` against the board-specific limit
+(`RTC_BACKUP_MAX_IDX_F469` / `RTC_BACKUP_MAX_IDX_L475`) selected at compile time via
+the board-specific CMSIS header.
+
+**DBP unlock (backup domain protection):** `rtc_init()` sets `PWR_CR.DBP` (F469)
+/ `PWR_CR1.DBP` (L475) and leaves it set. Backup registers are accessible without
+per-call DBP management. This is the established convention on STM32 — the backup
+domain is unlocked once at startup.
+
+**WPR does not protect backup registers.** WPR only covers `TR`, `DR`, and `CR`.
+Backup register writes are always permitted once DBP is set.
 
 **Action required (Luca at implementation):** Verify the WPR key sequence and INITF/RSF timeout behaviour against RM0386 §27 (F469) and RM0351 §38 (L475) before writing code. Both RMs are required reading; the CMSIS headers alone are not sufficient for the init state machine.
 
-### 4.5 DUART-O2 interaction
+### 4.5 Backup register persistence scope (LLD-D16)
+
+RTC backup registers survive warm resets (watchdog, soft reset, NRST pin) on both
+boards. They do **not** survive a full power-off when VBAT is tied to VDD.
+
+On the **STM32F469-DISCO** (FD) and **B-L475E-IOT01A** (GW), VBAT is connected to
+VDD through a filtering network — there is no separate coin cell. This means:
+
+- Backup register contents **are lost on power removal**.
+- The sync-persisted flag (`TIME_PROVIDER_BKUP_REG = 0`) will not survive a
+  power-off → the system will correctly restart as UNSYNCHRONISED after a
+  power cycle.
+- The flag survives the resets that matter for the SRS requirement (watchdog
+  reset, soft reset, NVIC_SystemReset) — REQ-TS-040 / REQ-NF-212.
+
+If a hardware revision adds a dedicated VBAT supply, this constraint is lifted
+automatically — no firmware change required.
+
+### 4.7 DUART-O2 interaction
 
 Not applicable. The RTC is clocked from LSE, not APB. The unresolved PCLK values (DUART-O2) have no effect on RTC timing.
 
@@ -310,6 +399,11 @@ Host-platform tests (Unity framework, target-independent). The CMSIS `RTC` macro
 | T-RTC-09 | `rtc_get_time` RSF timeout: RSF never sets | Returns `RTC_ERR_SYNC_TIMEOUT`; `dt` zeroed |
 | T-RTC-10 | `rtc_is_backup_valid` after init with INITS = 1 | Returns `true` |
 | T-RTC-11 | `rtc_is_backup_valid` after init with INITS = 0 | Returns `false` |
+| T-RTC-12 | `rtc_write_backup(0, 0xA5A55A5A)` then `rtc_read_backup(0, &v)` | Returns `RTC_ERR_OK`; `v == 0xA5A55A5A` |
+| T-RTC-13 | `rtc_write_backup(0, 0)` then `rtc_read_backup(0, &v)` | Returns `RTC_ERR_OK`; `v == 0` |
+| T-RTC-14 | `rtc_read_backup` with `out == NULL` | Returns `RTC_ERR_NULL_ARG` |
+| T-RTC-15 | `rtc_write_backup` / `rtc_read_backup` with `idx > RTC_BACKUP_MAX_IDX_*` | Returns `RTC_ERR_BACKUP_BOUNDS` |
+| T-RTC-16 | `rtc_write_backup(idx_max, value)` — maximum valid index on each board target | Returns `RTC_ERR_OK` (both F469 and L475 build targets) |
 
 Test file: `tests/drivers/test_rtc_driver.c`.
 
@@ -322,7 +416,7 @@ Test file: `tests/drivers/test_rtc_driver.c`.
 | RTCD-O1 | Default epoch value when backup domain is reset. Candidate: `2000-01-01 00:00:00` (RTC hardware year-offset origin). Confirm before implementation. | Luca | Decide at implementation; define as a named constant in `rtc_driver.c` |
 | RTCD-O2 | RSF wait timeout value under minimum APB clock. 2 ms assumed; verify against system clock configuration once `clock-config.md` companion is produced. DUART-O2 (unresolved PCLK values) is the dependency. | Luca | Resolve when `clock-config.md` lands |
 | RTCD-O3 | Logger timestamps are unsynchronised and unmarked until NTP sync. Logger does not pass through TimeProvider and therefore cannot query the sync-state flag. This is the accepted cost of the bootstrap exception. Document explicitly in the Logger companion when produced. | Claude (Logger companion) | Noted here; actioned in Logger LLD |
-| RTCD-O4 | Verify INITS flag behaviour on L475 after a full power-cycle (VDD and VBAT both removed). RM0351 §38.3 covers reset conditions; confirm INITS is reliably cleared when backup domain loses power. | Luca | Check RM0351 §38 at implementation |
+| RTCD-O4 | Verify INITS flag behaviour on L475 after a full power-cycle (VDD and VBAT both removed). RM0351 §38.3 covers reset conditions; confirm INITS is reliably cleared when backup domain loses power. | Luca | Documented in §4.5: on Discovery boards VBAT=VDD so backup domain clears on power-off; verify empirically at integration. |
 
 **Inherited open items with no surface area in this companion:**
 - O1 (WiFi SPI driver naming): not applicable.
@@ -342,3 +436,4 @@ Test file: `tests/drivers/test_rtc_driver.c`.
 | RTCD-D5 | Prescaler only written on backup domain reset | Writing the prescaler when the backup domain is valid corrupts the running calendar. The INITS check gates this safely. |
 | RTCD-D6 | Busy-wait polling for INITF and RSF, not RTOS block | The total wait is ≤ 4 ms; both consumers can tolerate this. Adding an RTOS-aware timeout would import a FreeRTOS dependency into the driver, violating the established no-RTOS-in-drivers convention. |
 | RTCD-D7 | `rtc_get_time` waits for RSF | Avoids returning stale shadow-register values immediately after a set. The alternative (document that callers must wait) would push hardware knowledge into the middleware layer, violating P1. |
+| RTCD-D8 | `read_backup` / `write_backup` added to IRtc vtable (LLD-D16) | TimeProvider's sync-persisted flag must survive warm resets without direct register access from Middleware. Routing through the vtable preserves testability (mock substitution) and keeps the register-map knowledge inside RtcDriver, consistent with P1. |
