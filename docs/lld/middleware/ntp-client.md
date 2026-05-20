@@ -113,7 +113,7 @@ typedef enum {
  *
  * @param  health  IHealthReport handle for failure event push.
  */
-ntp_client_err_t ntp_client_init(IHealthReport *health);
+ntp_client_err_t ntp_client_init(ihealth_report_t *health);
 
 /**
  * @brief  Query NTP servers and return a Unix epoch timestamp.
@@ -131,13 +131,29 @@ ntp_client_err_t ntp_client_init(IHealthReport *health);
  * This allows TimeService to update the list from ConfigService without
  * reinitialising NtpClient.
  *
- * @param  server_list    Array of null-terminated server hostnames or IPs.
+ * @param  server_list    Array of null-terminated NTP server IPv4 addresses.
+ *                        Hostnames are not supported — WifiDriver (ISM43362)
+ *                        has no DNS resolver (see §6).
  * @param  server_count   Number of entries; must be ≤ NTP_CLIENT_MAX_SERVERS.
  * @param[out] unix_epoch_out  Set to Unix epoch seconds on success.
  */
 ntp_client_err_t ntp_client_query(const char * const *server_list,
                                    uint8_t             server_count,
                                    uint32_t           *unix_epoch_out);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (INtpClient — LLD-D10)                   */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    ntp_client_err_t (*init)(ihealth_report_t *health);
+    ntp_client_err_t (*query)(const char * const *server_list,
+                              uint8_t             server_count,
+                              uint32_t           *unix_epoch_out);
+} intp_client_t;
+
+/** Singleton pointer to the NtpClient vtable (Gateway only). */
+extern const intp_client_t * const ntp_client;
 ```
 
 ---
@@ -146,37 +162,45 @@ ntp_client_err_t ntp_client_query(const char * const *server_list,
 
 The per-server logic inside `ntp_client_query()`:
 
+**NTP state machine: no change (LLD-D13).** Switching from the old non-vtable
+UDP functions to `wifi_driver->open_socket(WIFI_SOCKET_UDP, ...)` is
+transparent at the TimeService / state-machine level; the sync-state
+transitions are unchanged.
+
 ```
 for each server in server_list:
 
-1. Resolve hostname → IP address via wifi_driver_dns_lookup(server).
-   On failure: log, continue to next server.
+1. NTP servers must be supplied as IPv4 addresses (dotted-decimal).
+   WifiDriver (ISM43362) has no DNS resolver. TimeService / ConfigService
+   must ensure server_list contains IP addresses, not hostnames.
 
-2. Open UDP socket to server_ip:123 via wifi_driver_udp_open().
-   On failure: log, continue.
+2. wifi_driver->open_socket(WIFI_SOCKET_UDP, server_ip, 123, &h)
+   via WifiTask (D29 — no caller reaches WifiDriver directly).
+   On failure: log, continue to next server.
 
 3. Build request packet:
    memset(&pkt, 0, sizeof(pkt));
-   pkt.li_vn_mode = 0x1B;
+   pkt.li_vn_mode = 0x1B;   /* LI=0, VN=3, Mode=3 (client) */
 
-4. Send packet via wifi_driver_udp_send(&pkt, 48).
-   On failure: close socket; log; continue.
+4. wifi_driver->send(h, (uint8_t *)&pkt, 48)
+   On failure: wifi_driver->close_socket(h); log; continue.
 
-5. Receive response via wifi_driver_udp_receive(&pkt, 48,
-                                                 NTP_CLIENT_QUERY_TIMEOUT_MS).
-   On timeout: close socket; log; continue.
+5. wifi_driver->recv(h, (uint8_t *)&pkt, 48, &rcvd, NTP_CLIENT_QUERY_TIMEOUT_MS)
+   On timeout or rcvd != 48: wifi_driver->close_socket(h); log; continue.
 
 6. Sanity check response (§7).
-   On failure: close socket; log; push HEALTH_EVENT_NTP_BAD_RESPONSE; continue.
+   On failure: wifi_driver->close_socket(h); log;
+               health_report->push_event(HEALTH_EVENT_NTP_BAD_RESPONSE, 0);
+               continue.
 
 7. Extract tx_ts_sec = ntohl(pkt.tx_ts_sec).
    Convert: *unix_epoch_out = tx_ts_sec - NTP_UNIX_OFFSET.
 
-8. Close socket via wifi_driver_udp_close().
+8. wifi_driver->close_socket(h).
    Return NTP_CLIENT_ERR_OK.
 
 if all servers exhausted:
-    push HEALTH_EVENT_NTP_SYNC_FAILED;
+    health_report->push_event(HEALTH_EVENT_NTP_SYNC_FAILED, 0);
     return NTP_CLIENT_ERR_ALL_FAILED.
 ```
 
@@ -263,13 +287,16 @@ Error codes and propagation policy are defined in the Public API section above. 
 
 ```c
 #ifdef UNIT_TEST
-/* Replace WifiDriver UDP calls with a loopback stub that injects
-   synthetic NTP responses or simulates timeouts */
-#define wifi_driver_dns_lookup(host, ip_out)       stub_dns_lookup(host, ip_out)
-#define wifi_driver_udp_open(ip, port)             stub_udp_open(ip, port)
-#define wifi_driver_udp_send(buf, len)             stub_udp_send(buf, len)
-#define wifi_driver_udp_receive(buf, len, timeout) stub_udp_receive(buf, len, timeout)
-#define wifi_driver_udp_close()                    stub_udp_close()
+/* Replace wifi_driver singleton with a mock vtable (LLD-D10, LLD-D13).
+   Inject synthetic NTP responses or simulate timeouts via stub functions. */
+static iwifi_t s_mock_wifi;
+void setUp(void) {
+    s_mock_wifi.open_socket  = stub_udp_open;
+    s_mock_wifi.send         = stub_udp_send;
+    s_mock_wifi.recv         = stub_udp_receive;
+    s_mock_wifi.close_socket = stub_udp_close;
+    *(const iwifi_t **)&wifi_driver = &s_mock_wifi;
+}
 #endif
 ```
 
@@ -292,5 +319,6 @@ Minimum test cases:
 | ID | Item | Resolution path | Status |
 |--------|------|-----------------|--------|
 | NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` is provisional. Validate against worst-case WiFi + internet RTT during integration. Increase to 5000 ms if public NTP servers prove slow. | Validate query timeout at integration against worst-case WiFi + internet RTT | Open |
-| NTP-O2 | DNS resolution via WifiDriver — confirm that `wifi_driver_dns_lookup()` exists in the WifiDriver API surface (WIFI-O4 from session summary). If not, NtpClient must accept IP addresses only and DNS resolution must be done above (TimeService or ConfigService). | Confirm wifi_driver_dns_lookup() existence at WifiDriver LLD companion | Open |
-| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; document the constraint. | Document IPv4-only constraint; no action required | Open |
+| NTP-O2 | DNS resolution — `wifi_driver_dns_lookup()` does not exist; ISM43362 has no DNS resolver. Resolved by LLD-D13: NtpClient server list must contain IPv4 addresses only. DNS is the caller's responsibility (TimeService / ConfigService provisioning). | Closed by LLD-D13 — IPv4 addresses required; §6 documents this constraint. | Closed |
+| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; constraint documented in §6. | Document IPv4-only constraint; no action required | Closed |
+| NTP-OX | Transport selection — LLD-D13 resolves this: NtpClient uses `wifi_driver->open_socket(WIFI_SOCKET_UDP, ...)`. IWifi now supports UDP natively via the polymorphic open_socket() API. TCP-based fallback removed. | Closed by LLD-D13 | Closed |

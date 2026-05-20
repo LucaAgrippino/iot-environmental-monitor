@@ -43,9 +43,14 @@ WiFi peripheral per D29.
 
 ### 3.1 IWifi
 
-IWifi presents a TCP socket abstraction to its consumer (MqttClient,
-NtpClient via WifiTask). AT commands are an internal implementation detail
-— they are not exposed above the driver layer.
+IWifi presents a polymorphic socket abstraction to its consumers (MqttClient
+via TCP, NtpClient via UDP, both routed through WifiTask). AT commands are an
+internal implementation detail — they are not exposed above the driver layer.
+
+**LLD-D13:** The ISM43362 AT-command set selects socket type via the `P1=`
+command (0 = TCP, 1 = UDP). `open_socket()` takes a `wifi_socket_type_t`
+parameter and issues the appropriate AT command sequence. The handle returned
+(`out_handle`) is the ISM43362 socket ID — valid for both transports.
 
 ```c
 /* wifi_driver.h */
@@ -74,6 +79,11 @@ typedef enum {
 } wifi_err_t;
 
 typedef enum {
+    WIFI_SOCKET_TCP = 0,
+    WIFI_SOCKET_UDP = 1
+} wifi_socket_type_t;
+
+typedef enum {
     WIFI_LINK_DOWN = 0,
     WIFI_LINK_UP   = 1
 } wifi_link_state_t;
@@ -93,30 +103,50 @@ wifi_err_t wifi_disconnect_ap(void);
 wifi_err_t wifi_get_link_state(wifi_link_state_t *state);
 wifi_err_t wifi_get_rssi(int8_t *rssi_dbm);
 
-/* TCP socket operations */
-wifi_err_t wifi_tcp_connect(const char *host, uint16_t port,
-                             uint8_t *socket_id);
-wifi_err_t wifi_tcp_send(uint8_t socket_id,
-                          const uint8_t *data, size_t len);
-wifi_err_t wifi_tcp_recv(uint8_t socket_id,
-                          uint8_t *buf, size_t buf_len,
-                          size_t *received, uint32_t timeout_ms);
-wifi_err_t wifi_tcp_close(uint8_t socket_id);
+/* Polymorphic socket operations (LLD-D13) */
+wifi_err_t wifi_open_socket(wifi_socket_type_t type, const char *remote_addr,
+                             uint16_t remote_port, uint8_t *out_handle);
+wifi_err_t wifi_send(uint8_t handle, const uint8_t *data, size_t len);
+wifi_err_t wifi_recv(uint8_t handle, uint8_t *buf, size_t buf_len,
+                     size_t *out_len, uint32_t timeout_ms);
+wifi_err_t wifi_close_socket(uint8_t handle);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (IWifi — LLD-D10, LLD-D13)               */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    wifi_err_t (*init)(void);
+    wifi_err_t (*attach_datardy_callback)(wifi_datardy_cb_t cb, void *ctx);
+    wifi_err_t (*connect_ap)(const char *ssid, const char *password);
+    wifi_err_t (*disconnect_ap)(void);
+    wifi_err_t (*get_link_state)(wifi_link_state_t *state);
+    wifi_err_t (*get_rssi)(int8_t *rssi_dbm);
+    wifi_err_t (*open_socket)(wifi_socket_type_t type, const char *remote_addr,
+                              uint16_t remote_port, uint8_t *out_handle);
+    wifi_err_t (*send)(uint8_t handle, const uint8_t *data, size_t len);
+    wifi_err_t (*recv)(uint8_t handle, uint8_t *buf, size_t buf_len,
+                       size_t *out_len, uint32_t timeout_ms);
+    wifi_err_t (*close_socket)(uint8_t handle);
+} iwifi_t;
+
+/** Singleton pointer to the WifiDriver vtable (Gateway only). */
+extern const iwifi_t * const wifi_driver;
 
 #endif /* WIFI_DRIVER_H */
 ```
 
-**Why TCP socket abstraction, not raw AT commands?** MqttClient is the
-consumer. It needs to open a TCP connection and exchange bytes. Exposing AT
-commands would leak the ISM43362 protocol into middleware (P2 layering
-violation). IWifi hides all module-specific protocol behind a portable TCP
-socket interface — if the module is ever replaced, only WifiDriver changes.
+**Why socket abstraction, not raw AT commands?** MqttClient and NtpClient
+need to open sockets and exchange bytes. Exposing AT commands would leak the
+ISM43362 protocol into middleware (P2 layering violation). IWifi hides all
+module-specific protocol behind a portable socket interface — if the module is
+ever replaced, only WifiDriver changes.
 
 **Why no TLS API at driver level?** The ISM43362 supports on-module TLS
 termination via AT commands (`AT+TLSCERT`, `AT+TLSKEY`). However, surfacing
 TLS at the driver layer would couple certificate management to a specific
 module. Decision: TLS is handled at the MqttClient level via a software TLS
-stack (e.g., mbedTLS over `wifi_tcp_send/recv`). See WIFI-O1.
+stack (e.g., mbedTLS over `wifi_driver->send/recv`). See WIFI-O1.
 
 ### 3.2 Dependency-conformance check
 
@@ -215,10 +245,11 @@ All public API functions call `prv_at_command()` internally. Examples:
 | `wifi_connect_ap(ssid, pwd)` | `AT+WC=<ssid>,<pwd>,0\r` |
 | `wifi_disconnect_ap()` | `AT+WD\r` |
 | `wifi_get_rssi()` | `AT+WRSSI\r` |
-| `wifi_tcp_connect(host, port)` | `AT+NCPX=0,<host>,<port>,0\r` |
-| `wifi_tcp_send(id, data, len)` | `AT+S.=<id>,<len>\r` + data payload |
-| `wifi_tcp_recv(id, len)` | `AT+R=<id>,<len>\r` |
-| `wifi_tcp_close(id)` | `AT+NCLS=<id>\r` |
+| `wifi_open_socket(TCP, host, port, &h)` | `AT+P1=0\r` (TCP) + `AT+NCPX=0,<host>,<port>,0\r` |
+| `wifi_open_socket(UDP, ip, port, &h)` | `AT+P1=1\r` (UDP) + `AT+NCPX=<id>,<ip>,<port>,1\r` |
+| `wifi_send(h, data, len)` | `AT+S.=<h>,<len>\r` + data payload |
+| `wifi_recv(h, buf, buf_len, ...)` | `AT+R=<h>,<len>\r` |
+| `wifi_close_socket(h)` | `AT+NCLS=<h>\r` |
 
 **Firmware version check in `wifi_init()`:**
 
@@ -303,12 +334,13 @@ acceptable only during the boot sequence before the scheduler starts.
 
 ### 4.6 Socket table management
 
-The ISM43362 supports up to 4 concurrent TCP sockets. WifiDriver tracks
-open sockets in `s_wifi.socket_open[WIFI_MAX_SOCKETS]`.
+The ISM43362 supports up to 4 concurrent sockets (TCP or UDP). WifiDriver
+tracks open sockets in `s_wifi.socket_open[WIFI_MAX_SOCKETS]`. The same table
+covers both transports — the ISM43362 addresses all sockets by numeric ID.
 
-`wifi_tcp_connect()` scans the table for the first free slot, passes the
-slot index to the AT command, and returns the `socket_id` to the caller.
-`wifi_tcp_close()` clears the corresponding entry.
+`wifi_open_socket()` selects the transport type via the P1 AT command, scans
+the table for the first free slot, passes the slot index to NCPX, and returns
+the `out_handle` to the caller. `wifi_close_socket()` clears the entry.
 
 ---
 
@@ -353,17 +385,34 @@ action is required to enable it; it is controlled by hardware.
 
 ## 5. Sequence integration
 
-### Nominal cloud publish path (SD-03 reference)
+### TCP code path — MQTT cloud publish (SD-03 reference, LLD-D13)
 
 ```
 MqttClient (inside CloudPublisherTask)
   → calls WifiTask API (IWifi facade, routed via WifiTask per D29)
-      → wifi_tcp_send(socket_id, mqtt_bytes, len)
-          → prv_at_command("AT+S.=0,<len>\r", ...)
-              → assert NSS → wait DRDY (xTaskNotifyWait) → send 16-bit chunks
-              → deassert NSS → wait DRDY low → wait DRDY high
-              → assert NSS → read response → deassert NSS
-              → parse "OK"
+      → wifi_driver->open_socket(WIFI_SOCKET_TCP, broker_ip, 8883, &h)
+          → AT+P1=0\r (TCP) → AT+NCPX=0,<ip>,8883,0\r → OK → h=0
+      → wifi_driver->send(h, mqtt_bytes, len)
+          → AT+S.=0,<len>\r + payload → OK
+      → wifi_driver->recv(h, buf, buf_len, &rcvd, timeout_ms)
+          → AT+R=0,<len>\r → payload
+      → wifi_driver->close_socket(h)
+          → AT+NCLS=0\r → OK
+```
+
+### UDP code path — NTP time sync (SD-09 reference, LLD-D13)
+
+```
+NtpClient (inside TimeServiceTask)
+  → calls WifiTask API (IWifi facade, routed via WifiTask per D29)
+      → wifi_driver->open_socket(WIFI_SOCKET_UDP, ntp_server_ip, 123, &h)
+          → AT+P1=1\r (UDP) → AT+NCPX=<id>,<ip>,123,1\r → OK → h=<id>
+      → wifi_driver->send(h, ntp_request_48_bytes, 48)
+          → AT+S.=<h>,48\r + request payload → OK
+      → wifi_driver->recv(h, ntp_response_buf, 48, &rcvd, 1000)
+          → AT+R=<h>,48\r → 48-byte NTP response
+      → wifi_driver->close_socket(h)
+          → AT+NCLS=<h>\r → OK
 ```
 
 ### Init sequence
@@ -406,8 +455,8 @@ any mutex on the SPI bus and matches the ISR-to-fixed-task-handle contract
 | AT command response contains "ERROR" | Return `WIFI_ERR_MODULE` |
 | Firmware version mismatch at init | Return `WIFI_ERR_FIRMWARE`; abort init; caller logs REQ-SA-040 |
 | `wifi_connect_ap()` fails (wrong credentials, AP out of range) | Return `WIFI_ERR_MODULE`; `s_wifi.link_state` remains DOWN |
-| `wifi_tcp_send()` called with `link_state == DOWN` | Return `WIFI_ERR_NOT_CONNECTED` |
-| `wifi_tcp_send()` called with invalid `socket_id` | Return `WIFI_ERR_INVALID_ARG` |
+| `wifi_send()` called with `link_state == DOWN` | Return `WIFI_ERR_NOT_CONNECTED` |
+| `wifi_send()` called with invalid handle | Return `WIFI_ERR_INVALID_ARG` |
 | SPI transceive returns error | Return `WIFI_ERR_SPI`; deassert NSS to leave bus idle |
 | NULL pointer in any output parameter | Return `WIFI_ERR_INVALID_ARG` |
 
@@ -437,7 +486,7 @@ response strings directly into the parser. No SPI or DRDY involved.
 | WIFI-T06 | Firmware version mismatch | `"C3.5.1.0\r\nOK\r\n"` | `WIFI_ERR_FIRMWARE` |
 
 **Layer 2 — SPI transaction sequence (host, mock SPI + mock GPIO):**
-Test the full `wifi_connect_ap()` and `wifi_tcp_send()` flows with mock
+Test the full `wifi_connect_ap()` and `wifi_open_socket()` flows with mock
 SPI that returns pre-canned byte sequences and mock GPIO that simulates
 DRDY toggling.
 
@@ -445,14 +494,16 @@ DRDY toggling.
 |---------|----------|----------|
 | WIFI-T07 | `wifi_connect_ap()` nominal | SPI sequence: `AT+WC=...` → OK; `link_state = UP` |
 | WIFI-T08 | `wifi_connect_ap()` wrong SSID | SPI returns ERROR; returns `WIFI_ERR_MODULE` |
-| WIFI-T09 | `wifi_tcp_connect()` nominal | `AT+NCPX=...` → OK; returns valid socket_id |
-| WIFI-T10 | `wifi_tcp_send()` with link down | No SPI transaction; returns `WIFI_ERR_NOT_CONNECTED` |
+| WIFI-T09 | `wifi_open_socket(TCP, ...)` nominal | `AT+P1=0` + `AT+NCPX=...` → OK; returns valid handle |
+| WIFI-T09b | `wifi_open_socket(UDP, ...)` nominal | `AT+P1=1` + `AT+NCPX=...` → OK; returns valid handle |
+| WIFI-T10 | `wifi_send()` with link down | No SPI transaction; returns `WIFI_ERR_NOT_CONNECTED` |
 | WIFI-T11 | DRDY timeout | Mock DRDY never goes high; returns `WIFI_ERR_TIMEOUT`; NSS deasserted |
 | WIFI-T12 | NSS deasserted on SPI error | Mock SPI fails mid-transaction; verify NSS high at exit |
 
 **Layer 3 — hardware integration (on-board):**
 Full WiFi association, TCP connect to known IP, send 64 bytes, receive
-echo — performed on the actual board during integration testing.
+echo — performed on the actual board during integration testing. Also: UDP
+socket open to NTP server, send 48-byte request, receive 48-byte response.
 
 ---
 
@@ -462,7 +513,8 @@ echo — performed on the actual board during integration testing.
 
 | ID | Decision | Rationale |
 |----|----------|-----------|
-| WIFI-D1 | IWifi exposes TCP socket API, not AT commands | AT commands are an ISM43362-specific detail. MqttClient and NtpClient consume a portable TCP socket interface; replacing the WiFi module requires only WifiDriver changes. |
+| WIFI-D1 | IWifi exposes a polymorphic socket API (TCP + UDP), not AT commands | AT commands are an ISM43362-specific detail. MqttClient and NtpClient consume a portable socket interface; replacing the WiFi module requires only WifiDriver changes. |
+| WIFI-D7 | `open_socket()` accepts a `wifi_socket_type_t` parameter; `send/recv/close_socket` serve both transports (LLD-D13) | NTP is UDP per RFC 5905 — a TCP-only IWifi cannot serve NtpClient. The ISM43362 selects socket type via the P1= AT command; one polymorphic open_socket() covers both. Future use cases (mDNS, syslog) also benefit from generic UDP. |
 | WIFI-D2 | TLS NOT handled inside WifiDriver | On-module TLS would couple certificate management to the ISM43362. mbedTLS at the MqttClient layer is portable and inspectable. Trade-off: higher MCU CPU load; acceptable given CloudPublisherTask's 8 KB stack. |
 | WIFI-D3 | Firmware version checked at init; mismatch = hard fail | Operating with wrong firmware violates FCC/CE compliance per UM2153 §7.11.3. Fail-fast is safer than silently running non-compliant. |
 | WIFI-D4 | DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2) | AT responses can take up to 500 ms. Busy-polling for this duration inside WifiTask would monopolise the CPU and starve lower-priority tasks during connects and sends. |
@@ -477,7 +529,7 @@ echo — performed on the actual board during integration testing.
 | WIFI-O2 | SpiDriver `spi-driver.md` companion specifies FRXTH=1 (8-bit FIFO threshold). ISM43362 requires 16-bit SPI frames (DS=1111, FRXTH=0). These settings conflict. | Luca | Update `spi-driver.md` to document 16-bit mode specifically for WifiDriver. SpiDriver is a singleton used exclusively by WifiDriver; 16-bit mode is correct. Commit `docs: correct SpiDriver frame size to 16-bit for ISM43362`. |
 | WIFI-O3 | Exact MCU port/pin assignments for all 5 GPIO lines (NSS, DRDY, RST, WAKEUP, BOOT0) are not yet confirmed. Labels available from Fig. 26 (signal names); port letters require Appendix A I/O table cross-check. | Luca | Verify against UM2153 Appendix A before coding GpioDriver init calls and EXTI1 configuration. Critical-path blocker for implementation. |
 | WIFI-O4 | WifiTask API surface (how CloudPublisherTask, TimeServiceTask, UpdateServiceTask route WiFi I/O through WifiTask per D29) is not designed in this companion — it belongs to the WifiTask LLD companion at the middleware/application layer. | Luca | Design in WifiTask companion (post-driver-layer LLD). For now, IWifi is the contract; the routing mechanism is deferred. |
-| WIFI-O5 | WIFI_DRDY_TIMEOUT_MS and WIFI_RESP_TIMEOUT_MS values are not defined. These bound DRDY wait and AT response wait respectively. | Luca | Baseline values: DRDY_TIMEOUT = 100 ms, RESP_TIMEOUT = 5000 ms. Validate at integration; adjust for observed module latency on association and TCP operations. |
+| WIFI-O5 | WIFI_DRDY_TIMEOUT_MS and WIFI_RESP_TIMEOUT_MS values are not defined. These bound DRDY wait and AT response wait respectively. | Luca | Baseline values: DRDY_TIMEOUT = 100 ms, RESP_TIMEOUT = 5000 ms. Validate at integration; adjust for observed module latency on association and socket operations. |
 
 ---
 

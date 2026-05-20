@@ -2,7 +2,7 @@
 
 **Layer:** Application  
 **Boards:** Field Device (FD) · Gateway (GW)  
-**Provides:** `IHealthSnapshot` *(read side)*, `IHealthReport` *(write side)*  
+**Provides:** `IHealthSnapshot` *(read side)*, `IHealthReport` *(write side)*, `IHealthAdmin` *(control — LLD-D15)*  
 **Consumes:** `ILed` (LedDriver), `ILogger`  
 **SRS traces:** REQ-CC-010, REQ-CC-070, REQ-CC-090, REQ-NF-208  
 **HLD ref:** `components.md` §Application — HealthMonitor; §"Metric Producer Pattern" (P5); §DIP; `hld.md` §5.5, §6.4; `sequence-diagrams.md` SD-03b
@@ -107,6 +107,11 @@ typedef enum {
     HEALTH_MONITOR_ERR_NOT_INIT  = 1,
     HEALTH_MONITOR_ERR_NULL_ARG  = 2,
 } health_monitor_err_t;
+
+typedef enum {
+    HEALTH_ADMIN_ERR_OK       = 0,
+    HEALTH_ADMIN_ERR_NOT_INIT = 1,
+} health_admin_err_t;
 
 /* Event constants used by IHealthReport push functions */
 typedef enum {
@@ -231,6 +236,63 @@ health_monitor_err_t health_monitor_get_snapshot(
  * normal LED state machine.
  */
 void health_monitor_set_led_fault(void);
+
+/* ------------------------------------------------------------------ */
+/* IHealthAdmin — control side (LLD-D15)                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief  Reset all counter-type metrics to zero (LLD-D15).
+ *
+ * Dispatched by LifecycleController when CMD_RESET_METRICS arrives via
+ * Modbus (ModbusRegisterMap → lifecycle_controller->handle_remote_command).
+ *
+ * Zeroes: Modbus RX OK, CRC errors, timeouts, sensor read errors,
+ *         MQTT publish counts, reconnect count.
+ * Preserves: uptime, event-based flags (sync flags, persistence-failure
+ *            flags), lifecycle state.
+ *
+ * Thread-safe — acquires internal mutex.
+ */
+health_admin_err_t health_monitor_reset_metrics(void);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interfaces (LLD-D10, LLD-D15)                      */
+/* ------------------------------------------------------------------ */
+
+/** IHealthReport — write side (producers). */
+typedef struct {
+    health_monitor_err_t (*init)(void);
+    health_monitor_err_t (*push_event)(health_event_t event, uint32_t param);
+    health_monitor_err_t (*update_modbus_slave_stats)(
+                             const modbus_slave_stats_t *stats);
+    health_monitor_err_t (*update_modbus_master_stats)(
+                             const modbus_master_stats_t *stats);
+    health_monitor_err_t (*update_mqtt_stats)(const mqtt_stats_t *stats);
+    health_monitor_err_t (*update_buffer_occupancy)(uint32_t entry_count);
+    health_monitor_err_t (*update_stack_watermarks)(
+                             const uint16_t watermarks[HEALTH_TASK_COUNT]);
+    void                 (*set_led_fault)(void);
+} ihealth_report_t;
+
+/** Singleton pointer — write side. */
+extern const ihealth_report_t * const health_report;
+
+/** IHealthSnapshot — read side (consumers). */
+typedef struct {
+    health_monitor_err_t (*get_snapshot)(device_health_snapshot_t *snap_out);
+} ihealth_snapshot_t;
+
+/** Singleton pointer — read side. */
+extern const ihealth_snapshot_t * const health_snapshot;
+
+/** IHealthAdmin — control side (LLD-D15, P3 ISP — one method, one consumer). */
+typedef struct {
+    health_admin_err_t (*reset_metrics)(void);
+} ihealth_admin_t;
+
+/** Singleton pointer — control side. Consumed only by LifecycleController. */
+extern const ihealth_admin_t * const health_admin;
 ```
 
 ---

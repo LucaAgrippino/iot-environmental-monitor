@@ -483,7 +483,10 @@ write_cmd_ack_alarm(value):
     self->cmd_ack_alarm_last = value;        /* always cache the literal */
     if value != 0x0001:
         return ILLEGAL_DATA_VALUE
-    alarms->ack_all(alarms);
+    /* LLD-D14: ack_all() bulk force-clears all alarm flags. Non-latched
+     * semantic — flags re-raise on the next evaluation cycle if the
+     * condition persists. See alarm-service.md §6.                       */
+    alarm_service->ack_all();
     return NONE
 
 read_cmd_ack_alarm(out):
@@ -498,9 +501,10 @@ write_cmd_reset_metrics(value):
     self->cmd_reset_metrics_last = value;
     if value != 0x0001:
         return ILLEGAL_DATA_VALUE
-    health_write->reset_metrics(health_write);
-    /* HealthMonitor.reset_metrics() also forwards to IModbusSlaveStats
-     * via the appropriate reset path — defined in HealthMonitor LLD.    */
+    /* LLD-D15: CMD_RESET_METRICS is routed via LifecycleController, which
+     * dispatches to health_admin->reset_metrics(). MRM does not call
+     * HealthMonitor directly — see lifecycle-controller.md §3.           */
+    lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_RESET_METRICS);
     return NONE
 ```
 
@@ -512,17 +516,17 @@ write_cmd_soft_restart(value):
     if value != 0xA5A5:
         log_warn("CMD_SOFT_RESTART rejected: wrong magic 0x%04X", value);
         return ILLEGAL_DATA_VALUE
-    /* Post a lifecycle event; the actual restart is sequenced by
-     * LifecycleController so the current response can still be
-     * transmitted before reset.                                       */
-    lifecycle_request_soft_restart();
+    /* LLD-D15: route via LifecycleController, which posts
+     * LC_EVENT_RESTART_REQUESTED to LifecycleTask. The two-step
+     * confirmation requirement (REQ-DM-020) is enforced there.
+     * MRM does not call NVIC_SystemReset() directly.               */
+    lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART);
     return NONE
 ```
 
-`lifecycle_request_soft_restart()` is a thin wrapper that posts to
-`LifecycleTask`'s state-change queue; MRM does not call
-`NVIC_SystemReset()` directly. The Modbus response to the FC06 must
-complete first.
+The Modbus response to the FC06 write completes before LifecycleTask
+processes the restart event — the queue decouples the write handler from
+the reset execution.
 
 ### 8.4 Read-after-write cells
 

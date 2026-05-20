@@ -179,6 +179,22 @@ sensor_service_err_t sensor_service_read_on_demand(void);
  *         in the last cycle. Used by LifecycleController self-check.
  */
 bool sensor_service_is_ready(void);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (ISensorService — LLD-D10)               */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    sensor_service_err_t (*init)(void);
+    sensor_service_err_t (*run_cycle)(void);
+    sensor_service_err_t (*get_snapshot)(sensor_snapshot_t *snap);
+    sensor_service_err_t (*subscribe)(void (*cb)(const sensor_snapshot_t *));
+    sensor_service_err_t (*read_on_demand)(void);
+    bool                 (*is_ready)(void);
+} isensor_service_t;
+
+/** Singleton pointer to the SensorService vtable (FD + GW). */
+extern const isensor_service_t * const sensor_service;
 ```
 
 ---
@@ -264,6 +280,43 @@ alarm_service_err_t alarm_service_subscribe(
     void (*cb)(sensor_id_t       sensor,
                alarm_event_t     event,
                const sensor_reading_t *reading));
+
+/**
+ * @brief  Force-clear all alarm flags (bulk acknowledge, LLD-D14).
+ *
+ * Implements `CMD_ACK_ALARM` register-map command semantics. Clears all
+ * per-sensor alarm flags regardless of current threshold state.
+ *
+ * **Alarm model — non-latched with manual clear.** Alarm flags reflect the
+ * current evaluation state: a flag is set while the corresponding threshold
+ * is breached and cleared automatically when the condition resolves.
+ * `ack_all()` provides a manual force-clear path triggered by `CMD_ACK_ALARM`.
+ * If a condition is still active when `ack_all()` runs, the flag clears
+ * momentarily and re-raises on the next sensor evaluation cycle. There is no
+ * muted/sticky state; the model trades user-acknowledge semantics for
+ * simplicity and matches the register-map contract.
+ *
+ * Thread-safe — executes in ModbusSlaveTask context; alarm_state writes are
+ * atomic word operations on Cortex-M4.
+ */
+alarm_service_err_t alarm_service_ack_all(void);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (IAlarmService — LLD-D10, LLD-D14)       */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    alarm_service_err_t (*init)(void);
+    alarm_service_err_t (*get_state)(sensor_id_t sensor, alarm_state_t *state_out);
+    alarm_service_err_t (*get_all_states)(alarm_state_t states[SENSOR_ID_COUNT]);
+    alarm_service_err_t (*subscribe)(void (*cb)(sensor_id_t,
+                                                alarm_event_t,
+                                                const sensor_reading_t *));
+    alarm_service_err_t (*ack_all)(void);
+} ialarm_service_t;
+
+/** Singleton pointer to the AlarmService vtable (FD + GW). */
+extern const ialarm_service_t * const alarm_service;
 ```
 
 ---

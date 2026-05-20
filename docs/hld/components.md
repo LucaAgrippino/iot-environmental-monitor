@@ -27,6 +27,7 @@ Where one component is consumed by readers and writers with different needs, the
 - **`HealthMonitor`** provides:
   - `IHealthSnapshot` — read-only access to the consolidated health snapshot, consumed by display/output components (LcdUi, ConsoleService; CloudPublisher on the Gateway).
   - `IHealthReport` — write-side reporting interface, consumed by metric producers across Application and Middleware layers.
+  - `IHealthAdmin` — admin operations (reset_metrics), consumed exclusively by LifecycleController as the single dispatch point for remote metric-reset commands (LLD-D15).
 
 ### Dependency Inversion (DIP) for cross-layer reporting
 
@@ -280,9 +281,9 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** LifecycleController
 **LAYER:** Application
-**RESPONSIBILITY:** Coordinates the field device's top-level lifecycle: drives the splash-screen display via GraphicsLibrary during Init (LD-200..-240), performs a ConfigStore integrity check at boot (REQ-NF-214), and sequences normal-reset and watchdog-reset recovery per REQ-NF-202 and REQ-NF-213.
-**PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause)*
-**USES (downward):** SensorService, GraphicsLibrary, ModbusSlave *(via ModbusRegisterMap)*, AlarmService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, Logger
+**RESPONSIBILITY:** Coordinates the field device's top-level lifecycle: drives the splash-screen display via GraphicsLibrary during Init (LD-200..-240), performs a ConfigStore integrity check at boot (REQ-NF-214), and sequences normal-reset and watchdog-reset recovery per REQ-NF-202 and REQ-NF-213. Dispatches remote commands (CMD_RESET_METRICS, CMD_SOFT_RESTART) received via Modbus to the appropriate component (LLD-D15).
+**PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause, remote command dispatch)*
+**USES (downward):** SensorService, GraphicsLibrary, ModbusSlave *(via ModbusRegisterMap)*, AlarmService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, HealthMonitor *(IHealthAdmin — reset_metrics dispatch)*, Logger
 
 **NAME:** LcdUi
 **LAYER:** Application
@@ -293,7 +294,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **NAME:** HealthMonitor
 **LAYER:** Application
 **RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (LCD, CLI), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-250 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
-**PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*
+**PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*, IHealthAdmin *(reset_metrics — admin operations dispatched via LifecycleController per LLD-D15)*
 **USES (downward):** LedDriver, ILogger
 
 **NAME:** SensorService
@@ -439,7 +440,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** WifiDriver
 **LAYER:** Driver
-**RESPONSIBILITY:** Sends and receives data between the MCU and the external WiFi module via AT commands. Exposes link-level state (RSSI, connection status) to its consumer (REQ-CC-050, CON-001).
+**RESPONSIBILITY:** Provides a TCP and UDP socket API over WiFi, abstracting the ISM43362 AT-command interface (REQ-CC-050, REQ-TS-010, CON-001). Exposes link-level state (RSSI, connection status) to its consumer.
 **PROVIDES (upward):** IWifi
 **USES (downward):** SpiDriver, ExtiDriver
 
@@ -577,14 +578,14 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** LifecycleController
 **LAYER:** Application
-**RESPONSIBILITY:** Coordinates the gateway's top-level lifecycle: orchestrates controlled restart (UC-17), hands off firmware-update entry to UpdateService (UC-18), performs a ConfigStore integrity check at boot (REQ-NF-214), and sequences normal-reset and watchdog-reset recovery per REQ-NF-202 and REQ-NF-213.
-**PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause)*
-**USES (downward):** SensorService, AlarmService, CloudPublisher, ModbusPoller, UpdateService, TimeService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, ResetDriver, Logger
+**RESPONSIBILITY:** Coordinates the gateway's top-level lifecycle: orchestrates controlled restart (UC-17), hands off firmware-update entry to UpdateService (UC-18), performs a ConfigStore integrity check at boot (REQ-NF-214), and sequences normal-reset and watchdog-reset recovery per REQ-NF-202 and REQ-NF-213. Dispatches remote commands (CMD_RESET_METRICS, CMD_SOFT_RESTART) received via Modbus or MQTT to the appropriate component (LLD-D12, LLD-D15).
+**PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause, remote command dispatch)*
+**USES (downward):** SensorService, AlarmService, CloudPublisher, ModbusPoller, UpdateService, TimeService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, ResetDriver, HealthMonitor *(IHealthAdmin — reset_metrics dispatch)*, Logger
 
 **NAME:** HealthMonitor
 **LAYER:** Application
 **RESPONSIBILITY:** Aggregates health metrics pushed by producer components throughout the system, maintains a consolidated health snapshot, serves the snapshot to consumers (CLI, cloud), and drives the on-board LEDs to indicate device status (idle, acquiring, alarm, error) *(REQ-LD-250 — gap: this requirement is not yet present in SRS.md; tracked as F-07 SRS fix)*.
-**PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*
+**PROVIDES (upward):** IHealthSnapshot *(read-side)*, IHealthReport *(write-side)*, IHealthAdmin *(reset_metrics — admin operations dispatched via LifecycleController per LLD-D12, LLD-D15)*
 **USES (downward):** LedDriver, ILogger
 
 **NAME:** SensorService

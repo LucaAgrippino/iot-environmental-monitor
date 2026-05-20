@@ -214,8 +214,32 @@ Decisions adopted during the LLD phase. Format mirrors `hld.md` §14.
 | ID | Decision | Rationale | Settled in |
 |---|---|---|---|
 | D1 | Companions produced bottom-up within the layered architecture, dependency-ordered within each layer. GPIO driver first. | Top-down restates the HLD; just-in-time breaks the V-Model gate discipline established during the HLD; risk-driven starts on components whose dependencies are not yet specified. Bottom-up dependency-ordered honours P1 at design time, gives every completed companion concrete unblocking value downstream, and matches the standard embedded-development order. | Phase opening, this document. |
+| LLD-D13 | NtpClient uses UDP via `wifi_driver->open_socket(WIFI_SOCKET_UDP, …)`. WifiDriver gains polymorphic `open_socket(type, addr, port, handle)` replacing the former `tcp_connect` family; `wifi_socket_type_t` selects TCP or UDP. ISM43362 AT command `AT+P1=0/1` selects the protocol before `AT+NCPX`. | NTP is defined on UDP (RFC 5905). There is no performance, security, or operational reason to wrap it in TCP; adding a TCP layer would require a stream-reassembly loop, complicate the timeout model, and misrepresent the protocol. The polymorphic `open_socket` API adds UDP support without breaking existing TCP consumers (MQTT, SD-03). | `wifi-driver.md` WIFI-D7; `ntp-client.md` §6. |
+| LLD-D14 | AlarmService exposes `alarm_service->ack_all(void)`. The model is non-latched-with-manual-clear: a bulk ack clears all active flags immediately, but flags re-raise on the next evaluation cycle if the triggering condition persists. | A latched model would suppress re-raise until a further ack, masking persistent faults behind operator complacency. Non-latched-with-manual-clear gives operators a clear view: after ack, if the alarm comes back it is because the condition is still present. Bulk ack matches the Modbus single-register trigger (CMD_ACK_ALARM, 0x0200). | `sensor-alarm-service.md` §6; `modbus-register-map-lld.md` §8.1. |
+| LLD-D15 | LifecycleController is the single dispatch point for all remote commands (Modbus or MQTT) that affect system state. CMD_RESET_METRICS dispatches via `lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)` → `health_admin->reset_metrics()`. CMD_SOFT_RESTART dispatches via `handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART)` → posts `LC_EVENT_RESTART_REQUESTED` to LifecycleTask. CMD_ACK_ALARM continues to dispatch directly to AlarmService (no lifecycle dependency). | Extending LLD-D12 (cloud commands via LC) to Modbus commands removes a direct cross-layer dependency from ModbusRegisterMap to HealthMonitor. All state-affecting remote commands now have a single authorisation point (LifecycleController), which is where rate-limiting, state-gating, and audit logging can be added uniformly. | `lifecycle-controller.md` §2, §3; `modbus-register-map-lld.md` §8.2, §8.3; `health-monitor.md` §2. |
+| LLD-D16 | TimeProvider persists the sync flag via RTC backup register index 0 (BKP0R). Magic sentinel: `0xA5A55A5A` (asymmetric — cannot be a zero-fill or a bitwise complement of itself). Access via `rtc_driver->read_backup(0, &val)` / `write_backup(0, val)` (LLD-D10). Scope: survives warm resets only; power-off clears the backup domain on Discovery boards where VBAT=VDD. | The previous design (index 3, magic `0xA5A5A5A5`) had no allocation record, risked collision with the reset-cause flag, and used direct register access that bypassed the vtable seam. Index 0 is allocated in the project-wide table (§6.2); the asymmetric magic cannot be accidentally created by a memset; vtable access keeps the design testable. | `time-provider.md` §5; `rtc-driver.md` §2.4, §4.5; `lld.md` §6.2. |
+| LLD-D17 | DeviceProfileRegistry seeds the runtime registry from a `static const device_profile_t s_default_profiles[]` array embedded in firmware flash when ConfigStore is empty (first boot / factory reset). `IDeviceProfileProvider` and `IDeviceProfileManager` are the stable interface seam for future migration to a fully dynamic or cloud-sourced boot load. | Embedding defaults eliminates a mandatory provisioning step on factory-blank gateways. The interface seam ensures that `ModbusPoller`, `ConsoleService`, and `ConfigService` are independent of the storage model. A future replacement of the static table with ConfigStore-only or cloud-sourced loading requires no change to any consumer. | `device-profile-registry-lld.md` §6.0. |
 
 Subsequent decisions are added as companions surface them.
+
+---
+
+### 6.2 RTC backup register allocation
+
+The STM32F469 (FD) provides 20 backup registers (BKP0R..BKP19R, indices 0..19).
+The STM32L475 (GW) provides 32 (BKP0R..BKP31R, indices 0..31). Both boards
+access them through `rtc_driver->read_backup(idx)` / `write_backup(idx, val)`
+(LLD-D16, `rtc-driver.md` §2.4).
+
+All allocations below apply to **both** boards unless noted otherwise.
+
+| Index | User | Purpose | Board | Settled in |
+|-------|------|---------|-------|------------|
+| 0 | TimeProvider | Sync-persisted flag — `0xA5A55A5A` = SYNCHRONISED; `0x00000000` = UNSYNCHRONISED | Both | LLD-D16 |
+| 1–19 | *(unallocated)* | Reserved for future use | Both | — |
+| 20–31 | *(unallocated)* | GW-only range; reserved | GW | — |
+
+**Allocation rules:** claim a new index by adding a row to this table in the same commit that introduces the first `write_backup(idx, ...)` call in any companion. Never share an index between two users — the magic values must not collide. See `open-items` LC-O3 for the related event-group bit-map.
 
 ---
 
