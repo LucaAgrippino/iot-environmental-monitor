@@ -345,6 +345,90 @@ def check_principles_applied(paths: dict, findings: list):
                 str(companion.relative_to(paths["root"]))))
 
 
+# Threading annotation keywords accepted in a Doxygen block (lld.md §3.4).
+_THREADING_KWS = [
+    "task-context only", "isr-safe", "isr-only", "thread-safe",
+    "non-blocking", "threading:", "@note threading",
+    "may be called from any task", "may be called from an isr",
+    "not isr-safe", "pre-scheduler", "init only",
+    "mutex", "semaphore",  # explicit sync-primitive mention implies threading contract
+]
+
+# Regex for a C function declaration (return_type name(params);)
+# Skips typedefs, externs, struct/enum heads, macro lines, comments, and
+# vtable function-pointer fields.
+_FUNC_DECL_RE = re.compile(
+    r"^[ \t]*"
+    r"(?!typedef|extern|struct|enum|#|/|\*)"  # not these starters
+    r"(\w[\w\s*]*?)\s+"                        # return type
+    r"(\w+)\s*\("                              # function name + opening paren
+    r"([^;{}]*)\)\s*;",                        # params + closing ; (no body)
+    re.MULTILINE,
+)
+
+
+def _sec2_body(text: str) -> str:
+    """Return the body of the last '## 2. Public API' section."""
+    matches = list(re.finditer(r"## 2\. Public API", text))
+    if not matches:
+        return ""
+    sec2_start = matches[-1].start()
+    after = text[sec2_start:]
+    end_m = re.search(r"\n## [3-9]\.|\n## \d\d\.", after)
+    return after[: end_m.start()] if end_m else after
+
+
+def check_api_doxygen(paths: dict, findings: list):
+    """Every C function declaration in §2 has @brief, @return (non-void), and threading."""
+    for companion in discover_companions(paths):
+        text = companion.read_text(encoding="utf-8")
+        rel = str(companion.relative_to(paths["root"]))
+        body = _sec2_body(text)
+        if not body:
+            continue
+
+        for code_m in re.finditer(r"```c\n(.*?)```", body, re.DOTALL):
+            block = code_m.group(1)
+            lines = block.splitlines()
+
+            for i, line in enumerate(lines):
+                m = _FUNC_DECL_RE.match(line)
+                if not m:
+                    continue
+                ret_type = m.group(1).strip()
+                func_name = m.group(2)
+                # Skip vtable function-pointer fields
+                if "(*" in line:
+                    continue
+
+                # Collect the Doxygen comment that immediately precedes this line
+                # (look back up to 30 lines within the same block)
+                look_back = "\n".join(lines[max(0, i - 30): i])
+                dox_m = re.search(r"/\*\*(.*?)\*/\s*$", look_back, re.DOTALL)
+                dox = dox_m.group(1) if dox_m else ""
+                dox_lower = dox.lower()
+
+                if not dox or "@brief" not in dox:
+                    findings.append(Finding(
+                        Severity.BLOCKER, "API (Pass C)",
+                        f"Function '{func_name}' missing @brief in §2",
+                        rel))
+                    continue   # no point checking sub-items if no doxygen at all
+
+                is_void = ret_type == "void"
+                if not is_void and "@return" not in dox:
+                    findings.append(Finding(
+                        Severity.FIX_NOW, "API (Pass C)",
+                        f"Non-void function '{func_name}' missing @return in §2",
+                        rel))
+
+                if not any(kw in dox_lower for kw in _THREADING_KWS):
+                    findings.append(Finding(
+                        Severity.FIX_NOW, "API (Pass C)",
+                        f"Function '{func_name}' missing threading annotation in §2",
+                        rel))
+
+
 # ----------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------
@@ -364,6 +448,7 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_companion_header(paths, findings)
     check_open_items_format(paths, findings)
     check_principles_applied(paths, findings)
+    check_api_doxygen(paths, findings)
 
     return findings, paths
 
