@@ -113,6 +113,16 @@ SdramDriver is purely a hardware initialisation driver. Once init is complete, t
 
 ---
 
+### 3.4 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS FMC peripheral headers; no RTOS, no middleware.
+- **P5 (Bounded resources, no dynamic allocation post-init).** After `sdram_init()`, the SDRAM region is available as flat memory; no internal state struct is maintained post-init.
+- **P6 (Responsibility traces to requirements).** `sdram_init()` traces to REQ-NF-202 (memory initialisation before application start).
+- **P8 (Total error propagation, no silent failures).** Returns `sdram_err_t`; initialisation timeout triggers an error return.
+- **P9 (BARR-C coding standard).** Register values expressed as `uint32_t` constants; no floating-point.
+- **P10 (Naming conventions).** Prefix `sdram_`; errors `SDRAM_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 SDRAM device

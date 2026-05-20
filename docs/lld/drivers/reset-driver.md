@@ -102,6 +102,16 @@ None. The function is stateless.
 
 ---
 
+### 3.4 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS SCB register (NVIC_SystemReset); no RTOS, no middleware.
+- **P2 (Dependency Inversion).** Exposes `ireset_driver_t` vtable; LifecycleController (GW) depends on `IResetDriver`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** No internal state; the reset call is a one-shot hardware operation.
+- **P6 (Responsibility traces to requirements).** `reset_driver_trigger_reset()` traces to REQ-DM-030 (soft-reset after OTA self-check).
+- **P8 (Total error propagation, no silent failures).** Function returns void — cannot fail by construction; NVIC_SystemReset has no error path.
+- **P10 (Naming conventions).** Prefix `reset_driver_`; interface `IResetDriver` -> `ireset_driver_t`.
+
+
 ## 4. Hardware contract
 
 `NVIC_SystemReset()` writes to `SCB->AIRCR[SYSRESETREQ]` (bit 2), which requests a system reset from the MCU's SCS (System Control Space). This is a Cortex-M4 architectural feature — identical on both STM32F469 and STM32L475. Because ResetDriver is Gateway-only there is no cross-target concern here.

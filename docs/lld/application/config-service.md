@@ -322,6 +322,19 @@ This is documented and intentional — not a race condition. See CS-O2.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IConfigStore (middleware layer) and Logger; no lower-layer protocol-level dependencies.
+- **P2 (Dependency Inversion).** Exposes two vtable interfaces (`iconfig_provider_t` and `iconfig_manager_t`); all consumers depend on the interface, not the concrete module.
+- **P3 (Interface Segregation).** `IConfigProvider` (read-only) and `IConfigManager` (write) are separate interfaces because distinct consumer sets have non-overlapping access: SensorService / AlarmService read via IConfigProvider; CLI / remote config write via IConfigManager. Split documented in `components.md` ISP section.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Config cache in a static struct; no heap; ConfigStore handles flash serialisation.
+- **P6 (Responsibility traces to requirements).** Get / set / commit functions trace to REQ-DM-000-002 / REQ-SA-* / REQ-LI-* configuration requirements.
+- **P8 (Total error propagation, no silent failures).** All operations return `config_service_err_t`; ConfigStore errors and validation failures propagated with distinct codes.
+- **P9 (BARR-C coding standard).** Config keys as `uint8_t` enums; values as fixed-width integers or bounded strings; no floating-point.
+- **P10 (Naming conventions).** Prefix `config_service_`; interfaces `IConfigProvider` -> `iconfig_provider_t`, `IConfigManager` -> `iconfig_manager_t`; errors `CONFIG_SERVICE_ERR_*`.
+
+
 ## 8. Board differences
 
 | Aspect | FD | GW |

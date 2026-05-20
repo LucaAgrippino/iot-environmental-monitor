@@ -310,6 +310,18 @@ a static array — **no dynamic allocation post-init** (P8).
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on ILcd and ITouchscreen (driver layer); Logger is a cross-cutting exception (P4).
+- **P2 (Dependency Inversion).** Exposes `igraphics_t` vtable; LcdUi depends on `IGraphics`, not the concrete module.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Widget state and layout parameters in static structs; framebuffer owned by LcdDriver in SDRAM (pre-init, bounded); no post-scheduler heap.
+- **P6 (Responsibility traces to requirements).** Draw primitives and layout functions trace to REQ-LD-000/050/NF-108 display requirements.
+- **P8 (Total error propagation, no silent failures).** `graphics_err_t` on all draw/render operations; invalid coordinate arguments return error.
+- **P9 (BARR-C coding standard).** Coordinates `uint16_t`; colour values `uint32_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `graphics_`; interface `IGraphics` -> `igraphics_t`; errors `GRAPHICS_ERR_*`.
+
+
 ## 11. `lv_conf.h` required settings
 
 The following settings must be verified in `lv_conf.h` before building:

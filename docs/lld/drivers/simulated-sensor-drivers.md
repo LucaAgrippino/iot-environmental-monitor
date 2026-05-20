@@ -241,6 +241,17 @@ Purely synchronous. `SensorTask` calls both drivers on the same thread every 1 H
 
 ---
 
+### 3.5 Principles applied
+
+- **P1 (Strict directional layering).** Depends on no hardware peripheral — simulation runs entirely in software; no upward dependencies.
+- **P2 (Dependency Inversion).** Implements the same `ibarometer_t` and `ihumidity_temp_t` vtables as the real sensor drivers; consumers cannot distinguish the implementation.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static simulation state (seed, current reading); PRNG state is fixed-size; no heap.
+- **P6 (Responsibility traces to requirements).** Simulated read functions satisfy the same REQ-SA-* contracts as the physical sensor drivers.
+- **P8 (Total error propagation, no silent failures).** `_err_t` on all read functions; the fault-injection path propagates `_ERR_SENSOR_FAULT`.
+- **P9 (BARR-C coding standard).** Simulated values bounded within physical sensor range by compile-time constants; no floating-point.
+- **P10 (Naming conventions).** Same prefixes and error names as the real sensor drivers; consumers cannot distinguish by naming.
+
+
 ## 4. Hardware contract
 
 None. These drivers have no hardware peripheral. There is no pin to configure, no register to write, no clock to enable. This is the point — the hardware contract for a simulated sensor is the simulation model itself (§3.2), not a physical device.

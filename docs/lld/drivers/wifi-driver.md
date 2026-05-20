@@ -344,6 +344,17 @@ the `out_handle` to the caller. `wifi_close_socket()` clears the entry.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends only on ISpi and GpioDriver (wakeup/flow-control pins); no upward dependencies.
+- **P2 (Dependency Inversion).** Exposes `iwifi_t` vtable (IWifi); MqttClient and NtpClient depend on the interface rather than the concrete driver.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static socket table bounded by `WIFI_MAX_SOCKETS`; AT command buffer statically allocated; no heap.
+- **P6 (Responsibility traces to requirements).** Connect, socket open/close, send/receive functions trace to REQ-NF-206 / REQ-NF-216 / REQ-NF-300-305 connectivity requirements.
+- **P8 (Total error propagation, no silent failures).** `wifi_err_t` on all operations; AT command timeout returns error; module reset on unrecoverable error.
+- **P9 (BARR-C coding standard).** IP addresses as `uint8_t[4]`; port numbers `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `wifi_`; interface `IWifi` -> `iwifi_t`; errors `WIFI_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 5.1 SPI bus

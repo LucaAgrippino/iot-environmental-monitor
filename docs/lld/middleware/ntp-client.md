@@ -261,6 +261,19 @@ No mutex needed — `ntp_client_query()` is called only from
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IWifi (driver layer via UDP socket, LLD-D13); IHealthReport and ILogger are cross-cutting exceptions (P4).
+- **P2 (Dependency Inversion).** Exposes `intp_client_t` vtable; TimeService (application layer) depends on `INtpClient`.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static socket handle and 48-byte NTP v4 UDP packet buffer; no heap.
+- **P6 (Responsibility traces to requirements).** Query / parse / report-offset functions trace to REQ-TS-010 NTP synchronisation requirement.
+- **P7 (Pull-based downstream consumption).** TimeService calls `ntp_client_query()` on its own synchronisation schedule; NtpClient does not push time updates unprompted.
+- **P8 (Total error propagation, no silent failures).** `ntp_client_err_t` on all operations; socket open failure, timeout, and invalid-stratum response are distinct error codes.
+- **P9 (BARR-C coding standard).** NTP timestamp fields `uint32_t`; reference-epoch conversion done with explicit integer arithmetic; no floating-point.
+- **P10 (Naming conventions).** Prefix `ntp_client_`; interface `INtpClient` -> `intp_client_t`; errors `NTP_CLIENT_ERR_*`.
+
+
 ## 10. Init ordering
 
 ```

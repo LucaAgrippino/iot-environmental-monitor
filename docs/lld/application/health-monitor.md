@@ -418,6 +418,19 @@ must not acquire a mutex internally that could be held by another task
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on ILed (driver layer) and Logger; HealthMonitor is at the application layer and has no upward dependencies.
+- **P2 (Dependency Inversion).** Exposes three vtable interfaces; consumes ILed via its interface — not the concrete LedDriver module.
+- **P3 (Interface Segregation).** Three separate interfaces because distinct consumer sets have non-overlapping access: `IHealthSnapshot` (read-only — CloudPublisher, ConsoleService), `IHealthReport` (write-only — all producers), `IHealthAdmin` (admin reset — LifecycleController, LLD-D15). Split documented in `components.md` ISP section.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception. HealthMonitor itself IS one of the two cross-cutting concerns defined by P4; its concrete reference by other application components is the P4 exception.
+- **P5 (Bounded resources, no dynamic allocation post-init).** All metric counters in a static aggregate struct; LED state mapped from health state at report time; no heap.
+- **P6 (Responsibility traces to requirements).** Every metric counter traces to a specific REQ-CC-* monitoring requirement; `reset_metrics()` traces to REQ-CC-090.
+- **P8 (Total error propagation, no silent failures).** `health_monitor_err_t` on init and admin functions; report calls return void (best-effort — health events must not create cascading error chains).
+- **P9 (BARR-C coding standard).** Metric counters `uint32_t`; health-event codes `uint8_t` enum; no floating-point.
+- **P10 (Naming conventions).** Prefix `health_monitor_`; interfaces `IHealthSnapshot` -> `ihealth_snapshot_t`, `IHealthReport` -> `ihealth_report_t`, `IHealthAdmin` -> `ihealth_admin_t`; errors `HEALTH_MONITOR_ERR_*`.
+
+
 ## 8. Board differences
 
 | Aspect | FD | GW |

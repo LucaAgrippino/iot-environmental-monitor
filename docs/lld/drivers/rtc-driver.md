@@ -270,6 +270,17 @@ The driver has no interrupt handler and registers no callbacks. This is consiste
 
 ---
 
+### 3.6 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS RTC peripheral headers; no RTOS, no middleware.
+- **P2 (Dependency Inversion).** Exposes `irtc_t` vtable (LLD-D10) with six functions including backup-register accessors (LLD-D16); TimeProvider and Logger depend on `IRtc`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static `RtcState`; no heap; no RTOS objects.
+- **P6 (Responsibility traces to requirements).** Time read/write traces to REQ-TS-040; backup-register API traces to LLD-D16 (sync-state persistence).
+- **P8 (Total error propagation, no silent failures).** `rtc_err_t` on all operations; init-mode timeout returns `RTC_ERR_TIMEOUT`; backup index bounds checked with `RTC_ERR_BACKUP_BOUNDS`.
+- **P9 (BARR-C coding standard).** BCD helpers use explicit bit-masking; `uint32_t` for Unix epoch; `uint8_t` for backup-register index.
+- **P10 (Naming conventions).** Prefix `rtc_`; interface `IRtc` -> `irtc_t`; errors `RTC_ERR_*`; constants `RTC_BACKUP_MAX_IDX_F469` / `RTC_BACKUP_MAX_IDX_L475`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 Clock source — both boards

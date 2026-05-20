@@ -268,6 +268,19 @@ map to exception 0x02; `MODBUS_SLAVE_ERR_INVALID_VALUE` maps to exception 0x03;
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IModbusUart (driver layer) and IModbusRegisterMap (DIP — interface injected at init); Logger is a cross-cutting exception (P4).
+- **P2 (Dependency Inversion).** Exposes `imodbus_slave_t` vtable; consumes IModbusRegisterMap via P2 inversion — the interface is owned by the application layer and injected into this middleware component at init, so no application header is included.
+- **P3 (Interface Segregation).** `IModbusSlave` (protocol execution) and `IModbusSlaveStats` (statistics read-back) are separate interfaces because LifecycleController manages the slave lifecycle while HealthMonitor reads stats — distinct, non-overlapping consumer sets.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static Modbus ADU buffer; stats counter struct statically allocated; no heap.
+- **P6 (Responsibility traces to requirements).** FC01/02/03/04/05/06/15/16 dispatch traces to REQ-MB-000-040/080-100 slave function-code requirements.
+- **P8 (Total error propagation, no silent failures).** All public functions return `modbus_slave_err_t`; invalid FC generates exception response 01; I/O errors propagated.
+- **P9 (BARR-C coding standard).** Modbus addresses `uint16_t`; exception codes `uint8_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `modbus_slave_`; interfaces `IModbusSlave` -> `imodbus_slave_t`, `IModbusSlaveStats` -> `imodbus_slave_stats_t`; errors `MODBUS_SLAVE_ERR_*`.
+
+
 ## 9. RS-485 direction control
 
 Direction control (RE/DE pin) is owned by `ModbusUartDriver`, not

@@ -194,6 +194,18 @@ This allows startup logging from `board_init()` before any task runs.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Logger depends only on RtcDriver (for timestamps) and DebugUartDriver (for output) — both at the driver layer.
+- **P2 (Dependency Inversion).** Exposes `ilogger_t` vtable singleton; all consumers depend on `ILogger`.
+- **P4 (Cross-cutting concern exception).** Logger IS one of the two cross-cutting infrastructure components defined by P4. It may be referenced concretely by other infrastructure (e.g., HealthMonitor) but itself depends only on driver-layer abstractions.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static ring buffer for log entries; buffer size a compile-time constant; no heap.
+- **P6 (Responsibility traces to requirements).** Log output traces to REQ-NF-213 (diagnostics output requirement).
+- **P8 (Total error propagation, no silent failures).** `logger_err_t` on init; log calls are best-effort and do not propagate errors to callers — logging failures must not cascade into calling tasks.
+- **P9 (BARR-C coding standard).** Log level `uint8_t`; timestamp from IRtc as `uint32_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `logger_`; interface `ILogger` -> `ilogger_t`; log-level enums `LOGGER_LEVEL_*`.
+
+
 ## 4. Hardware contract
 
 Logger has no direct hardware access. It delegates to:

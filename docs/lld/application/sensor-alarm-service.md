@@ -416,6 +416,19 @@ static AlarmServiceState s_as;
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** SensorService depends on driver interfaces (IBarometer, IHumidityTemp, etc.) and middleware ITimeProvider / IConfigProvider; AlarmService depends on ISensorService; neither crosses a layer boundary upward.
+- **P2 (Dependency Inversion).** Both components expose vtable interfaces; consumers depend on `ISensorService` and `IAlarmService`.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Sensor-reading ring buffers and alarm state in static structs; no heap; buffers sized to worst-case history depth at compile time.
+- **P6 (Responsibility traces to requirements).** Sampling, aggregation, and threshold functions trace to REQ-SA-000-171 sensor and REQ-AM-000-040 alarm requirements.
+- **P7 (Pull-based downstream consumption).** SensorService and AlarmService are pull-based producers; LcdUi and CloudPublisher read on their own schedule via the respective getter interfaces.
+- **P8 (Total error propagation, no silent failures).** All public functions return typed `_err_t`; sensor read failures update the health report rather than silently substituting stale data.
+- **P9 (BARR-C coding standard).** Sensor values as fixed-point integers; alarm thresholds stored as `int32_t`; no floating-point leaks into this layer.
+- **P10 (Naming conventions).** Prefixes `sensor_service_` / `alarm_service_`; interfaces `ISensorService` -> `isensor_service_t`, `IAlarmService` -> `ialarm_service_t`; errors `SENSOR_SERVICE_ERR_*` / `ALARM_SERVICE_ERR_*`.
+
+
 ## 9. Task and timer design
 
 SensorTask blocks on a FreeRTOS direct-to-task notification. A 100 ms

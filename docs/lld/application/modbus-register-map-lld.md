@@ -321,6 +321,18 @@ If the table grows past ~120 entries, revisit. Tracked as **MRM-O4** below.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Sits at the application layer; dispatches to middleware and driver services via their interfaces; no layer is skipped.
+- **P2 (Dependency Inversion).** Implements `IModbusRegisterMap` (DIP — the interface is owned by the middleware layer and injected at init into ModbusSlave); all handler targets consumed via vtable pointers.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Register dispatch table is a `const` array; handler functions execute in the ModbusSlave task context; no heap; no per-request allocation.
+- **P6 (Responsibility traces to requirements).** Every register-group handler traces to the register-address definitions in `modbus-register-map.md` (HLD Artefact #7), which trace to REQ-MB-* and REQ-SA-* requirements.
+- **P8 (Total error propagation, no silent failures).** Register handler functions return `modbus_register_map_err_t`; write-range violations and type-mismatch errors returned rather than silently ignored.
+- **P9 (BARR-C coding standard).** Register addresses `uint16_t`; register counts `uint16_t`; raw register values `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `modbus_register_map_`; interface `IModbusRegisterMap` -> `imodbus_register_map_t`; errors `MODBUS_REGISTER_MAP_ERR_*`.
+
+
 ## 6. Dispatch algorithms
 
 ### 6.1 FC04 — Read Input Registers

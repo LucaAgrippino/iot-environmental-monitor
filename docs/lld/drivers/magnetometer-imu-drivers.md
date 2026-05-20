@@ -327,6 +327,18 @@ Auto-increment on LSM6DSL I2C: enabled by default.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Both drivers depend only on ISpi (driver layer); no upward dependency on middleware or application.
+- **P2 (Dependency Inversion).** Each sensor exposes its own vtable: `imagnetometer_t` and `iimu_t`; SensorService GW depends on the interfaces.
+- **P3 (Interface Segregation).** Two separate interfaces because consumer sets are distinct — each sensor is independently read by SensorService GW.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static state per driver; no dynamic allocation.
+- **P6 (Responsibility traces to requirements).** Measurement functions trace to REQ-SA-* sensor sampling requirements.
+- **P8 (Total error propagation, no silent failures).** All read functions return typed `_err_t`; SPI errors propagated.
+- **P9 (BARR-C coding standard).** Raw values returned as fixed-point integers; no floating-point in the driver layer.
+- **P10 (Naming conventions).** Prefixes `magnetometer_` / `imu_`; errors `MAGNETOMETER_ERR_*` / `IMU_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 5.1 LIS3MDL

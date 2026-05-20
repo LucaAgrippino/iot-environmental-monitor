@@ -345,6 +345,19 @@ blocking `SensorTask`.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on middleware interfaces (IMqttClient, IStoreAndForward, IHealthReport) and Logger; no layer is skipped.
+- **P2 (Dependency Inversion).** Consumes all dependencies via vtable pointers; holds `imqtt_client_t*`, `istore_and_forward_t*`, etc. — never includes concrete middleware headers.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Message serialisation buffer statically allocated; MQTT packet assembled in-place; no heap.
+- **P6 (Responsibility traces to requirements).** Publish / drain-forward functions trace to REQ-CC-050/060 telemetry publishing requirements.
+- **P7 (Pull-based downstream consumption).** CloudPublisher polls ISensorService / IAlarmService data on its task cadence; neither producer pushes to it.
+- **P8 (Total error propagation, no silent failures).** `cloud_publisher_err_t` on all operations; MQTT publish failures trigger store-and-forward enqueue rather than silent discard.
+- **P9 (BARR-C coding standard).** Payload lengths `uint16_t`; sequence numbers `uint32_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `cloud_publisher_`; interface `ICloudPublisher` -> `icloud_publisher_t`; errors `CLOUD_PUBLISHER_ERR_*`.
+
+
 ## 5. Sequence integration
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.

@@ -563,6 +563,19 @@ state (`sub_state`, `pending`, `committed`) are accessed only within
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on middleware interfaces (IGraphics, ITouchscreen) and application-layer peer services (ISensorService, IAlarmService, IConfigProvider, ITimeProvider); no layer is skipped.
+- **P2 (Dependency Inversion).** All consumed dependencies injected as vtable pointers; LcdUi does not include any concrete middleware or driver module header.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Screen layout and widget state in static structs; framebuffer owned by GraphicsLibrary / LcdDriver; no heap.
+- **P6 (Responsibility traces to requirements).** Every screen and navigation path traces to REQ-LD-* display and REQ-SA-* alarm-display requirements.
+- **P7 (Pull-based downstream consumption).** LcdUi polls ISensorService and IAlarmService on its task cadence (LcdUiTask); neither producer pushes updates to it.
+- **P8 (Total error propagation, no silent failures).** `lcd_ui_err_t` on init and screen-switch operations; render errors reported via IHealthReport and logged.
+- **P9 (BARR-C coding standard).** Pixel coordinates `uint16_t`; screen-index `uint8_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `lcd_ui_`; errors `LCD_UI_ERR_*`.
+
+
 ## 2. Public API
 
 `LcdUi` provides no interface to other components (it is at the top of

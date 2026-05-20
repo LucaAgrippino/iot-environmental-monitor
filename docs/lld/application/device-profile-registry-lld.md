@@ -141,6 +141,19 @@ mutex is held — see §8.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IConfigStore (middleware layer) and Logger; no lower-layer protocol dependencies.
+- **P2 (Dependency Inversion).** Exposes `idevice_profile_provider_t` and `idevice_profile_manager_t` vtables; ModbusPoller depends on `IDeviceProfileProvider`.
+- **P3 (Interface Segregation).** `IDeviceProfileProvider` (read-only — ModbusPoller) and `IDeviceProfileManager` (write — CLI and remote config) are separate interfaces because their consumer sets are non-overlapping (LLD-D17).
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static default-profile table `s_default_profiles[]` embedded at compile time (LLD-D17); runtime profile list bounded by `DEVICE_PROFILE_MAX`; no heap.
+- **P6 (Responsibility traces to requirements).** Profile lookup, add, and remove functions trace to REQ-MB-110/120 device-profile management requirements.
+- **P8 (Total error propagation, no silent failures).** All operations return `device_profile_registry_err_t`; profile-not-found and capacity-exceeded are distinct error codes.
+- **P9 (BARR-C coding standard).** Modbus slave address `uint8_t`; profile ID `uint8_t`; description as bounded `char[]`; no floating-point.
+- **P10 (Naming conventions).** Prefix `device_profile_registry_`; interfaces `IDeviceProfileProvider` -> `idevice_profile_provider_t`, `IDeviceProfileManager` -> `idevice_profile_manager_t`; errors `DEVICE_PROFILE_REGISTRY_ERR_*`.
+
+
 ## 6. Algorithms
 
 ### 6.0 Storage model — LLD-D17

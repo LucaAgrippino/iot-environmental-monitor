@@ -137,6 +137,18 @@ releasing the start gate.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IFirmwareStore (middleware), IWifi (driver layer via chunked download), IResetDriver (driver layer), and Logger; no upward dependency.
+- **P2 (Dependency Inversion).** Consumes all dependencies via injected vtable pointers; exposes `iupdate_service_t` vtable; LifecycleController depends on `IUpdateService`.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** OTA state flags in a static struct, backed to FirmwareStore across reboots; chunk download buffer stack-allocated within the task (bounded by max chunk size); no heap.
+- **P6 (Responsibility traces to requirements).** Initiate / write-chunk / verify / swap / self-check / commit-or-rollback functions trace to REQ-DM-050-080 / REQ-NF-304 OTA update requirements.
+- **P8 (Total error propagation, no silent failures).** All operations return `update_service_err_t`; signature verification failure, timeout, and self-check failure are distinct error codes that trigger rollback.
+- **P9 (BARR-C coding standard).** Chunk lengths `uint16_t`; image size `uint32_t`; version fields `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `update_service_`; interface `IUpdateService` -> `iupdate_service_t`; errors `UPDATE_SERVICE_ERR_*`.
+
+
 ## 5. Two-reboot protocol
 
 ### 5.1 First reboot — Applying → SelfChecking

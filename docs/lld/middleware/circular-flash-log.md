@@ -334,6 +334,19 @@ No mutex. CircularFlashLog is called exclusively from `CloudPublisherTask`
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IQspiFlash (driver layer); Logger and HealthMonitor are cross-cutting exceptions (P4).
+- **P2 (Dependency Inversion).** Exposes `icircular_flash_log_t` vtable; StoreAndForward depends on `ICircularFlashLog`.
+- **P4 (Cross-cutting concern exception).** Logger (ILogger) and HealthMonitor (IHealthReport) are referenced concretely; this is the accepted infrastructure exception documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Log descriptor and write-pointer in a static struct; flash partition pre-allocated; no heap.
+- **P6 (Responsibility traces to requirements).** Write / read-oldest / advance-read functions trace to REQ-BF-000/010/020 flash-logging requirements.
+- **P7 (Pull-based downstream consumption).** StoreAndForward reads log entries on its own drain schedule via `read_oldest()` / `advance_read()`; CircularFlashLog does not push to any consumer.
+- **P8 (Total error propagation, no silent failures).** All operations return `circular_flash_log_err_t`; QSPI errors propagated; CRC mismatch on read is a distinct error code.
+- **P9 (BARR-C coding standard).** Record header uses `uint32_t` fields; CRC stored as `uint32_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `circular_flash_log_`; interface `ICircularFlashLog` -> `icircular_flash_log_t`; errors `CIRCULAR_FLASH_LOG_ERR_*`.
+
+
 ## 11. Thread safety
 
 CircularFlashLog is called only from `CloudPublisherTask`. No concurrent

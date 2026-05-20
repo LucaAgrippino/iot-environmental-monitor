@@ -272,6 +272,18 @@ without blocking SensorTask for a full ODR period.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Both drivers depend only on II2c (driver layer); no upward dependency on middleware or application.
+- **P2 (Dependency Inversion).** Each sensor exposes its own vtable: `ihumidity_temp_t` and `ibarometer_t`; SensorService depends on the interfaces.
+- **P3 (Interface Segregation).** Two separate interfaces rather than one unified sensor interface, because the consumer sets are distinct — each sensor is read independently by SensorService GW.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static state per driver; no dynamic allocation at any point.
+- **P6 (Responsibility traces to requirements).** Measurement functions trace directly to REQ-SA-* sensor sampling requirements.
+- **P8 (Total error propagation, no silent failures).** All read functions return a typed `_err_t`; I2C errors are propagated rather than swallowed.
+- **P9 (BARR-C coding standard).** Temperature and humidity returned as fixed-point integers; no floating-point leaks from the driver layer.
+- **P10 (Naming conventions).** Prefixes `humidity_temp_` / `barometer_`; errors `HUMIDITY_TEMP_ERR_*` / `BAROMETER_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 5.1 HTS221
