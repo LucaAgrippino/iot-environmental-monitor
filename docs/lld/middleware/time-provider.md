@@ -136,6 +136,21 @@ time_provider_err_t time_provider_mark_unsynchronised(void);
  * Lightweight poll — no RTC access, returns cached state only.
  */
 time_sync_state_t time_provider_get_sync_state(void);
+
+/* ------------------------------------------------------------------ */
+/* Singleton vtable interface (ITimeProvider — LLD-D10)                */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    time_provider_err_t (*init)(IHealthReport *health);
+    time_provider_err_t (*get)(time_provider_ts_t *ts_out);
+    time_provider_err_t (*set_time)(uint32_t new_epoch);
+    time_provider_err_t (*mark_unsynchronised)(void);
+    time_sync_state_t   (*get_sync_state)(void);
+} itime_provider_t;
+
+/** Singleton pointer to the TimeProvider vtable (FD + GW). */
+extern const itime_provider_t * const time_provider;
 ```
 
 ---
@@ -171,22 +186,37 @@ before TimeProvider is marked synchronised again, causing unnecessary
 **Solution:** use one RTC backup register as a persistence flag.
 
 ```c
-#define TIME_PROVIDER_BKUP_REG   3U   /* RTC_BKP3R — index TBD, see TP-O2 */
-#define TIME_PROVIDER_SYNC_MAGIC 0xA5A5A5A5UL
+/* LLD-D16: BKP0R (index 0) allocated for sync-flag persistence.
+ * See lld.md §6 backup-register allocation table.               */
+#define TIME_PROVIDER_BKUP_REG   0U
+#define TIME_PROVIDER_SYNC_MAGIC 0xA5A55A5AUL
 ```
 
 On `time_provider_init()`:
-- If `RTC_BKP3R == TIME_PROVIDER_SYNC_MAGIC`, initialise as SYNCHRONISED.
-- Otherwise, initialise as UNSYNCHRONISED.
 
-On `time_provider_set_time()`: write `TIME_PROVIDER_SYNC_MAGIC` to the
-backup register.
+```c
+uint32_t val = 0;
+rtc_driver->read_backup(TIME_PROVIDER_BKUP_REG, &val);
+s_tp.sync_state = (val == TIME_PROVIDER_SYNC_MAGIC)
+                  ? TIME_SYNC_SYNCHRONISED
+                  : TIME_SYNC_UNSYNCHRONISED;
+```
 
-On `time_provider_mark_unsynchronised()`: write `0x00000000` to the
-backup register.
+On `time_provider_set_time()`: write the magic to backup register 0:
 
-**Constraint:** backup register index 3 must not conflict with other users
-(reset-cause storage, watchdog flag). Resolution tracked as TP-O2.
+```c
+rtc_driver->write_backup(TIME_PROVIDER_BKUP_REG, TIME_PROVIDER_SYNC_MAGIC);
+```
+
+On `time_provider_mark_unsynchronised()`: clear backup register 0:
+
+```c
+rtc_driver->write_backup(TIME_PROVIDER_BKUP_REG, 0x00000000UL);
+```
+
+**Backup register allocation:** index 0 (BKP0R on STM32F469 / BKP_DR0 on
+STM32L475) is reserved for this flag. See `lld.md` §6 backup-register
+allocation table; TP-O2 closed by LLD-D16.
 
 ---
 
@@ -256,12 +286,16 @@ Error codes and propagation policy are defined in the Public API section above. 
 ```c
 /* For tests compiled on the host (no RTC hardware) */
 #ifdef UNIT_TEST
-
-#define rtc_read(out)        stub_rtc_read(out)
-#define rtc_write(epoch)     stub_rtc_write(epoch)
-#define rtc_bkup_read(reg)   stub_rtc_bkup_read(reg)
-#define rtc_bkup_write(r, v) stub_rtc_bkup_write(r, v)
-
+/* Replace rtc_driver singleton with a mock vtable (LLD-D10). */
+static irtc_t s_mock_rtc;
+void setUp(void) {
+    s_mock_rtc.get_time      = stub_rtc_read;
+    s_mock_rtc.set_time      = stub_rtc_write;
+    s_mock_rtc.read_backup   = stub_rtc_bkup_read;
+    s_mock_rtc.write_backup  = stub_rtc_bkup_write;
+    s_mock_rtc.is_backup_valid = stub_rtc_is_backup_valid;
+    *(const irtc_t **)&rtc_driver = &s_mock_rtc;
+}
 #endif /* UNIT_TEST */
 ```
 
@@ -308,5 +342,5 @@ the primary validation path.
 | ID | Item | Resolution path | Status |
 |--------|------|-----------------|--------|
 | TP-O1  | `TIME_PROVIDER_SYNC_INTERVAL_S` — [TBD], driven by REQ-NF-210 / REQ-NF-211. Determined at integration testing via RTC drift measurement. | Determine via RTC drift measurement at integration; set in time_provider_config.h | Open |
-| TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. Not yet produced. | Allocate from project-wide backup-register map when that map is produced | Open |
+| TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. | Closed by LLD-D16: index 0 (BKP0R) allocated; see `lld.md` §6 backup-register allocation table. Magic changed to `0xA5A55A5AUL` (asymmetric, distinguishes from other users). | Closed |
 | TP-O3  | `TIME_PROVIDER_SANITY_DELTA_S` — NTP delta sanity threshold. Decided in TimeService LLD companion (GW). TimeProvider needs the value to compile `time_provider_config.h`. | Confirm threshold value at TimeService LLD companion (GW) | Open |
