@@ -218,6 +218,26 @@ rtc_driver->write_backup(TIME_PROVIDER_BKUP_REG, 0x00000000UL);
 STM32L475) is reserved for this flag. See `lld.md` §6 backup-register
 allocation table; TP-O2 closed by LLD-D16.
 
+**Persistence scope:** backup register 0 survives warm resets (watchdog,
+soft reset, NVIC_SystemReset). It does **not** survive a full power-off
+on the STM32F469-DISCO (FD) and B-L475E-IOT01A (GW), where VBAT is tied
+to VDD with no coin cell — the backup domain resets on power removal.
+Consequently:
+
+- After a power cycle, TimeProvider will always restart as UNSYNCHRONISED,
+  even if it was synchronised before power was removed. This is the correct
+  behaviour: the RTC calendar has also reset (INITS = 0), so the timestamps
+  are not valid wall-clock time anyway.
+- After a warm reset (watchdog, soft restart, firmware update reboot), the
+  sync flag is preserved. TimeProvider re-enters SYNCHRONISED state at init
+  time without waiting for the next NTP cycle (GW) or the next Modbus time
+  write (FD). This avoids a transient UNSYNCHRONISED window on the most
+  common reset path.
+
+This scope matches the SRS requirement: REQ-TS-040 / REQ-NF-212 do not
+specify persistence across power removal; they specify that the sync state
+is tracked and reported correctly at runtime. See also `rtc-driver.md` §4.5.
+
 ---
 
 ## 6. IHealthReport events
