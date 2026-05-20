@@ -171,6 +171,17 @@ The frame-done callback (`s_frame_done_cb`) is called from `DSI_LTDC_IRQHandler`
 
 ---
 
+### 3.6 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS LTDC/DSI peripheral headers and GpioDriver (reset pin); no middleware dependencies.
+- **P2 (Dependency Inversion).** Exposes `ilcd_t` vtable; GraphicsLibrary depends on `ILcd`, not the concrete module.
+- **P5 (Bounded resources, no dynamic allocation post-init).** One static `LcdState`; frame buffer allocated in SDRAM at init (bounded); no post-scheduler heap.
+- **P6 (Responsibility traces to requirements).** Frame-flush and backlight-control functions trace to REQ-LD-* display requirements.
+- **P8 (Total error propagation, no silent failures).** `lcd_err_t` on all operations; DSI command timeout returns error rather than blocking indefinitely.
+- **P9 (BARR-C coding standard).** Pixel coordinates `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `lcd_`; interface `ILcd` -> `ilcd_t`; errors `LCD_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 DSI configuration (open items — LCDD-O1, LCDD-O2)

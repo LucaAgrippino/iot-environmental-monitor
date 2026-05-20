@@ -276,6 +276,19 @@ returns a copy. No RTC access.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IRtc (driver layer); IHealthReport and ILogger are cross-cutting exceptions (P4).
+- **P2 (Dependency Inversion).** Exposes `itime_provider_t` vtable singleton (LLD-D10); all consumers depend on `ITimeProvider`. Backup-register access is through `irtc_t` vtable calls (LLD-D16), not direct register access.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Single static `TimeProviderState` struct; FreeRTOS mutex created once in `time_provider_init()` and never freed.
+- **P6 (Responsibility traces to requirements).** `time_provider_get()` and `time_provider_set_time()` trace to REQ-TS-040 / REQ-NF-210-212 timestamping requirements.
+- **P7 (Pull-based downstream consumption).** All consumers call `time_provider_get()` on their own task schedule; TimeProvider does not push time values to any consumer.
+- **P8 (Total error propagation, no silent failures).** All public functions return `time_provider_err_t`; RTC driver errors propagated; sanity-delta check returns a distinct error code.
+- **P9 (BARR-C coding standard).** Unix epoch `uint32_t`; sync-flag magic `uint32_t`; mutex handle opaque pointer; no floating-point.
+- **P10 (Naming conventions).** Prefix `time_provider_`; interface `ITimeProvider` -> `itime_provider_t`; errors `TIME_PROVIDER_ERR_*`.
+
+
 ## 8. Init sequence and boot ordering
 
 ```

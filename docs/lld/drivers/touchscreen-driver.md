@@ -166,6 +166,17 @@ The FT6206 IRQ pin is an active-low, level-triggered or falling-edge-triggered s
 
 ---
 
+### 3.6 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on II2c and IExti (both driver layer); no middleware.
+- **P2 (Dependency Inversion).** Exposes `itouchscreen_t` vtable; GraphicsLibrary depends on `ITouchscreen`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static `TouchscreenState`; touch-event queue is a fixed-size ring buffer; EXTI callback registered once at init; no heap.
+- **P6 (Responsibility traces to requirements).** Touch-read and gesture-decode functions trace to REQ-LD-050 (touchscreen input).
+- **P8 (Total error propagation, no silent failures).** `touchscreen_err_t` on all operations; I2C errors from FT6206 register read propagated.
+- **P9 (BARR-C coding standard).** Coordinates `uint16_t`; gesture ID `uint8_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `touchscreen_`; interface `ITouchscreen` -> `itouchscreen_t`; errors `TOUCHSCREEN_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 EXTI IRQ pin and I2C address (open item — TSD-O1)

@@ -185,6 +185,18 @@ typedef struct {
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on INtpClient (middleware), ITimeProvider (middleware), and IModbusPoller (application peer for FD time-write); all are at the same or lower layer.
+- **P2 (Dependency Inversion).** Consumes INtpClient and ITimeProvider via injected vtable pointers; exposes `itime_service_t` vtable.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Synchronisation state in a static struct; NTP query executed with a statically-allocated 48-byte packet; no heap.
+- **P6 (Responsibility traces to requirements).** Synchronisation loop, delta-sanity check, and FD time-write functions trace to REQ-TS-010 / REQ-NF-210-212 time-synchronisation requirements.
+- **P8 (Total error propagation, no silent failures).** `time_service_err_t` on all operations; NTP query errors, delta-sanity rejections, and TimeProvider set errors are distinct error codes.
+- **P9 (BARR-C coding standard).** NTP poll interval `uint32_t` seconds; delta threshold `int32_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `time_service_`; interface `ITimeService` -> `itime_service_t`; errors `TIME_SERVICE_ERR_*`.
+
+
 ## 5. Sequence integration
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.

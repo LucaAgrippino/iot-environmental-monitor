@@ -357,6 +357,19 @@ No dynamic allocation. All coreMQTT and mbedTLS contexts are embedded in
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IWifi (driver layer) and Logger (cross-cutting); no application-layer dependencies.
+- **P2 (Dependency Inversion).** Exposes `imqtt_client_t` vtable; CloudPublisher depends on `IMqttClient` and `IMqttStats`.
+- **P3 (Interface Segregation).** `IMqttClient` (publish/subscribe operations) and `IMqttStats` (connectivity counters) are separate interfaces because CloudPublisher needs the former while HealthMonitor reads the latter — distinct, non-overlapping consumer sets.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static session state and packet buffer; TLS context allocated from a fixed-size static pool; no heap after scheduler start.
+- **P6 (Responsibility traces to requirements).** Publish / subscribe / receive functions trace to REQ-CC-050/060 / REQ-NF-206/216/300-305 cloud connectivity requirements.
+- **P8 (Total error propagation, no silent failures).** All operations return `mqtt_client_err_t`; TLS handshake failure, CONNACK rejection, and timeout are distinct error codes.
+- **P9 (BARR-C coding standard).** Topic length `uint16_t`; payload length `uint16_t`; QoS level `uint8_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `mqtt_client_`; interface `IMqttClient` -> `imqtt_client_t`; errors `MQTT_CLIENT_ERR_*`.
+
+
 ## 12. Init ordering
 
 ```

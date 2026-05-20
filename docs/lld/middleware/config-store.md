@@ -267,6 +267,18 @@ the mutex.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IQspiFlash (driver layer); Logger and HealthMonitor are cross-cutting exceptions (P4).
+- **P2 (Dependency Inversion).** Exposes `iconfig_store_t` vtable; ConfigService depends on `IConfigStore`.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Slot map and dirty-page tracking in a static struct; no heap; flash page buffer stack-allocated per operation (bounded by QSPI page size).
+- **P6 (Responsibility traces to requirements).** Read / write / erase-and-write traces to REQ-DM-090 / REQ-NF-214 configuration persistence requirements.
+- **P8 (Total error propagation, no silent failures).** All operations return `config_store_err_t`; QSPI errors propagated; CRC mismatch returned as a distinct error code.
+- **P9 (BARR-C coding standard).** Addresses and lengths `uint32_t`; slot indices `uint8_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `config_store_`; interface `IConfigStore` -> `iconfig_store_t`; errors `CONFIG_STORE_ERR_*`.
+
+
 ## 9. CRC32 algorithm
 
 Use CRC32/ISO-HDLC: polynomial 0xEDB88320 (reflected), initial value

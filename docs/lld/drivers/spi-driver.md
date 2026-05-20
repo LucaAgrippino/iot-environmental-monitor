@@ -150,6 +150,17 @@ Consistent with the driver design pattern across all prior companions. The trans
 
 ---
 
+### 3.5 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS SPI peripheral headers (L4-specific FRXTH flag handled internally); no middleware.
+- **P2 (Dependency Inversion).** Exposes `ispi_t` vtable; MagnetometerDriver and ImuDriver depend on `ISpi`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static `SpiState`; transfer buffer on caller's stack; no heap.
+- **P6 (Responsibility traces to requirements).** Synchronous transfer function traces to GW sensor Group B sampling requirements.
+- **P8 (Total error propagation, no silent failures).** `spi_err_t` on all transfers; timeout returns error rather than spinning indefinitely.
+- **P9 (BARR-C coding standard).** `uint8_t*` for data; `uint16_t` for transfer length; FRXTH bit set per datasheet requirement.
+- **P10 (Naming conventions).** Prefix `spi_`; interface `ISpi` -> `ispi_t`; errors `SPI_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 SPI mode and frame format

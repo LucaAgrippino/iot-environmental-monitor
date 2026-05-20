@@ -255,6 +255,21 @@ EXTI line → IRQn mapping (both boards, lines 0–15):
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** ExtiDriver depends only on CMSIS device headers and GpioDriver (IGpio). No upward dependency on any middleware or application component.
+- **P2 (Dependency Inversion).** Exposes an `iexti_t` vtable singleton; consumer drivers bind interrupt channels via the interface and are never coupled to the concrete module.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Callback registrations stored in a fixed-size static table. No heap; no RTOS objects.
+- **P6 (Responsibility traces to requirements).** Every mappable EXTI channel traces to the specific peripheral interrupt requirement that demands it.
+- **P8 (Total error propagation, no silent failures).** Init and register functions return `exti_err_t`; unregistered-channel IRQ fires the fault path rather than being silently swallowed.
+- **P9 (BARR-C coding standard).** Port/pin parameters are fixed-width types; callback pointer stored `const`.
+- **P10 (Naming conventions).** Module prefix `exti_`; interface `IExti` -> `iexti_t`; errors `EXTI_ERR_*`.
+
+**Principles considered and found not to apply:**
+
+- **P7 (Pull-based consumption)** — consumers register a callback because they must react promptly to an IRQ edge. This is the callback exception clause in P7, not a violation of pull-based design.
+
+
 ## 4. Hardware contract
 
 ExtiDriver accesses two peripheral blocks:

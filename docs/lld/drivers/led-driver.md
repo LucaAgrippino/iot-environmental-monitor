@@ -149,6 +149,17 @@ Both discovery boards drive their user LEDs active-high (LED on when GPIO pin is
 
 ---
 
+### 3.5 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on GpioDriver (IGpio); no RTOS, no middleware.
+- **P2 (Dependency Inversion).** Exposes `iled_t` vtable; consumers depend on `ILed`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static pin-map table (compile-time constant); no heap; no RTOS objects.
+- **P6 (Responsibility traces to requirements).** LED set/toggle traces to REQ-NF-202 status-indicator requirements.
+- **P8 (Total error propagation, no silent failures).** `led_err_t` on configure and write; invalid-ID arguments return error.
+- **P9 (BARR-C coding standard).** `uint8_t` for LED ID; active-level documented explicitly; no implicit widening.
+- **P10 (Naming conventions).** Prefix `led_`; interface `ILed` -> `iled_t`; errors `LED_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 Pin configuration

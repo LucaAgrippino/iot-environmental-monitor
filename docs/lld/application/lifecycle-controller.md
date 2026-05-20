@@ -383,6 +383,18 @@ stack — annotate clearly in the code. See LC-O1.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on middleware and driver interfaces injected at init; no component in the system exists above the application layer, so no upward dependency can arise.
+- **P2 (Dependency Inversion).** Exposes `ilifecycle_t` vtable; consumes all middleware / driver dependencies via injected vtable pointers; `IHealthAdmin` (owned by HealthMonitor) is injected per P2 inversion (LLD-D15).
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Lifecycle state-machine state and event queue in a static struct; FreeRTOS event group created once at init; no heap.
+- **P6 (Responsibility traces to requirements).** Every lifecycle state transition and remote command (LLD-D15) traces to REQ-SA-000-060 / REQ-DM-* system-lifecycle requirements.
+- **P8 (Total error propagation, no silent failures).** `lifecycle_err_t` on all state-modifying functions; `handle_remote_command()` returns error for unrecognised commands; state-machine errors reported via IHealthReport.
+- **P9 (BARR-C coding standard).** State values `uint8_t` enum; event flags `uint32_t` (FreeRTOS EventBits_t); no floating-point.
+- **P10 (Naming conventions).** Prefix `lifecycle_`; interface `ILifecycle` -> `ilifecycle_t`; errors `LIFECYCLE_ERR_*`; states `LIFECYCLE_STATE_*`; remote commands `LC_REMOTE_CMD_*`.
+
+
 ## 10. Reset cause detection
 
 Detected once at startup before `lifecycle_controller_init()`, using

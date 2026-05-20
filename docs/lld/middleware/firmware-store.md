@@ -376,6 +376,18 @@ operations run in that task's context.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IQspiFlash (driver layer); Logger is a cross-cutting exception (P4). No application-layer dependencies.
+- **P2 (Dependency Inversion).** Exposes `ifirmware_store_t` vtable; UpdateService depends on `IFirmwareStore`.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Write-pointer and image-header in a static struct; chunk buffer stack-allocated (bounded by QSPI page size); no heap.
+- **P6 (Responsibility traces to requirements).** Init / write-chunk / verify / swap functions trace to REQ-DM-050-080 / REQ-NF-304 OTA requirements.
+- **P8 (Total error propagation, no silent failures).** All operations return `firmware_store_err_t`; CRC and signature verification failures are distinct error codes.
+- **P9 (BARR-C coding standard).** Addresses and lengths `uint32_t`; image version `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `firmware_store_`; interface `IFirmwareStore` -> `ifirmware_store_t`; errors `FIRMWARE_STORE_ERR_*`.
+
+
 ## 11. Init ordering
 
 ```

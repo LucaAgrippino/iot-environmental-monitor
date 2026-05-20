@@ -334,6 +334,18 @@ synchronisation.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on DebugUartDriver (driver layer) for byte I/O; middleware command targets consumed via injected vtable pointers.
+- **P2 (Dependency Inversion).** Exposes `iconsole_service_t` vtable; LifecycleController depends on `IConsoleService`; injected command targets consumed via their respective interfaces.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static input buffer (bounded by max command length); command dispatch table is a `const` array; no heap.
+- **P6 (Responsibility traces to requirements).** Every CLI command entry traces to a specific REQ-LI-* or REQ-DM-* provisioning/configuration requirement.
+- **P8 (Total error propagation, no silent failures).** `console_service_err_t` on init and dispatch; command execution errors printed to console and returned to caller.
+- **P9 (BARR-C coding standard).** Command-code enums `uint8_t`; buffer length `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `console_service_`; interface `IConsoleService` -> `iconsole_service_t`; errors `CONSOLE_SERVICE_ERR_*`.
+
+
 ## 10. Initialisation
 
 ```c

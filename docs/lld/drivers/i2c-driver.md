@@ -232,6 +232,17 @@ Consistent with all prior driver companions. Consumers call synchronously from t
 
 ---
 
+### 3.7 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS device register map; no RTOS, no middleware.
+- **P2 (Dependency Inversion).** Exposes `ii2c_t` vtable singleton; all consumers (HumidityTempDriver, BarometerDriver, TouchscreenDriver, RtcDriver GW) depend on the interface.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static `I2cState` struct; no heap; RTOS mutex created once in `i2c_init()`.
+- **P6 (Responsibility traces to requirements).** The I2C API traces to all consumers' sensor and peripheral requirements.
+- **P8 (Total error propagation, no silent failures).** All calls return `i2c_err_t`; HAL timeout surfaces as `I2C_ERR_TIMEOUT`; bus errors propagated.
+- **P9 (BARR-C coding standard).** `uint8_t*` data pointers; `uint16_t` for device address; no implicit widening.
+- **P10 (Naming conventions).** Prefix `i2c_`; interface `II2c` -> `ii2c_t`; errors `I2C_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 Clock speed — both boards

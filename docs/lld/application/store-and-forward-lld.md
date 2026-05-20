@@ -125,6 +125,19 @@ Total RAM: `sizeof(store_and_forward_t)` ≈ **8.4 KB**.
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** Depends on ICircularFlashLog (middleware layer) and Logger; no cross-layer skip.
+- **P2 (Dependency Inversion).** Exposes `istore_and_forward_t` vtable; CloudPublisher depends on `IStoreAndForward`.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** StoreAndForward is a thin policy wrapper over CircularFlashLog; pending-confirm state stored in a static struct; no heap.
+- **P6 (Responsibility traces to requirements).** Enqueue, dequeue, and confirm functions trace to REQ-BF-000/010/020 store-and-forward requirements.
+- **P7 (Pull-based downstream consumption).** CloudPublisher drains the queue on its own publishing schedule; StoreAndForward does not push messages.
+- **P8 (Total error propagation, no silent failures).** All operations return `store_and_forward_err_t`; flash log errors propagated with distinct codes.
+- **P9 (BARR-C coding standard).** Entry length `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `store_and_forward_`; interface `IStoreAndForward` -> `istore_and_forward_t`; errors `STORE_AND_FORWARD_ERR_*`.
+
+
 ## 5. Entry format on flash
 
 StoreAndForward serialises each entry into `stage_buf` before passing

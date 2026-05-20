@@ -52,6 +52,20 @@ polling schedules, link state, or device profiles. ModbusPoller is the
 
 ---
 
+### Principles applied
+
+- **P1 (Strict directional layering).** ModbusMaster depends on IModbusUart (driver layer) and Logger; ModbusPoller depends on IModbusMaster, IDeviceProfileProvider, IHealthReport, and Logger — all at the same or lower layer.
+- **P2 (Dependency Inversion).** Both components expose vtable interfaces; consumers depend on `IModbusMaster` / `IModbusPoller`, not the concrete modules.
+- **P3 (Interface Segregation).** ModbusMaster splits into `IModbusMaster` (transaction execution) and `IModbusMasterStats` (statistics read-back) because ModbusPoller needs the former while HealthMonitor reads the latter; these are non-overlapping consumer sets — P3 applied.
+- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static Modbus PDU buffer and stats counter struct; response timeout managed via FreeRTOS task delay; no heap.
+- **P6 (Responsibility traces to requirements).** Request/response cycle traces to REQ-MB-010-130 Modbus master requirements.
+- **P7 (Pull-based downstream consumption).** ModbusPoller polls ModbusMaster on its own task cadence; ModbusMaster does not push results unprompted.
+- **P8 (Total error propagation, no silent failures).** All functions return typed `_err_t`; CRC mismatch, timeout, and exception responses are distinct error codes.
+- **P9 (BARR-C coding standard).** Modbus function codes `uint8_t`; register addresses and counts `uint16_t`; no floating-point.
+- **P10 (Naming conventions).** Prefixes `modbus_master_` / `modbus_poller_`; interfaces `IModbusMaster` -> `imodbus_master_t`; errors `MODBUS_MASTER_ERR_*` / `MODBUS_POLLER_ERR_*`.
+
+
 ## 3. Shared type — `modbus_frame_t`
 
 ```c

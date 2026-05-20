@@ -264,6 +264,17 @@ If profiling reveals this is a problem, replacing the busy-wait with a `vTaskDel
 
 ---
 
+### 3.8 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS QUADSPI peripheral headers; no RTOS, no middleware.
+- **P2 (Dependency Inversion).** Exposes `iqspi_flash_t` vtable; CircularFlashLog, ConfigStore, and FirmwareStore all depend on `IQspiFlash`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static `QspiFlashState`; command buffers allocated on the stack (bounded by maximum command size); no heap.
+- **P6 (Responsibility traces to requirements).** Read / program / erase operations trace to REQ-BF-* and REQ-NF-304 persistent-store requirements.
+- **P8 (Total error propagation, no silent failures).** `qspi_flash_err_t` on all operations; WIP-poll timeout returns error rather than blocking indefinitely.
+- **P9 (BARR-C coding standard).** Addresses and lengths `uint32_t`; no implicit widening.
+- **P10 (Naming conventions).** Prefix `qspi_flash_`; interface `IQspiFlash` -> `iqspi_flash_t`; errors `QSPI_FLASH_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 QUADSPI peripheral — both boards

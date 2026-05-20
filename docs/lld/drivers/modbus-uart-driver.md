@@ -248,6 +248,17 @@ TX polling uses a generous timeout: at 9600 baud, transmitting 256 bytes takes 2
 
 ---
 
+### 3.6 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS UART/DMA peripheral headers; no RTOS task dependencies in the ISR path.
+- **P2 (Dependency Inversion).** Exposes `imodbus_uart_t` vtable; ModbusSlave (FD) and ModbusMaster (GW) depend on the interface.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static RX/TX buffers sized at compile time; one DMA descriptor; no heap.
+- **P6 (Responsibility traces to requirements).** IDLE-line RX and RS-485 DE control trace to REQ-MB-010/020 frame-exchange requirements.
+- **P8 (Total error propagation, no silent failures).** `modbus_uart_err_t` on all calls; framing errors set a sticky flag returned on the next receive.
+- **P9 (BARR-C coding standard).** Buffer sizes `uint16_t`; DMA count register `uint16_t`; no implicit widening.
+- **P10 (Naming conventions).** Prefix `modbus_uart_`; interface `IModbusUart` -> `imodbus_uart_t`; errors `MODBUS_UART_ERR_*`.
+
+
 ## 4. Hardware contract
 
 ### 4.1 Peripheral identification (open item — MBUART-O1)
