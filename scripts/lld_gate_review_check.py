@@ -332,6 +332,19 @@ def check_open_items_format(paths: dict, findings: list):
                         str(companion.relative_to(paths["root"]))))
 
 
+def check_principles_applied(paths: dict, findings: list):
+    """Every companion §3 Internal design has a 'Principles applied' subsection."""
+    for companion in discover_companions(paths):
+        text = companion.read_text(encoding="utf-8")
+        section = parse_section(text, r"## 3\. Internal design", r"\n## [4-9]\.|\n## \d\d\.|\Z")
+        if "Principles applied" not in section:
+            findings.append(Finding(
+                Severity.BLOCKER, "Principles (Pass B)",
+                "§3 Internal design missing 'Principles applied' subsection "
+                "(lld-methodology.md §3 Step 3 gate criterion)",
+                str(companion.relative_to(paths["root"]))))
+
+
 # ----------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------
@@ -350,6 +363,7 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_driver_dependencies(paths, findings)
     check_companion_header(paths, findings)
     check_open_items_format(paths, findings)
+    check_principles_applied(paths, findings)
 
     return findings, paths
 
