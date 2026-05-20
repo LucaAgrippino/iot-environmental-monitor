@@ -483,7 +483,10 @@ write_cmd_ack_alarm(value):
     self->cmd_ack_alarm_last = value;        /* always cache the literal */
     if value != 0x0001:
         return ILLEGAL_DATA_VALUE
-    alarms->ack_all(alarms);
+    /* LLD-D14: ack_all() bulk force-clears all alarm flags. Non-latched
+     * semantic — flags re-raise on the next evaluation cycle if the
+     * condition persists. See alarm-service.md §6.                       */
+    alarm_service->ack_all();
     return NONE
 
 read_cmd_ack_alarm(out):
