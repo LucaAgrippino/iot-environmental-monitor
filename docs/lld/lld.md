@@ -219,6 +219,25 @@ Subsequent decisions are added as companions surface them.
 
 ---
 
+### 6.2 RTC backup register allocation
+
+The STM32F469 (FD) provides 20 backup registers (BKP0R..BKP19R, indices 0..19).
+The STM32L475 (GW) provides 32 (BKP0R..BKP31R, indices 0..31). Both boards
+access them through `rtc_driver->read_backup(idx)` / `write_backup(idx, val)`
+(LLD-D16, `rtc-driver.md` §2.4).
+
+All allocations below apply to **both** boards unless noted otherwise.
+
+| Index | User | Purpose | Board | Settled in |
+|-------|------|---------|-------|------------|
+| 0 | TimeProvider | Sync-persisted flag — `0xA5A55A5A` = SYNCHRONISED; `0x00000000` = UNSYNCHRONISED | Both | LLD-D16 |
+| 1–19 | *(unallocated)* | Reserved for future use | Both | — |
+| 20–31 | *(unallocated)* | GW-only range; reserved | GW | — |
+
+**Allocation rules:** claim a new index by adding a row to this table in the same commit that introduces the first `write_backup(idx, ...)` call in any companion. Never share an index between two users — the magic values must not collide. See `open-items` LC-O3 for the related event-group bit-map.
+
+---
+
 ## 7. Traceability
 
 Each completed companion adds one row.
