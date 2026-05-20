@@ -279,7 +279,7 @@ prevent accidental triggers from incorrect writes.
 | Addr | Name | Type | Trigger value | Effect | Source | Sink |
 |---|---|---|---|---|---|---|
 | 0x0200 | CMD_ACK_ALARM | uint16 | `0x0001` | Acknowledges all currently active alarms; clears `ALARM_FLAGS`. *(Requirement to be derived from UC-08/UC-09 in F-07 SRS fix pass.)* | ModbusPoller | AlarmService |
-| 0x0201 | CMD_RESET_METRICS | uint16 | `0x0001` | Resets all Modbus and sensor metrics counters to 0. Does not affect uptime. REQ-LD-070. | ModbusPoller | HealthMonitor |
+| 0x0201 | CMD_RESET_METRICS | uint16 | `0x0001` | Resets all Modbus and sensor metrics counters to 0. Does not affect uptime. REQ-LD-070. | ModbusPoller | LifecycleController |
 | 0x0202 | CMD_SOFT_RESTART | uint16 | `0xA5A5` | Triggers soft restart of the Field Device (UC-17). Any other value is rejected with exception **0x03**. Magic value prevents accidental triggers. | ModbusPoller | LifecycleController |
 | 0x0203 – 0x02FF | *(reserved)* | — | — | Returns exception **0x02 — Illegal Data Address** on any access. | — | — |
 
