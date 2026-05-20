@@ -83,6 +83,7 @@ typedef enum {
  * Must be called once from main() before any spi_transceive call.
  *
  * @return SPI_ERR_OK on success.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 spi_err_t spi_init(void);
 
@@ -108,6 +109,7 @@ spi_err_t spi_init(void);
  * @param len     Number of 16-bit words to exchange (not bytes).
  * @return SPI_ERR_OK on success; SPI_ERR_TIMEOUT if a flag does not
  *         assert within the timeout window.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 spi_err_t spi_transceive(const uint16_t *tx_buf, uint16_t *rx_buf, uint16_t len);
 ```

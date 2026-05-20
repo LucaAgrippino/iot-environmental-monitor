@@ -157,6 +157,8 @@ unused reads. The interface remains stable even as new parameters are added.
  * ConfigStore outcome (REQ-SA-010, SA-020, SA-050).
  *
  * @param  store  IConfigStore handle.
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 config_service_err_t config_service_init(IConfigStore *store);
 
@@ -169,6 +171,8 @@ config_service_err_t config_service_init(IConfigStore *store);
  *
  * @param  blob  Raw bytes from config_store_load().
  * @param  len   Blob byte count.
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 config_service_err_t config_service_apply_loaded(const void *blob,
                                                   uint32_t    len);
@@ -189,6 +193,7 @@ config_service_err_t config_service_apply_loaded(const void *blob,
  *
  * @param  id     Parameter identifier.
  * @param  value  Pointer to new value (type matches the param's type).
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
  */
 config_service_err_t config_service_set_param(config_param_id_t id,
                                                const void       *value);
@@ -198,6 +203,8 @@ config_service_err_t config_service_set_param(config_param_id_t id,
  *
  * Used by ConsoleService to give immediate feedback before asking the
  * Field Technician to confirm. Does not modify state.
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 config_service_err_t config_service_validate_param(config_param_id_t id,
                                                     const void       *value);
@@ -207,6 +214,8 @@ config_service_err_t config_service_validate_param(config_param_id_t id,
  *
  * Called by LifecycleController on entering EditingConfig.
  * Stores a copy of config_params_t in s_cs.snapshot.
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 config_service_err_t config_service_snapshot(void);
 
@@ -216,6 +225,8 @@ config_service_err_t config_service_snapshot(void);
  * Called by LifecycleController on EditingConfig cancel or timeout.
  * Overwrites in-memory config with snapshot; persists the restored
  * config via ConfigStore.
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 config_service_err_t config_service_restore_snapshot(void);
 
@@ -224,6 +235,8 @@ config_service_err_t config_service_restore_snapshot(void);
  *
  * Explicit flush — used by LifecycleController in the Restarting
  * state to ensure config is persisted before a soft reset.
+ * @return CONFIG_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 config_service_err_t config_service_flush(void);
 ```

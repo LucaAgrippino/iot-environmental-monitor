@@ -108,6 +108,7 @@ typedef enum {
  *
  * @return RTC_ERR_OK on success; RTC_ERR_INIT_TIMEOUT if INITF does not
  *         assert within the timeout window.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 rtc_err_t rtc_init(void);
 
@@ -126,6 +127,7 @@ rtc_err_t rtc_init(void);
  *               RTC_ERR_OK. Zeroed on error.
  * @return RTC_ERR_OK on success; RTC_ERR_SYNC_TIMEOUT if RSF does not
  *         assert within the timeout window.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 rtc_err_t rtc_get_time(rtc_datetime_t *dt);
 
@@ -141,6 +143,7 @@ rtc_err_t rtc_get_time(rtc_datetime_t *dt);
  * @param dt  Pointer to the new date/time (must not be NULL).
  * @return RTC_ERR_OK on success; RTC_ERR_INIT_TIMEOUT or
  *         RTC_ERR_SYNC_TIMEOUT on hardware timeout.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 rtc_err_t rtc_set_time(const rtc_datetime_t *dt);
 
@@ -158,6 +161,7 @@ rtc_err_t rtc_set_time(const rtc_datetime_t *dt);
  * ITimeProvider (REQ-NF-212).
  *
  * @return true if backup domain was valid at init; false otherwise.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 bool rtc_is_backup_valid(void);
 
@@ -176,6 +180,7 @@ bool rtc_is_backup_valid(void);
  *                  0..31 on L475. Returns RTC_ERR_BACKUP_BOUNDS if exceeded.
  * @param[out] out  Set to the 32-bit register value on RTC_ERR_OK.
  * @return RTC_ERR_OK, RTC_ERR_NULL_ARG, or RTC_ERR_BACKUP_BOUNDS.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out);
 
@@ -188,6 +193,7 @@ rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out);
  * @param  idx    Backup register index. Valid range: 0..19 on F469, 0..31 on L475.
  * @param  value  32-bit value to write.
  * @return RTC_ERR_OK or RTC_ERR_BACKUP_BOUNDS.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 rtc_err_t rtc_write_backup(uint8_t idx, uint32_t value);
 

@@ -79,6 +79,7 @@ Address convention: the caller supplies a **7-bit device address**. The driver s
  * values depend on I2CCLK source (I2CD-O1, I2CD-O2 — see §8).
  *
  * @return I2C_ERR_OK on success.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 i2c_err_t i2c_init(void);
 
@@ -92,6 +93,7 @@ i2c_err_t i2c_init(void);
  * @param data      Pointer to bytes to transmit (must not be NULL).
  * @param len       Number of bytes to transmit (must be ≥ 1).
  * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len);
 
@@ -106,6 +108,7 @@ i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len);
  * @param buf       Pointer to receive buffer (must not be NULL).
  * @param len       Number of bytes to receive (must be ≥ 1).
  * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len);
 
@@ -128,6 +131,7 @@ i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len);
  * @param rx_buf    Pointer to receive buffer for read phase (must not be NULL).
  * @param rx_len    Number of bytes to receive in read phase (must be ≥ 1).
  * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 i2c_err_t i2c_write_read(uint8_t dev_addr,
                           const uint8_t *tx_data, uint16_t tx_len,

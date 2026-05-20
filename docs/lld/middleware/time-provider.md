@@ -86,6 +86,7 @@ sync flag is threaded through layers.
  *
  * @param  health  IHealthReport handle for sync-state event push.
  * @return TIME_PROVIDER_ERR_OK or TIME_PROVIDER_ERR_RTC_FAIL.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 time_provider_err_t time_provider_init(IHealthReport *health);
 
@@ -134,6 +135,8 @@ time_provider_err_t time_provider_mark_unsynchronised(void);
  * @brief  Return current sync state without a full timestamp read.
  *
  * Lightweight poll — no RTC access, returns cached state only.
+ * @return Current state value.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 time_sync_state_t time_provider_get_sync_state(void);
 

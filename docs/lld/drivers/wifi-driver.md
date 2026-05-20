@@ -92,23 +92,73 @@ typedef enum {
 typedef void (*wifi_datardy_cb_t)(void *ctx);
 
 /* Phase 1 — pre-scheduler */
+/**
+ * @brief Initialise the ISM43362 Wi-Fi module via SPI.
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ */
 wifi_err_t wifi_init(void);
 
 /* Phase 2 — post-scheduler, called from WifiTask init */
+/**
+ * @brief Register the DATARDY interrupt callback.
+ * @param[in,out] cb  (description TBD)
+ * @param[in,out] ctx  (description TBD)
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Call before the scheduler starts; callback executes in ISR context.
+ */
 wifi_err_t wifi_attach_datardy_callback(wifi_datardy_cb_t cb, void *ctx);
 
 /* Network association */
+/**
+ * @brief Connect to a Wi-Fi access point.
+ * @param[in] ssid  (description TBD)
+ * @param[in] password  (description TBD)
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
 wifi_err_t wifi_connect_ap(const char *ssid, const char *password);
+/**
+ * @brief Disconnect from the current access point.
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
 wifi_err_t wifi_disconnect_ap(void);
+/**
+ * @brief Query the current Wi-Fi link state.
+ * @param[in,out] state  (description TBD)
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 wifi_err_t wifi_get_link_state(wifi_link_state_t *state);
+/**
+ * @brief Read the current RSSI from the access point.
+ * @param[in,out] rssi_dbm  (description TBD)
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 wifi_err_t wifi_get_rssi(int8_t *rssi_dbm);
 
 /* Polymorphic socket operations (LLD-D13) */
 wifi_err_t wifi_open_socket(wifi_socket_type_t type, const char *remote_addr,
                              uint16_t remote_port, uint8_t *out_handle);
+/**
+ * @brief Send data on an open socket.
+ * @param[in,out] handle  (description TBD)
+ * @param[in] data  (description TBD)
+ * @param[in,out] len  (description TBD)
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
 wifi_err_t wifi_send(uint8_t handle, const uint8_t *data, size_t len);
 wifi_err_t wifi_recv(uint8_t handle, uint8_t *buf, size_t buf_len,
                      size_t *out_len, uint32_t timeout_ms);
+/**
+ * @brief Close an open socket.
+ * @param[in,out] handle  (description TBD)
+ * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 wifi_err_t wifi_close_socket(uint8_t handle);
 
 /* ------------------------------------------------------------------ */

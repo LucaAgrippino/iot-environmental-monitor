@@ -150,6 +150,8 @@ typedef enum {
  *
  * Reads the metadata partition to determine the active bank and any
  * pending flags. Must be called after qspi_flash_driver_init().
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 firmware_store_err_t firmware_store_init(void);
 
@@ -160,6 +162,8 @@ firmware_store_err_t firmware_store_init(void);
  * Persists a "download in progress, offset = 0" record for resumability.
  *
  * @param  image_len  Total expected image body byte count (excl. header).
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_begin(uint32_t image_len);
 
@@ -174,6 +178,8 @@ firmware_store_err_t firmware_store_begin(uint32_t image_len);
  * @param  offset  Byte offset into the image body.
  * @param  data    Chunk payload.
  * @param  len     Chunk byte count.
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_write_chunk(uint32_t       offset,
                                                  const uint8_t *data,
@@ -186,6 +192,8 @@ firmware_store_err_t firmware_store_write_chunk(uint32_t       offset,
  * the next partial download request (REQ-DM-051).
  *
  * @param[out] offset_out  Last persisted offset; 0 if no download in progress.
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_get_resume_offset(uint32_t *offset_out);
 
@@ -203,6 +211,7 @@ firmware_store_err_t firmware_store_get_resume_offset(uint32_t *offset_out);
  * bank is not touched until firmware_store_apply() (D41).
  *
  * @return ERR_BAD_HEADER, ERR_SHA_MISMATCH, or ERR_SIG_INVALID on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_verify(void);
 
@@ -218,6 +227,7 @@ firmware_store_err_t firmware_store_verify(void);
  * other system functions during this call — schedule appropriately.
  *
  * @return ERR_FLASH_ERASE or ERR_FLASH_WRITE on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_apply(void);
 
@@ -227,6 +237,8 @@ firmware_store_err_t firmware_store_apply(void);
  * Writes the metadata slot with active_bank = inactive bank,
  * pending_self_check = 1, seq_num++. After this call, the next reboot
  * will boot the new firmware (REQ-DM-070, REQ-DM-073).
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_commit_slot(void);
 
@@ -235,6 +247,8 @@ firmware_store_err_t firmware_store_commit_slot(void);
  *
  * Called on download failure (REQ-DM-052) or signature failure (REQ-DM-061).
  * Does not affect the on-chip banks.
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_discard(void);
 
@@ -244,6 +258,8 @@ firmware_store_err_t firmware_store_discard(void);
  * Sets pending_rollback = 1; reverts active_bank to the previous slot;
  * increments rollback_count. After the subsequent reboot, the bootloader
  * selects the previous bank (REQ-DM-072, REQ-NF-204).
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_rollback(void);
 
@@ -253,11 +269,15 @@ firmware_store_err_t firmware_store_rollback(void);
  * Clears pending_self_check in the metadata. Called by UpdateService
  * when SelfChecking succeeds — marks the new firmware as permanently
  * committed (REQ-DM-071, REQ-DM-073).
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_confirm_self_check(void);
 
 /**
  * @brief  Return the currently active bank (A or B).
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_get_active_slot(firmware_slot_t *slot_out);
 
@@ -266,6 +286,8 @@ firmware_store_err_t firmware_store_get_active_slot(firmware_slot_t *slot_out);
  *
  * Called by LifecycleController at boot to detect a post-OTA resume
  * condition.
+ * @return FIRMWARE_STORE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 firmware_store_err_t firmware_store_get_pending_flags(bool *self_check_out,
                                                        bool *rollback_out);

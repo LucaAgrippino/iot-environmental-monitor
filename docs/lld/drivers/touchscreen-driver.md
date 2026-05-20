@@ -91,6 +91,7 @@ typedef void (*ts_irq_cb_t)(void *context);
  * Does NOT enable the EXTI interrupt — call touchscreen_attach_irq() for that.
  *
  * @return TS_ERR_OK on success; TS_ERR_I2C if FT6206 configuration fails.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 ts_err_t touchscreen_init(void);
 
@@ -102,6 +103,7 @@ ts_err_t touchscreen_init(void);
  * @param callback  Function called from ISR when the FT6206 IRQ fires.
  *                  Must not be NULL.
  * @param context   Opaque pointer passed unchanged to the callback.
+ * @note Threading: task-context only, non-blocking. Call before the scheduler starts; callback executes in ISR context.
  */
 void touchscreen_attach_irq(ts_irq_cb_t callback, void *context);
 
@@ -116,6 +118,7 @@ void touchscreen_attach_irq(ts_irq_cb_t callback, void *context);
  *
  * @param[out] touch  Populated on TS_ERR_OK. Must not be NULL.
  * @return TS_ERR_OK, TS_ERR_NO_DATA, or TS_ERR_I2C.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 ts_err_t touchscreen_read(ts_touch_t *touch);
 ```

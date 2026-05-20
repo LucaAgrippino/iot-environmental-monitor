@@ -94,6 +94,7 @@ typedef enum {
  * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_DEVICE on ID
  *         mismatch; QSPI_FLASH_ERR_TIMEOUT if the peripheral does not
  *         respond.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 qspi_flash_err_t qspi_flash_init(void);
 
@@ -112,6 +113,7 @@ qspi_flash_err_t qspi_flash_init(void);
  * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_ADDR or
  *         QSPI_FLASH_ERR_LEN on constraint violation;
  *         QSPI_FLASH_ERR_BUSY or QSPI_FLASH_ERR_TIMEOUT on hardware error.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
 
@@ -138,6 +140,7 @@ qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
  * @param data  Pointer to data to write (must not be NULL).
  * @param len   Number of bytes to program (1 .. 256, page-aligned).
  * @return QSPI_FLASH_ERR_OK on success; error code on failure.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_write_page(uint32_t addr,
                                         const uint8_t *data,
@@ -157,6 +160,7 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr,
  * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_TIMEOUT if WIP
  *         does not clear within 500 ms; QSPI_FLASH_ERR_ADDR if addr
  *         exceeds device capacity.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr);
 ```

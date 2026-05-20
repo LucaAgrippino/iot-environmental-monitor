@@ -86,12 +86,23 @@ typedef struct {
 typedef void (*magnetometer_drdy_cb_t)(void *ctx);
 
 /* Phase 1 — call before vTaskStartScheduler() */
+/**
+ * @brief Initialise the LIS3MDL magnetometer.
+ * @return MAGNETOMETER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ */
 magnetometer_err_t magnetometer_init(void);
 
 /* Phase 2 — call after vTaskStartScheduler(), from SensorTask init */
 magnetometer_err_t magnetometer_attach_drdy_callback(magnetometer_drdy_cb_t cb,
                                                       void *ctx);
 
+/**
+ * @brief Read the current magnetic field vector.
+ * @param[in,out] out  (description TBD)
+ * @return MAGNETOMETER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 magnetometer_err_t magnetometer_read(magnetometer_data_t *out);
 
 #endif /* MAGNETOMETER_DRIVER_H */
@@ -134,11 +145,29 @@ typedef struct {
 typedef void (*imu_int1_cb_t)(void *ctx);
 
 /* Phase 1 — call before vTaskStartScheduler() */
+/**
+ * @brief Initialise the LSM6DSL IMU.
+ * @return IMU_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ */
 imu_err_t imu_init(void);
 
 /* Phase 2 — call after vTaskStartScheduler(), from SensorTask init */
+/**
+ * @brief Register a callback for the IMU INT1 interrupt.
+ * @param[in,out] cb  (description TBD)
+ * @param[in,out] ctx  (description TBD)
+ * @return IMU_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Call before the scheduler starts; callback executes in ISR context.
+ */
 imu_err_t imu_attach_int1_callback(imu_int1_cb_t cb, void *ctx);
 
+/**
+ * @brief Read the current acceleration and gyroscope data.
+ * @param[in,out] out  (description TBD)
+ * @return IMU_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 imu_err_t imu_read(imu_data_t *out);
 
 #endif /* IMU_DRIVER_H */

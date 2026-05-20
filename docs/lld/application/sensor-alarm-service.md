@@ -120,6 +120,8 @@ typedef enum {
  * Attempts to initialise each driver; logs failures and continues
  * (REQ-SA-040, SA-060). Marks permanently failed sensors as invalid
  * so every subsequent cycle skips the failing driver.
+ * @return SENSOR_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 sensor_service_err_t sensor_service_init(void);
 
@@ -133,6 +135,8 @@ sensor_service_err_t sensor_service_init(void);
  *
  * Never blocks longer than the WCET budget (~3 ms at 80 MHz —
  * task-breakdown.md §8.1). All driver calls are synchronous.
+ * @return SENSOR_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 sensor_service_err_t sensor_service_run_cycle(void);
 
@@ -144,6 +148,7 @@ sensor_service_err_t sensor_service_run_cycle(void);
  * critical section.
  *
  * @param[out] snap  Filled with the latest snapshot.
+ * @return SENSOR_SERVICE_ERR_OK on success; non-zero error code on failure.
  */
 sensor_service_err_t sensor_service_get_snapshot(sensor_snapshot_t *snap);
 
@@ -171,12 +176,16 @@ sensor_service_err_t sensor_service_subscribe(
  *
  * Executes synchronously in the calling task's context — caller must
  * tolerate ~3 ms blocking.
+ * @return SENSOR_SERVICE_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 sensor_service_err_t sensor_service_read_on_demand(void);
 
 /**
  * @brief  Return true if all non-failed sensors produced a valid reading
  *         in the last cycle. Used by LifecycleController self-check.
+ * @return true on success; false otherwise.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 bool sensor_service_is_ready(void);
 

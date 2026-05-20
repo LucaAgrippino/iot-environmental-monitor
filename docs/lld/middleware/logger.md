@@ -69,7 +69,18 @@ typedef enum {
     LOGGER_ERR_INVALID_ARG = 2
 } logger_err_t;
 
+/**
+ * @brief Initialise the Logger module.
+ * @param[in,out] initial_level  (description TBD)
+ * @return LOGGER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ */
 logger_err_t logger_init(log_level_t initial_level);
+/**
+ * @brief Change the active log level filter at runtime.
+ * @param[in,out] level  (description TBD)
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 void         logger_set_level(log_level_t level);
 void         logger_log(log_level_t level, const char *module,
                         const char *fmt, ...);

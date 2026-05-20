@@ -71,7 +71,18 @@ typedef struct {
     int32_t humidity_x100;      /* %RH × 100; e.g. 5500 = 55.00 %RH */
 } humidity_temp_data_t;
 
+/**
+ * @brief Initialise the HTS221 humidity and temperature sensor.
+ * @return HUMIDITY_TEMP_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ */
 humidity_temp_err_t humidity_temp_init(void);
+/**
+ * @brief Read the current humidity and temperature from HTS221.
+ * @param[in,out] out  (description TBD)
+ * @return HUMIDITY_TEMP_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 humidity_temp_err_t humidity_temp_read(humidity_temp_data_t *out);
 
 #endif /* HUMIDITY_TEMP_DRIVER_H */
@@ -108,7 +119,18 @@ typedef struct {
     int32_t temperature_x100;   /* °C × 100; e.g. 2350 = 23.50 °C     */
 } barometer_data_t;
 
+/**
+ * @brief Initialise the LPS22HB barometric pressure sensor.
+ * @return BAROMETER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ */
 barometer_err_t barometer_init(void);
+/**
+ * @brief Read the current barometric pressure from LPS22HB.
+ * @param[in,out] out  (description TBD)
+ * @return BAROMETER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 barometer_err_t barometer_read(barometer_data_t *out);
 
 #endif /* BAROMETER_DRIVER_H */

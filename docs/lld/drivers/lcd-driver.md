@@ -82,6 +82,7 @@ typedef void (*lcd_frame_done_cb_t)(void *context);
  * lcd_attach_frame_done(), after LcdUiTask exists.
  *
  * @return LCD_ERR_OK on success; LCD_ERR_TIMEOUT on DSI or LTDC error.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 lcd_err_t lcd_init(void);
 
@@ -95,6 +96,7 @@ lcd_err_t lcd_init(void);
  *
  * @param callback  Function called from ISR on frame done. Must not be NULL.
  * @param context   Opaque pointer passed to the callback.
+ * @note Threading: task-context only, non-blocking. Call before the scheduler starts; callback executes in ISR context.
  */
 void lcd_attach_frame_done(lcd_frame_done_cb_t callback, void *context);
 

@@ -61,6 +61,7 @@ typedef enum {
  *
  * @return SDRAM_ERR_OK on success; SDRAM_ERR_TIMEOUT if the FMC
  *         status register BUSY flag does not clear.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 sdram_err_t sdram_init(void);
 
@@ -73,6 +74,7 @@ sdram_err_t sdram_init(void);
  * Must only be called after a successful sdram_init().
  *
  * @return Base address of the SDRAM (e.g. 0xC000_0000 for FMC bank 6).
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 uint32_t sdram_get_base_addr(void);
 ```

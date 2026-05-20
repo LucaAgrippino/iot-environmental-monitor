@@ -122,6 +122,8 @@ typedef struct {
  *
  * @param  response_timeout_ms  Response timeout per attempt (REQ-MB-050: 200 ms).
  * @param  max_retries          Max retry count (REQ-MB-060: 3).
+ * @return MODBUS_MASTER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 modbus_master_err_t modbus_master_init(uint32_t response_timeout_ms,
                                        uint8_t  max_retries);
@@ -139,6 +141,7 @@ modbus_master_err_t modbus_master_init(uint32_t response_timeout_ms,
  * @param  request   Encoded request (slave_addr, FC, data, data_len).
  * @param  response  Filled on success with slave_addr, FC, and payload.
  * @return MODBUS_MASTER_ERR_OK or an error code.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 modbus_master_err_t modbus_master_transact(const modbus_frame_t *request,
                                            modbus_frame_t       *response);
@@ -160,10 +163,14 @@ is an implementation detail of ModbusMaster.
  * Pattern). Thread-safe: stats are incremented only in ModbusPollerTask
  * context, so no mutex is required — atomicity is guaranteed by the
  * single-task caller model.
+ * @return MODBUS_MASTER_ERR_OK on success; non-zero error code on failure.
  */
 modbus_master_err_t modbus_master_get_stats(modbus_master_stats_t *stats_out);
 
-/** @brief  Reset all counters to zero (triggered by CMD_RESET_METRICS). */
+/** @brief  Reset all counters to zero (triggered by CMD_RESET_METRICS).
+ * @return MODBUS_MASTER_ERR_OK on success; non-zero error code on failure.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
 modbus_master_err_t modbus_master_reset_stats(void);
 ```
 
