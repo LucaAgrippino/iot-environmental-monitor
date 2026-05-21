@@ -1,0 +1,55 @@
+---
+:project:
+  :use_exceptions: FALSE
+  :use_mocks: TRUE
+  :compile_threads: 2
+  :test_threads: 2
+  :build_root: build
+
+:paths:
+  :test:
+    - tests/**/test_*.c
+  :source:
+    - firmware/**/*.c
+  :include:
+    - firmware/**/*.h
+  :support:
+    - tests/support
+
+:defines:
+  :common: []
+  :test: []
+
+:tools: {}
+
+:plugins:
+  :load_paths:
+    - "#{Ceedling.load_path}"
+  :enabled:
+    - stdout_pretty_tests_report
+    - module_generator
+
+:unity:
+  :defines: []
+
+:cmock:
+  :mock_prefix: mock_
+  :when_no_prototypes: :warn
+  :enforce_strict_ordering: TRUE
+  :plugins:
+    - :ignore
+    - :callback
+  :treat_as:
+    uint8: HEX8
+    uint16: HEX16
+    uint32: UINT32
+    int8: INT8
+    bool: UINT8
+
+:flags:
+  :test:
+    :compile:
+      :*:
+        - -std=c11
+        - -Wall
+        - -Wextra

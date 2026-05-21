@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  cppcheck-suppressions.xml
+  Accepted static-analysis suppressions for the IoT Environmental Monitoring Gateway.
+
+  Each <suppress> entry must include a <comment> child element explaining:
+    - which BARR-C rule or project constraint justifies the suppression, and
+    - why the flag is a false positive or an accepted deviation.
+
+  This file is referenced by CI via:
+    cppcheck --suppressions-list=cppcheck-suppressions.xml
+
+  No entries are recorded at project bootstrap. Add entries here as justified
+  exceptions arise during implementation.
+-->
+<suppressions>
+</suppressions>
