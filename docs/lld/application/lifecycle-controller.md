@@ -488,6 +488,16 @@ logic (queue-post, reset-cause detection, EditingConfig timeout).
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | Orchestrates the entire boot sequence on both boards: calls `config_service_load()`, `device_profile_registry_load()`, `modbus_slave_init()` (FD), drives the per-slave probe loop (GW), and transitions the state machine from Init to Operational or Faulted | `lifecycle_controller_init()`, `lifecycle_controller_run()` |
+| SD-06 | Receives the OTA start command; transitions to UpdatingFirmware; calls `update_service_start()`; on completion transitions back to Operational or Faulted | `lifecycle_controller_on_command()`, `lifecycle_controller_run()` |
+| SD-08 | Receives the remote-restart command; transitions to Restarting; calls `cloud_publisher_flush()` then `reset_driver_request_reset()` | `lifecycle_controller_on_command()`, `lifecycle_controller_run()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

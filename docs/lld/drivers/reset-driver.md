@@ -168,6 +168,15 @@ No SD changes required.
 
 ---
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-06 | SD-06c/SD-06d: `LifecycleController` calls `reset_driver_request_reset()` after the OTA flash and verify steps complete, causing the MCU to reboot into the new firmware | `reset_driver_request_reset()` |
+| SD-08 | Remote restart: `LifecycleController` calls `reset_driver_request_reset()` after graceful shutdown (CloudPublisher flush, Logger flush) | `reset_driver_request_reset()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 None applicable. The function cannot fail and does not return.

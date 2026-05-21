@@ -398,6 +398,14 @@ mutex at that point.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-04 | SD-04a: `StoreAndForward` calls `circular_flash_log_write()` to buffer outbound MQTT frames when the cloud link is down. SD-04b: `StoreAndForward` calls `circular_flash_log_read()` and `circular_flash_log_pop()` to drain buffered frames on reconnect | `circular_flash_log_write()`, `circular_flash_log_read()`, `circular_flash_log_pop()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

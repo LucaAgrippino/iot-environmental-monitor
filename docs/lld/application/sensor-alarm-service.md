@@ -530,6 +530,18 @@ alarms make physical sense, and the threshold semantics are non-trivial.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00b: `LifecycleController` calls `sensor_service_probe()` during the Init.SelfChecking phase to verify sensor initialisations | `sensor_service_probe()` |
+| SD-01 | `SensorService` drives the sensor acquisition cycle: calls `barometer_driver_read()` and `humidity_temp_driver_read()`, stamps, validates, filters, and notifies `AlarmService` via event queue | `sensor_service_run_cycle()` |
+| SD-03 | SD-03a: `CloudPublisher` calls `sensor_service_get_latest()` to retrieve the current reading snapshot for the 60 s telemetry payload | `sensor_service_get_latest()` |
+| SD-05 | `AlarmService` detects a threshold breach, calls `modbus_register_map_set_alarm_bit()` (FD), then propagates via `cloud_publisher_publish_alarm()` (GW path) | `alarm_service_evaluate()`, `alarm_service_acknowledge()` |
+| SD-06 | SD-06d: `UpdateService` requests `sensor_service_pause()` before the OTA flash step to quiesce sensor activity | `sensor_service_pause()`, `sensor_service_resume()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

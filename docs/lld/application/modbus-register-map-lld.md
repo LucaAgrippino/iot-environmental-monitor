@@ -665,6 +665,16 @@ perspective beyond the natural propagation through `SensorService`.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-02 | `ModbusSlave` dispatches each read/write request to `IModbusRegisterMap`; `ModbusRegisterMap` maps holding-register addresses to `ConfigService` parameters and `SensorService` readings | `modbus_register_map_read()`, `modbus_register_map_write()` |
+| SD-05 | `AlarmService` calls `modbus_register_map_set_alarm_bit()` to update the alarm status holding register on the FD Modbus map so the Gateway can read it during the next polling cycle | `modbus_register_map_set_alarm_bit()` |
+| SD-09 | `ModbusSlave` dispatches the FC06/16 time-write to `IModbusRegisterMap.write_holding_register()` which stores the synchronised epoch time in the time holding register | `modbus_register_map_write()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ### 11.1 Internal error enum

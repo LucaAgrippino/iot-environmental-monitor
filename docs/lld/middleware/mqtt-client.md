@@ -428,6 +428,19 @@ MqttClient — all socket I/O is blocking within CloudPublisherTask.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-03 | SD-03a/SD-03b: `CloudPublisher` calls `mqtt_client_publish()` to send telemetry (60 s) and health (600 s) payloads to AWS IoT Core | `mqtt_client_publish()` |
+| SD-04 | SD-04a: `MqttClient` raises `disconnect_cb` when the cloud link drops. SD-04b: `MqttClient` calls `mqtt_client_connect()` on reconnect; `CloudPublisher` drains the store-and-forward queue | `mqtt_client_connect()`, `mqtt_client_publish()`, `mqtt_client_subscribe()` |
+| SD-05 | `CloudPublisher` calls `mqtt_client_publish()` to relay the alarm payload to the cloud alarm topic | `mqtt_client_publish()` |
+| SD-06 | SD-06a: `CloudPublisher` relays the OTA start command from `MqttClient` to `UpdateService`. SD-06b/d: progress/completion MQTT publishes | `mqtt_client_publish()`, `mqtt_client_subscribe()` |
+| SD-07 | `CloudPublisher` receives the remote-config MQTT message via `msg_cb` and routes it to `ConfigService` | `mqtt_client_subscribe()` |
+| SD-08 | `CloudPublisher` receives the restart command via `msg_cb` and routes it to `LifecycleController` | `mqtt_client_subscribe()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

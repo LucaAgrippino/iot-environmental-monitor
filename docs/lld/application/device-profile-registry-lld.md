@@ -395,6 +395,16 @@ call (from the next write operation) will overwrite with the latest state.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00b: `LifecycleController` calls `device_profile_registry_load()` to load persisted device profiles from `ConfigStore`; `ModbusPoller` iterates profiles to probe each slave | `device_profile_registry_load()`, `device_profile_registry_get_next()` |
+| SD-07 | `CloudPublisher` routes the remote-profile-update command to `device_profile_registry_update_profile()` | `device_profile_registry_update_profile()` |
+| SD-10 | `ConsoleService` calls `device_profile_registry_add_profile()` for each device profile entered during provisioning | `device_profile_registry_add_profile()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ```c

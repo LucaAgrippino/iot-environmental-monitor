@@ -469,6 +469,15 @@ firmware_store_init()        ← reads metadata; loads OTA public key from CertS
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00c: `UpdateService` calls `firmware_store_get_pending_flag()` and `firmware_store_clear_pending_flag()` during the post-update boot to detect and acknowledge the completed update | `firmware_store_get_pending_flag()`, `firmware_store_clear_pending_flag()` |
+| SD-06 | SD-06b: `UpdateService` calls `firmware_store_write_chunk()` to write downloaded firmware chunks to QSPI. SD-06c: `UpdateService` calls `firmware_store_verify()` and `firmware_store_set_pending_flag()` before requesting reset | `firmware_store_write_chunk()`, `firmware_store_verify()`, `firmware_store_set_pending_flag()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

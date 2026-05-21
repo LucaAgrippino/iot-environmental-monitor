@@ -393,6 +393,14 @@ documented as safe from any task context. `graphics_process()` calls
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00a msg 2/6/9/14: `LifecycleController` calls `graphics_library_render_splash()` and `graphics_library_update_progress()` to display the boot splash screen and progress bar, then `graphics_library_render_screen()` to show the Operational UI | `graphics_library_render_splash()`, `graphics_library_update_progress()`, `graphics_library_render_screen()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
