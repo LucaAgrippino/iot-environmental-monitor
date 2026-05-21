@@ -323,6 +323,11 @@ QUADSPI pin assignments (CLK, NCS, IO0–IO3) vary per board. Verify against UM1
 
 ---
 
+### NVIC
+
+N/A — the driver uses indirect-mode polling (busy-wait on `QUADSPI_SR.TCF`). The QUADSPI interrupt (`QUADSPI_IRQn`) is not enabled. This avoids a FreeRTOS import at the driver layer and matches the access pattern of the two middleware callers (single-task, bounded operation time).
+
+
 ## 5. Sequence integration
 
 `QspiFlashDriver` appears as an explicit lifeline in three sequence diagrams, all on the Gateway:

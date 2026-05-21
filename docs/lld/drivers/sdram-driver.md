@@ -169,6 +169,30 @@ At 800×480 pixels with RGB565 (2 bytes/pixel), the framebuffer is 800 × 480 ×
 
 ---
 
+### Registers
+
+| Peripheral | Key registers | Purpose |
+|---|---|---|
+| `FMC` (AHB3) | `FMC_SDCR1` / `FMC_SDCR2` | SDRAM control: column/row bits, bus width, CAS latency, clock period. |
+| `FMC` | `FMC_SDTR1` / `FMC_SDTR2` | SDRAM timing: TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD. |
+| `FMC` | `FMC_SDCMR` | Command mode register — issues CLK_ENABLE, PALL, AUTO_REFRESH, LOAD_MODE. |
+| `FMC` | `FMC_SDRTR` | Auto-refresh timer period. |
+
+Timing values are board-specific and tracked as SDRD-O1 and SDRD-O2 (§8).
+
+### Pins
+
+N/A — FMC SDRAM pins (address, data, control lines) are alternate-function pins across multiple GPIO ports and are configured by the board support initialisation before `main()`. SdramDriver does not call GpioDriver; these are system-level pins outside the firmware driver scope.
+
+### Clocks
+
+`FMC` clock: `RCC->AHB3ENR |= RCC_AHB3ENR_FMCEN`. Enabled in `sdram_init()`. FMC runs on the AHB3 bus (same frequency as the system core clock on F469).
+
+### NVIC
+
+N/A — the FMC SDRAM interrupt (`FMC_IRQn`) is not enabled. SDRAM appears as flat memory after init; no interrupt-driven access is required.
+
+
 ## 5. Sequence integration
 
 None. SdramDriver is not a sequence diagram participant.

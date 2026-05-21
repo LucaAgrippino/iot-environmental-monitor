@@ -133,6 +133,27 @@ The reset clears all CPU registers, peripheral registers (except those in the ba
 
 ---
 
+### Registers
+
+| Register | Access | Purpose |
+|---|---|---|
+| `SCB->AIRCR` | Write (key + SYSRESETREQ bit) | Requests a processor-level system reset. |
+
+Access uses the CMSIS `NVIC_SystemReset()` inline function from `core_cm4.h`. The write requires the correct VECTKEY value in the upper half-word; CMSIS supplies this.
+
+### Pins
+
+N/A — `reset_trigger()` is a single CMSIS call. No GPIO pin is asserted or changed.
+
+### Clocks
+
+N/A — the SCB (System Control Block) is part of the Cortex-M core and is always clocked. No RCC enable is required.
+
+### NVIC
+
+N/A — `reset_trigger()` initiates a system reset; it does not configure or use any interrupt line. The function does not return.
+
+
 ## 5. Sequence integration
 
 `ResetDriver` appears in three sequence diagrams:

@@ -458,6 +458,23 @@ eliminates practical `ERR_NOT_READY` conditions.
 
 ---
 
+### Registers
+
+N/A — LIS3MDL and LSM6DSL are external I2C sensor ICs. Their internal device registers are accessed via multi-byte I2C transactions delegated to I2cDriver. This driver does not directly access any MCU peripheral register.
+
+### Pins
+
+N/A — I2C SDA/SCL pins are owned and configured by I2cDriver. DRDY/INT1 GPIO pins are configured by GpioDriver and armed by ExtiDriver; their specific pin assignments are in §4.1–§4.2 above.
+
+### Clocks
+
+N/A — I2C peripheral clock is enabled by I2cDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+LSM6DSL INT1 (motion detection / data ready) is wired to an EXTI line armed by ExtiDriver. NVIC priority is assigned by the caller via `exti_enable()`. If the INT1 callback invokes FreeRTOS FromISR functions, priority must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` (lld.md §6.3).
+
+
 ## 5. Sequence integration
 
 ### Nominal read flow (per SensorTask 100 ms cycle)

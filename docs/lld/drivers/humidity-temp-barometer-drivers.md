@@ -390,6 +390,23 @@ Pre-conditions: the component has been initialised (where an init function exist
 
 ---
 
+### Registers
+
+N/A — HTS221 and LPS22HB are external I2C sensor ICs. Their internal device registers are accessed via multi-byte I2C transactions delegated entirely to I2cDriver. This driver does not directly touch any MCU peripheral register.
+
+### Pins
+
+N/A — I2C SDA/SCL pins are configured by I2cDriver. The HTS221 DRDY output pin (PD15, EXTI15) is configured by GpioDriver and armed by ExtiDriver; this driver does not directly call GpioDriver or ExtiDriver — see GPA-D1 (STATUS_REG polling replaces DRDY interrupt at firmware level).
+
+### Clocks
+
+N/A — I2C peripheral clock is enabled by I2cDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+N/A — the firmware uses STATUS_REG polling (GPA-D1) rather than DRDY interrupts. No NVIC line is enabled by this driver.
+
+
 ## 5. Sequence integration
 
 Both drivers are called from SensorTask in the SD-01 nominal flow.

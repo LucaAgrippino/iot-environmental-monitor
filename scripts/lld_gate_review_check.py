@@ -378,6 +378,35 @@ def _sec2_body(text: str) -> str:
     return after[: end_m.start()] if end_m else after
 
 
+def _sec4_body(text: str) -> str | None:
+    """Return §4 Hardware contract section body, or None if absent."""
+    m = re.search(r"## 4\. Hardware contract", text)
+    if not m:
+        return None
+    after = text[m.start():]
+    end_m = re.search(r"\n## [5-9]\.|\n## \d\d\.", after)
+    return after[: end_m.start()] if end_m else after
+
+
+# Pure-software drivers excluded from the hardware-contract check.
+# LedDriver wraps GpioDriver (hardware contract lives there).
+# SimulatedSensorDrivers are pure-software; no physical peripheral.
+_PURE_SOFTWARE_DRIVERS = frozenset({
+    "led-driver",
+    "simulated-sensor-drivers",
+})
+
+# Regex patterns that indicate each required subsection is present.
+# Accepts a ### heading containing the keyword or an explicit "N/A" declaration.
+# All patterns compiled with re.IGNORECASE in check_pass_e.
+_SEC4_SUBSECTIONS: dict[str, str] = {
+    "Registers": r"###[^\n]*(register|peripheral)|N/A[^\n]*(register|CMSIS)",
+    "Pins":      r"###[^\n]*\bpins?\b|N/A[^\n]*\bpins?\b|no GPIO",
+    "Clocks":    r"###[^\n]*(clock|RCC)|N/A[^\n]*(clock|RCC)",
+    "NVIC":      r"###[^\n]*\bNVIC\b|N/A[^\n]*\bNVIC\b|no interrupt|no ISR",
+}
+
+
 def _sec3_body(text: str) -> str:
     """Return the body of '## 3. Internal design' section."""
     m = re.search(r"## 3\. Internal design", text)
@@ -502,6 +531,61 @@ def check_api_doxygen(paths: dict, findings: list):
                         rel))
 
 
+def check_pass_e(paths: dict, findings: list):
+    """Pass E: driver §4 must have Registers/Pins/Clocks/NVIC subsections; no HAL refs."""
+    if not paths["drivers"].exists():
+        return
+
+    lld_text = (paths["lld_master"].read_text(encoding="utf-8")
+                if paths["lld_master"].exists() else "")
+    nvic_table_present = "NVIC priority allocation" in lld_text
+    any_nvic_driver = False
+
+    for companion in sorted(paths["drivers"].glob("*.md")):
+        if companion.stem in _PURE_SOFTWARE_DRIVERS:
+            continue
+
+        text = companion.read_text(encoding="utf-8")
+        rel = str(companion.relative_to(paths["root"]))
+
+        sec4 = _sec4_body(text)
+        if sec4 is None:
+            continue  # already caught by check_section_structure
+
+        # HAL reference check — BLOCKER
+        hal_re = re.compile(r"HAL_\w+|#include\s+[<\"]stm32\w*_hal\b", re.IGNORECASE)
+        for m in hal_re.finditer(sec4):
+            # Compute line number relative to the full file
+            sec4_start = text.find(sec4[:50])
+            line_no = text[: sec4_start + m.start()].count("\n") + 1
+            findings.append(Finding(
+                Severity.BLOCKER, "Hardware contract (Pass E)",
+                f"HAL reference '{m.group(0)}' in §4 — CMSIS-only above the driver layer "
+                "(lld.md §3.1 / lld-methodology.md §4 gate criterion)",
+                rel, line_no))
+
+        # Four-subsection check — BLOCKER per missing
+        for sub_name, pattern in _SEC4_SUBSECTIONS.items():
+            if not re.search(pattern, sec4, re.IGNORECASE):
+                findings.append(Finding(
+                    Severity.BLOCKER, "Hardware contract (Pass E)",
+                    f"§4 missing '{sub_name}' subsection "
+                    "(or 'N/A — <reason>' — lld-methodology.md §4 gate criterion)",
+                    rel))
+
+        # Track whether any companion has real NVIC content
+        if re.search(r"\b(IRQn|_IRQHandler|IRQ_Handler)\b", sec4):
+            any_nvic_driver = True
+
+    # NVIC priority allocation table must exist in lld.md — FIX_NOW
+    if any_nvic_driver and not nvic_table_present:
+        findings.append(Finding(
+            Severity.FIX_NOW, "Hardware contract (Pass E)",
+            "At least one driver companion has NVIC content but lld.md §6 lacks an "
+            "'NVIC priority allocation' subsection — add per lld-methodology.md §4 guidance",
+            str(paths["lld_master"].relative_to(paths["root"]))))
+
+
 # ----------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------
@@ -523,12 +607,13 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_principles_applied(paths, findings)
     check_api_doxygen(paths, findings)
     check_pass_d(paths, findings)
+    check_pass_e(paths, findings)
 
     return findings, paths
 
 
 def print_report(findings: list[Finding], paths: dict):
-    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D)")
+    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E)")
     print(f"Root: {paths['root']}\n")
 
     by_severity = defaultdict(list)

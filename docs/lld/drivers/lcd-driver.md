@@ -236,6 +236,45 @@ LTDC timing registers (SSCR, BPCR, AWCR, TWCR) encode the horizontal/vertical sy
 
 ---
 
+### Registers
+
+| Peripheral | Key registers | Purpose |
+|---|---|---|
+| `LTDC` | `LTDC_SSCR`, `LTDC_BPCR`, `LTDC_AWCR`, `LTDC_TWCR` | Horizontal/vertical sync and blanking timing. |
+| `LTDC` | `LTDC_L1CR`, `LTDC_L1WHPCR`, `LTDC_L1WVPCR` | Layer 1 enable and window position. |
+| `LTDC` | `LTDC_L1CFBAR` | Layer 1 framebuffer address (set to SDRAM base). |
+| `LTDC` | `LTDC_L1PFCR` | Pixel format (RGB565 = 2). |
+| `LTDC` | `LTDC_SRCR` | Shadow reload control — `VBR` bit triggers reload on vertical blank. |
+| `LTDC` | `LTDC_IER`, `LTDC_ICR` | Line interrupt enable and clear (frame-done callback). |
+| `DSIHOST` | `DSIHOST_CR`, `DSIHOST_WRPCR`, `DSIHOST_PCTLR` | DSI host enable, PLL, and PHY control (LCDD-O1). |
+
+### Pins
+
+LTDC and DSI use alternate-function pins on GPIOE, GPIOF, GPIOG, GPIOH, GPIOI, GPIOJ, and GPIOK (STM32F469 only). These are pre-configured by the board support initialisation before `main()`. LcdDriver does not call GpioDriver for any of these system-level pins; the board init owns their configuration.
+
+N/A for GpioDriver-level pin control within this driver.
+
+### Clocks
+
+| Enable bit | Peripheral | Bus |
+|---|---|---|
+| `RCC_APB2ENR_LTDCEN` | LTDC | APB2 |
+| `RCC_APB2ENR_DSIEN` | DSIHOST | APB2 |
+| PLLSAI R output | LTDC pixel clock | PLLSAI_R via PLLSAIDIVR |
+| `RCC_AHB1ENR_DMA2DEN` | DMA2D (Chrom-Art) | AHB1 |
+
+LcdDriver enables these clocks in `lcd_init()`.
+
+### NVIC
+
+| Interrupt | Priority | Purpose |
+|---|---|---|
+| `LTDC_IRQn` | 6 | Line interrupt (frame-done) — calls `s_lcd.frame_done_cb` from ISR context. |
+| `DSI_IRQn` | 6 | DSI error/wrap-around interrupt (if enabled). |
+
+Callbacks invoked from these ISRs must be FreeRTOS-FromISR-safe. Priority 6 is ≥ configMAX_SYSCALL_INTERRUPT_PRIORITY (lld.md §6.3).
+
+
 ## 5. Sequence integration
 
 `LcdDriver` is not an explicit lifeline in any HLD sequence diagram. Its ISR (`DSI_LTDC_IRQHandler`) is listed in task-breakdown.md §6.1. No SD changes required.

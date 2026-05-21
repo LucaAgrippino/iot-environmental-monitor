@@ -481,6 +481,23 @@ action is required to enable it; it is controlled by hardware.
 
 ---
 
+### Registers
+
+N/A — the ISM43362 Wi-Fi module communicates over SPI. All SPI peripheral register access is delegated to SpiDriver. WifiDriver constructs AT-command payloads and calls `spi_transceive()`; it does not touch `SPI3->CR1`, `SPI3->DR`, or related registers directly.
+
+### Pins
+
+The ISM43362 GPIO control lines (NSS, DRDY, BOOT0, RST) are accessed via GpioDriver (`gpio_write_pin`, `gpio_read_pin`). Pin assignments are in §4.2 above (GPIO lines table).
+
+### Clocks
+
+N/A — SPI3 clock is enabled by SpiDriver (`RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN`). GPIO clocks for the control lines are enabled by GpioDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+The DRDY pin (PE1, EXTI1) signals that the ISM43362 has data to send. The ISR (`EXTI1_IRQHandler`) is registered by the caller via ExtiDriver and sets `s_wifi.datardy_cb`. NVIC priority is assigned by the caller; must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` if the callback notifies a FreeRTOS task (lld.md §6.3).
+
+
 ## 5. Sequence integration
 
 ### TCP code path — MQTT cloud publish (SD-03 reference, LLD-D13)

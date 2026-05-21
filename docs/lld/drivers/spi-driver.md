@@ -225,6 +225,22 @@ SPID-O1 shares the same root dependency (APB1/PCLK1 clock configuration) as DUAR
 
 ---
 
+### Registers
+
+| Register | Access | Purpose |
+|---|---|---|
+| `SPI3->CR1` | R/W | Master mode, CPOL/CPHA, software NSS, data-frame format select. |
+| `SPI3->CR2` | R/W | DS[3:0] = 1111 (16-bit frame); FRXTH = 0 (RXNE on ≥ 16 bits). |
+| `SPI3->SR` | R | TXE, RXNE, BSY flags polled in the transfer loop. |
+| `SPI3->DR` | R/W | Data register — 16-bit write transmits; 16-bit read receives. |
+
+Register access via the CMSIS `SPI3` macro (`SPI_TypeDef *` at the fixed peripheral base address). No HAL.
+
+### NVIC
+
+N/A — the driver uses a polling model (busy-wait on `SPI_SR.TXE` / `SPI_SR.RXNE` / `SPI_SR.BSY`). The SPI interrupt (`SPI3_IRQn`) is not enabled. Polling is acceptable for the ISM43362 transfer sizes used by WifiDriver.
+
+
 ## 5. Sequence integration
 
 `SpiDriver` has no HLD-level sequence diagram surface. All WiFi-related sequences (SD-03, SD-04, SD-09) have `WifiDriver` as the lowest visible lifeline; `SpiDriver` is an internal implementation detail of `WifiDriver`. No changes to `sequence-diagrams.md` are required.

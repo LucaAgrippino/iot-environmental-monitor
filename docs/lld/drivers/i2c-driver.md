@@ -308,6 +308,11 @@ No shared register-level code between the two implementations. The v1 and v2 per
 
 ---
 
+### NVIC
+
+N/A — the driver uses a polling model (busy-wait on status flags; see §3 Internal design). I2C event and error interrupts (`I2Cx_EV_IRQn`, `I2Cx_ER_IRQn`) are not enabled. This avoids importing a FreeRTOS dependency at the driver layer (lld.md §3.4 dependency rule).
+
+
 ## 5. Sequence integration
 
 `I2cDriver` has no HLD-level sequence diagram surface. The SD-01 note explicitly excludes driver-to-driver traffic from the HLD. No changes to `sequence-diagrams.md` are required.

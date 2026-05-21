@@ -243,6 +243,34 @@ All allocations below apply to **both** boards unless noted otherwise.
 
 ---
 
+### 6.3 NVIC priority allocation
+
+All driver ISRs run on Cortex-M4 with a 4-bit priority field (16 levels, 0 = highest).
+FreeRTOS `configMAX_SYSCALL_INTERRUPT_PRIORITY` is **5** (priority register value 0x50).
+Driver ISRs must be assigned a numeric priority **≥ 5** to safely call FreeRTOS
+`FromISR` functions. Priorities 0–4 are reserved for non-FreeRTOS, non-maskable
+critical interrupts (none in this project at time of LLD).
+
+| ISR | Board | Priority | Calls FreeRTOS FromISR | Rationale |
+|---|---|---|---|---|
+| `USART3_IRQHandler` (Debug UART) | FD (F469) | 6 | No — calls registered callback | Below tick priority; callback decides FreeRTOS use |
+| `USART1_IRQHandler` (Debug UART) | GW (L475) | 6 | No — calls registered callback | Same |
+| `USART2_IRQHandler` (Modbus UART) | FD (F469) | 6 | No — calls `rx_cb` | Callback owner must use FromISR if notifying a task |
+| `USART3_IRQHandler` (Modbus UART) | GW (L475) | 6 | No — calls `rx_cb` | Same |
+| `EXTI*_IRQHandler` (ExtiDriver lines) | Both | 6 (default; caller-set) | Depends on callback | Caller sets priority via `exti_enable()` |
+| `LTDC_IRQHandler` | FD (F469) | 6 | No — calls frame-done callback | GraphicsLibrary callback uses `xTaskNotifyFromISR` |
+| `DSI_IRQHandler` | FD (F469) | 6 | No | Error/wrap-around — informational |
+| `RTC_Alarm_IRQn` | Both | 6 | TBD (Phase 4) | Reserved; implementation in Phase 4 |
+
+**Allocation rules:** claim a new ISR by adding a row to this table. No two driver
+ISRs may share a priority level without architectural justification. Priorities 0–4
+are not available to any driver that calls FreeRTOS API.
+
+**Open item EXTI-O1:** verify that the chosen EXTI priorities for WifiDriver (DRDY)
+and TouchscreenDriver (touch IRQ) do not violate the FreeRTOS boundary once the
+actual priority values are confirmed in `exti_enable()` call sites.
+
+
 ## 7. Traceability
 
 Each completed companion adds one row.

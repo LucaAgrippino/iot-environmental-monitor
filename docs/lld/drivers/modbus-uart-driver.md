@@ -322,6 +322,25 @@ On the STM32F469 (F4 USART), clearing the IDLE flag requires reading SR then rea
 
 ---
 
+### Clocks
+
+| Board | USART instance | RCC enable register | Enable bit |
+|---|---|---|---|
+| STM32F469 (FD) | USART2 (RS-485 bus) | `RCC->APB1ENR` | `RCC_APB1ENR_USART2EN` |
+| STM32L475 (GW) | USART3 (RS-485 bus) | `RCC->APB1ENR1` | `RCC_APB1ENR1_USART3EN` |
+
+The USART clock source is `PCLK1` (APB1 bus clock). Baud rate values are derived from PCLK1 divided by the configured baud-rate register value (see §4.2).
+
+### NVIC
+
+| Board | ISR | Priority | Calls FreeRTOS FromISR |
+|---|---|---|---|
+| STM32F469 | `USART2_IRQHandler` | 6 | No — calls `s_modbus_uart.rx_cb` (callback decides) |
+| STM32L475 | `USART3_IRQHandler` | 6 | No — calls `s_modbus_uart.rx_cb` (callback decides) |
+
+Priority 6 is ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY`. Registered callbacks that invoke FreeRTOS API must use FromISR variants and call `portYIELD_FROM_ISR` on notification.
+
+
 ## 5. Sequence integration
 
 ModbusUartDriver appears as explicit lifelines in **SD-02** (Modbus polling cycle, `sequence-diagrams.md` §7):

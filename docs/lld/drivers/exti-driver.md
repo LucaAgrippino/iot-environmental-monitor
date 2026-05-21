@@ -355,6 +355,31 @@ Verify against `FreeRTOSConfig.h` at implementation (EXTI-O1).
 
 ---
 
+### Registers used
+
+| Peripheral | Registers | Purpose |
+|---|---|---|
+| `SYSCFG` (APB2) | `EXTICR[0]`..`EXTICR[3]` | Selects GPIO port for each EXTI line (4 bits per line). |
+| `EXTI` | `IMR` / `IMR1` | Interrupt mask — enables/disables each EXTI line. |
+| `EXTI` | `RTSR` / `RTSR1` | Rising-trigger selection register. |
+| `EXTI` | `FTSR` / `FTSR1` | Falling-trigger selection register. |
+| `EXTI` | `PR` / `PR1` | Pending register — cleared in ISR by writing 1 to the bit. |
+
+Register aliases: F469 uses bare `IMR`, `RTSR`, `FTSR`, `PR`; L475 uses the `1`-suffixed variants. Both are accessed via the CMSIS `EXTI` macro.
+
+### Pins
+
+N/A — ExtiDriver does not configure GPIO pins. Pin direction, pull, and alternate function are GpioDriver's responsibility. ExtiDriver wires an already-configured input pin to the EXTI interrupt logic by programming `SYSCFG_EXTICRx`.
+
+### Clocks
+
+`SYSCFG` clock: `RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN`. ExtiDriver enables this bit inside `exti_configure()` if not already set. The `EXTI` peripheral itself is in the same APB2 domain and clocked by the same enable.
+
+### NVIC
+
+NVIC priority is a **caller-supplied parameter** to `exti_enable()`. ExtiDriver does not prescribe priority values. Callers that register a callback invoking FreeRTOS API (`FromISR` functions) must assign priority ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` (see lld.md §6.3).
+
+
 ## 5. Sequence integration
 
 ExtiDriver calls occur within the two-phase init of each consumer driver.

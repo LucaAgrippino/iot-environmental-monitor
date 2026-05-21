@@ -224,6 +224,21 @@ FT6206 7-bit I2C address is 0x38 (standard). Verify from UM1932 schematic (addre
 
 ---
 
+### Registers
+
+N/A — the FT6206 touch controller is an I2C slave device. Its internal registers are accessed via I2C transactions delegated to I2cDriver. This driver does not directly access any MCU SPI or I2C peripheral register.
+
+### Clocks
+
+N/A — I2C peripheral clock is enabled by I2cDriver. The EXTI IRQ pin clock is enabled by GpioDriver and ExtiDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+The FT6206 IRQ pin is connected to an MCU GPIO configured as an EXTI input. NVIC priority is assigned by the caller via `exti_enable()` (called from the touchscreen consumer's init).
+
+If the registered `irq_cb` callback invokes FreeRTOS API, the EXTI priority must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` (lld.md §6.3).
+
+
 ## 5. Sequence integration
 
 `TouchscreenDriver` is not an explicit sequence diagram lifeline at HLD level. Its ISR is documented in task-breakdown.md §6.1. No SD changes required.

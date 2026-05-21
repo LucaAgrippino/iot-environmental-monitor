@@ -398,6 +398,19 @@ Not applicable. The RTC is clocked from LSE, not APB. The unresolved PCLK values
 
 ---
 
+### Pins
+
+N/A — the RTC peripheral has no GPIO pins in this project. The LSE oscillator pins (PC14/PC15) are configured by the system clock setup code prior to `main()` and are not within the scope of this driver. The RTC alarm output pin (PC13) is not used.
+
+### NVIC
+
+| Board | ISR | Priority | Purpose |
+|---|---|---|---|
+| Both | `RTC_Alarm_IRQn` | 6 | RTC alarm interrupt (if the alarm feature is activated in Phase 4). |
+
+The alarm ISR is currently not implemented (Phase 4 concern). Priority 6 is documented as the target allocation for all driver ISRs in lld.md §6.3.
+
+
 ## 5. Sequence integration
 
 `RtcDriver` appears in one existing sequence diagram:
