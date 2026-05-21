@@ -450,7 +450,18 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `config_service_err_t`; callers must not ignore
+non-OK returns.  No retry is performed inside ConfigService — callers (
+ConsoleService, CloudPublisher, LifecycleController) decide retry and
+logging policy.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `CONFIG_SERVICE_ERR_NOT_INIT` | Function called before `config_service_init()` | Return error; no state change | Non-OK return | No retry — programming error; boot sequence must initialise ConfigService before callers | Caller logs at ERROR via ILogger |
+| `CONFIG_SERVICE_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `CONFIG_SERVICE_ERR_INVALID` | Validation failure — parameter value out of range or cross-parameter constraint violated (REQ-DM-001) | Return error; parameters unchanged | Non-OK return | No retry — caller must send a corrected value | Caller logs at WARN via ILogger; ConsoleService prints `[ERR]` to terminal |
+| `CONFIG_SERVICE_ERR_PERSIST` | `ConfigStore.save()` returned non-OK | Return error; in-memory state already updated (new value active) | Non-OK return | No retry by ConfigService — caller may retry; ConfigStore will attempt to overwrite the slot on next save | Logged at WARN via ILogger; `HEALTH_EVENT_CONFIG_WRITE_FAIL` pushed to IHealthReport |
+
 
 ## 7. Unit-test plan
 

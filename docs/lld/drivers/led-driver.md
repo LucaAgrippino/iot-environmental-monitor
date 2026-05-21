@@ -224,9 +224,14 @@ LED GPIO pins must be configured as push-pull output, no pull-up, medium speed. 
 
 ## 6. Error and fault behaviour
 
-`HealthMonitor` is the sole caller. On `LED_ERR_INVALID_ID`, `HealthMonitor` should log the event via `ILogger` and continue — a missing LED is not a fatal condition. No escalation to `IHealthReport` is needed; the LED state is an output, not a monitored resource.
+All public functions return `led_err_t`; callers must not ignore non-OK returns.
+No retry is performed internally — the driver surfaces the error; the caller
+decides the retry and logging policy.
 
----
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `LED_ERR_INVALID_ID` | `led_on()` / `led_off()` called with an `led_id_t` not fitted on the active board variant | Return error; no GPIO change | Non-OK return | No retry — programming error; caller must check the board variant before calling | Caller logs at WARN via ILogger |
+
 
 ## 7. Unit-test plan
 

@@ -500,7 +500,16 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `lifecycle_err_t`; callers must not ignore non-OK
+returns.  LifecycleController is the system root — errors in its API indicate
+programming errors (init not called, null argument) rather than runtime
+recoverable conditions.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `LIFECYCLE_ERR_NULL_ARG` | Null pointer argument | Return error; no state change | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `LIFECYCLE_ERR_NOT_INIT` | Function called before `lifecycle_controller_init()` | Return error; no action taken | Non-OK return | No retry — programming error; system cannot enter Operational without a successful init | Logged at ERROR via ILogger |
+
 
 ## 7. Unit-test plan
 

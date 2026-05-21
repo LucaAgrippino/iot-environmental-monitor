@@ -310,7 +310,19 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `ntp_client_err_t`; callers must not ignore
+non-OK returns.  No retry is performed inside NtpClient for individual
+server attempts — TimeService drives the overall retry policy with
+exponential back-off (REQ-GW-NTP-002).
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `NTP_CLIENT_ERR_NOT_INIT` | Function called before `ntp_client_init()` | Return error; no network interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `NTP_CLIENT_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `NTP_CLIENT_ERR_ALL_FAILED` | No server in the configured list responded within `NTP_CLIENT_QUERY_TIMEOUT_MS` | Return error; time not updated | Non-OK return | No retry by NtpClient — TimeService retries the full query with exponential back-off; after threshold: `HEALTH_EVENT_NTP_SYNC_FAILED` | Logged at WARN via ILogger; IHealthReport event after repeated failures |
+| `NTP_CLIENT_ERR_BAD_RESPONSE` | NTP response failed LI, VN, Stratum, or timestamp sanity checks | Return error; response discarded | Non-OK return | No retry by NtpClient — TimeService tries the next server in list | Logged at WARN via ILogger |
+| `NTP_CLIENT_ERR_WIFI` | WifiDriver returned a non-OK error on UDP send or receive | Return error | Non-OK return | No retry by NtpClient — TimeService retries after WiFi reconnect | Logged at WARN via ILogger |
+
 
 ## 7. Unit-test plan
 

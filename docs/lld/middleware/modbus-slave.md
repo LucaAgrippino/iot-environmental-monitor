@@ -403,7 +403,19 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `modbus_slave_err_t`; callers must not ignore
+non-OK returns.  Internal Modbus protocol errors (address violations, value
+range checks) are mapped to standard Modbus exception codes returned in the
+response PDU rather than surfaced as `_err_t` values.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MODBUS_SLAVE_ERR_NOT_INIT` | Function called before `modbus_slave_init()` | Return error; no UART interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MODBUS_SLAVE_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MODBUS_SLAVE_ERR_INVALID_ADDR` | Register address out of range for the configured map | Respond with Modbus exception 0x02 (ILLEGAL_DATA_ADDRESS); return error to internal caller | Non-OK return from `modbus_slave_process_frame()` | No retry — master will log the exception response | Logged at WARN via ILogger (unexpected address from master) |
+| `MODBUS_SLAVE_ERR_INVALID_VALUE` | Register write value out of valid range; maps to Modbus exception 0x03 | Respond with Modbus exception 0x03 (ILLEGAL_DATA_VALUE) | Non-OK return | No retry — master must send a corrected write | Logged at WARN via ILogger |
+| `MODBUS_SLAVE_ERR_DEVICE_FAIL` | IModbusRegisterMap handler returned a device failure; maps to Modbus exception 0x04 | Respond with Modbus exception 0x04 (SERVER_DEVICE_FAILURE) | Non-OK return | No retry — master receives the exception; internal retry policy driven by master application | Logged at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed if the register map signals a sensor fault |
+
 
 ## 7. Unit-test plan
 

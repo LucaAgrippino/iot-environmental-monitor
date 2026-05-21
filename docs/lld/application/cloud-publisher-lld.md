@@ -395,26 +395,17 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-```c
-typedef enum {
-    CP_OK = 0,
-    CP_ERR_NULL_ARG,
-    CP_ERR_NOT_INIT,
-    CP_ERR_SERIALISE,        /* snprintf produced truncated output */
-    CP_ERR_PUBLISH_FAILED,   /* MqttClient returned error         */
-    CP_ERR_SAF_FULL,         /* StoreAndForward queue full        */
-} cloud_publisher_err_t;
-```
+All public functions return `cloud_publisher_err_t`; callers must not ignore
+non-OK returns.  CloudPublisherTask is the sole caller for most functions.
 
-- `CP_ERR_SERIALISE` — JSON exceeded `CP_JSON_BUF_SIZE`. Logged; message
-  dropped. Not fatal. (In practice, health payload is the largest at ~800
-  bytes — well within 4 KB.)
-- `CP_ERR_PUBLISH_FAILED` — MQTT publish error when `is_connected()` was
-  true. Route to `StoreAndForward` as fallback.
-- `CP_ERR_SAF_FULL` — `StoreAndForward.enqueue()` rejected the entry.
-  Log at warn; message dropped. `HealthReport` counter incremented.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `CP_ERR_NOT_INIT` | Function called before `cloud_publisher_init()` | Return error; no action taken | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `CP_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `CP_ERR_SERIALISE` | `snprintf` produced a truncated output (payload exceeded `CP_JSON_BUF_SIZE`) | Message dropped; return error | Non-OK return | No retry — payload too large; a design-time limit violation. In practice the largest payload (~800 B) fits within 4 KB | Logged at WARN via ILogger; no IHealthReport event (non-fatal) |
+| `CP_ERR_PUBLISH_FAILED` | `MqttClient.publish()` returned non-OK while `is_connected()` was true (transient send error) | Route message to StoreAndForward for later delivery | Non-OK return (delivery deferred) | No retry of current publish — StoreAndForward provides retry-on-reconnect semantics | Logged at WARN via ILogger; `stats.publish_failures` incremented |
+| `CP_ERR_SAF_FULL` | `StoreAndForward.enqueue()` rejected the entry (flash ring full) | Message dropped; increment health counter | Non-OK return | No retry — StoreAndForward is full; CloudPublisher drops the message and increments the IHealthReport counter | Logged at WARN via ILogger; `HEALTH_EVENT_SAF_FULL` pushed to IHealthReport |
 
----
 
 ## 11. Initialisation
 

@@ -247,13 +247,14 @@ If the registered `irq_cb` callback invokes FreeRTOS API, the EXTI priority must
 
 ## 6. Error and fault behaviour
 
-On `TS_ERR_I2C` from `touchscreen_init()`, the BringingUpLCD Init sub-state fails → Faulted. The LCD is essential (REQ-LD-000); touchscreen failure prevents configuration and alarm screen interaction and is non-recoverable at boot.
+All public functions return `ts_err_t`; callers must not ignore non-OK returns.
+No retry is performed by the driver — callers apply retry and logging policy.
 
-On `TS_ERR_I2C` from `touchscreen_read()` (runtime), GraphicsLibrary discards the touch event and logs via Logger. The display continues operating.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `TS_ERR_NO_DATA` | `touchscreen_read()` called when no touch point is currently active (FT6206 buffer empty) | Return error; no I2C read attempted if contact count is 0 | Non-OK return | No retry — LcdUi polls again on the next EXTI event; this is a normal race condition | Not logged (expected transient) |
+| `TS_ERR_I2C` | Underlying `i2c_write()` or `i2c_read()` returned a non-OK code (timeout or bus error) | Return error; touch state unchanged | Non-OK return | No retry — LcdUi skips the touch sample on error; a persistent I2C failure is reported via IHealthReport | LcdUi logs at WARN via ILogger; persistent failures push `HEALTH_EVENT_SENSOR_FAIL` |
 
-On `TS_ERR_NO_DATA`, GraphicsLibrary discards the call silently (spurious IRQ or race condition). No error logged — this is normal transient behaviour.
-
----
 
 ## 7. Unit-test plan
 

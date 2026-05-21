@@ -443,7 +443,19 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `mqtt_client_err_t`; callers must not ignore
+non-OK returns.  No retry is performed inside MqttClient — CloudPublisher
+drives the reconnect and retry strategy.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MQTT_CLIENT_ERR_NOT_INIT` | Function called before `mqtt_client_init()` | Return error; no network interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MQTT_CLIENT_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MQTT_CLIENT_ERR_CONNECT_FAIL` | TLS handshake failed or MQTT CONNECT rejected (bad CONNACK) | Return error; socket closed | Non-OK return | No retry by MqttClient — CloudPublisher retries with exponential back-off; `stats.connect_failures` incremented | Logged at WARN via ILogger; `HEALTH_EVENT_MQTT_DISCONNECT` pushed to IHealthReport |
+| `MQTT_CLIENT_ERR_PUBLISH_FAIL` | `mqtt_client_publish()` send error or QoS-1 PUBACK timeout | Return error | Non-OK return | No retry by MqttClient — CloudPublisher routes to StoreAndForward | Logged at WARN via ILogger; `stats.publish_failures` incremented |
+| `MQTT_CLIENT_ERR_NOT_CONNECTED` | `mqtt_client_publish()` or `mqtt_client_disconnect()` called when not connected | Return error immediately; no network interaction | Non-OK return | No retry — CloudPublisher checks `is_connected()` before publishing; this error indicates a race or logic error | Logged at DEBUG via ILogger (may be transient during reconnect) |
+| `MQTT_CLIENT_ERR_TLS_FAIL` | mbedTLS setup or certificate verification failure | Return error; TLS context freed | Non-OK return | No retry by MqttClient — CloudPublisher retries connect after back-off; persistent TLS failures may indicate certificate expiry | Logged at ERROR via ILogger; `HEALTH_EVENT_MQTT_DISCONNECT` pushed |
+
 
 ## 7. Unit-test plan
 

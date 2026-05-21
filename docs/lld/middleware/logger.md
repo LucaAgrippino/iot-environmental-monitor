@@ -271,18 +271,15 @@ received, not in the ISR itself.
 
 ## 6. Error and fault behaviour
 
-| Condition | Response |
-|-----------|----------|
-| `logger_log()` called before `logger_init()` | Return immediately; no output, no crash |
-| Mutex timeout (> 10 ms wait) | Drop log entry silently; no return value |
-| `vsnprintf` truncation | Append `...` at byte 252; always null-terminate |
-| RtcDriver not set | Substitute uptime timestamp; log entry still produced |
-| `module` or `fmt` is NULL | Substitute `"?"` for NULL module; skip format for NULL fmt |
+All public functions return `logger_err_t`; callers must not ignore non-OK
+returns.  Logger itself does not log its own errors (to avoid recursion) — it
+silently drops messages on error after returning the code to the caller.
 
-Logger has no error return from `logger_log()` — it is `void`. Callers
-must never depend on a log call succeeding.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `LOGGER_ERR_NOT_INIT` | `logger_log()` or `logger_set_level()` called before `logger_init()` succeeded | Return error; message dropped | Non-OK return | No retry — programming error; boot sequence must initialise Logger before any other component | Silently dropped (Logger cannot log its own errors); callers should assert in debug builds |
+| `LOGGER_ERR_INVALID_ARG` | Null format string, invalid log level, or null output handle | Return error; message dropped | Non-OK return | No retry — programming error | Silently dropped |
 
----
 
 ## 7. Unit-test plan
 

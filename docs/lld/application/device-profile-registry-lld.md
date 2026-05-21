@@ -407,30 +407,20 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-```c
-typedef enum {
-    DPR_OK = 0,
-    DPR_ERR_NOT_FOUND,
-    DPR_ERR_FULL,
-    DPR_ERR_INVALID,       /* validation failure          */
-    DPR_ERR_PERSIST,       /* ConfigStore write failed    */
-    DPR_ERR_LOAD,          /* ConfigStore read / deserialise failed */
-    DPR_ERR_NULL_ARG,
-    DPR_ERR_NOT_INIT,
-} dpr_err_t;
-```
+All public functions return `dpr_err_t`; callers must not ignore non-OK
+returns.  No retry is performed inside DeviceProfileRegistry — callers
+(ConfigService, ConsoleService) apply the retry and logging policy.
 
-`DPR_ERR_PERSIST` is non-fatal for the registry itself — the in-memory
-state is consistent even if the flash write fails. The error is returned
-to the caller (ConfigService or ConsoleService) which logs it and reports
-the condition upstream.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `DPR_ERR_NOT_FOUND` | `get_by_addr()` called for an address not in the registry | Return error; no state change | Non-OK return | No retry — caller handles "not found" as a normal query result | Not logged (expected query outcome) |
+| `DPR_ERR_FULL` | `add_or_update()` called when the registry has reached `DPR_MAX_SLAVES` entries | Return error; entry not added | Non-OK return | No retry — operator must remove a stale profile before adding another | Logged at WARN via ILogger |
+| `DPR_ERR_INVALID` | Profile data failed validation (e.g., slave address 0, duplicate address) | Return error; registry unchanged | Non-OK return | No retry — caller must correct the profile data | Logged at WARN via ILogger |
+| `DPR_ERR_PERSIST` | ConfigStore write failed after an add/update/remove operation | Return error; in-memory state already updated (new state active but not persisted) | Non-OK return | No retry by DPR — caller (ConfigService/ConsoleService) logs and reports; next write attempt will try again | Logged at WARN via ILogger; `HEALTH_EVENT_CONFIG_WRITE_FAIL` pushed to IHealthReport |
+| `DPR_ERR_LOAD` | ConfigStore read or deserialise failed at boot | Return error; registry starts empty | Non-OK return | No retry — LifecycleController continues to Operational with an empty registry; operator must re-provision | Logged at WARN via ILogger; `HEALTH_EVENT_CONFIG_READ_FAIL` pushed |
+| `DPR_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `DPR_ERR_NOT_INIT` | Function called before `device_profile_registry_init()` | Return error | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
 
-`DPR_ERR_LOAD` at boot — logged as a warning; registry starts empty.
-`LifecycleController` does not treat this as Faulted; it continues to
-Operational with no slaves polled (all link probes will fail until
-profiles are re-provisioned).
-
----
 
 ## 11. Initialisation
 

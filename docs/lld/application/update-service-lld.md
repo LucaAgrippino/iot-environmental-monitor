@@ -380,25 +380,23 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-```c
-typedef enum {
-    US_OK = 0,
-    US_ERR_BUSY,              /* DM-054: concurrent update rejected      */
-    US_ERR_AUTH_FAILED,       /* DM-056: handled by CloudPublisher       */
-    US_ERR_DOWNLOAD_FAILED,   /* DM-053: 3 retries exhausted             */
-    US_ERR_VALIDATION_FAILED, /* DM-062: signature/integrity check       */
-    US_ERR_APPLY_FAILED,      /* flash write to inactive bank failed     */
-    US_ERR_SELF_CHECK_FAILED, /* DM-072: triggers rollback               */
-    US_ERR_NULL_ARG,
-    US_ERR_NOT_INIT,
-} us_err_t;
-```
+All public functions return `us_err_t`; callers must not ignore non-OK
+returns.  All terminal errors result in the UpdateService state machine
+reaching `Failed`, a cloud failure report (REQ-DM-055), and `busy = false`.
+The gateway lifecycle returns to `Operational` running on the previous
+firmware.
 
-All terminal errors result in the machine reaching `Failed`, a cloud
-failure report (REQ-DM-055), and `busy = false`. The gateway lifecycle
-returns to `Operational` running on the previous firmware.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `US_ERR_BUSY` | `handle_command()` called while an update is already in progress (REQ-DM-054) | Return error immediately; no state change | Non-OK return | No retry — CloudPublisher reports the rejection upstream | Logged at WARN via ILogger |
+| `US_ERR_AUTH_FAILED` | ECDSA-P256 signature verification failed (REQ-DM-056) | State transitions to `Failed`; rollback initiated | Non-OK return | No retry — authentication failure is non-retriable; operator must re-publish a correctly signed image | Logged at ERROR via ILogger; cloud failure report; `HEALTH_EVENT_FIRMWARE_APPLY_FAIL` pushed to IHealthReport |
+| `US_ERR_DOWNLOAD_FAILED` | 3 download retries exhausted with no successful chunk sequence (REQ-DM-053) | State transitions to `Failed` | Non-OK return | 3 retries attempted internally before surfacing; no further retry — operator must restart the OTA process | Logged at WARN via ILogger; cloud failure report |
+| `US_ERR_VALIDATION_FAILED` | SHA-256 or header CRC mismatch (REQ-DM-062) | State transitions to `Failed`; image discarded | Non-OK return | No retry — integrity failure is non-retriable | Logged at ERROR via ILogger; cloud failure report; IHealthReport event |
+| `US_ERR_APPLY_FAILED` | Flash write to the inactive bank failed during `FirmwareStore.apply()` | State transitions to `Failed` | Non-OK return | No retry — hardware fault; operator must check flash health and retry OTA | Logged at ERROR via ILogger; cloud failure report |
+| `US_ERR_SELF_CHECK_FAILED` | Post-reboot self-check failed; firmware damaged (REQ-DM-072) | Rollback to previous bank; state transitions to `Failed` | Non-OK return | Rollback performed automatically; no further retry of the failed image | Logged at ERROR via ILogger; cloud failure report; IHealthReport event |
+| `US_ERR_NULL_ARG` | Null pointer argument | Return error; no state change | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `US_ERR_NOT_INIT` | Function called before `update_service_init()` | Return error; no state change | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
 
----
 
 ## 11. Watchdog (FS-O1)
 

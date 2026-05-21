@@ -628,25 +628,14 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-```c
-typedef enum {
-    LCD_UI_OK = 0,
-    LCD_UI_ERR_NULL_ARG,
-    LCD_UI_ERR_GRAPHICS_INIT,
-    LCD_UI_ERR_PROVIDER_NULL,
-} lcd_ui_err_t;
-```
+All public functions return `lcd_ui_err_t`; callers must not ignore non-OK
+returns.  No retry is performed inside LcdUi — `LifecycleController` handles
+init failures as Faulted (REQ-LD-000).
 
-`lcd_ui_init()` returns `LCD_UI_ERR_GRAPHICS_INIT` if the underlying
-`IGraphics.init()` call fails. This causes `LifecycleController` to
-transition to Faulted (REQ-LD-000 — LCD is essential).
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `LCD_UI_ERR_GRAPHICS_INIT` | `graphics_lib_init()` returned non-OK (LVGL initialisation failed — typically insufficient SDRAM or LVGL heap not configured) | Return error; LCD not functional | Non-OK return | No retry — BringingUpLCD sub-state fails; LifecycleController enters Faulted | Logged at ERROR via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed to IHealthReport |
 
-At runtime, provider getter failures (e.g., sensor read returns invalid)
-surface as sentinel display values (§9.2), not as fatal errors.
-`IConfigManager.apply_block()` failure surfaces as a UI toast and is
-logged; the system continues in Operational with the previous config.
-
----
 
 ## 13. Initialisation order
 

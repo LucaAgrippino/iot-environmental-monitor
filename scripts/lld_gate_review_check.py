@@ -753,6 +753,92 @@ def _sec5_body(text: str) -> str:
 
 
 # ----------------------------------------------------------------------
+# Pass G — Error & fault behaviour (§6)
+# ----------------------------------------------------------------------
+
+def _sec6_body(text: str) -> str:
+    """Return the body of '## 6. Error and fault behaviour' section."""
+    m = re.search(r"## 6\.[^\n]*[Ee]rror", text)
+    if not m:
+        m = re.search(r"## 6\.", text)
+    if not m:
+        return ""
+    after = text[m.start():]
+    end_m = re.search(r"\n## [7-9]\.|\n## \d\d\.", after)
+    return after[: end_m.start()] if end_m else after
+
+
+_ERR_ENUM_RE = re.compile(
+    r"typedef\s+enum\s*\{([^}]+)\}\s*(\w+_err_t)\s*;",
+    re.DOTALL,
+)
+
+_ERR_VALUE_LINE_RE = re.compile(r"^\s*([A-Z_][A-Z0-9_]+)\s*[=,\n]", re.MULTILINE)
+
+_RETRY_KWS = [
+    "retry", "retries", "retried", "no retry", "surfaced to caller",
+    "propagated", "propagates", "caller retries", "bounded attempt",
+    "max attempt", "attempt", "re-attempt",
+]
+
+_OBSERVABILITY_KWS = [
+    "log", "logger", "ihealth", "ihealthreport", "health_report",
+    "logged", "observ", "severity", "warn", "error level", "debug",
+    "not observed",
+]
+
+
+def check_pass_g(paths: dict, findings: list):
+    """Pass G: §6 must enumerate every non-OK _err_t value with retry + observability."""
+    for companion in discover_companions(paths):
+        text = companion.read_text(encoding="utf-8")
+        rel = str(companion.relative_to(paths["root"]))
+
+        # Extract all non-OK values from every _err_t enum in the file
+        non_ok_values: list[str] = []
+        for m in _ERR_ENUM_RE.finditer(text):
+            body = m.group(1)
+            for val_m in _ERR_VALUE_LINE_RE.finditer(body):
+                val = val_m.group(1)
+                if not (val.endswith("_OK") or val == "OK"):
+                    non_ok_values.append(val)
+
+        if not non_ok_values:
+            # Component has no _err_t enum (e.g. reset-driver with void returns)
+            continue
+
+        sec6 = _sec6_body(text)
+        sec6_lower = sec6.lower()
+
+        # 1. Each non-OK symbol must appear in §6 by name
+        for val in non_ok_values:
+            if val not in sec6:
+                findings.append(Finding(
+                    Severity.BLOCKER, "Error behaviour (Pass G)",
+                    f"§6 does not mention error value '{val}' — each non-OK enum value "
+                    "must be documented with cause, local behaviour, and caller-visible "
+                    "result (lld-methodology.md §6 gate criterion)",
+                    rel))
+
+        # 2. Retry policy — at least one mention per companion (section-level)
+        if not any(kw in sec6_lower for kw in _RETRY_KWS):
+            findings.append(Finding(
+                Severity.BLOCKER, "Error behaviour (Pass G)",
+                "§6 does not state a retry policy — declare 'no retry — surfaced to caller' "
+                "or a bounded retry count per failure mode "
+                "(lld-methodology.md §6 gate criterion)",
+                rel))
+
+        # 3. Observability — at least one mention per companion
+        if not any(kw in sec6_lower for kw in _OBSERVABILITY_KWS):
+            findings.append(Finding(
+                Severity.FIX_NOW, "Error behaviour (Pass G)",
+                "§6 does not mention any observability sink (Logger severity or IHealthReport) "
+                "for failure modes (lld-methodology.md §6 gate criterion)",
+                rel))
+
+
+# ----------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------
 
@@ -775,12 +861,13 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_pass_d(paths, findings)
     check_pass_e(paths, findings)
     check_pass_f(paths, findings)
+    check_pass_g(paths, findings)
 
     return findings, paths
 
 
 def print_report(findings: list[Finding], paths: dict):
-    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E, F)")
+    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E, F, G)")
     print(f"Root: {paths['root']}\n")
 
     by_severity = defaultdict(list)

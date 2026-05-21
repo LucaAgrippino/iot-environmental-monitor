@@ -325,16 +325,22 @@ The fault injection path (3', 5') is the most valuable part of this driver from 
 
 ## 6. Error and fault behaviour
 
-On `BARO_ERR_FAULT` or `HT_ERR_FAULT`, `SensorService`:
+All public functions return `baro_err_t` or `ht_err_t`; callers must not ignore
+non-OK returns.  These simulated drivers are used in host-platform integration tests
+and fault-injection scenarios.
 
-1. Logs the error via `Logger` (REQ-SA-080).
-2. Marks the sample invalid (REQ-SA-0E1).
-3. Continues the cycle with the remaining sensor (REQ-SA-060).
-4. Posts the invalid reading downstream with the error flag set (REQ-SA-160).
+### baro_err_t
 
-The drivers have no further obligation on error — they return the error code and leave state unchanged.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `BARO_ERR_FAULT` | Fault-injection flag set via `barometer_set_fault(true)` | Return error; no reading produced | Non-OK return | No retry — SensorService treats the fault the same way it would treat a hardware error | Caller (SensorService) logs at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed after threshold |
 
----
+### ht_err_t
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `HT_ERR_FAULT` | Fault-injection flag set via `humidity_temp_set_fault(true)` | Return error; no reading produced | Non-OK return | No retry — same policy as `BARO_ERR_FAULT` | Caller (SensorService) logs at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed after threshold |
+
 
 ## 7. Unit-test plan
 

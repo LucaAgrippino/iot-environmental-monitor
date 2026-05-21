@@ -677,37 +677,19 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-### 11.1 Internal error enum
+Register handler functions return `modbus_register_map_err_t`; write-range
+violations and type-mismatch errors are returned rather than silently ignored.
+Internal errors that reach the protocol boundary are mapped to standard Modbus
+exception codes (see §6.1 table).  No retry is performed — `ModbusSlave`
+handles all retry and exception-response logic.
 
-```c
-typedef enum {
-    MRM_OK = 0,
-    MRM_ERR_NULL_ARG,
-    MRM_ERR_NOT_INITIALISED,
-    MRM_ERR_PROVIDER_FAILURE,    /* downstream call failed */
-    MRM_ERR_INVARIANT,           /* slot-table corruption (assert in debug) */
-} modbus_register_map_err_t;
-```
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MRM_ERR_NULL_ARG` | Null pointer argument | Return error; assert in debug | Non-OK return | No retry — programming error | Logged at ERROR via ILogger (ModbusSlave maps to `MB_EXC_ILLEGAL_DATA_VALUE` in release) |
+| `MRM_ERR_NOT_INITIALISED` | Handler called before `modbus_register_map_init()` | Return error; assert in debug | Non-OK return | No retry — init ordering bug | Logged at ERROR via ILogger; assert halts in debug |
+| `MRM_ERR_PROVIDER_FAILURE` | Downstream provider call (e.g. `ISensorService.get_latest()`) returned non-OK | Return error; respond to master with a sentinel value or `MB_EXC_NONE` depending on context | Non-OK return | No retry — ModbusSlave returns the exception; master decides retry | Logged at WARN via ILogger |
+| `MRM_ERR_INVARIANT` | Slot-table sort invariant broken (internal corruption) | Assert in debug; log and continue in release | Non-OK return | No retry — indicates a defect; logged at ERROR | Logged at ERROR via ILogger; assert halts in debug builds |
 
-Internal errors that surface to the protocol boundary are mapped:
-
-| Internal | Modbus exception | Notes |
-|---|---|---|
-| `MRM_OK` | `MB_EXC_NONE` | — |
-| `MRM_ERR_NULL_ARG` | *(assert in debug; `MB_EXC_ILLEGAL_DATA_VALUE` in release)* | Should never happen from `ModbusSlave` |
-| `MRM_ERR_NOT_INITIALISED` | *(assert in debug)* | Init ordering bug |
-| `MRM_ERR_PROVIDER_FAILURE` | depends on context — typically logged and surfaced as `MB_EXC_NONE` with a sentinel data value, never as a protocol exception | See §6.1.1 |
-| `MRM_ERR_INVARIANT` | *(assert; halts in debug, logs in release)* | Slot table sort broken |
-
-### 11.2 Logging policy
-
-- **Info** — slave-address change, command-magic accepted.
-- **Warn** — command-magic rejected, FC16 phase-1 rejection.
-- **Error** — FC16 phase-2 unexpected failure (should be impossible), slot-table invariant broken.
-
-No log on routine FC03/FC04 — would flood at the 1 Hz poll cadence.
-
----
 
 ## 12. Memory and sizing
 

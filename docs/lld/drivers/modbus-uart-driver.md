@@ -369,19 +369,16 @@ No SD changes required. The existing SD-02 messages accurately describe the driv
 
 ## 6. Error and fault behaviour
 
-### 6.1 TX errors
+All public functions return `modbus_uart_err_t`; callers must not ignore
+non-OK returns.  No retry is performed by the driver — ModbusMaster applies
+the REQ-MB-060 three-retry policy on TIMEOUT; ModbusSlave logs and waits for
+the next master request.
 
-`modbus_uart_transmit` returns `MODBUS_UART_ERR_TIMEOUT` if TXE or TC does not assert. The consumer (ModbusMaster / ModbusSlave) logs the event via `ILogger` and reports via `IHealthReport`. For ModbusMaster, a TX timeout starts the retry countdown (REQ-MB-060). For ModbusSlave, a TX timeout is reported but no retry is initiated (the master will time out and retry).
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MODBUS_UART_ERR_TIMEOUT` | TXE or TC flag did not assert within `MODBUS_UART_TX_TIMEOUT_MS` | Return error; `s_tx_busy` cleared | Non-OK return | No retry by driver — ModbusMaster retries up to 3 times per REQ-MB-060; ModbusSlave logs and awaits the next request | Caller logs at WARN via ILogger; ModbusMaster increments `stats.tx_errors` |
+| `MODBUS_UART_ERR_BUSY` | `modbus_uart_transmit()` called while a previous TX is still in progress (`s_tx_busy == true`) | Return error immediately; no hardware interaction | Non-OK return | No retry — programming error; caller must serialise access (ModbusMaster holds the bus token) | Caller logs at ERROR via ILogger |
 
-### 6.2 RX errors
-
-On `MODBUS_UART_EVENT_RX_ERROR`, the consumer discards the partial frame and waits for the next RX_DONE event. Error counters are maintained by the middleware layer (ModbusMaster / ModbusSlave stats interfaces), not by the driver. The driver's only obligation is to clear the error flags, reset `s_rx_len`, and invoke the callback.
-
-### 6.3 Buffer overrun
-
-If `s_rx_len` reaches 256 (maximum ADU size) before IDLE fires, the driver switches to discard mode (receives but does not store further bytes) and invokes the callback with `MODBUS_UART_EVENT_RX_ERROR` when IDLE is eventually detected. This prevents buffer corruption.
-
----
 
 ## 7. Unit-test plan
 

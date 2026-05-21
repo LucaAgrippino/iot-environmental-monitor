@@ -249,15 +249,13 @@ N/A — the driver uses a polling model (busy-wait on `SPI_SR.TXE` / `SPI_SR.RXN
 
 ## 6. Error and fault behaviour
 
-### 6.1 Error propagation
+All public functions return `spi_err_t`; callers must not ignore non-OK returns.
+No retry is performed by the driver — callers apply retry and logging policy.
 
-`spi_transceive` returns `spi_err_t`. On `SPI_ERR_TIMEOUT`, the SPI bus may be in an undefined state (the module may be mid-frame). `WifiDriver` is responsible for deciding whether to reset the WiFi module or escalate to `MqttClient` via the cloud connectivity state machine. The driver's only obligation is to return the error and leave the SPI peripheral disabled (`SPE=0`) so a subsequent `spi_init` call can recover cleanly.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `SPI_ERR_TIMEOUT` | TXE or RXNE flag did not assert within `SPI_TIMEOUT_MS` | Return error; NSS left in its current state (caller is responsible for deassert on error) | Non-OK return | No retry — WifiDriver and QspiFlashDriver may retry at the protocol level; SpiDriver itself does not | Caller logs at WARN via ILogger; WifiDriver returns `WIFI_ERR_SPI` to NtpClient/CloudPublisher |
 
-### 6.2 No bus recovery sequence
-
-Unlike I2cDriver (§3.5 of that companion), SPI has no equivalent to a stuck-SDA condition. A timeout indicates either a clock configuration error or a hardware fault in the module itself. The appropriate response (WiFi module reset via a dedicated RST GPIO controlled by `WifiDriver`) is outside the SPI driver's scope. `SpiDriver` returns the error and takes no further action.
-
----
 
 ## 7. Unit-test plan
 

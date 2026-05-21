@@ -408,7 +408,21 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `cfl_err_t`; callers must not ignore non-OK returns.
+No retry is performed inside CircularFlashLog — StoreAndForward (the sole caller)
+applies retry or drain-stop policy as appropriate.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `CFL_ERR_NOT_INIT` | Function called before `circular_flash_log_init()` succeeded | Return error; no flash access | Non-OK return | No retry — programming error; boot sequence must initialise CFL before StoreAndForward | Caller logs at ERROR via ILogger |
+| `CFL_ERR_NULL_ARG` | Null pointer passed to an output parameter | Return error; no flash access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `CFL_ERR_TOO_LARGE` | Payload exceeds `CFL_MAX_RECORD_BYTES` | Return error; no write performed | Non-OK return | No retry — caller must split the payload; StoreAndForward limits entries to `SAF_PAYLOAD_MAX` which is within `CFL_MAX_RECORD_BYTES` | Caller logs at WARN via ILogger |
+| `CFL_ERR_EMPTY` | `peek_oldest()` or `consume_oldest()` called on an empty ring | Return error; no flash read | Non-OK return | No retry — StoreAndForward treats this as normal drain termination | Not logged (expected condition) |
+| `CFL_ERR_FLASH_ERASE` | QspiFlashDriver erase returned non-OK | Return error; sector may be partially erased | Non-OK return | No retry by CFL — StoreAndForward increments `IHealthReport` flash-error counter and stops the drain | Caller logs at WARN via ILogger; `HEALTH_EVENT_CONFIG_WRITE_FAIL` pushed to IHealthReport |
+| `CFL_ERR_FLASH_WRITE` | QspiFlashDriver write returned non-OK | Return error; record not written | Non-OK return | No retry by CFL — StoreAndForward stops enqueue and logs the failure | Caller logs at WARN via ILogger; IHealthReport counter incremented |
+| `CFL_ERR_FLASH_READ` | QspiFlashDriver read returned non-OK | Return error; record not readable | Non-OK return | No retry by CFL — StoreAndForward skips the record and advances the read pointer | Caller logs at WARN via ILogger |
+| `CFL_ERR_CORRUPT` | Record CRC mismatch on read | Return error; record discarded | Non-OK return | No retry — record is unrecoverable; StoreAndForward calls `consume_oldest()` to advance past the corrupt entry | Caller logs at WARN via ILogger |
+
 
 ## 7. Unit-test plan
 

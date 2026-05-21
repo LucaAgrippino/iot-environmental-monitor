@@ -488,7 +488,23 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `health_monitor_err_t` or `health_admin_err_t`;
+callers must not ignore non-OK returns.  HealthMonitor itself never retries —
+`push_event()` and counter updates are fire-and-forget.
+
+### health_monitor_err_t
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `HEALTH_MONITOR_ERR_NOT_INIT` | Function called before `health_monitor_init()` | Return error; no state change | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `HEALTH_MONITOR_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+
+### health_admin_err_t
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `HEALTH_ADMIN_ERR_NOT_INIT` | `health_monitor_reset_stats()` or admin function called before init | Return error; no state change | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+
 
 ## 7. Unit-test plan
 
