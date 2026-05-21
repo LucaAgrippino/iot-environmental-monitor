@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  host-tests:
+    name: Host unit tests (Ceedling)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: false
+
+      - name: Install Ceedling
+        run: gem install ceedling
+
+      - name: Run tests
+        working-directory: tests
+        run: ceedling test:all
+
+  firmware-build:
+    name: Firmware build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        include:
+          - target: f469
+            project_path: firmware/field-device
+          - target: l475
+            project_path: firmware/gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with STM32CubeIDE
+        uses: xanderhendriks/action-build-stm32cubeide@v2
+        with:
+          version: "2.1.1"
+          project-path: ${{ matrix.project_path }}
+
+  cppcheck:
+    name: Static analysis (cppcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          # No-op until firmware source files exist alongside .gitkeep placeholders.
+          # Find .c and .h files under firmware/ excluding .gitkeep-only dirs.
+          sources=$(find firmware/ -name '*.c' -o -name '*.h' | grep -v '\.gitkeep' || true)
+          if [ -z "$sources" ]; then
+            echo "cppcheck: no source files found — skipping"
+            exit 0
+          fi
+          cppcheck \
+            --enable=all \
+            --error-exitcode=1 \
+            --suppressions-list=cppcheck-suppressions.xml \
+            firmware/
+
+  clang-format-check:
+    name: Formatting check (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format-17
+        run: sudo apt-get install -y clang-format-17
+
+      - name: Check formatting
+        run: |
+          # No-op until firmware source files exist.
+          files=$(find firmware/ -name '*.c' -o -name '*.h' | grep -v '\.gitkeep' || true)
+          if [ -z "$files" ]; then
+            echo "clang-format: no source files found — skipping"
+            exit 0
+          fi
+          echo "$files" | xargs clang-format-17 --dry-run --Werror
+
+  markdownlint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint markdown
+        uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          globs: |
+            docs/**/*.md
+            README.md
