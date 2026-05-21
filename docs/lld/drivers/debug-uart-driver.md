@@ -325,6 +325,27 @@ The unusual choices deserve note:
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool                        initialised;           /**< Set by debug_uart_init(). */
+    bool                        rx_attached;           /**< Set by debug_uart_attach_rx(). */
+    debug_uart_line_callback_t  line_callback;         /**< ISR invokes on line-complete. */
+    void                       *line_callback_context; /**< Caller context for the callback. */
+    uint8_t                     rx_accum_buf[DEBUG_UART_LINE_MAX_LEN]; /**< ISR accumulation buffer. */
+    volatile size_t             rx_accum_len;          /**< Bytes currently in accum_buf. */
+    volatile bool               rx_overflow;           /**< Set if accum_buf filled before EOL. */
+    uint8_t                     rx_ready_buf[DEBUG_UART_LINE_MAX_LEN + 1U]; /**< Frozen line for caller. */
+    volatile size_t             rx_ready_len;          /**< Length of frozen line. */
+    volatile bool               rx_ready_truncated;    /**< Set if frozen line was truncated. */
+    volatile bool               rx_ready_flag;         /**< Set when a frozen line awaits collection. */
+} debug_uart_driver_t;
+
+static debug_uart_driver_t s_debug_uart;
+```
+
+
 ### 3.1 Module state
 
 Static storage, declared in the `.c` file:
@@ -346,6 +367,8 @@ Static storage, declared in the `.c` file:
 No FreeRTOS handles, no mutex. Two buffers (accumulating and ready) implement a simple double-buffer. The ISR writes to the accumulating buffer; on EOL it transposes to the ready buffer (or replaces it if a previous unread line is still there).
 
 ### 3.2 Per-function internal flow
+
+### debug_uart_init
 
 **`debug_uart_init()`**
 

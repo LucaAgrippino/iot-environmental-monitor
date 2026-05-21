@@ -394,6 +394,43 @@ the `out_handle` to the caller. `wifi_close_socket()` clears the entry.
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### wifi_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_attach_datardy_callback
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_connect_ap
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_disconnect_ap
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_get_link_state
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_get_rssi
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_send
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### wifi_close_socket
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Depends only on ISpi and GpioDriver (wakeup/flow-control pins); no upward dependencies.
@@ -443,6 +480,23 @@ regulator, Fig. 26). This rail powers only the WiFi module. No firmware
 action is required to enable it; it is controlled by hardware.
 
 ---
+
+### Registers
+
+N/A — the ISM43362 Wi-Fi module communicates over SPI. All SPI peripheral register access is delegated to SpiDriver. WifiDriver constructs AT-command payloads and calls `spi_transceive()`; it does not touch `SPI3->CR1`, `SPI3->DR`, or related registers directly.
+
+### Pins
+
+The ISM43362 GPIO control lines (NSS, DRDY, BOOT0, RST) are accessed via GpioDriver (`gpio_write_pin`, `gpio_read_pin`). Pin assignments are in §4.2 above (GPIO lines table).
+
+### Clocks
+
+N/A — SPI3 clock is enabled by SpiDriver (`RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN`). GPIO clocks for the control lines are enabled by GpioDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+The DRDY pin (PE1, EXTI1) signals that the ISM43362 has data to send. The ISR (`EXTI1_IRQHandler`) is registered by the caller via ExtiDriver and sets `s_wifi.datardy_cb`. NVIC priority is assigned by the caller; must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` if the callback notifies a FreeRTOS task (lld.md §6.3).
+
 
 ## 5. Sequence integration
 

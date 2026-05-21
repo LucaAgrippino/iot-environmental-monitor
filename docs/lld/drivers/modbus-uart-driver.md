@@ -178,6 +178,21 @@ modbus_uart_err_t modbus_uart_get_rx_frame(uint8_t *buf, uint16_t *len);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint8_t               rx_buf[256];  /**< Receive buffer written by ISR (max Modbus ADU). */
+    volatile uint16_t     rx_len;       /**< Valid byte count in rx_buf; written by IDLE ISR. */
+    modbus_uart_rx_cb_t   rx_cb;        /**< Callback invoked on frame-complete or RX error. */
+    void                 *rx_ctx;       /**< Caller context passed to rx_cb. */
+    volatile bool         tx_busy;      /**< True while polling transmit loop is running. */
+} modbus_uart_driver_t;
+
+static modbus_uart_driver_t s_modbus_uart;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -261,6 +276,22 @@ TX polling uses a generous timeout: at 9600 baud, transmitting 256 bytes takes 2
 - **P9 (BARR-C coding standard).** Buffer sizes `uint16_t`; DMA count register `uint16_t`; no implicit widening.
 - **P10 (Naming conventions).** Prefix `modbus_uart_`; interface `IModbusUart` -> `imodbus_uart_t`; errors `MODBUS_UART_ERR_*`.
 
+### modbus_uart_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_uart_attach_rx
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_uart_transmit
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_uart_get_rx_frame
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 
 ## 4. Hardware contract
 
@@ -290,6 +321,25 @@ Exact pin assignments: confirmed at implementation once MBUART-O1 is resolved.
 On the STM32F469 (F4 USART), clearing the IDLE flag requires reading SR then reading DR. If a new byte arrives between the SR read and the DR read, that byte is silently discarded. At 9600 baud this is extremely unlikely (the ISR must execute within 1.04 ms to be at risk), but the implementation must follow the exact sequence in RM0386 §30.8 and consider disabling RXNE interrupt briefly during the clear sequence. Verify at implementation. Tracked as **MBUART-O3** (§8).
 
 ---
+
+### Clocks
+
+| Board | USART instance | RCC enable register | Enable bit |
+|---|---|---|---|
+| STM32F469 (FD) | USART2 (RS-485 bus) | `RCC->APB1ENR` | `RCC_APB1ENR_USART2EN` |
+| STM32L475 (GW) | USART3 (RS-485 bus) | `RCC->APB1ENR1` | `RCC_APB1ENR1_USART3EN` |
+
+The USART clock source is `PCLK1` (APB1 bus clock). Baud rate values are derived from PCLK1 divided by the configured baud-rate register value (see §4.2).
+
+### NVIC
+
+| Board | ISR | Priority | Calls FreeRTOS FromISR |
+|---|---|---|---|
+| STM32F469 | `USART2_IRQHandler` | 6 | No — calls `s_modbus_uart.rx_cb` (callback decides) |
+| STM32L475 | `USART3_IRQHandler` | 6 | No — calls `s_modbus_uart.rx_cb` (callback decides) |
+
+Priority 6 is ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY`. Registered callbacks that invoke FreeRTOS API must use FromISR variants and call `portYIELD_FROM_ISR` on notification.
+
 
 ## 5. Sequence integration
 

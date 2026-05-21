@@ -127,6 +127,20 @@ lcd_err_t lcd_flush(void);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint16_t            *framebuffer;    /**< SDRAM-backed pixel buffer; set once at lcd_init(). */
+    lcd_frame_done_cb_t  frame_done_cb;  /**< Called from LTDC ISR on vertical-blank reload. */
+    void                *frame_done_ctx; /**< Caller context for frame_done_cb. */
+    bool                 initialised;    /**< Set by lcd_init(). */
+} lcd_driver_t;
+
+static lcd_driver_t s_lcd;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -183,6 +197,18 @@ The frame-done callback (`s_frame_done_cb`) is called from `DSI_LTDC_IRQHandler`
 - **P9 (BARR-C coding standard).** Pixel coordinates `uint16_t`; no floating-point.
 - **P10 (Naming conventions).** Prefix `lcd_`; interface `ILcd` -> `ilcd_t`; errors `LCD_ERR_*`.
 
+### lcd_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### lcd_attach_frame_done
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### lcd_flush
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 
 ## 4. Hardware contract
 
@@ -209,6 +235,45 @@ The LCD panel IC (DSI display driver IC, e.g. OTM8009A) requires specific DSI co
 LTDC timing registers (SSCR, BPCR, AWCR, TWCR) encode the horizontal/vertical sync, back-porch, active, and total dimensions for the panel. Values come from the panel datasheet. Tracked as **LCDD-O4**.
 
 ---
+
+### Registers
+
+| Peripheral | Key registers | Purpose |
+|---|---|---|
+| `LTDC` | `LTDC_SSCR`, `LTDC_BPCR`, `LTDC_AWCR`, `LTDC_TWCR` | Horizontal/vertical sync and blanking timing. |
+| `LTDC` | `LTDC_L1CR`, `LTDC_L1WHPCR`, `LTDC_L1WVPCR` | Layer 1 enable and window position. |
+| `LTDC` | `LTDC_L1CFBAR` | Layer 1 framebuffer address (set to SDRAM base). |
+| `LTDC` | `LTDC_L1PFCR` | Pixel format (RGB565 = 2). |
+| `LTDC` | `LTDC_SRCR` | Shadow reload control — `VBR` bit triggers reload on vertical blank. |
+| `LTDC` | `LTDC_IER`, `LTDC_ICR` | Line interrupt enable and clear (frame-done callback). |
+| `DSIHOST` | `DSIHOST_CR`, `DSIHOST_WRPCR`, `DSIHOST_PCTLR` | DSI host enable, PLL, and PHY control (LCDD-O1). |
+
+### Pins
+
+LTDC and DSI use alternate-function pins on GPIOE, GPIOF, GPIOG, GPIOH, GPIOI, GPIOJ, and GPIOK (STM32F469 only). These are pre-configured by the board support initialisation before `main()`. LcdDriver does not call GpioDriver for any of these system-level pins; the board init owns their configuration.
+
+N/A for GpioDriver-level pin control within this driver.
+
+### Clocks
+
+| Enable bit | Peripheral | Bus |
+|---|---|---|
+| `RCC_APB2ENR_LTDCEN` | LTDC | APB2 |
+| `RCC_APB2ENR_DSIEN` | DSIHOST | APB2 |
+| PLLSAI R output | LTDC pixel clock | PLLSAI_R via PLLSAIDIVR |
+| `RCC_AHB1ENR_DMA2DEN` | DMA2D (Chrom-Art) | AHB1 |
+
+LcdDriver enables these clocks in `lcd_init()`.
+
+### NVIC
+
+| Interrupt | Priority | Purpose |
+|---|---|---|
+| `LTDC_IRQn` | 6 | Line interrupt (frame-done) — calls `s_lcd.frame_done_cb` from ISR context. |
+| `DSI_IRQn` | 6 | DSI error/wrap-around interrupt (if enabled). |
+
+Callbacks invoked from these ISRs must be FreeRTOS-FromISR-safe. Priority 6 is ≥ configMAX_SYSCALL_INTERRUPT_PRIORITY (lld.md §6.3).
+
 
 ## 5. Sequence integration
 

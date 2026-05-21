@@ -240,6 +240,22 @@ CRC bytes are appended **low byte first** per Modbus RTU convention.
 
 ## 3. Internal design — FC dispatch logic
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint8_t               slave_addr; /**< Configured Modbus RTU slave address (1..247). */
+    uint8_t               rx_buf[256]; /**< Current received ADU frame. */
+    uint16_t              rx_len;      /**< Valid byte count in rx_buf. */
+    uint8_t               tx_buf[256]; /**< Response frame assembled by FC handlers. */
+    uint16_t              tx_len;      /**< Response length (0 = silent drop). */
+    modbus_slave_stats_t  stats;       /**< Cumulative protocol counters. */
+} modbus_slave_t;
+
+static modbus_slave_t s_slave;
+```
+
+
 The dispatch sequence inside `modbus_slave_process()` follows the
 processing order specified in `state-machines.md` Machine 6:
 
@@ -271,6 +287,27 @@ map to exception 0x02; `MODBUS_SLAVE_ERR_INVALID_VALUE` maps to exception 0x03;
 `MODBUS_SLAVE_ERR_DEVICE_FAIL` maps to exception 0x04.
 
 ---
+
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+
+### modbus_slave_process
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_slave_set_address
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_slave_get_stats
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_slave_reset_stats
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 ### Principles applied
 

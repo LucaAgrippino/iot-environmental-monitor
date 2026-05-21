@@ -314,6 +314,19 @@ A few choices deserve note:
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool          initialised;                  /**< Set by gpio_init(); guards all entry points. */
+    GPIO_TypeDef *port_map[GPIO_PORT_COUNT];    /**< CMSIS peripheral pointer per gpio_port_t. */
+    uint32_t      clock_bits[GPIO_PORT_COUNT];  /**< RCC AHB enable bit per gpio_port_t. */
+} gpio_driver_t;
+
+static gpio_driver_t s_gpio;
+```
+
+
 ### 3.1 Module state
 
 The module holds three pieces of static state:
@@ -328,6 +341,8 @@ No instance data, no FreeRTOS objects, no buffers. The driver is a thin wrapper 
 
 ### 3.2 Per-function internal flow
 
+### gpio_init
+
 **`gpio_init()`**
 
 1. If `s_initialised` is true, return `GPIO_OK` (idempotent).
@@ -335,6 +350,8 @@ No instance data, no FreeRTOS objects, no buffers. The driver is a thin wrapper 
 3. Issue the standard RM-mandated dummy read of the enable register after the write, to allow the clock to stabilise before any GPIO register access.
 4. Set `s_initialised` to true.
 5. Return `GPIO_OK`.
+
+### gpio_configure_pin
 
 **`gpio_configure_pin(config)`**
 
@@ -355,6 +372,8 @@ No instance data, no FreeRTOS objects, no buffers. The driver is a thin wrapper 
    Writing `MODER` last ensures that when the pin changes function, all of its supporting attributes are already in place. Each write is a read-modify-write of the corresponding port register.
 9. Return `GPIO_OK`.
 
+### gpio_read_pin
+
 **`gpio_read_pin(port, pin, out_level)`**
 
 1. Reject if `out_level` is NULL → `GPIO_ERR_NULL_POINTER`.
@@ -363,12 +382,16 @@ No instance data, no FreeRTOS objects, no buffers. The driver is a thin wrapper 
 4. Read the port's `IDR`, mask the pin bit, write `GPIO_LEVEL_HIGH` or `GPIO_LEVEL_LOW` through `out_level`.
 5. Return `GPIO_OK`.
 
+### gpio_write_pin
+
 **`gpio_write_pin(port, pin, level)`**
 
 1. Reject if `s_initialised` is false.
 2. Validate `port` and `pin`.
 3. Write to `BSRR`: bit `pin` to set (level high), bit `pin + 16` to reset (level low). A single 32-bit write — atomic.
 4. Return `GPIO_OK`.
+
+### gpio_toggle_pin
 
 **`gpio_toggle_pin(port, pin)`**
 

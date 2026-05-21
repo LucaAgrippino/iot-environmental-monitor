@@ -294,6 +294,27 @@ without blocking SensorTask for a full ODR period.
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### humidity_temp_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### humidity_temp_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### barometer_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### barometer_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Both drivers depend only on II2c (driver layer); no upward dependency on middleware or application.
@@ -368,6 +389,23 @@ without blocking SensorTask for a full ODR period.
 | CTRL_REG2 | 0x11 | 0x00 | Normal mode (no one-shot, no reset) |
 
 ---
+
+### Registers
+
+N/A — HTS221 and LPS22HB are external I2C sensor ICs. Their internal device registers are accessed via multi-byte I2C transactions delegated entirely to I2cDriver. This driver does not directly touch any MCU peripheral register.
+
+### Pins
+
+N/A — I2C SDA/SCL pins are configured by I2cDriver. The HTS221 DRDY output pin (PD15, EXTI15) is configured by GpioDriver and armed by ExtiDriver; this driver does not directly call GpioDriver or ExtiDriver — see GPA-D1 (STATUS_REG polling replaces DRDY interrupt at firmware level).
+
+### Clocks
+
+N/A — I2C peripheral clock is enabled by I2cDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+N/A — the firmware uses STATUS_REG polling (GPA-D1) rather than DRDY interrupts. No NVIC line is enabled by this driver.
+
 
 ## 5. Sequence integration
 

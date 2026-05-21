@@ -83,6 +83,17 @@ uint32_t sdram_get_base_addr(void);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised; /**< Set by sdram_init(); confirms FMC sequence completed. */
+} sdram_driver_t;
+
+static sdram_driver_t s_sdram;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -125,6 +136,19 @@ SdramDriver is purely a hardware initialisation driver. Once init is complete, t
 - **P10 (Naming conventions).** Prefix `sdram_`; errors `SDRAM_ERR_*`.
 
 
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### sdram_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### sdram_get_base_addr
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+
 ## 4. Hardware contract
 
 ### 4.1 SDRAM device
@@ -144,6 +168,30 @@ SDCR and SDTR register values are derived from the SDRAM device datasheet timing
 At 800×480 pixels with RGB565 (2 bytes/pixel), the framebuffer is 800 × 480 × 2 = 768,000 bytes = 750 KB. The 16 MB SDRAM has ample headroom. Double-buffering (two framebuffers for tear-free display) would require 1.5 MB — still well within 16 MB. This decision is deferred to LcdDriver.
 
 ---
+
+### Registers
+
+| Peripheral | Key registers | Purpose |
+|---|---|---|
+| `FMC` (AHB3) | `FMC_SDCR1` / `FMC_SDCR2` | SDRAM control: column/row bits, bus width, CAS latency, clock period. |
+| `FMC` | `FMC_SDTR1` / `FMC_SDTR2` | SDRAM timing: TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD. |
+| `FMC` | `FMC_SDCMR` | Command mode register — issues CLK_ENABLE, PALL, AUTO_REFRESH, LOAD_MODE. |
+| `FMC` | `FMC_SDRTR` | Auto-refresh timer period. |
+
+Timing values are board-specific and tracked as SDRD-O1 and SDRD-O2 (§8).
+
+### Pins
+
+N/A — FMC SDRAM pins (address, data, control lines) are alternate-function pins across multiple GPIO ports and are configured by the board support initialisation before `main()`. SdramDriver does not call GpioDriver; these are system-level pins outside the firmware driver scope.
+
+### Clocks
+
+`FMC` clock: `RCC->AHB3ENR |= RCC_AHB3ENR_FMCEN`. Enabled in `sdram_init()`. FMC runs on the AHB3 bus (same frequency as the system core clock on F469).
+
+### NVIC
+
+N/A — the FMC SDRAM interrupt (`FMC_IRQn`) is not enabled. SDRAM appears as flat memory after init; no interrupt-driven access is required.
+
 
 ## 5. Sequence integration
 
