@@ -369,6 +369,15 @@ runs within it.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00c: `LifecycleController` calls `update_service_check_pending()` at post-update boot to detect and confirm the completed update; `UpdateService` reads and clears the pending flag from `FirmwareStore` | `update_service_check_pending()` |
+| SD-06 | SD-06a: `CloudPublisher` routes the OTA start command to `update_service_start()`. SD-06b: `UpdateService` downloads chunks and calls `firmware_store_write_chunk()`. SD-06c: calls `firmware_store_verify()` and `firmware_store_set_pending_flag()`, then requests reset | `update_service_start()`, `update_service_abort()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ```c

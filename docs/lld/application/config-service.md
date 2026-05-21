@@ -438,6 +438,16 @@ so they always see a fully loaded config on their first `get_params()` call.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00a/SD-00b: `LifecycleController` calls `config_service_load()` to load persisted configuration from `ConfigStore` at boot | `config_service_load()` |
+| SD-07 | `CloudPublisher` routes the remote-configuration command to `config_service_update_from_cloud()`; the service validates, applies, and persists | `config_service_update_from_cloud()`, `config_service_validate_param()` |
+| SD-10 | `ConsoleService` calls `config_service_set()` for each provisioning parameter entered by the Field Technician | `config_service_set()`, `config_service_validate_param()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

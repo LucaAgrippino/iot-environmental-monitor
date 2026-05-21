@@ -201,6 +201,14 @@ typedef struct {
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-09 | `TimeService` orchestrates NTP synchronisation: calls `ntp_client_sync()`, writes the result to `RtcDriver` via `rtc_driver_set_time()`, posts a time-write command to `ModbusPoller`, and marks the sync flag | `time_service_sync()`, `time_service_get_time()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ```c

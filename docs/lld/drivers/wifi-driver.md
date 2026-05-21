@@ -562,6 +562,17 @@ any mutex on the SPI bus and matches the ISR-to-fixed-task-handle contract
 
 ---
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-03 | SD-03a/SD-03b: `MqttClient` calls `wifi_driver_send()` / `wifi_driver_receive()` to publish telemetry and health frames to AWS IoT Core | `wifi_driver_send()`, `wifi_driver_receive()` |
+| SD-04 | SD-04a: `MqttClient` uses `WifiDriver` for store-and-forward MQTT publish (cloud reconnect). SD-04b: same for drain loop | `wifi_driver_send()`, `wifi_driver_receive()` |
+| SD-05 | Alarm MQTT publish travels via `MqttClient` → `WifiDriver` to cloud | `wifi_driver_send()` |
+| SD-09 | `NtpClient` calls `wifi_driver_open_socket(WIFI_SOCKET_UDP)` then `wifi_driver_send()` / `wifi_driver_receive()` for the NTP UDP query | `wifi_driver_open_socket()`, `wifi_driver_send()`, `wifi_driver_receive()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 | Condition | Response |

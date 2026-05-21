@@ -357,6 +357,16 @@ No SD changes required. The existing SD-02 messages accurately describe the driv
 
 ---
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00b: `ModbusMaster` calls `modbus_uart_transmit()` to send the per-slave probe frame during Gateway boot link establishment | `modbus_uart_transmit()` |
+| SD-02 | Carries polling request frames (GW→FD) and response frames (FD→GW) on the RS-485 bus | `modbus_uart_transmit()`, `modbus_uart_get_rx_frame()` |
+| SD-09 | SD-09 msg 11: `ModbusMaster` calls `modbus_uart_transmit()` to send the FC06/16 time-write frame | `modbus_uart_transmit()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ### 6.1 TX errors

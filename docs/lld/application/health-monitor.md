@@ -478,6 +478,14 @@ Pre-conditions: the component has been initialised (where an init function exist
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-03 | SD-03b: `CloudPublisher` calls `health_monitor_get_snapshot()` to obtain the current health snapshot for the 600 s periodic health telemetry publish | `health_monitor_get_snapshot()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

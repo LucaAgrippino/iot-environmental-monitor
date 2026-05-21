@@ -380,6 +380,19 @@ Caller serialises. This component holds no internal FreeRTOS synchronisation pri
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-03 | SD-03a: publishes sensor telemetry payload at 60 s. SD-03b: publishes health snapshot payload at 600 s | `cloud_publisher_publish_telemetry()`, `cloud_publisher_publish_health()` |
+| SD-04 | SD-04a: detects cloud disconnect; enqueues outbound frames in `StoreAndForward`. SD-04b: drains the buffer on reconnect via `MqttClient` | `cloud_publisher_on_disconnect()`, `cloud_publisher_drain_queue()` |
+| SD-05 | Relays alarm payload from `AlarmService` to the cloud alarm MQTT topic | `cloud_publisher_publish_alarm()` |
+| SD-06 | SD-06a: receives OTA start command and routes to `UpdateService`. SD-06b/d: publishes OTA progress and completion notifications | `cloud_publisher_on_command()` |
+| SD-07 | Receives remote-config MQTT message and routes to `ConfigService` via `IConfigManager` | `cloud_publisher_on_command()` |
+| SD-08 | Receives remote-restart MQTT command and routes to `LifecycleController` via `ILifecycle`; flushes its outbound queue before acknowledging | `cloud_publisher_on_command()`, `cloud_publisher_flush()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ```c

@@ -322,6 +322,15 @@ partition split between Logger and SAF within the 1 MB region is a
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-04 | SD-04a: `CloudPublisher` calls `store_and_forward_enqueue()` for each outbound frame when the cloud link is down. SD-04b: `CloudPublisher` calls `store_and_forward_dequeue()` in a drain loop on reconnect | `store_and_forward_enqueue()`, `store_and_forward_dequeue()` |
+| SD-05 | If the cloud link is offline when an alarm fires, `CloudPublisher` buffers the alarm frame via `store_and_forward_enqueue()` for delivery on reconnect | `store_and_forward_enqueue()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ```c

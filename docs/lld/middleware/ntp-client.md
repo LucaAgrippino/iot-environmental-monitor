@@ -300,6 +300,14 @@ which is gated on the Cloud Connectivity state machine reaching Connected.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-09 | `TimeService` calls `ntp_client_sync()` which issues a UDP NTP query via `WifiDriver`, awaits the response, and returns the synchronised timestamp | `ntp_client_sync()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

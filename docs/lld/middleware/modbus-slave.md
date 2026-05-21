@@ -391,6 +391,16 @@ acceptable.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00a: `LifecycleController` calls `modbus_slave_init()` to enable the RS-485 receive path on the Field Device before transitioning to Operational | `modbus_slave_init()` |
+| SD-02 | `ModbusSlave` receives the polling request frame via ISR callback (`modbus_uart_get_rx_frame()`), processes it, dispatches to `IModbusRegisterMap`, and calls `modbus_uart_transmit()` for the response | `modbus_slave_process_frame()`, `modbus_slave_get_rx_frame()` |
+| SD-09 | `ModbusSlave` receives the FC06/16 time-write frame and dispatches to `IModbusRegisterMap.write_holding_register()` | `modbus_slave_process_frame()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

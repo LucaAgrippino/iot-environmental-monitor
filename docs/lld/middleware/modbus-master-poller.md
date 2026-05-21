@@ -453,6 +453,18 @@ owned by `ModbusUartDriver`. No two-phase init beyond the ordering above.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00b: `ModbusPoller` calls `modbus_master_send_request()` to probe each slave during Gateway boot link establishment; validates device-ID against `DeviceProfileRegistry` profile | `modbus_poller_probe_slave()`, `modbus_master_send_request()` |
+| SD-02 | Polling cycle: `ModbusPoller` drives the periodic register-read loop; `ModbusMaster` encodes and transmits each Modbus frame | `modbus_poller_run_cycle()`, `modbus_master_send_request()` |
+| SD-06 | SD-06d: `ModbusPoller` accepts a command from `UpdateService` to write a maintenance holding register on the FD before OTA reboot (quiesce the field device) | `modbus_poller_enqueue_command()` |
+| SD-07 | `ConfigService` posts a command to `ModbusPoller` (via `IModbusPoller`) to push a configuration parameter to the FD holding register after a remote configuration update | `modbus_poller_enqueue_command()` |
+| SD-09 | `TimeService` posts the FC06/16 time-write command to `ModbusPoller`; `ModbusMaster` encodes and sends the frame | `modbus_poller_enqueue_command()`, `modbus_master_send_request()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

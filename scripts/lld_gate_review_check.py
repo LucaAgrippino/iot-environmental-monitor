@@ -587,6 +587,172 @@ def check_pass_e(paths: dict, findings: list):
 
 
 # ----------------------------------------------------------------------
+# Pass F — Sequence integration (§5)
+# ----------------------------------------------------------------------
+
+# Map companion stem → component names it documents (as they appear in sequence-diagrams.md).
+# Combined companions (e.g. SensorService·AlarmService) list all components.
+_COMPANION_COMPONENTS: dict[str, list[str]] = {
+    "cloud-publisher-lld":          ["CloudPublisher"],
+    "config-service":               ["ConfigService"],
+    "console-service-lld":          ["ConsoleService"],
+    "device-profile-registry-lld":  ["DeviceProfileRegistry"],
+    "health-monitor":               ["HealthMonitor"],
+    "lcd-ui-lld":                   ["LcdUi"],
+    "lifecycle-controller":         ["LifecycleController"],
+    "modbus-register-map-lld":      ["ModbusRegisterMap", "IModbusRegisterMap"],
+    "sensor-alarm-service":         ["SensorService", "AlarmService"],
+    "store-and-forward-lld":        ["StoreAndForward"],
+    "time-service-lld":             ["TimeService"],
+    "update-service-lld":           ["UpdateService"],
+    "circular-flash-log":           ["CircularFlashLog"],
+    "config-store":                 ["ConfigStore"],
+    "firmware-store":               ["FirmwareStore"],
+    "graphics-library":             ["GraphicsLibrary"],
+    "logger":                       ["Logger"],
+    "modbus-master-poller":         ["ModbusMaster", "ModbusPoller"],
+    "modbus-slave":                 ["ModbusSlave"],
+    "mqtt-client":                  ["MqttClient"],
+    "ntp-client":                   ["NtpClient"],
+    "time-provider":                ["TimeProvider"],
+    "debug-uart-driver":            ["DebugUartDriver"],
+    "exti-driver":                  ["ExtiDriver"],
+    "gpio-driver":                  ["GpioDriver"],
+    "humidity-temp-barometer-drivers": ["HumidityTempDriver", "BarometerDriver"],
+    "i2c-driver":                   ["I2cDriver"],
+    "lcd-driver":                   ["LcdDriver"],
+    "led-driver":                   ["LedDriver"],
+    "magnetometer-imu-drivers":     ["MagnetometerDriver", "ImuDriver"],
+    "modbus-uart-driver":           ["ModbusUartDriver"],
+    "qspi-flash-driver":            ["QspiFlashDriver"],
+    "reset-driver":                 ["ResetDriver"],
+    "rtc-driver":                   ["RtcDriver"],
+    "sdram-driver":                 ["SdramDriver"],
+    "simulated-sensor-drivers":     ["BarometerDriver", "HumidityTempDriver"],
+    "spi-driver":                   ["SpiDriver"],
+    "touchscreen-driver":           ["TouchscreenDriver"],
+    "wifi-driver":                  ["WifiDriver"],
+}
+
+# Logger is cross-cutting (P4) — elided from SD diagrams by convention; skip SD check.
+_SD_SKIP_COMPONENTS: frozenset[str] = frozenset({"Logger"})
+
+# Sub-diagram families: child SD-IDs (e.g. SD-00a) roll up to a parent (SD-00).
+_SD_PARENT_RE = re.compile(r"^(SD-\d+)[a-z]$")
+
+
+def _sd_parent(sd_id: str) -> str:
+    """Return parent SD-ID if this is a sub-diagram, else the ID itself."""
+    m = _SD_PARENT_RE.match(sd_id)
+    return m.group(1) if m else sd_id
+
+
+def _parse_sd_targets(sd_path: Path) -> dict[str, set[str]]:
+    """
+    Parse sequence-diagrams.md and return {component_name: {sd_id, ...}}.
+    Only numeric-numbered message rows are considered (fragment rows are skipped).
+    Board qualifiers like ' (GW)' and ' (FD)' are stripped from component names.
+    """
+    if not sd_path.exists():
+        return {}
+    text = sd_path.read_text(encoding="utf-8")
+    targets: dict[str, set[str]] = {}
+    current_sd = "unknown"
+    # Col indices for message tables: # | From | To | Type | ...
+    msg_row_re = re.compile(
+        r"^\|\s*(\d[\d'\"]*)\s*\|[^|]+\|([^|]+)\|"
+    )
+    for line in text.splitlines():
+        # Detect SD heading (## N. SD-XX or ### N.N SD-XX)
+        sd_m = re.search(r"\b(SD-\d+[a-z]?)\b", line)
+        if sd_m and re.match(r"#{2,4}\s", line):
+            current_sd = sd_m.group(1)
+        # Parse message rows
+        if line.startswith("|"):
+            m = msg_row_re.match(line)
+            if m:
+                to_cell = m.group(2)
+                # Extract PascalCase component names from backtick-quoted tokens
+                for name in re.findall(r"`([A-Z][A-Za-z]+(?:\s+\([^)]+\))?)`", to_cell):
+                    base = re.sub(r"\s+\([^)]+\)$", "", name).strip()
+                    if base not in targets:
+                        targets[base] = set()
+                    targets[base].add(current_sd)
+    return targets
+
+
+
+def check_pass_f(paths: dict, findings: list):
+    """
+    Pass F — Sequence integration (§5).
+
+    For each companion:
+    1. Determine which SD-IDs target its component(s) (where the component appears as 'To').
+    2. Verify companion §5 body mentions each required SD-ID (or its parent).
+       Missing SD-ID reference -> BLOCKER.
+    USES edge cross-check is done by inspection in the gate-review report (too many
+    false positives from return/self messages and interface-name aliasing to automate).
+    """
+    sd_path = paths["root"] / "docs" / "hld" / "sequence-diagrams.md"
+
+    sd_targets = _parse_sd_targets(sd_path)
+
+    # Per-companion SD-reference check
+    for companion in discover_companions(paths):
+        stem = companion.stem
+        comp_names = _COMPANION_COMPONENTS.get(stem, [])
+        if not comp_names:
+            continue
+
+        text = companion.read_text(encoding="utf-8")
+        rel = str(companion.relative_to(paths["root"]))
+        sec5 = _sec5_body(text)
+
+        # Collect all SD-IDs mentioned in §5 (both exact and parents)
+        mentioned = set(re.findall(r"SD-\d+[a-z]?", sec5))
+        mentioned_parents = {_sd_parent(s) for s in mentioned} | mentioned
+
+        # Compute required SD-IDs for this companion (deduplicated by parent)
+        required_parents: set[str] = set()
+        for comp in comp_names:
+            if comp in _SD_SKIP_COMPONENTS:
+                continue
+            for sd_id in sd_targets.get(comp, set()):
+                required_parents.add(_sd_parent(sd_id))
+
+        for sd_parent_id in sorted(required_parents):
+            # Satisfied if §5 mentions the parent or any child with that parent
+            satisfied = sd_parent_id in mentioned_parents or any(
+                _sd_parent(s) == sd_parent_id for s in mentioned
+            )
+            if not satisfied:
+                comps_needing = [
+                    c for c in comp_names
+                    if sd_parent_id in {_sd_parent(s) for s in sd_targets.get(c, set())}
+                ]
+                findings.append(Finding(
+                    Severity.BLOCKER, "Sequence integration (Pass F)",
+                    f"§5 does not reference {sd_parent_id} but {comps_needing} "
+                    f"appear as 'To' in that sequence - add SD trace row per "
+                    f"lld-methodology.md Step 5",
+                    rel))
+
+
+def _sec5_body(text: str) -> str:
+    # Companions with rich design content reuse section numbers (## 5. Sector layout, etc.)
+    # before the gate-review standard ## 5. Sequence integration is appended.
+    # Prefer the heading that explicitly names Sequence integration.
+    m = re.search(r"## 5\.[^\n]*[Ss]equence", text)
+    if not m:
+        m = re.search(r"## 5\.", text)
+    if not m:
+        return ""
+    after = text[m.start():]
+    end_m = re.search(r"\n## [6-9]\.|\n## \d\d\.", after)
+    return after[: end_m.start()] if end_m else after
+
+
+# ----------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------
 
@@ -608,12 +774,13 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_api_doxygen(paths, findings)
     check_pass_d(paths, findings)
     check_pass_e(paths, findings)
+    check_pass_f(paths, findings)
 
     return findings, paths
 
 
 def print_report(findings: list[Finding], paths: dict):
-    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E)")
+    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E, F)")
     print(f"Root: {paths['root']}\n")
 
     by_severity = defaultdict(list)

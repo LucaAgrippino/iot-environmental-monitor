@@ -365,6 +365,16 @@ The component is identical on both boards. Board-specific values are in
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-00 | SD-00a: `ConfigService` calls `config_store_read()` to load FD configuration from QSPI at boot. SD-00b: same for Gateway configuration | `config_store_read()` |
+| SD-07 | `ConfigService` calls `config_store_write()` to persist the updated configuration received from the cloud | `config_store_write()` |
+| SD-10 | `ConfigService` and `DeviceProfileRegistry` call `config_store_write()` to persist provisioned parameters and device profiles | `config_store_write()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.

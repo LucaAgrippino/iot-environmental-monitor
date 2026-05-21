@@ -297,6 +297,14 @@ in a later engineering pass.
 
 See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
 
+### SD trace
+
+| SD | Component role | Key function |
+|---|---|---|
+| SD-10 | Field Technician enters provisioning commands via the CLI; `ConsoleService` parses each command and calls `config_service_set()` or `device_profile_registry_add_profile()` | `console_service_run()`, `console_service_process_line()` |
+
+---
+
 ## 6. Error and fault behaviour
 
 ```c
