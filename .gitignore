@@ -23,10 +23,22 @@ Thumbs.db
 # Visual Paradigm backups
 *.vpp.bak_*
 *.vpp.lck
-# VS Code workspace settings
-.vscode/
 
 # Temporary working files
 temp/
 
 .claude/
+
+# Ceedling / CMock generated
+tests/build/
+tests/mocks/
+
+# CubeIDE build outputs
+firmware/**/Debug/
+firmware/**/Release/
+firmware/**/.settings/
+firmware/**/*.launch
+
+# Python
+__pycache__/
+*.pyc
