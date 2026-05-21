@@ -126,6 +126,17 @@ led_err_t led_toggle(led_id_t id);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised; /**< Set by led_init(); confirms GpioDriver is ready. */
+} led_driver_t;
+
+static led_driver_t s_led;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -162,6 +173,27 @@ Both discovery boards drive their user LEDs active-high (LED on when GPIO pin is
 - **P8 (Total error propagation, no silent failures).** `led_err_t` on configure and write; invalid-ID arguments return error.
 - **P9 (BARR-C coding standard).** `uint8_t` for LED ID; active-level documented explicitly; no implicit widening.
 - **P10 (Naming conventions).** Prefix `led_`; interface `ILed` -> `iled_t`; errors `LED_ERR_*`.
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### led_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### led_on
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### led_off
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### led_toggle
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

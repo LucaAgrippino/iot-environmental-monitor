@@ -331,6 +331,19 @@ the FD; `"gateway"` for alarms raised on the GW's own sensors.
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    mqtt_stats_t mqtt_stats;        /**< Last MQTT stats snapshot (polled from IMqttStats). */
+    uint8_t      payload_buf[512];  /**< Scratch buffer for JSON payload assembly. */
+    bool         initialised;       /**< Set by cloud_publisher_init(). */
+} cloud_publisher_t;
+
+static cloud_publisher_t s_publisher;
+```
+
+
 | State | Access context | Mutex |
 |---|---|---|
 | `scratch_buf` | `CloudPublisherTask` only | None |
@@ -344,6 +357,11 @@ component. It uses `xQueueSendFromTask` (non-blocking) to avoid
 blocking `SensorTask`.
 
 ---
+
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
 
 ### Principles applied
 

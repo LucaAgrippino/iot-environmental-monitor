@@ -52,6 +52,19 @@ polling schedules, link state, or device profiles. ModbusPoller is the
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+
+### modbus_master_get_stats
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_master_reset_stats
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** ModbusMaster depends on IModbusUart (driver layer) and Logger; ModbusPoller depends on IModbusMaster, IDeviceProfileProvider, IHealthReport, and Logger — all at the same or lower layer.

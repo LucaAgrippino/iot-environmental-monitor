@@ -127,6 +127,19 @@ ts_err_t touchscreen_read(ts_touch_t *touch);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    touchscreen_irq_callback_t irq_cb;      /**< EXTI DRDY interrupt callback. */
+    void                      *irq_ctx;     /**< Caller context for irq_cb. */
+    bool                       initialised; /**< Set by touchscreen_init(). */
+} touchscreen_driver_t;
+
+static touchscreen_driver_t s_touchscreen;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -180,6 +193,23 @@ The FT6206 IRQ pin is an active-low, level-triggered or falling-edge-triggered s
 - **P10 (Naming conventions).** Prefix `touchscreen_`; interface `ITouchscreen` -> `itouchscreen_t`; errors `TOUCHSCREEN_ERR_*`.
 
 
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### touchscreen_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### touchscreen_attach_irq
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### touchscreen_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+
 ## 4. Hardware contract
 
 ### 4.1 EXTI IRQ pin and I2C address (open item — TSD-O1)
@@ -193,6 +223,21 @@ FT6206 7-bit I2C address is 0x38 (standard). Verify from UM1932 schematic (addre
 `touchscreen_init()` MUST be called after `lcd_init()`. The FT6206 shares the PH7 reset line with the LCD panel IC. `lcd_init()` deasserts PH7 after the LCD panel is configured. Calling `touchscreen_init()` before `lcd_init()` would attempt to communicate with a device still in reset — all I2C transactions would NACK.
 
 ---
+
+### Registers
+
+N/A — the FT6206 touch controller is an I2C slave device. Its internal registers are accessed via I2C transactions delegated to I2cDriver. This driver does not directly access any MCU SPI or I2C peripheral register.
+
+### Clocks
+
+N/A — I2C peripheral clock is enabled by I2cDriver. The EXTI IRQ pin clock is enabled by GpioDriver and ExtiDriver. No additional clock enable is required by this companion.
+
+### NVIC
+
+The FT6206 IRQ pin is connected to an MCU GPIO configured as an EXTI input. NVIC priority is assigned by the caller via `exti_enable()` (called from the touchscreen consumer's init).
+
+If the registered `irq_cb` callback invokes FreeRTOS API, the EXTI priority must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` (lld.md §6.3).
+
 
 ## 5. Sequence integration
 

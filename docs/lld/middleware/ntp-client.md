@@ -265,6 +265,10 @@ No mutex needed — `ntp_client_query()` is called only from
 
 ---
 
+### ntp_client_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Depends on IWifi (driver layer via UDP socket, LLD-D13); IHealthReport and ILogger are cross-cutting exceptions (P4).

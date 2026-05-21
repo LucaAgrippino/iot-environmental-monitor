@@ -321,6 +321,11 @@ If the table grows past ~120 entries, revisit. Tracked as **MRM-O4** below.
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Sits at the application layer; dispatches to middleware and driver services via their interfaces; no layer is skipped.

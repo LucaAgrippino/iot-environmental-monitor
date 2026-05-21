@@ -125,6 +125,11 @@ Total RAM: `sizeof(store_and_forward_t)` ≈ **8.4 KB**.
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Depends on ICircularFlashLog (middleware layer) and Logger; no cross-layer skip.

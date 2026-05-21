@@ -118,6 +118,17 @@ spi_err_t spi_transceive(const uint16_t *tx_buf, uint16_t *rx_buf, uint16_t len)
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised; /**< Set by spi_init(). */
+} spi_driver_t;
+
+static spi_driver_t s_spi;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -163,6 +174,19 @@ Consistent with the driver design pattern across all prior companions. The trans
 - **P10 (Naming conventions).** Prefix `spi_`; interface `ISpi` -> `ispi_t`; errors `SPI_ERR_*`.
 
 
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### spi_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### spi_transceive
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+
 ## 4. Hardware contract
 
 ### 4.1 SPI mode and frame format
@@ -200,6 +224,22 @@ NSS is not managed by SpiDriver. The ISM43362 chip-select line is a GPIO output 
 SPID-O1 shares the same root dependency (APB1/PCLK1 clock configuration) as DUART-O2 and I2CD-O1/O2. All three resolve when `clock-config.md` lands.
 
 ---
+
+### Registers
+
+| Register | Access | Purpose |
+|---|---|---|
+| `SPI3->CR1` | R/W | Master mode, CPOL/CPHA, software NSS, data-frame format select. |
+| `SPI3->CR2` | R/W | DS[3:0] = 1111 (16-bit frame); FRXTH = 0 (RXNE on ≥ 16 bits). |
+| `SPI3->SR` | R | TXE, RXNE, BSY flags polled in the transfer loop. |
+| `SPI3->DR` | R/W | Data register — 16-bit write transmits; 16-bit read receives. |
+
+Register access via the CMSIS `SPI3` macro (`SPI_TypeDef *` at the fixed peripheral base address). No HAL.
+
+### NVIC
+
+N/A — the driver uses a polling model (busy-wait on `SPI_SR.TXE` / `SPI_SR.RXNE` / `SPI_SR.BSY`). The SPI interrupt (`SPI3_IRQn`) is not enabled. Polling is acceptable for the ISM43362 transfer sizes used by WifiDriver.
+
 
 ## 5. Sequence integration
 

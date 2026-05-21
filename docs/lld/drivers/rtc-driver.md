@@ -218,6 +218,18 @@ extern const irtc_t * const rtc_driver;
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised;   /**< Set by rtc_init(); guards all entry points. */
+    bool backup_valid;  /**< Captured at rtc_init(); immutable thereafter. */
+} rtc_driver_t;
+
+static rtc_driver_t s_rtc;
+```
+
+
 ### 3.1 Module-level state (rtc_driver.c — not exposed in header)
 
 There is exactly one RTC peripheral per board. The driver is a singleton; no handle is passed between caller and driver.
@@ -256,7 +268,7 @@ handle->regs->WPR = 0xFF;
 
 This sequence wraps every call to `rtc_set_time` and the init-mode entry inside `rtc_init`.
 
-### 3.4 Init mode entry (used by `rtc_init` and `rtc_set_time`)
+### rtc_init
 
 ```
 1. Set RTC_ISR.INIT = 1.
@@ -285,6 +297,26 @@ The driver has no interrupt handler and registers no callbacks. This is consiste
 - **P8 (Total error propagation, no silent failures).** `rtc_err_t` on all operations; init-mode timeout returns `RTC_ERR_TIMEOUT`; backup index bounds checked with `RTC_ERR_BACKUP_BOUNDS`.
 - **P9 (BARR-C coding standard).** BCD helpers use explicit bit-masking; `uint32_t` for Unix epoch; `uint8_t` for backup-register index.
 - **P10 (Naming conventions).** Prefix `rtc_`; interface `IRtc` -> `irtc_t`; errors `RTC_ERR_*`; constants `RTC_BACKUP_MAX_IDX_F469` / `RTC_BACKUP_MAX_IDX_L475`.
+
+### rtc_get_time
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### rtc_set_time
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### rtc_is_backup_valid
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### rtc_read_backup
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### rtc_write_backup
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract
@@ -365,6 +397,19 @@ automatically — no firmware change required.
 Not applicable. The RTC is clocked from LSE, not APB. The unresolved PCLK values (DUART-O2) have no effect on RTC timing.
 
 ---
+
+### Pins
+
+N/A — the RTC peripheral has no GPIO pins in this project. The LSE oscillator pins (PC14/PC15) are configured by the system clock setup code prior to `main()` and are not within the scope of this driver. The RTC alarm output pin (PC13) is not used.
+
+### NVIC
+
+| Board | ISR | Priority | Purpose |
+|---|---|---|---|
+| Both | `RTC_Alarm_IRQn` | 6 | RTC alarm interrupt (if the alarm feature is activated in Phase 4). |
+
+The alarm ISR is currently not implemented (Phase 4 concern). Priority 6 is documented as the target allocation for all driver ISRs in lld.md §6.3.
+
 
 ## 5. Sequence integration
 

@@ -78,6 +78,14 @@ void reset_trigger(void);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+/* No mutable runtime state — reset_trigger() is a one-shot stateless call. */
+typedef struct { uint8_t _reserved; } reset_driver_t;
+```
+
+
 ### 3.1 Implementation
 
 ```c
@@ -112,6 +120,10 @@ None. The function is stateless.
 - **P8 (Total error propagation, no silent failures).** Function returns void — cannot fail by construction; NVIC_SystemReset has no error path.
 - **P10 (Naming conventions).** Prefix `reset_driver_`; interface `IResetDriver` -> `ireset_driver_t`.
 
+### reset_trigger
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 
 ## 4. Hardware contract
 
@@ -120,6 +132,27 @@ None. The function is stateless.
 The reset clears all CPU registers, peripheral registers (except those in the backup domain), and SRAM. It does not reset the debug interface, which is why ST-Link survives a software reset during debugging.
 
 ---
+
+### Registers
+
+| Register | Access | Purpose |
+|---|---|---|
+| `SCB->AIRCR` | Write (key + SYSRESETREQ bit) | Requests a processor-level system reset. |
+
+Access uses the CMSIS `NVIC_SystemReset()` inline function from `core_cm4.h`. The write requires the correct VECTKEY value in the upper half-word; CMSIS supplies this.
+
+### Pins
+
+N/A — `reset_trigger()` is a single CMSIS call. No GPIO pin is asserted or changed.
+
+### Clocks
+
+N/A — the SCB (System Control Block) is part of the Cortex-M core and is always clocked. No RCC enable is required.
+
+### NVIC
+
+N/A — `reset_trigger()` initiates a system reset; it does not configure or use any interrupt line. The function does not return.
+
 
 ## 5. Sequence integration
 

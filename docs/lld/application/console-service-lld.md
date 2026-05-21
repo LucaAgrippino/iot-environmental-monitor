@@ -320,6 +320,20 @@ the prompt is always reprinted after any command outcome.
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    char     line_buf[CONSOLE_LINE_MAX_LEN]; /**< Current input line being assembled. */
+    uint16_t line_len;                       /**< Bytes in line_buf so far. */
+    bool     prov_pending;                   /**< Provisioning transaction in progress. */
+    bool     cfg_pending;                    /**< Config-store update pending flush. */
+} console_service_t;
+
+static console_service_t s_console;
+```
+
+
 `ConsoleService` state (`line_buf`, `ring_buf`, `prov_pending`,
 `cfg_pending`) is accessed only within `ConsoleTask`. No mutex needed
 for internal state.
