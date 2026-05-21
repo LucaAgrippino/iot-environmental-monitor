@@ -169,6 +169,18 @@ qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint32_t device_size; /**< Flash capacity in bytes; read from RDID at init. */
+    bool     initialised; /**< Set by qspi_flash_init(). */
+} qspi_flash_driver_t;
+
+static qspi_flash_driver_t s_qspi;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -277,6 +289,18 @@ If profiling reveals this is a problem, replacing the busy-wait with a `vTaskDel
 - **P8 (Total error propagation, no silent failures).** `qspi_flash_err_t` on all operations; WIP-poll timeout returns error rather than blocking indefinitely.
 - **P9 (BARR-C coding standard).** Addresses and lengths `uint32_t`; no implicit widening.
 - **P10 (Naming conventions).** Prefix `qspi_flash_`; interface `IQspiFlash` -> `iqspi_flash_t`; errors `QSPI_FLASH_ERR_*`.
+
+### qspi_flash_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### qspi_flash_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### qspi_flash_erase_sector
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

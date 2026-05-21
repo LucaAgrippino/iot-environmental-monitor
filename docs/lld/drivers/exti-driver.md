@@ -175,6 +175,17 @@ SYSCFG + EXTI + NVIC. The two are complementary.
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint16_t configured_lines; /**< Bitmask: bit N = 1 iff EXTI line N has been configured. */
+} exti_driver_t;
+
+static exti_driver_t s_exti;
+```
+
+
 ### 4.1 Module structure
 
 ```
@@ -255,7 +266,7 @@ Resolved with local macros at the top of `exti_driver.c`:
 This is the only platform-conditional code in ExtiDriver. There is no
 platform-split `.c` file — the difference is four register aliases.
 
-### 4.6 NVIC configuration in `exti_enable()`
+### exti_enable
 
 ```c
 /* Determine IRQn from line number */
@@ -280,6 +291,23 @@ EXTI line → IRQn mapping (both boards, lines 0–15):
 `prv_line_to_irqn()` is a private static function implementing this table.
 
 ---
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### exti_configure
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### exti_disable
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### exti_clear_pending
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 ### Principles applied
 

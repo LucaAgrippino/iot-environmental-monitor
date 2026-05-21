@@ -371,6 +371,31 @@ No dynamic allocation. All coreMQTT and mbedTLS contexts are embedded in
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+
+### mqtt_client_connect
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### mqtt_client_disconnect
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### mqtt_client_process
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### mqtt_client_get_stats
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### mqtt_client_reset_stats
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Depends on IWifi (driver layer) and Logger (cross-cutting); no application-layer dependencies.

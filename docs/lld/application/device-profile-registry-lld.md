@@ -141,6 +141,11 @@ mutex is held — see §8.
 
 ---
 
+
+### Synchronisation
+
+This component uses an internal mutex to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Depends on IConfigStore (middleware layer) and Logger; no lower-layer protocol dependencies.

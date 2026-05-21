@@ -563,6 +563,15 @@ state (`sub_state`, `pending`, `committed`) are accessed only within
 
 ---
 
+
+### Synchronisation
+
+Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+
+### lcd_ui_task_body
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Depends on middleware interfaces (IGraphics, ITouchscreen) and application-layer peer services (ISensorService, IAlarmService, IConfigProvider, ITimeProvider); no layer is skipped.

@@ -205,6 +205,19 @@ This allows startup logging from `board_init()` before any task runs.
 
 ---
 
+
+### Synchronisation
+
+This component uses an internal mutex to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
+
+### logger_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### logger_set_level
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
 ### Principles applied
 
 - **P1 (Strict directional layering).** Logger depends only on RtcDriver (for timestamps) and DebugUartDriver (for output) — both at the driver layer.

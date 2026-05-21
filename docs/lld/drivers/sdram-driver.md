@@ -83,6 +83,17 @@ uint32_t sdram_get_base_addr(void);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised; /**< Set by sdram_init(); confirms FMC sequence completed. */
+} sdram_driver_t;
+
+static sdram_driver_t s_sdram;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -123,6 +134,19 @@ SdramDriver is purely a hardware initialisation driver. Once init is complete, t
 - **P8 (Total error propagation, no silent failures).** Returns `sdram_err_t`; initialisation timeout triggers an error return.
 - **P9 (BARR-C coding standard).** Register values expressed as `uint32_t` constants; no floating-point.
 - **P10 (Naming conventions).** Prefix `sdram_`; errors `SDRAM_ERR_*`.
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### sdram_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### sdram_get_base_addr
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

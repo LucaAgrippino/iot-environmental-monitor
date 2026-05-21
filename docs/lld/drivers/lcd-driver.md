@@ -127,6 +127,20 @@ lcd_err_t lcd_flush(void);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint16_t            *framebuffer;    /**< SDRAM-backed pixel buffer; set once at lcd_init(). */
+    lcd_frame_done_cb_t  frame_done_cb;  /**< Called from LTDC ISR on vertical-blank reload. */
+    void                *frame_done_ctx; /**< Caller context for frame_done_cb. */
+    bool                 initialised;    /**< Set by lcd_init(). */
+} lcd_driver_t;
+
+static lcd_driver_t s_lcd;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -182,6 +196,18 @@ The frame-done callback (`s_frame_done_cb`) is called from `DSI_LTDC_IRQHandler`
 - **P8 (Total error propagation, no silent failures).** `lcd_err_t` on all operations; DSI command timeout returns error rather than blocking indefinitely.
 - **P9 (BARR-C coding standard).** Pixel coordinates `uint16_t`; no floating-point.
 - **P10 (Naming conventions).** Prefix `lcd_`; interface `ILcd` -> `ilcd_t`; errors `LCD_ERR_*`.
+
+### lcd_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### lcd_attach_frame_done
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### lcd_flush
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

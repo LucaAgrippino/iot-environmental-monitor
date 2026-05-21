@@ -189,6 +189,28 @@ void humidity_temp_inject_fault(bool inject);
 
 ## 3. Internal design
 
+### 3.0 Private structs
+
+```c
+/* Barometer simulation state */
+typedef struct {
+    int32_t pressure_x10;   /**< Simulated pressure × 10 (e.g. 10132 = 1013.2 hPa). */
+    bool    fault_injected; /**< If true, barometer_read() returns BARO_ERR_FAULT. */
+} baro_sim_t;
+
+static baro_sim_t s_baro = { .pressure_x10 = 10132, .fault_injected = false };
+
+/* Humidity/temperature simulation state */
+typedef struct {
+    int32_t  temperature_x100; /**< Simulated temperature × 100 (e.g. 2200 = 22.00 °C). */
+    uint32_t humidity_x100;    /**< Simulated relative humidity × 100 (e.g. 5000 = 50.00 %). */
+    bool     fault_injected;   /**< If true, humidity_temp_read() returns HT_ERR_FAULT. */
+} humi_temp_sim_t;
+
+static humi_temp_sim_t s_humi_temp = { .temperature_x100 = 2200, .humidity_x100 = 5000 };
+```
+
+
 ### 3.1 Module-level state
 
 **barometer_driver.c:**
@@ -256,6 +278,35 @@ Purely synchronous. `SensorTask` calls both drivers on the same thread every 1 H
 - **P8 (Total error propagation, no silent failures).** `_err_t` on all read functions; the fault-injection path propagates `_ERR_SENSOR_FAULT`.
 - **P9 (BARR-C coding standard).** Simulated values bounded within physical sensor range by compile-time constants; no floating-point.
 - **P10 (Naming conventions).** Same prefixes and error names as the real sensor drivers; consumers cannot distinguish by naming.
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### barometer_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### barometer_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### barometer_inject_fault
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### humidity_temp_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### humidity_temp_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### humidity_temp_inject_fault
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

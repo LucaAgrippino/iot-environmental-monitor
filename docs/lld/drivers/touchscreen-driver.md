@@ -127,6 +127,19 @@ ts_err_t touchscreen_read(ts_touch_t *touch);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    touchscreen_irq_callback_t irq_cb;      /**< EXTI DRDY interrupt callback. */
+    void                      *irq_ctx;     /**< Caller context for irq_cb. */
+    bool                       initialised; /**< Set by touchscreen_init(). */
+} touchscreen_driver_t;
+
+static touchscreen_driver_t s_touchscreen;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -178,6 +191,23 @@ The FT6206 IRQ pin is an active-low, level-triggered or falling-edge-triggered s
 - **P8 (Total error propagation, no silent failures).** `touchscreen_err_t` on all operations; I2C errors from FT6206 register read propagated.
 - **P9 (BARR-C coding standard).** Coordinates `uint16_t`; gesture ID `uint8_t`; no floating-point.
 - **P10 (Naming conventions).** Prefix `touchscreen_`; interface `ITouchscreen` -> `itouchscreen_t`; errors `TOUCHSCREEN_ERR_*`.
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### touchscreen_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### touchscreen_attach_irq
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### touchscreen_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

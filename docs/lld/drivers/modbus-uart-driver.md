@@ -178,6 +178,21 @@ modbus_uart_err_t modbus_uart_get_rx_frame(uint8_t *buf, uint16_t *len);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    uint8_t               rx_buf[256];  /**< Receive buffer written by ISR (max Modbus ADU). */
+    volatile uint16_t     rx_len;       /**< Valid byte count in rx_buf; written by IDLE ISR. */
+    modbus_uart_rx_cb_t   rx_cb;        /**< Callback invoked on frame-complete or RX error. */
+    void                 *rx_ctx;       /**< Caller context passed to rx_cb. */
+    volatile bool         tx_busy;      /**< True while polling transmit loop is running. */
+} modbus_uart_driver_t;
+
+static modbus_uart_driver_t s_modbus_uart;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -260,6 +275,22 @@ TX polling uses a generous timeout: at 9600 baud, transmitting 256 bytes takes 2
 - **P8 (Total error propagation, no silent failures).** `modbus_uart_err_t` on all calls; framing errors set a sticky flag returned on the next receive.
 - **P9 (BARR-C coding standard).** Buffer sizes `uint16_t`; DMA count register `uint16_t`; no implicit widening.
 - **P10 (Naming conventions).** Prefix `modbus_uart_`; interface `IModbusUart` -> `imodbus_uart_t`; errors `MODBUS_UART_ERR_*`.
+
+### modbus_uart_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_uart_attach_rx
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_uart_transmit
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### modbus_uart_get_rx_frame
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

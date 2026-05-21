@@ -78,6 +78,14 @@ void reset_trigger(void);
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+/* No mutable runtime state — reset_trigger() is a one-shot stateless call. */
+typedef struct { uint8_t _reserved; } reset_driver_t;
+```
+
+
 ### 3.1 Implementation
 
 ```c
@@ -111,6 +119,10 @@ None. The function is stateless.
 - **P6 (Responsibility traces to requirements).** `reset_driver_trigger_reset()` traces to REQ-DM-030 (soft-reset after OTA self-check).
 - **P8 (Total error propagation, no silent failures).** Function returns void — cannot fail by construction; NVIC_SystemReset has no error path.
 - **P10 (Naming conventions).** Prefix `reset_driver_`; interface `IResetDriver` -> `ireset_driver_t`.
+
+### reset_trigger
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

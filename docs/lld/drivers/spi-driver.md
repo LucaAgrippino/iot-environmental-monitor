@@ -118,6 +118,17 @@ spi_err_t spi_transceive(const uint16_t *tx_buf, uint16_t *rx_buf, uint16_t len)
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised; /**< Set by spi_init(). */
+} spi_driver_t;
+
+static spi_driver_t s_spi;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -161,6 +172,19 @@ Consistent with the driver design pattern across all prior companions. The trans
 - **P8 (Total error propagation, no silent failures).** `spi_err_t` on all transfers; timeout returns error rather than spinning indefinitely.
 - **P9 (BARR-C coding standard).** `uint8_t*` for data; `uint16_t` for transfer length; FRXTH bit set per datasheet requirement.
 - **P10 (Naming conventions).** Prefix `spi_`; interface `ISpi` -> `ispi_t`; errors `SPI_ERR_*`.
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### spi_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### spi_transceive
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract

@@ -378,6 +378,79 @@ def _sec2_body(text: str) -> str:
     return after[: end_m.start()] if end_m else after
 
 
+def _sec3_body(text: str) -> str:
+    """Return the body of '## 3. Internal design' section."""
+    m = re.search(r"## 3\. Internal design", text)
+    if not m:
+        return ""
+    after = text[m.start():]
+    end_m = re.search(r"\n## [4-9]\.|\n## \d\d\.", after)
+    return after[: end_m.start()] if end_m else after
+
+
+def _extract_func_names_from_sec2(text: str) -> list[str]:
+    """Extract function names declared in §2 Public API code blocks."""
+    body = _sec2_body(text)
+    names: list[str] = []
+    for code_m in re.finditer(r"```c\n(.*?)```", body, re.DOTALL):
+        for line in code_m.group(1).splitlines():
+            m = _FUNC_DECL_RE.match(line)
+            if m and "(*" not in line:
+                names.append(m.group(2))
+    return names
+
+
+def check_pass_d(paths: dict, findings: list):
+    """Pass D: §3 must have private struct, sync declaration, per-function flow headings."""
+    for companion in discover_companions(paths):
+        text = companion.read_text(encoding="utf-8")
+        rel = str(companion.relative_to(paths["root"]))
+
+        sec3 = _sec3_body(text)
+        if not sec3:
+            findings.append(Finding(
+                Severity.BLOCKER, "Internal design (Pass D)",
+                "§3 Internal design section missing or not parseable",
+                rel))
+            continue
+
+        # 1. Private struct: requires a ```c block with typedef struct / struct <name> {
+        struct_present = bool(re.search(
+            r"```c\b[^`]*?(typedef\s+struct|struct\s+\w+\s*\{)",
+            sec3, re.DOTALL))
+        if not struct_present:
+            findings.append(Finding(
+                Severity.BLOCKER, "Internal design (Pass D)",
+                "§3 missing a fenced ```c block containing 'typedef struct' or 'struct { ' "
+                "(private/module-state struct required — lld-methodology.md §3 Step 3)",
+                rel))
+
+        # 2. Synchronisation: requires a subsection mentioning "synchroni" or literal
+        #    "caller serialises"
+        sync_present = (
+            bool(re.search(r"(?i)synchroni[sz]", sec3))
+            or "caller serialises" in sec3
+        )
+        if not sync_present:
+            findings.append(Finding(
+                Severity.BLOCKER, "Internal design (Pass D)",
+                "§3 missing a Synchronisation subsection or the phrase "
+                "'caller serialises' — lld-methodology.md §3 Step 3 gate criterion",
+                rel))
+
+        # 3. Per-function flow: every function in §2 needs a ### <func_name> heading in §3
+        func_names = _extract_func_names_from_sec2(text)
+        for func_name in func_names:
+            pattern = re.compile(
+                rf"###\s+[`*]*\s*{re.escape(func_name)}", re.IGNORECASE)
+            if not pattern.search(sec3):
+                findings.append(Finding(
+                    Severity.BLOCKER, "Internal design (Pass D)",
+                    f"§3 missing '### {func_name}' flow-description heading "
+                    "(one ### per public function required — lld-methodology.md §3 Step 3)",
+                    rel))
+
+
 def check_api_doxygen(paths: dict, findings: list):
     """Every C function declaration in §2 has @brief, @return (non-void), and threading."""
     for companion in discover_companions(paths):
@@ -449,12 +522,13 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_open_items_format(paths, findings)
     check_principles_applied(paths, findings)
     check_api_doxygen(paths, findings)
+    check_pass_d(paths, findings)
 
     return findings, paths
 
 
 def print_report(findings: list[Finding], paths: dict):
-    print(f"LLD gate review — Layer 1 mechanical checks")
+    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D)")
     print(f"Root: {paths['root']}\n")
 
     by_severity = defaultdict(list)

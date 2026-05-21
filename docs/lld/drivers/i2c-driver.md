@@ -142,6 +142,17 @@ i2c_err_t i2c_write_read(uint8_t dev_addr,
 
 ## 3. Internal design
 
+### 3.0 Private struct
+
+```c
+typedef struct {
+    bool initialised; /**< Set by i2c_init(); guards all entry points. */
+} i2c_driver_t;
+
+static i2c_driver_t s_i2c;
+```
+
+
 ### 3.1 Module-level state
 
 ```c
@@ -245,6 +256,23 @@ Consistent with all prior driver companions. Consumers call synchronously from t
 - **P8 (Total error propagation, no silent failures).** All calls return `i2c_err_t`; HAL timeout surfaces as `I2C_ERR_TIMEOUT`; bus errors propagated.
 - **P9 (BARR-C coding standard).** `uint8_t*` data pointers; `uint16_t` for device address; no implicit widening.
 - **P10 (Naming conventions).** Prefix `i2c_`; interface `II2c` -> `ii2c_t`; errors `I2C_ERR_*`.
+
+
+### Synchronisation
+
+Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+
+### i2c_init
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### i2c_write
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+
+### i2c_read
+
+Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
 
 
 ## 4. Hardware contract
