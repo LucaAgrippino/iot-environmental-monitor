@@ -425,24 +425,16 @@ The alarm ISR is currently not implemented (Phase 4 concern). Priority 6 is docu
 
 ## 6. Error and fault behaviour
 
-### 6.1 Error propagation (P8 — architecture-principles.md, §6)
+All public functions return `rtc_err_t`; callers must not ignore non-OK returns.
+No retry is performed by the driver — callers apply retry and logging policy.
 
-Every function returns `rtc_err_t`. No silent failures. The caller decides what to do on error.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `RTC_ERR_INIT_TIMEOUT` | INITF flag did not assert within timeout during `rtc_init()` | Return error; peripheral not configured | Non-OK return | No retry — `LifecycleController` treats RTC init failure as Faulted; boot cannot proceed without RTC | LifecycleController logs at ERROR via ILogger |
+| `RTC_ERR_SYNC_TIMEOUT` | RSF (Register Sync Flag) did not assert after exiting init mode | Return error | Non-OK return | No retry — caller may re-attempt after a reset cycle | Caller logs at WARN via ILogger |
+| `RTC_ERR_NULL_ARG` | Null pointer passed to an output parameter (`rtc_get_time()` / `rtc_get_backup_reg()`) | Return error; no register read performed | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `RTC_ERR_BACKUP_BOUNDS` | Backup register index out of range for the active board (F469 has 32, L4 has 32) | Return error; no register access performed | Non-OK return | No retry — programming error; caller must check `RTC_BACKUP_REG_COUNT` for the target board | Caller logs at ERROR via ILogger |
 
-| Caller | Error received | Expected response |
-|---|---|---|
-| `TimeProvider` (set_time) | `RTC_ERR_INIT_TIMEOUT` or `RTC_ERR_SYNC_TIMEOUT` | Log via Logger; push event via IHealthReport; retain previous time |
-| `Logger` (get_time) | `RTC_ERR_SYNC_TIMEOUT` | Return zeroed `rtc_datetime_t`; format timestamp as `0000-00-00 00:00:00` — diagnostic log entry remains useful even with an invalid timestamp |
-
-### 6.2 Logger error handling detail
-
-Logger is the bootstrap exception consumer. If `rtc_get_time` fails, Logger must not call Logger recursively to report the error (infinite recursion). The error must be swallowed silently for the bootstrap path only. This is the accepted cost of the bootstrap exception pattern (documented in `components.md` §1 preamble and `hld.md` §14.1).
-
-### 6.3 Default epoch on backup domain reset
-
-When `INITS = 0`, the driver writes the default epoch to the RTC. The value is defined as a named constant in `rtc_driver.c` (not magic numbers — BARR-C §3.2). The default epoch value is deferred to RTCD-O1 (§8).
-
----
 
 ## 7. Unit-test plan
 

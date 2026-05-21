@@ -403,7 +403,16 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `graphics_err_t`; callers must not ignore non-OK
+returns.  No retry is performed by GraphicsLibrary — LcdUi decides the
+recovery path.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `GRAPHICS_ERR_NOT_INIT` | Function called before `graphics_lib_init()` succeeded | Return error; no LVGL interaction | Non-OK return | No retry — programming error; boot sequence must initialise GraphicsLibrary before LcdUi | LcdUi logs at ERROR via ILogger |
+| `GRAPHICS_ERR_NULL_ARG` | Null pointer argument | Return error; no LVGL interaction | Non-OK return | No retry — programming error | LcdUi logs at ERROR via ILogger |
+| `GRAPHICS_ERR_LVGL_FAIL` | An LVGL API call returned a failure indicator (e.g., object creation returned NULL due to insufficient LVGL heap) | Return error; partial screen state possible | Non-OK return | No retry — LcdUi logs the failure and leaves the screen in its last valid state; heap exhaustion is a design-time bug | LcdUi logs at ERROR via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed if the failure prevents a mandatory screen from rendering |
+
 
 ## 7. Unit-test plan
 

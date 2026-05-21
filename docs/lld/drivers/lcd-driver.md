@@ -283,9 +283,14 @@ Callbacks invoked from these ISRs must be FreeRTOS-FromISR-safe. Priority 6 is �
 
 ## 6. Error and fault behaviour
 
-On `LCD_ERR_TIMEOUT` from `lcd_init()`, the BringingUpLCD Init sub-state fails → Faulted. The LCD is essential (REQ-LD-000). Failure is non-recoverable at boot.
+All public functions return `lcd_err_t`; callers must not ignore non-OK returns.
+No retry is performed internally — the driver surfaces the error; the caller
+decides the recovery path.
 
----
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `LCD_ERR_TIMEOUT` | DSI busy flag or LTDC reload flag did not clear within the timeout window | Return error; peripheral left in an indeterminate state | Non-OK return | No retry — at `lcd_init()` the BringingUpLCD sub-state fails and the system enters Faulted (REQ-LD-000); no retry on `lcd_flush()` — caller may re-attempt on next frame | Caller (LcdUi / LcdDriver ISR path) logs at ERROR via ILogger; no IHealthReport event (non-recoverable at boot) |
+
 
 ## 7. Unit-test plan
 

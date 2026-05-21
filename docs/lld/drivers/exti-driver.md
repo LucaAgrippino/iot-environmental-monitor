@@ -406,19 +406,15 @@ direct `EXTI->PR1 = (1U << N)` write is replaced with
 
 ## 6. Error and fault behaviour
 
-| Condition | Response |
-|-----------|----------|
-| `line > 15` | Return `EXTI_ERR_INVALID_ARG` |
-| `port` not in `exti_port_t` enum | Return `EXTI_ERR_INVALID_ARG` |
-| Line already configured (`s_configured` bit set) | Return `EXTI_ERR_CONFLICT`; no register written |
-| `exti_enable()` called before `exti_configure()` | Return `EXTI_ERR_INVALID_ARG` (`s_configured` bit not set) |
-| `exti_clear_pending()` with `line > 15` | No-op (function is void; invalid line produces no write) |
+All public functions return `exti_err_t`; callers must not ignore non-OK returns.
+No retry is performed internally — the driver surfaces the error; the caller
+decides the retry and logging policy.
 
-Consumers assert on non-OK returns in debug builds. Conflict detection
-at init time means `EXTI_ERR_CONFLICT` should never occur in a correct
-build; it is a programming error, not a runtime error.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `EXTI_ERR_INVALID_ARG` | `line > 15` or invalid `exti_port_t` / `exti_edge_t` value passed to `exti_configure()` | Return error; no EXTI/SYSCFG register touched | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `EXTI_ERR_CONFLICT` | `exti_configure()` called on a line already assigned to a different port/edge | Return error; configuration left unchanged | Non-OK return | No retry — programming error; caller must redesign initialisation order | Caller logs at ERROR via ILogger |
 
----
 
 ## 7. Unit-test plan
 

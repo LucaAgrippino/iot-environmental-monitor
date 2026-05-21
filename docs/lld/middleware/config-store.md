@@ -377,7 +377,20 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `config_store_err_t`; callers must not ignore
+non-OK returns.  No retry is performed by ConfigStore — ConfigService decides
+whether to fall back to defaults and log the event.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `CONFIG_STORE_ERR_NOT_INIT` | Function called before `config_store_init()` succeeded | Return error; no flash access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `CONFIG_STORE_ERR_NULL_ARG` | Null pointer passed to an output parameter | Return error; no flash access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `CONFIG_STORE_ERR_TOO_LARGE` | Blob exceeds `CONFIG_STORE_MAX_DATA_BYTES` | Return error; no write performed | Non-OK return | No retry — schema change required; programming error at design time | Caller logs at ERROR via ILogger |
+| `CONFIG_STORE_ERR_NO_VALID_SLOT` | Both flash slots have invalid CRC at boot | Apply defaults; return error | Non-OK return | No retry — ConfigService applies defaults and saves them, recovering on the next boot | `HEALTH_EVENT_CONFIG_NO_VALID_SLOT` pushed to IHealthReport; logged at WARN |
+| `CONFIG_STORE_ERR_FLASH_ERASE` | QspiFlashDriver erase returned non-OK | Return error; slot left blank | Non-OK return | No retry by ConfigStore — ConfigService may retry the save on the next config-change event | Caller logs at WARN via ILogger; `HEALTH_EVENT_CONFIG_WRITE_FAIL` pushed |
+| `CONFIG_STORE_ERR_FLASH_WRITE` | QspiFlashDriver program returned non-OK | Return error; slot partially written (CRC will fail on next boot) | Non-OK return | No retry by ConfigStore — ConfigService logs and operates in-memory; next save attempt clears the slot first | Caller logs at WARN via ILogger; `HEALTH_EVENT_CONFIG_WRITE_FAIL` pushed |
+| `CONFIG_STORE_ERR_FLASH_READ` | QspiFlashDriver read returned non-OK | Return error; data not populated | Non-OK return | No retry by ConfigStore — treated equivalently to `NO_VALID_SLOT` by ConfigService | Caller logs at WARN via ILogger; `HEALTH_EVENT_CONFIG_READ_FAIL` pushed |
+
 
 ## 7. Unit-test plan
 

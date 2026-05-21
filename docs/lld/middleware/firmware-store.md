@@ -480,7 +480,23 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `firmware_store_err_t`; callers must not ignore
+non-OK returns.  No retry is performed by FirmwareStore — UpdateService drives
+retry on download failures; validation/signature failures are non-retriable.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `FIRMWARE_STORE_ERR_NOT_INIT` | Function called before `firmware_store_init()` succeeded | Return error; no flash access | Non-OK return | No retry — programming error; boot sequence must initialise FirmwareStore before UpdateService | Caller logs at ERROR via ILogger |
+| `FIRMWARE_STORE_ERR_NULL_ARG` | Null pointer argument | Return error; no flash access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `FIRMWARE_STORE_ERR_FLASH_ERASE` | QspiFlashDriver erase returned non-OK during `begin()` | Return error; inactive bank left in indeterminate state | Non-OK return | No retry by FirmwareStore — UpdateService moves to `Failed` state per DM-053 | Logged at ERROR via ILogger; cloud failure report sent (REQ-DM-055) |
+| `FIRMWARE_STORE_ERR_FLASH_WRITE` | QspiFlashDriver write returned non-OK during `write_chunk()` | Return error; chunk not written | Non-OK return | No retry by FirmwareStore — UpdateService retries the download (up to 3 times per DM-053); if all retries fail: `US_ERR_APPLY_FAILED` | Logged at WARN via ILogger |
+| `FIRMWARE_STORE_ERR_FLASH_READ` | QspiFlashDriver read returned non-OK during `verify()` | Return error; hash not computable | Non-OK return | No retry — UpdateService moves to `Failed`; SHA mismatch treated as `FIRMWARE_STORE_ERR_SHA_MISMATCH` | Logged at ERROR via ILogger; cloud failure report |
+| `FIRMWARE_STORE_ERR_BAD_HEADER` | Magic number or header CRC invalid when loading metadata | Return error | Non-OK return | No retry — firmware image is corrupt; UpdateService reports `US_ERR_VALIDATION_FAILED` | Logged at ERROR via ILogger; cloud failure report |
+| `FIRMWARE_STORE_ERR_SHA_MISMATCH` | SHA-256 body hash does not match header field | Return error | Non-OK return | No retry — integrity failure is non-retriable (REQ-DM-062); UpdateService rolls back | Logged at ERROR via ILogger; cloud failure report; IHealthReport event |
+| `FIRMWARE_STORE_ERR_SIG_INVALID` | ECDSA-P256 signature verification failed | Return error | Non-OK return | No retry — authentication failure is non-retriable (REQ-DM-056); UpdateService aborts | Logged at ERROR via ILogger; cloud failure report; IHealthReport event |
+| `FIRMWARE_STORE_ERR_TOO_LARGE` | `image_len` parameter exceeds 480 KB flash bank | Return error; no erase | Non-OK return | No retry — image from server is oversized; UpdateService reports `US_ERR_VALIDATION_FAILED` | Logged at ERROR via ILogger |
+| `FIRMWARE_STORE_ERR_NO_METADATA` | Metadata partition unreadable (QSPI flash hardware fault) | Return error | Non-OK return | No retry — hardware fault; system boots from active bank without OTA capability | Logged at ERROR via ILogger; IHealthReport event |
+
 
 ## 7. Unit-test plan
 

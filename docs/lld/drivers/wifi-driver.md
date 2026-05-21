@@ -575,22 +575,22 @@ any mutex on the SPI bus and matches the ISR-to-fixed-task-handle contract
 
 ## 6. Error and fault behaviour
 
-| Condition | Response |
-|-----------|----------|
-| DRDY never goes high after NSS assert (WIFI_DRDY_TIMEOUT_MS elapsed) | Return `WIFI_ERR_TIMEOUT`; deassert NSS |
-| AT command response contains "ERROR" | Return `WIFI_ERR_MODULE` |
-| Firmware version mismatch at init | Return `WIFI_ERR_FIRMWARE`; abort init; caller logs REQ-SA-040 |
-| `wifi_connect_ap()` fails (wrong credentials, AP out of range) | Return `WIFI_ERR_MODULE`; `s_wifi.link_state` remains DOWN |
-| `wifi_send()` called with `link_state == DOWN` | Return `WIFI_ERR_NOT_CONNECTED` |
-| `wifi_send()` called with invalid handle | Return `WIFI_ERR_INVALID_ARG` |
-| SPI transceive returns error | Return `WIFI_ERR_SPI`; deassert NSS to leave bus idle |
-| NULL pointer in any output parameter | Return `WIFI_ERR_INVALID_ARG` |
+All public functions return `wifi_err_t`; callers must not ignore non-OK returns.
+No retry is performed by the driver — NtpClient / MqttClient apply retry at the
+protocol level.  NSS is always deasserted on any error path to leave the SPI bus
+in a known idle state.
 
-NSS is always deasserted on any error path to leave the SPI bus in a
-known idle state. This is critical: a stuck-low NSS would permanently
-block the ISM43362 from responding to future transactions.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `WIFI_ERR_NOT_INIT` | Function called before `wifi_init()` succeeded | Return error; no hardware interaction | Non-OK return | No retry — programming error; boot sequence must call `wifi_init()` first | Caller logs at ERROR via ILogger |
+| `WIFI_ERR_SPI` | `spi_transceive()` returned a non-OK code | Return error; NSS deasserted | Non-OK return | No retry by driver — caller (NtpClient/MqttClient) may retry the enclosing operation | Caller logs at WARN via ILogger; repeated failures surface as `WIFI_ERR_TIMEOUT` or `WIFI_ERR_MODULE` |
+| `WIFI_ERR_MODULE` | AT command response contained "ERROR" | Return error | Non-OK return | No retry by driver — `wifi_connect_ap()` caller (NtpClient setup path) may retry with exponential back-off | Caller logs at WARN via ILogger |
+| `WIFI_ERR_TIMEOUT` | DRDY or response wait timed out | Return error; NSS deasserted | Non-OK return | No retry by driver — caller applies back-off | Caller logs at WARN via ILogger |
+| `WIFI_ERR_NOT_CONNECTED` | `wifi_send()` called when `s_wifi.link_state == DOWN` | Return error; no SPI interaction | Non-OK return | No retry — caller must wait for link to recover (driven by `wifi_connect_ap()` reconnect) | Caller logs at DEBUG via ILogger (expected transient) |
+| `WIFI_ERR_SOCKET` | `wifi_open_socket()`, `wifi_send()`, or `wifi_recv()` failed at the ISM43362 socket layer | Return error | Non-OK return | No retry by driver — caller closes the socket and re-connects | Caller logs at WARN via ILogger; MqttClient increments `stats.socket_errors` |
+| `WIFI_ERR_INVALID_ARG` | Null pointer or out-of-range argument | Return error; no hardware interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `WIFI_ERR_FIRMWARE` | ISM43362 firmware version mismatch detected at init | Return error; init aborted | Non-OK return | No retry — operator must update the WiFi module firmware | Caller logs at ERROR via ILogger; system proceeds but WiFi-dependent paths fail |
 
----
 
 ## 7. Unit-test plan
 

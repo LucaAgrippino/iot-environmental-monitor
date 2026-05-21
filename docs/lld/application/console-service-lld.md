@@ -307,22 +307,20 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-```c
-typedef enum {
-    CS_OK = 0,
-    CS_ERR_NULL_ARG,
-    CS_ERR_NOT_INIT,
-    CS_ERR_VALIDATION,       /* input out of range or wrong format */
-    CS_ERR_UNKNOWN_KEY,      /* unknown provisioning/config key    */
-    CS_ERR_APPLY_FAILED,     /* IConfigManager returned error      */
-    CS_ERR_TIMEOUT,          /* confirm prompt timed out           */
-    CS_ERR_LINE_OVERFLOW,    /* incoming line > 256 bytes          */
-} console_err_t;
-```
+All public functions return `console_err_t`; callers must not ignore non-OK
+returns.  All handler errors are mapped to a human-readable `[ERR]` line on
+the debug-UART console before returning.  Errors do not affect `ConsoleTask`
+stability — the prompt is always reprinted after any command outcome.
 
-All handler errors are mapped to a human-readable `[ERR]` line on the
-console before returning. Errors do not affect `ConsoleTask` stability —
-the prompt is always reprinted after any command outcome.
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `CS_ERR_NULL_ARG` | Null pointer argument | Return error; no action | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `CS_ERR_NOT_INIT` | Function called before `console_service_init()` | Return error | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `CS_ERR_VALIDATION` | Input value out of range or wrong format | `[ERR] invalid value` printed to console; return error | Non-OK return | No retry — operator must re-enter a valid value | Logged at DEBUG via ILogger |
+| `CS_ERR_UNKNOWN_KEY` | Unknown provisioning or config key in the command | `[ERR] unknown key` printed; return error | Non-OK return | No retry — operator must correct the key name | Logged at WARN via ILogger |
+| `CS_ERR_APPLY_FAILED` | `IConfigManager.apply_*()` returned non-OK (e.g., `CONFIG_SERVICE_ERR_PERSIST`) | `[ERR] apply failed` printed; return error | Non-OK return | No retry — ConsoleService surfaces the error; operator may re-enter the command | ConfigService logs the underlying error; ConsoleService logs at WARN |
+| `CS_ERR_TIMEOUT` | Confirm-prompt timed out (operator did not type `yes` within the window) | Command aborted; `[ERR] timed out` printed | Non-OK return | No retry — operator must restart the command | Logged at DEBUG via ILogger |
+| `CS_ERR_LINE_OVERFLOW` | Incoming line exceeded `CONSOLE_LINE_MAX_LEN` bytes | Line buffer reset; `[ERR] line overflow` printed | Non-OK return | No retry — operator must re-enter the command | Logged at WARN via ILogger |
 
 ---
 
@@ -367,6 +365,7 @@ synchronisation.
 - **P9 (BARR-C coding standard).** Command-code enums `uint8_t`; buffer length `uint16_t`; no floating-point.
 - **P10 (Naming conventions).** Prefix `console_service_`; interface `IConsoleService` -> `iconsole_service_t`; errors `CONSOLE_SERVICE_ERR_*`.
 
+---
 
 ## 10. Initialisation
 

@@ -333,23 +333,17 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-```c
-typedef enum {
-    SAF_OK = 0,
-    SAF_EMPTY,
-    SAF_ERR_FLASH,
-    SAF_ERR_NOT_INIT,
-    SAF_ERR_OVERSIZE,
-} saf_err_t;
-```
+All public functions return `saf_err_t`; callers must not ignore non-OK
+returns.  CloudPublisher is the sole consumer — it drives retry and drain
+policy.
 
-| Error | Caller response |
-|---|---|
-| `SAF_EMPTY` | `CloudPublisher` stops the drain loop — normal termination |
-| `SAF_ERR_FLASH` | Logged; CloudPublisher increments MQTT fail count via `IHealthReport`; drain stops |
-| `SAF_ERR_OVERSIZE` | Entry dropped; logged; publish proceeds as if connected (re-serialise path) |
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `SAF_EMPTY` | `dequeue()` or `peek()` called on an empty ring | Return code; no flash access | Non-OK return | No retry — CloudPublisher stops the drain loop (normal termination) | Not logged (expected condition at end of drain) |
+| `SAF_ERR_FLASH` | CircularFlashLog I/O failure (erase, write, or read error) | Return error; operation aborted | Non-OK return | No retry by StoreAndForward — CloudPublisher increments `IHealthReport` flash-error counter and stops the drain until next reconnect | Logged at WARN via ILogger; `HEALTH_EVENT_SAF_FULL` / flash-error IHealthReport counter incremented |
+| `SAF_ERR_NOT_INIT` | Function called before `store_and_forward_init()` | Return error; no flash access | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `SAF_ERR_OVERSIZE` | Payload exceeds `SAF_PAYLOAD_MAX` bytes | Entry dropped; return error | Non-OK return | No retry — CloudPublisher re-serialises with a truncated payload or drops the message | Logged at WARN via ILogger |
 
----
 
 ## 11. Initialisation
 

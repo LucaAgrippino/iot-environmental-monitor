@@ -520,19 +520,26 @@ added to the SensorTask IPC primitives table (§5.4). See GPB-O1.
 
 ## 6. Error and fault behaviour
 
-| Condition | MagnetometerDriver | ImuDriver |
-|-----------|-------------------|-----------|
-| I2C bus error | `MAGNETOMETER_ERR_I2C` | `IMU_ERR_I2C` |
-| STATUS_REG data not ready (5 ms timeout elapsed without DRDY bit) | `MAGNETOMETER_ERR_NOT_READY` | `IMU_ERR_NOT_READY` |
-| NULL `out` pointer | `MAGNETOMETER_ERR_INVALID_ARG` | `IMU_ERR_INVALID_ARG` |
-| `attach_drdy_callback()` called with NULL `cb` | `MAGNETOMETER_ERR_INVALID_ARG` | `IMU_ERR_INVALID_ARG` |
-| `read()` called before Phase 2 (no callback registered, EXTI disabled) | Returns `ERR_NOT_READY` (STATUS_REG gate) | Same |
+All public functions return `magnetometer_err_t` or `imu_err_t`; callers must
+not ignore non-OK returns.  No retry is performed inside the driver — the caller
+(SensorService) applies the retry and observability policy.
 
-SensorTask handles all non-OK returns per REQ-SA-080 (log error code) and
-REQ-SA-060 (continue with available sensors). Drivers do not log; they
-return error codes.
+### magnetometer_err_t
 
----
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MAGNETOMETER_ERR_I2C` | `i2c_write()` or `i2c_read()` returned a non-OK code (bus error or timeout) | Return error; no sensor data | Non-OK return | No retry — SensorService skips the sample; three consecutive I2C failures raise `HEALTH_EVENT_SENSOR_FAIL` | SensorService logs at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed after threshold |
+| `MAGNETOMETER_ERR_NOT_READY` | STATUS_REG data-ready bit did not assert within the polling timeout | Return error; sensor state unchanged | Non-OK return | No retry — SensorService skips the sample and increments a miss counter; three consecutive misses raise `HEALTH_EVENT_SENSOR_FAIL` | SensorService logs at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed to IHealthReport after threshold |
+| `MAGNETOMETER_ERR_INVALID_ARG` | Null pointer passed to an output parameter | Return error; no I2C access | Non-OK return | No retry — programming error | SensorService logs at ERROR via ILogger |
+
+### imu_err_t
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `IMU_ERR_I2C` | `i2c_write()` or `i2c_read()` returned a non-OK code | Return error; no sensor data | Non-OK return | No retry — SensorService skips the sample; three consecutive failures raise `HEALTH_EVENT_SENSOR_FAIL` | SensorService logs at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed after threshold |
+| `IMU_ERR_NOT_READY` | STATUS_REG data-ready bit did not assert within the polling timeout | Return error; sensor state unchanged | Non-OK return | No retry — SensorService skips the sample; three consecutive misses raise `HEALTH_EVENT_SENSOR_FAIL` | SensorService logs at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed to IHealthReport after threshold |
+| `IMU_ERR_INVALID_ARG` | Null pointer passed to an output parameter | Return error; no I2C access | Non-OK return | No retry — programming error | SensorService logs at ERROR via ILogger |
+
 
 ## 7. Unit-test plan
 

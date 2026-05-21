@@ -340,7 +340,16 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `time_provider_err_t`; callers must not ignore
+non-OK returns.  No retry is performed by TimeProvider — TimeService decides
+the retry and logging policy.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `TIME_PROVIDER_ERR_NOT_INIT` | Function called before `time_provider_init()` | Return error; no RTC access | Non-OK return | No retry — programming error; boot sequence must initialise TimeProvider after RtcDriver | Caller logs at ERROR via ILogger |
+| `TIME_PROVIDER_ERR_RTC_FAIL` | `rtc_get_time()` or `rtc_set_time()` returned a non-OK code (e.g., `RTC_ERR_SYNC_TIMEOUT`) | Return error; time value not updated | Non-OK return | No retry by TimeProvider — TimeService may retry after a brief delay; persistent failure triggers `HEALTH_EVENT_TIME_SYNC_LOST` | Logged at WARN via ILogger; IHealthReport event on repeated failures |
+| `TIME_PROVIDER_ERR_NULL_ARG` | Null pointer passed to an output parameter | Return error; no RTC access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+
 
 ## 7. Unit-test plan
 

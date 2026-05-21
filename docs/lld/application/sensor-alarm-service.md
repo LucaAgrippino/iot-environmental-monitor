@@ -544,7 +544,26 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `sensor_service_err_t` or `alarm_service_err_t`;
+callers must not ignore non-OK returns.  Neither SensorService nor AlarmService
+retries internally — CloudPublisher and HealthMonitor handle event-level retry.
+
+### sensor_service_err_t
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `SENSOR_SERVICE_ERR_NOT_INIT` | Function called before `sensor_service_init()` | Return error; no action | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `SENSOR_SERVICE_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `SENSOR_SERVICE_ERR_NO_SUB` | `sensor_service_subscribe()` called when the subscriber table is full | Return error; subscriber not added | Non-OK return | No retry — design-time limit exceeded; increase `SENSOR_MAX_SUBSCRIBERS` or reduce callers | Caller logs at ERROR via ILogger |
+
+### alarm_service_err_t
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `ALARM_SERVICE_ERR_NOT_INIT` | Function called before `alarm_service_init()` | Return error; no action | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `ALARM_SERVICE_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `ALARM_SERVICE_ERR_NO_SUB` | `alarm_service_subscribe()` called when the subscriber table is full | Return error; subscriber not added | Non-OK return | No retry — design-time limit exceeded | Caller logs at ERROR via ILogger |
+
 
 ## 7. Unit-test plan
 

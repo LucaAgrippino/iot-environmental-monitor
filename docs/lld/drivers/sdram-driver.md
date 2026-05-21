@@ -201,9 +201,14 @@ None. SdramDriver is not a sequence diagram participant.
 
 ## 6. Error and fault behaviour
 
-On `SDRAM_ERR_TIMEOUT`, the BringingUpLCD Init sub-state fails and the FD enters Faulted (`state-machines.md` §3.1, failure handling column). The LCD is essential (REQ-LD-000); SDRAM initialisation failure is non-recoverable at boot.
+All public functions return `sdram_err_t`; callers must not ignore non-OK returns.
+No retry is performed by the driver — `LifecycleController` treats SDRAM init
+failure as a non-recoverable boot fault.
 
----
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `SDRAM_ERR_TIMEOUT` | FMC BUSY flag did not clear within the expected initialisation window | Return error; FMC peripheral left in an indeterminate state | Non-OK return | No retry — BringingUpLCD Init sub-state fails and the device enters Faulted (REQ-LD-000; LCD and SDRAM are essential) | LifecycleController logs at ERROR via ILogger; system cannot reach Operational |
+
 
 ## 7. Unit-test plan
 

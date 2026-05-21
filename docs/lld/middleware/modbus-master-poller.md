@@ -467,7 +467,33 @@ See the HLD sequence diagrams for inter-component flows. This component is calle
 
 ## 6. Error and fault behaviour
 
-Error codes and propagation policy are defined in the Public API section above. All public functions return an error code; callers must not ignore non-OK returns.
+All public functions return `modbus_master_err_t` or `modbus_poller_err_t`;
+callers must not ignore non-OK returns.
+
+### modbus_master_err_t — ModbusMaster error codes
+
+ModbusMaster implements REQ-MB-060: three retries on TIMEOUT, CRC, and
+BAD_RESPONSE before surfacing failure.  EXCEPTION and BAD_RESPONSE after
+three retries are surfaced directly.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MODBUS_MASTER_ERR_NOT_INIT` | Function called before `modbus_master_init()` | Return error; no UART interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MODBUS_MASTER_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MODBUS_MASTER_ERR_TIMEOUT` | No response received within `response_timeout_ms` for all three attempts | Return error after 3rd attempt | Non-OK return | 3 retries per REQ-MB-060; no further retry — ModbusPoller marks the slave link as degraded | Logged at WARN via ILogger; `stats.timeouts` incremented; `HEALTH_EVENT_SENSOR_FAIL` raised after three consecutive poll failures |
+| `MODBUS_MASTER_ERR_CRC` | Response CRC mismatch | Retry up to 3 times; return error after 3rd | Non-OK return | 3 retries per REQ-MB-060 | Logged at WARN via ILogger; `stats.crc_errors` incremented |
+| `MODBUS_MASTER_ERR_BAD_RESPONSE` | Slave address or function-code mismatch in response | Return error immediately (not retried — indicates a bus collision or wrong slave) | Non-OK return | No retry — bus integrity issue; caller logs and abandons this poll cycle | Logged at ERROR via ILogger; `stats.bad_responses` incremented |
+| `MODBUS_MASTER_ERR_EXCEPTION` | Slave returned a Modbus exception PDU (0x80 + FC, exception code) | Return error; exception code in response struct | Non-OK return | No retry — exception is a slave-side logic error | Logged at WARN via ILogger; `stats.exceptions` incremented |
+
+### modbus_poller_err_t — ModbusPoller error codes
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `MODBUS_POLLER_ERR_NOT_INIT` | Function called before `modbus_poller_init()` | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MODBUS_POLLER_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
+| `MODBUS_POLLER_ERR_QUEUE_FULL` | `modbus_poller_send_command()` called when the command queue is full | Return error; command dropped | Non-OK return | No retry — caller (TimeService, ConsoleService) should retry after a brief delay | Caller logs at WARN via ILogger |
+| `MODBUS_POLLER_ERR_REJECTED` | Command addressed to a slave address not in the allowlist | Return error; command dropped | Non-OK return | No retry — configuration error; operator must provision the slave first | Caller logs at WARN via ILogger |
+
 
 ## 7. Unit-test plan
 
