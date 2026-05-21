@@ -839,6 +839,259 @@ def check_pass_g(paths: dict, findings: list):
 
 
 # ----------------------------------------------------------------------
+# Layer 3 Synthesis — boot-order, memory budget, task-boundary consistency
+# ----------------------------------------------------------------------
+
+# Init-dependency graph: value = list of prerequisites (must be init'd first).
+# Covers components from both boards; board-specific entries co-exist.
+_INIT_DEPS: dict[str, list[str]] = {
+    "GpioDriver":             [],
+    "RtcDriver":              [],
+    "SpiDriver":              ["GpioDriver"],
+    "I2cDriver":              ["GpioDriver"],
+    "UartDriver":             ["GpioDriver"],
+    "QspiFlashDriver":        ["GpioDriver"],
+    "ExtiDriver":             ["GpioDriver"],
+    "SimulatedSensorDrivers": [],
+    # Logger bootstraps via RtcDriver directly — bypasses TimeProvider to break
+    # the Logger ↔ TimeProvider circular dependency (LLD-D15 / bootstrap exception).
+    "Logger":                 ["RtcDriver"],
+    "CircularFlashLog":       ["QspiFlashDriver"],
+    "ConfigStore":            ["QspiFlashDriver"],
+    "ConfigService":          ["ConfigStore"],
+    "SensorDrivers":          ["I2cDriver"],
+    "SensorService":          ["SensorDrivers"],
+    "AlarmService":           ["SensorService"],
+    "ModbusSlave":            ["UartDriver"],
+    "ModbusRegisterMap":      ["ModbusSlave"],
+    # FD display chain — PH7 reset: TouchscreenDriver must follow LcdDriver (TSD-D5)
+    "SdramDriver":            ["GpioDriver"],
+    "LcdDriver":              ["SdramDriver"],
+    "TouchscreenDriver":      ["LcdDriver"],
+    "GraphicsLibrary":        ["LcdDriver"],
+    "LcdUi":                  ["GraphicsLibrary", "TouchscreenDriver"],
+    # GW cloud stack
+    "WifiDriver":             ["SpiDriver"],
+    "MqttClient":             ["WifiDriver"],
+    "StoreAndForward":        ["CircularFlashLog"],
+    "CloudPublisher":         ["MqttClient", "StoreAndForward"],
+    # GW time stack — TimeProvider reads RTC BKP0R; no Logger dependency at init
+    "TimeProvider":           ["RtcDriver"],
+    "NtpClient":              ["WifiDriver"],
+    "TimeService":            ["NtpClient", "TimeProvider"],
+    # GW Modbus master stack
+    "ModbusMaster":           ["UartDriver"],
+    "ModbusPoller":           ["ModbusMaster"],
+    # GW OTA
+    "FirmwareStore":          ["QspiFlashDriver"],
+    "UpdateService":          ["FirmwareStore"],
+    # Both boards
+    "ConsoleService":         ["UartDriver"],
+    "HealthMonitor":          [],
+    "LifecycleController":    ["ConfigService"],
+    "DeviceProfileRegistry":  ["ConfigStore"],
+}
+
+# Task stacks per board (words × 4 = bytes), from task-breakdown.md §4 and §5.
+_GW_STACKS_KB = {
+    "SensorTask p5":           2,
+    "ModbusPollerTask p4":     2,
+    "WifiTask p3":             1,
+    "CloudPublisherTask p2":   8,   # TLS handshake worst case (task-breakdown.md §5.3)
+    "TimeServiceTask p2":      3,
+    "UpdateServiceTask p1":    4,
+    "ConsoleTask p1":          2,
+    "LifecycleTask p1":        1,
+    "Idle + Timer tasks":      1,   # combined estimate
+}
+
+_FD_STACKS_KB = {
+    "SensorTask p5":           2,
+    "ModbusSlaveTask p4":      2,
+    "LcdUiTask p2":            4,
+    "ConsoleTask p1":          2,
+    "LifecycleTask p1":        1,
+    "Idle + Timer tasks":      1,
+}
+
+# GW static-memory budget (bytes), conservative round-up estimates.
+# Source: companion §3 private structs and open-item MQTT-O1.
+_GW_STATIC_NOMINAL: dict[str, int] = {
+    "FreeRTOS TCBs (10 tasks × ~180 B)":         1_800,
+    "FreeRTOS IPC objects (queues, mutexes, timers, event groups)": 1_536,
+    "MqttClient — mbedTLS all-in [MQTT-O1 minimal config, nominal 35 KB]": 35 * 1024,
+    "MqttClient — MQTT_PKT_BUF_SIZE (MQTT-O3 provisional)":               4 * 1024,
+    "MqttClient — coreMQTT context + state":      512,
+    "CloudPublisher — JSON scratch buf + command queue":  6 * 1024,
+    "WifiDriver — AT command buffer + socket table":      2 * 1024,
+    "StoreAndForward — ring-state metadata":       256,
+    "CircularFlashLog — head/tail/sector metadata": 256,
+    "ConfigStore — key-value RAM cache":            1 * 1024,
+    "Logger — format buffer (s_buf)":               256,
+    "ModbusMaster + ModbusPoller — PDU + frame bufs": 1 * 1024,
+    "NtpClient — UDP packet buffer":                512,
+    "TimeProvider — BKP0R shadow + state":          128,
+    "SensorService + AlarmService — state":         384,
+    "UpdateService + FirmwareStore — state":        512,
+    "ConsoleService — UART RX line buffer":         512,
+    "HealthMonitor — snapshot + mutex":             512,
+    "LifecycleController — state machine":          256,
+    "DeviceProfileRegistry — profile cache":        512,
+    "BSS / startup code / ISR stacks":            2 * 1024,
+}
+
+# Worst-case extra: standard mbedTLS record buffers (16 KB × 2) vs minimal
+# config (≈ 4 KB × 2 embedded in the 35 KB nominal all-in figure).
+# Standard default: SSL context ~36 KB + 16 KB RX + 16 KB TX = 68 KB all-in.
+# Nominal minimal:  35 KB all-in → extra = (68 − 35) KB.
+_GW_MQTT_WORST_EXTRA_BYTES = (68 - 35) * 1024  # 33 KB
+
+# FD static-memory budget (bytes). LCD framebuffer lives in external SDRAM —
+# not counted here. LVGL draw buffers and heap are in internal SRAM (§6 companion).
+_FD_STATIC_NOMINAL: dict[str, int] = {
+    "FreeRTOS TCBs (7 tasks × ~180 B)":          1_260,
+    "FreeRTOS IPC objects":                        768,
+    "LVGL draw buffers (2 × 8 KB, Option A in SRAM)":  16 * 1024,
+    "LVGL internal heap (LV_MEM_SIZE ≥ 32 KB)":   32 * 1024,
+    "GraphicsLibrary + LcdUi — state structs":     512,
+    "LcdDriver + SdramDriver + TouchscreenDriver — state": 384,
+    "ConfigStore — key-value RAM cache":            1 * 1024,
+    "Logger — format buffer (s_buf)":               256,
+    "ModbusSlave + ModbusRegisterMap — PDU + register map": 1 * 1024,
+    "SensorService + AlarmService — state":          384,
+    "ConsoleService — UART RX line buffer":          512,
+    "HealthMonitor — snapshot + mutex":              512,
+    "LifecycleController — state machine":           256,
+    "DeviceProfileRegistry — profile cache":         512,
+    "BSS / startup code / ISR stacks":             2 * 1024,
+}
+
+_GW_SRAM_BYTES = 128 * 1024   # REQ-NF-400 (STM32L475)
+_FD_SRAM_BYTES = 320 * 1024   # STM32F469 (framebuffer in external SDRAM)
+_BUDGET_BLOCKER_PCT = 95.0
+_BUDGET_FIX_NOW_PCT = 80.0
+
+
+def _topo_sort_init_deps(deps: dict[str, list[str]]) -> list[str] | None:
+    """Kahn's algorithm on the init-dependency graph.
+
+    deps[node] = list of nodes that must be initialised before node.
+    Returns a valid topological order, or None if a cycle exists.
+    """
+    from collections import deque
+    # Ensure every prerequisite appears as a key (even if it has no own deps)
+    all_nodes: set[str] = set(deps.keys())
+    for prereqs in deps.values():
+        all_nodes.update(prereqs)
+
+    in_deg: dict[str, int] = {n: 0 for n in all_nodes}
+    successors: dict[str, list[str]] = {n: [] for n in all_nodes}
+    for node, prereqs in deps.items():
+        for p in prereqs:
+            in_deg[node] += 1
+            successors[p].append(node)
+
+    queue = deque(n for n, d in in_deg.items() if d == 0)
+    order: list[str] = []
+    while queue:
+        n = queue.popleft()
+        order.append(n)
+        for s in successors.get(n, []):
+            in_deg[s] -= 1
+            if in_deg[s] == 0:
+                queue.append(s)
+
+    return order if len(order) == len(all_nodes) else None
+
+
+def check_layer_3_synthesis(paths: dict, findings: list):
+    """Layer 3 synthesis: boot-order, memory budget, task-boundary consistency."""
+
+    # ------------------------------------------------------------------
+    # Check 1 — Boot-order: init-dependency graph must be acyclic
+    # ------------------------------------------------------------------
+    order = _topo_sort_init_deps(_INIT_DEPS)
+    if order is None:
+        findings.append(Finding(
+            Severity.BLOCKER, "Boot-order (Layer 3)",
+            "HALT: init-dependency graph contains a cycle — resolve bootstrap exception "
+            "before proceeding (lld-methodology.md synthesis criterion)",
+            "docs/lld/gate-review/layer-3-synthesis-report.md"))
+        return  # cannot continue if graph is broken
+
+    # ------------------------------------------------------------------
+    # Check 2 — Memory budget
+    # ------------------------------------------------------------------
+    gw_stacks_bytes  = sum(kb * 1024 for kb in _GW_STACKS_KB.values())
+    gw_static_bytes  = sum(_GW_STATIC_NOMINAL.values())
+    gw_nominal_bytes = gw_stacks_bytes + gw_static_bytes
+    gw_worst_bytes   = gw_nominal_bytes + _GW_MQTT_WORST_EXTRA_BYTES
+
+    fd_stacks_bytes  = sum(kb * 1024 for kb in _FD_STACKS_KB.values())
+    fd_static_bytes  = sum(_FD_STATIC_NOMINAL.values())
+    fd_nominal_bytes = fd_stacks_bytes + fd_static_bytes
+
+    gw_nom_pct   = gw_nominal_bytes / _GW_SRAM_BYTES * 100
+    gw_worst_pct = gw_worst_bytes   / _GW_SRAM_BYTES * 100
+    fd_pct       = fd_nominal_bytes / _FD_SRAM_BYTES  * 100
+
+    for board, nom_bytes, nom_pct, worst_pct, sram in (
+        ("GW (STM32L475, 128 KB)", gw_nominal_bytes, gw_nom_pct, gw_worst_pct, _GW_SRAM_BYTES),
+        ("FD (STM32F469, 320 KB)", fd_nominal_bytes, fd_pct,     fd_pct,       _FD_SRAM_BYTES),
+    ):
+        if nom_pct >= _BUDGET_BLOCKER_PCT:
+            findings.append(Finding(
+                Severity.BLOCKER, "Memory budget (Layer 3)",
+                f"{board}: nominal budget {nom_pct:.1f}% of "
+                f"{sram // 1024} KB internal SRAM — exceeds {_BUDGET_BLOCKER_PCT:.0f}% "
+                "halt-and-report threshold",
+                "docs/lld/gate-review/memory-budget.md"))
+        elif nom_pct >= _BUDGET_FIX_NOW_PCT:
+            findings.append(Finding(
+                Severity.FIX_NOW, "Memory budget (Layer 3)",
+                f"{board}: nominal budget {nom_pct:.1f}% of "
+                f"{sram // 1024} KB — exceeds {_BUDGET_FIX_NOW_PCT:.0f}% threshold; "
+                "reduce stack sizes or relocate buffers before Phase 4",
+                "docs/lld/gate-review/memory-budget.md"))
+        elif worst_pct >= _BUDGET_FIX_NOW_PCT:
+            # Nominal is safe but worst-case breaches the warn threshold —
+            # open item (MQTT-O1) must be resolved before Phase 4 integration.
+            findings.append(Finding(
+                Severity.FIX_NOW, "Memory budget (Layer 3)",
+                f"{board}: nominal budget {nom_pct:.1f}% of "
+                f"{sram // 1024} KB internal SRAM (safe); however, worst-case "
+                f"(standard mbedTLS defaults) reaches {worst_pct:.1f}% — exceeds "
+                f"{_BUDGET_FIX_NOW_PCT:.0f}% threshold. "
+                "MQTT-O1 (mbedTLS minimal-config buffer reduction) must be resolved "
+                "and verified before Phase 4 integration.",
+                "docs/lld/gate-review/memory-budget.md"))
+
+    # ------------------------------------------------------------------
+    # Check 3 — Task-boundary consistency: shared multi-task resources
+    # must declare a synchronisation primitive in their §3.
+    # ------------------------------------------------------------------
+    _SHARED_RESOURCES = [
+        # (component display name, mutex keyword, companion relative path)
+        ("Logger",        "logger_mutex",       "docs/lld/middleware/logger.md"),
+        ("ConfigStore",   "config_store_mutex",  "docs/lld/middleware/config-store.md"),
+        ("HealthMonitor", "health_mutex",        "docs/lld/application/health-monitor.md"),
+    ]
+    for name, mutex_kw, rel in _SHARED_RESOURCES:
+        companion = paths["root"] / rel
+        if not companion.exists():
+            continue
+        text = companion.read_text(encoding="utf-8")
+        sec3 = _sec3_body(text)
+        if mutex_kw not in sec3 and mutex_kw not in text:
+            findings.append(Finding(
+                Severity.BLOCKER, "Task-boundary consistency (Layer 3)",
+                f"{name} is called from multiple tasks but §3 does not declare "
+                f"'{mutex_kw}' — shared resources require an explicit sync primitive "
+                "(task-breakdown.md §7, lld-methodology.md §5 Step 3)",
+                rel))
+
+
+# ----------------------------------------------------------------------
 # Runner
 # ----------------------------------------------------------------------
 
@@ -862,12 +1115,13 @@ def run_all_checks(repo_root: Path) -> tuple[list[Finding], dict]:
     check_pass_e(paths, findings)
     check_pass_f(paths, findings)
     check_pass_g(paths, findings)
+    check_layer_3_synthesis(paths, findings)
 
     return findings, paths
 
 
 def print_report(findings: list[Finding], paths: dict):
-    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E, F, G)")
+    print(f"LLD gate review — Layer 1 + Layer 2 (Passes B, C, D, E, F, G) + Layer 3 Synthesis")
     print(f"Root: {paths['root']}\n")
 
     by_severity = defaultdict(list)

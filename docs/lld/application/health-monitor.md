@@ -435,7 +435,7 @@ must not acquire a mutex internally that could be held by another task
 
 ### Synchronisation
 
-This component uses an internal mutex to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
+This component uses an internal mutex (`health_mutex` per task-breakdown.md §7) to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
 
 ### health_monitor_init
 

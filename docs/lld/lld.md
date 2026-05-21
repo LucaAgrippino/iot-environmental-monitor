@@ -320,4 +320,12 @@ Each completed companion adds one row.
 
 ---
 
+## 8. Deferred work
+
+| Item | Reason | Re-entry trigger |
+|------|--------|------------------|
+| Pass H — Unit-test plan per companion §7 | Writing detailed test plans before the code under test exists is documentation that drifts. In Phase 4, each module's tests are designed and recorded in §7 alongside the implementation. The mock strategy (CMSIS shims, FreeRTOS test doubles) is established once and reused. | Phase 4 — per-module, at the time of writing the module. |
+
+---
+
 *This document is the master LLD. It is updated as each companion is completed. Implementation-ready specifications live in the companion files referenced in §4.*
