@@ -18,8 +18,11 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.2"
+          ruby-version: "3.0"
           bundler-cache: false
+
+      - name: Install Ceedling
+        run: gem install ceedling -v 0.31.1
 
       - name: Install Ceedling
         run: gem install ceedling
