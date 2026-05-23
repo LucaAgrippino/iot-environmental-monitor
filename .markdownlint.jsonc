@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   // Document-structure opinions — turned off, legacy docs predate this lint
   "MD001": false,  // heading-increment
   "MD003": false,  // heading-style (atx vs setext)
@@ -28,4 +29,20 @@
   // MD042 (empty links), MD051 (link fragments),
   // MD052 (reference link images), MD053 (image reference definitions) —
   // these catch genuine bugs (broken links, dangling references).
+=======
+  // Disable line-length enforcement — prose paragraphs are wrapped by the editor,
+  // not by manual line breaks.
+  "MD013": false,
+
+  // Allow inline HTML (used occasionally for diagram captions, badges).
+  "MD033": false,
+
+  // Allow duplicate headings across sections (common in long technical docs
+  // with repeated sub-sections like "Rationale" or "Examples").
+  "MD024": { "siblings_only": true },
+
+  // First line need not be a top-level heading — some docs lead with a metadata
+  // table or quote.
+  "MD041": false
+>>>>>>> 47acbbb8337d79cfaae5277ccd85ee9ea0b11bd6
 }
