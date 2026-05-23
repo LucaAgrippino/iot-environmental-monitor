@@ -39,16 +39,18 @@ jobs:
         include:
           - target: f469
             project_path: firmware/field-device
+            project_target: field-device/Debug
           - target: l475
             project_path: firmware/gateway
+            project_target: gateway/Debug
     steps:
       - uses: actions/checkout@v4
 
       - name: Build with STM32CubeIDE
-        uses: xanderhendriks/action-build-stm32cubeide@v2
+        uses: xanderhendriks/action-build-stm32cubeide@v15.0
         with:
-          version: "2.1.1"
           project-path: ${{ matrix.project_path }}
+          project-target: ${{ matrix.project_target }}
 
   cppcheck:
     name: Static analysis (cppcheck)
