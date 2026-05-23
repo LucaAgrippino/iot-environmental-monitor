@@ -63,18 +63,17 @@ jobs:
 
       - name: Run cppcheck
         run: |
-          # No-op until firmware source files exist alongside .gitkeep placeholders.
-          # Find .c and .h files under firmware/ excluding .gitkeep-only dirs.
-          sources=$(find firmware/ -name '*.c' -o -name '*.h' | grep -v '\.gitkeep' || true)
+          sources=$(find firmware \
+            \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \) \
+            \( -name '*.c' -o -name '*.h' \) 2>/dev/null || true)
           if [ -z "$sources" ]; then
-            echo "cppcheck: no source files found — skipping"
+            echo "cppcheck: no project source files found — skipping"
             exit 0
           fi
-          cppcheck \
+          echo "$sources" | xargs cppcheck \
             --enable=all \
             --error-exitcode=1 \
-            --suppressions-list=cppcheck-suppressions.xml \
-            firmware/
+            --suppressions-list=cppcheck-suppressions.xml
 
   clang-format-check:
     name: Formatting check (clang-format)
@@ -87,10 +86,11 @@ jobs:
 
       - name: Check formatting
         run: |
-          # No-op until firmware source files exist.
-          files=$(find firmware/ -name '*.c' -o -name '*.h' | grep -v '\.gitkeep' || true)
+          files=$(find firmware \
+            \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \) \
+            \( -name '*.c' -o -name '*.h' \) 2>/dev/null || true)
           if [ -z "$files" ]; then
-            echo "clang-format: no source files found — skipping"
+            echo "clang-format: no project source files found — skipping"
             exit 0
           fi
           echo "$files" | xargs clang-format-17 --dry-run --Werror
