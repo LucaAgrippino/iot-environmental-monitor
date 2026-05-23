@@ -529,7 +529,7 @@ The driver does not contribute to `IHealthReport` either. No condition the GPIO 
 ### 7.1 Test framework and location
 
 - **Framework:** Unity (ThrowTheSwitch.org).
-- **File:** `tests/firmware/field-device/drivers/test_gpio_driver.c` and `tests/firmware/gateway/drivers/test_gpio_driver.c`.
+- **File:** `tests/field-device/drivers/test_gpio_driver.c` and `tests/gateway/drivers/test_gpio_driver.c`.
 - **Build target:** host (PC). The test does not run on the target board.
 
 ### 7.2 Mock strategy
@@ -543,6 +543,8 @@ The driver `#include`s a build-target-specific device header (`stm32f469xx.h` or
 
 The driver source is compiled unchanged against the mock header (selected via test-target `CFLAGS`). All register writes target the mock arrays; tests assert on the resulting in-memory values.
 
+CMock not used here because the seam is register access, not function calls; CMock will land with the first driver whose dependencies are function calls (likely Logger consuming UartDriver).
+
 ### 7.3 Test cases
 
 For each public function: one happy-path case minimum, one error-path case minimum, and one boundary-condition case where applicable. Listed by `test_<module>_<function>_<scenario>` naming.
@@ -551,7 +553,8 @@ For each public function: one happy-path case minimum, one error-path case minim
 
 - `test_gpio_init_succeeds_first_call`
 - `test_gpio_init_idempotent_second_call_returns_ok`
-- `test_gpio_init_enables_all_target_port_clocks` (verifies the right RCC bits set)
+- `test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_k_bits` (verifies the right RCC bits set)
+- `test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_h_bits` (verifies the right RCC bits set)
 
 **`gpio_configure_pin`**
 
