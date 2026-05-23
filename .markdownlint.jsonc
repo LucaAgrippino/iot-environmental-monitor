@@ -1,0 +1,16 @@
+{
+  // Disable line-length enforcement — prose paragraphs are wrapped by the editor,
+  // not by manual line breaks.
+  "MD013": false,
+
+  // Allow inline HTML (used occasionally for diagram captions, badges).
+  "MD033": false,
+
+  // Allow duplicate headings across sections (common in long technical docs
+  // with repeated sub-sections like "Rationale" or "Examples").
+  "MD024": { "siblings_only": true },
+
+  // First line need not be a top-level heading — some docs lead with a metadata
+  // table or quote.
+  "MD041": false
+}
