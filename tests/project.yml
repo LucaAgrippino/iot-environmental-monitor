@@ -12,8 +12,7 @@
 
 :paths:
   :test:
-    - +:**/test_*.c
-    - -:build/**
+    - +:example/**
   :source:
     - ../firmware/**
   :support:
