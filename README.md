@@ -43,7 +43,7 @@ ships regardless.
 
 ## Project Structure
 
-```
+```file system
 ├── docs/                   Design documents (SRS, HLD, LLD, coding standard)
 ├── firmware/
 │   ├── field-device/       STM32F469 Discovery firmware
