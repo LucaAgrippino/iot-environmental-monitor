@@ -1,0 +1,31 @@
+{
+  // Document-structure opinions — turned off, legacy docs predate this lint
+  "MD001": false,  // heading-increment
+  "MD003": false,  // heading-style (atx vs setext)
+  "MD004": false,  // ul-style (dash vs plus vs asterisk)
+  "MD007": false,  // ul-indent
+  "MD009": false,  // trailing spaces
+  "MD012": false,  // multiple blank lines
+  "MD013": false,  // line length
+  "MD022": false,  // blanks around headings
+  "MD024": { "siblings_only": true },  // duplicate headings (allow across sections)
+  "MD025": false,  // single h1 in document
+  "MD026": false,  // trailing punctuation in heading
+  "MD029": false,  // ordered list prefix
+  "MD031": false,  // blanks around fenced code
+  "MD032": false,  // blanks around lists
+  "MD033": false,  // inline HTML
+  "MD036": false,  // emphasis used as heading
+  "MD037": false,  // spaces inside emphasis markers
+  "MD038": false,  // spaces inside code spans
+  "MD040": false,  // fenced code language tag
+  "MD041": false,  // first line is h1
+  "MD047": false,  // single trailing newline
+  "MD056": false,  // table column count
+  "MD058": false   // blanks around tables
+
+  // Default-enabled rules NOT disabled here remain active:
+  // MD042 (empty links), MD051 (link fragments),
+  // MD052 (reference link images), MD053 (image reference definitions) —
+  // these catch genuine bugs (broken links, dangling references).
+}

@@ -1,36 +1,31 @@
 ---
 :project:
   :use_exceptions: FALSE
-  :use_mocks: TRUE
-  :compile_threads: 2
-  :test_threads: 2
+  :use_test_preprocessor: TRUE
+  :use_auxiliary_dependencies: TRUE
   :build_root: build
+  :release_build: FALSE
+  :test_file_prefix: test_
+  :which_ceedling: gem
+  :default_tasks:
+    - test:all
 
 :paths:
   :test:
-    - tests/**/test_*.c
+    - +:example/**
   :source:
-    - firmware/**/*.c
-  :include:
-    - firmware/**/*.h
+    - ../firmware/**
   :support:
-    - tests/support
+    - support
 
 :defines:
-  :common: []
-  :test: []
-
-:tools: {}
-
-:plugins:
-  :load_paths:
-    - "#{Ceedling.load_path}"
-  :enabled:
-    - stdout_pretty_tests_report
-    - module_generator
-
-:unity:
-  :defines: []
+  :common: &common_defines []
+  :test:
+    - *common_defines
+    - TEST
+  :test_preprocess:
+    - *common_defines
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
@@ -40,16 +35,15 @@
     - :ignore
     - :callback
   :treat_as:
-    uint8: HEX8
-    uint16: HEX16
-    uint32: UINT32
-    int8: INT8
-    bool: UINT8
+    uint8:    HEX8
+    uint16:   HEX16
+    uint32:   UINT32
+    int8:     INT8
+    bool:     UINT8
 
-:flags:
-  :test:
-    :compile:
-      :*:
-        - -std=c11
-        - -Wall
-        - -Wextra
+:plugins:
+  :load_paths:
+    - "#{Ceedling.load_path}"
+  :enabled:
+    - stdout_pretty_tests_report
+    - module_generator
