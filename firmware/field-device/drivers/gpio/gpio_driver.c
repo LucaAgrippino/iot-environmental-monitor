@@ -51,7 +51,7 @@ gpio_err_t gpio_init(void)
 
 gpio_err_t gpio_configure_pin(const gpio_pin_config_t *config)
 {
-	if(config == NULL)
+	if(NULL == config)
 	{
 		return GPIO_ERR_NULL_POINTER;
 	}
@@ -76,7 +76,7 @@ gpio_err_t gpio_configure_pin(const gpio_pin_config_t *config)
 		return GPIO_ERR_INVALID_MODE;
 	}
 
-	if(config->mode == GPIO_MODE_ALTERNATE && config->alternate > 15)
+	if(GPIO_MODE_ALTERNATE == config->mode && config->alternate > 15)
 	{
 		return GPIO_ERR_INVALID_CONFIG;
 	}
@@ -106,12 +106,12 @@ gpio_err_t gpio_configure_pin(const gpio_pin_config_t *config)
 gpio_err_t gpio_read_pin(gpio_port_t port, uint8_t pin, gpio_level_t *out_level)
 {
 
-	if(out_level == NULL)
+	if(NULL == out_level)
 	{
 		return GPIO_ERR_NULL_POINTER;
 	}
 
-	if(s_gpio.initialised == false)
+	if(false == s_gpio.initialised)
 	{
 		return GPIO_ERR_NOT_INITIALISED;
 	}
@@ -141,7 +141,36 @@ gpio_err_t gpio_read_pin(gpio_port_t port, uint8_t pin, gpio_level_t *out_level)
 }
 
 
+gpio_err_t gpio_write_pin(gpio_port_t port, uint8_t pin, gpio_level_t level)
+{
+	/*
+	 * Reject if s_initialised is false.
+       Validate port and pin.
+       Write to BSRR: bit pin to set (level high), bit pin + 16 to reset (level low). A single 32-bit write — atomic.
+       Return GPIO_OK
+	 */
+	if(false == s_gpio.initialised)
+	{
+		return GPIO_ERR_NOT_INITIALISED;
+	}
 
+	if(port >= GPIO_PORT_COUNT)
+	{
+		return GPIO_ERR_INVALID_PORT;
+	}
+
+	if(pin > 15)
+	{
+		return GPIO_ERR_INVALID_PIN;
+	}
+
+	GPIO_TypeDef *gpio_port = s_gpio.port_map[port];
+
+	const uint8_t shift = (level == GPIO_LEVEL_HIGH) ? pin : (pin + 16u);
+	gpio_port->BSRR = (1u << shift);
+
+	return GPIO_OK;
+}
 
 
 #ifdef TEST

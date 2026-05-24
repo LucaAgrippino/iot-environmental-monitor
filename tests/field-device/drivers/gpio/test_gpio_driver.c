@@ -364,3 +364,56 @@ void test_gpio_read_pin_low_when_idr_bit_clear(void)
 	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_I, 7, &out_level));
 	TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_LOW, out_level);
 }
+
+/* write_pin set test */
+void test_gpio_write_pin_high_sets_lower_bsrr_bit(void)
+{
+	gpio_init();
+	/* No pre-load — BSRR is write-only, mock starts at 0. */
+
+	gpio_level_t level = GPIO_LEVEL_HIGH;
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_G, 0, level));
+	TEST_ASSERT_EQUAL_HEX32(0x1u, GPIOG->BSRR);
+}
+
+void test_gpio_write_pin_low_sets_upper_bsrr_bit(void)
+{
+	gpio_init();
+	/* No pre-load — BSRR is write-only, mock starts at 0. */
+
+	gpio_level_t level = GPIO_LEVEL_LOW;
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_J, 10, level));
+	/* Pin 10 LOW → bit 10+16 = 26 set in BSRR. Expected: 1u << 26 = 0x04000000. */
+	TEST_ASSERT_EQUAL_HEX32((1u<<26), GPIOJ->BSRR);
+}
+
+void test_gpio_write_pin_rejects_invalid_port(void)
+{
+	gpio_init();
+
+	gpio_level_t level = GPIO_LEVEL_HIGH;
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_write_pin(GPIO_PORT_COUNT, 4, level));
+
+}
+
+void test_gpio_write_pin_rejects_pin_above_15(void)
+{
+	gpio_init();
+
+	gpio_level_t level = GPIO_LEVEL_LOW;
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_write_pin(GPIO_PORT_D, 16, level));
+}
+
+void test_gpio_write_pin_returns_not_initialised_before_init(void)
+{
+	gpio_level_t level = GPIO_LEVEL_LOW;
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_write_pin(GPIO_PORT_A, 1, level));
+}
+
+void test_gpio_write_pin_accepts_pin_15(void)
+{
+    gpio_init();
+
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_C, 15, GPIO_LEVEL_HIGH));
+    TEST_ASSERT_EQUAL_HEX32(1u << 15, GPIOC->BSRR);
+}
