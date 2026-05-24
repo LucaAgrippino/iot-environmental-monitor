@@ -417,3 +417,50 @@ void test_gpio_write_pin_accepts_pin_15(void)
     TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_C, 15, GPIO_LEVEL_HIGH));
     TEST_ASSERT_EQUAL_HEX32(1u << 15, GPIOC->BSRR);
 }
+
+
+void test_gpio_toggle_pin_inverts_odr_bit(void)
+{
+	gpio_init();
+	GPIOK->ODR = (1u<<15);
+
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_K, 15));
+	TEST_ASSERT_EQUAL_HEX32(0x0u, GPIOK->ODR);
+}
+
+void test_gpio_toggle_pin_preserves_other_odr_bits(void)
+{
+	gpio_init();
+	GPIOA->ODR = 0xA5A5;
+
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_A, 5));
+	TEST_ASSERT_EQUAL_HEX32(0xA5A5u ^ (1u << 5), GPIOA->ODR);
+}
+
+void test_gpio_toggle_pin_rejects_invalid_port(void)
+{
+	gpio_init();
+
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_toggle_pin(GPIO_PORT_COUNT, 2));
+}
+void test_gpio_toggle_pin_rejects_pin_above_15(void)
+{
+	gpio_init();
+
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_toggle_pin(GPIO_PORT_F, 16));
+}
+
+void test_gpio_toggle_pin_returns_not_initialised_before_init(void)
+{
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_toggle_pin(GPIO_PORT_H, 1));
+}
+
+void test_gpio_toggle_pin_two_calls_return_to_original(void)
+{
+	gpio_init();
+	GPIOB->ODR = (1u<<5);
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_B, 5));
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_B, 5));
+	TEST_ASSERT_EQUAL_HEX32((1u<<5), GPIOB->ODR);
+
+}

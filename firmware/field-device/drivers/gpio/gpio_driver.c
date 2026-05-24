@@ -1,7 +1,8 @@
 
 #include "gpio_driver.h"
-#include <stdbool.h>
 #include "stm32f469xx.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 
 
@@ -143,12 +144,6 @@ gpio_err_t gpio_read_pin(gpio_port_t port, uint8_t pin, gpio_level_t *out_level)
 
 gpio_err_t gpio_write_pin(gpio_port_t port, uint8_t pin, gpio_level_t level)
 {
-	/*
-	 * Reject if s_initialised is false.
-       Validate port and pin.
-       Write to BSRR: bit pin to set (level high), bit pin + 16 to reset (level low). A single 32-bit write — atomic.
-       Return GPIO_OK
-	 */
 	if(false == s_gpio.initialised)
 	{
 		return GPIO_ERR_NOT_INITIALISED;
@@ -172,6 +167,35 @@ gpio_err_t gpio_write_pin(gpio_port_t port, uint8_t pin, gpio_level_t level)
 	return GPIO_OK;
 }
 
+gpio_err_t gpio_toggle_pin(gpio_port_t port, uint8_t pin)
+{
+	/*
+	 * Reject if s_initialised is false.
+       Validate port and pin.
+       Read the port's ODR, XOR the pin bit, write back. (Read-modify-write on ODR — see threading note in §2.2.)
+       Return GPIO_OK.
+     */
+	if(false == s_gpio.initialised)
+	{
+		return GPIO_ERR_NOT_INITIALISED;
+	}
+
+	if(port >= GPIO_PORT_COUNT)
+	{
+		return GPIO_ERR_INVALID_PORT;
+	}
+
+	if(pin > 15)
+	{
+		return GPIO_ERR_INVALID_PIN;
+	}
+
+	GPIO_TypeDef *gpio_port = s_gpio.port_map[port];
+	gpio_port->ODR ^= (1u << pin);
+
+
+	return GPIO_OK;
+}
 
 #ifdef TEST
 void gpio_driver_reset_for_test(void)
