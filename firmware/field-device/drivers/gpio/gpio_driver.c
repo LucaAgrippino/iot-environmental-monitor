@@ -103,6 +103,42 @@ gpio_err_t gpio_configure_pin(const gpio_pin_config_t *config)
 	return GPIO_OK;
 }
 
+gpio_err_t gpio_read_pin(gpio_port_t port, uint8_t pin, gpio_level_t *out_level)
+{
+
+	if(out_level == NULL)
+	{
+		return GPIO_ERR_NULL_POINTER;
+	}
+
+	if(s_gpio.initialised == false)
+	{
+		return GPIO_ERR_NOT_INITIALISED;
+	}
+
+	if(port >= GPIO_PORT_COUNT)
+	{
+		return GPIO_ERR_INVALID_PORT;
+	}
+
+	if(pin > 15)
+	{
+		return GPIO_ERR_INVALID_PIN;
+	}
+
+	GPIO_TypeDef *gpio_port = s_gpio.port_map[port];
+
+	if( (gpio_port->IDR & (1 << pin)) != 0u )
+	{
+		*out_level = GPIO_LEVEL_HIGH;
+	}
+	else
+	{
+		*out_level = GPIO_LEVEL_LOW;
+	}
+
+	return GPIO_OK;
+}
 
 
 

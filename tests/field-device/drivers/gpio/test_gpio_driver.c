@@ -41,6 +41,8 @@ void test_mock_reset_clears_rcc_ahb1enr(void)
     TEST_ASSERT_EQUAL_HEX32(0u, RCC->AHB1ENR);
 }
 
+/* gpio_init set test */
+
 /* Proves: GPIO initialisation succeeds on the first call. */
 void test_gpio_init_succeeds_first_call(void)
 {
@@ -63,6 +65,7 @@ void test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_k_bits(void)
 	TEST_ASSERT_EQUAL_HEX32(0x7FF, RCC->AHB1ENR);
 }
 
+/* configure_pin set test */
 void test_gpio_configure_pin_null_config_takes_priority_over_not_initialised(void)
 {
     /* No gpio_init() called. */
@@ -126,7 +129,7 @@ void test_gpio_configure_pin_input_pull_up_succeeds(void)
     /* MODER[11:10] = 00 (INPUT), all other MODER bits unchanged from reset (0) */
     TEST_ASSERT_EQUAL_HEX32(0x0u, GPIOB->MODER);
 
-    /* PUPDR[7:6] = 01 (push-pull) */
+    /* PUPDR[7:6] = 01 (PULL_UP), expected: 0x40 */
     TEST_ASSERT_EQUAL_HEX32(0x40, GPIOB->PUPDR);
 }
 
@@ -180,9 +183,8 @@ void test_gpio_configure_pin_clears_mode_bits_before_setting(void)
 
 void test_gpio_configure_pin_writes_moder_last(void)
 {
-	/* test_gpio_configure_pin_writes_moder_last: not host-testable with
-	   * memory-backed mock (captures final state, not write order). Ordering
-	   * enforced by code review against gpio-driver.md §3.2 step 8. */
+    TEST_IGNORE_MESSAGE("Not host-testable with memory-backed mock; "
+                        "ordering enforced by code review per gpio-driver.md §3.2 step 8.");
 }
 
 void test_gpio_configure_pin_rejects_null_config(void)
@@ -314,4 +316,51 @@ void test_gpio_configure_pin_accepts_af15(void)
     };
     TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_configure_pin(&config));
     TEST_ASSERT_EQUAL_HEX32(0xFu, GPIOA->AFR[0]);
+}
+
+/* read_pin set test */
+void test_gpio_read_pin_returns_not_initialised_before_init(void)
+{
+	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_read_pin(GPIO_PORT_A, 3, &out_level));
+}
+
+void test_gpio_read_pin_rejects_invalid_port(void)
+{
+	gpio_init();
+	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_read_pin(GPIO_PORT_COUNT, 5, &out_level));
+}
+
+void test_gpio_read_pin_rejects_pin_above_15(void)
+{
+	gpio_init();
+	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_read_pin(GPIO_PORT_F, 16, &out_level));
+}
+
+void test_gpio_read_pin_rejects_null_out_level(void)
+{
+	gpio_init();
+	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NULL_POINTER, gpio_read_pin(GPIO_PORT_A, 0, NULL));
+}
+
+void test_gpio_read_pin_high_when_idr_bit_set(void)
+{
+	gpio_init();
+	GPIOK->IDR = 0x800u;
+
+	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_K, 11, &out_level));
+	TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_HIGH, out_level);
+}
+
+void test_gpio_read_pin_low_when_idr_bit_clear(void)
+{
+	gpio_init();
+	GPIOI->IDR = 0x0u;
+
+	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_I, 7, &out_level));
+	TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_LOW, out_level);
 }
