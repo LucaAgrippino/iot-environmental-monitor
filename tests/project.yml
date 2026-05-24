@@ -12,8 +12,11 @@
 
 :paths:
   :test:
-    - +:example/**
+    - field-device/**
+    - gateway/**
+    - example/**
   :source:
+    - mocks/**
     - ../firmware/**
   :support:
     - support

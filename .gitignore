@@ -31,7 +31,7 @@ temp/
 
 # Ceedling / CMock generated
 tests/build/
-tests/mocks/
+tests/build/test/mocks/
 
 # CubeIDE build outputs
 firmware/**/Debug/
