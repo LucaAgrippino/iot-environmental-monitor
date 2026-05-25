@@ -184,6 +184,49 @@ debug_uart_err_t debug_uart_send(const uint8_t *data,
     return DEBUG_UART_OK;
 }
 
+debug_uart_err_t debug_uart_read_line(uint8_t *out_buf,
+                                      size_t buf_size,
+                                      size_t *out_length,
+                                      debug_uart_line_flag_t *out_flag)
+{
+    if (!s_debug_uart.initialised) {
+        return DEBUG_UART_ERR_NOT_INITIALISED;
+    }
+    if ((out_buf == NULL) || (out_length == NULL) || (out_flag == NULL)) {
+        return DEBUG_UART_ERR_NULL_POINTER;
+    }
+    if (buf_size < (DEBUG_UART_LINE_MAX_LEN + 1U)) {
+        return DEBUG_UART_ERR_INVALID_PARAM;
+    }
+
+    /* Disable the USART NVIC vector around the read to prevent the ISR
+     * from re-arming a new line while we're copying. */
+    NVIC_DisableIRQ(USART3_IRQn);
+
+    if (!s_debug_uart.rx_ready_flag) {
+        NVIC_EnableIRQ(USART3_IRQn);
+        return DEBUG_UART_ERR_NO_LINE_AVAILABLE;
+    }
+
+    /* Copy the frozen line and null-terminate. */
+    for (size_t i = 0U; i < s_debug_uart.rx_ready_len; i++) {
+        out_buf[i] = s_debug_uart.rx_ready_buf[i];
+    }
+    out_buf[s_debug_uart.rx_ready_len] = '\0';
+
+    *out_length = s_debug_uart.rx_ready_len;
+    *out_flag   = s_debug_uart.rx_ready_truncated
+                  ? DEBUG_UART_LINE_TRUNCATED
+                  : DEBUG_UART_LINE_OK;
+
+    /* Clear the ready state — next callback corresponds to a new line. */
+    s_debug_uart.rx_ready_flag       = false;
+    s_debug_uart.rx_ready_truncated  = false;
+
+    NVIC_EnableIRQ(USART3_IRQn);
+    return DEBUG_UART_OK;
+}
+
 #ifdef TEST
 void debug_uart_reset_for_test(void)
 {
@@ -191,5 +234,17 @@ void debug_uart_reset_for_test(void)
     for (size_t i = 0; i < sizeof(s_debug_uart); i++) {
         ((uint8_t *)&s_debug_uart)[i] = 0U;
     }
+}
+void debug_uart_set_ready_line_for_test(const uint8_t *line,
+                                        size_t len,
+                                        bool truncated)
+{
+    /* Pre-condition the test must respect: len ≤ DEBUG_UART_LINE_MAX_LEN. */
+    for (size_t i = 0U; i < len; i++) {
+        s_debug_uart.rx_ready_buf[i] = line[i];
+    }
+    s_debug_uart.rx_ready_len       = len;
+    s_debug_uart.rx_ready_truncated = truncated;
+    s_debug_uart.rx_ready_flag      = true;
 }
 #endif

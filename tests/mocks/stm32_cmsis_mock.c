@@ -5,6 +5,7 @@
 GPIO_TypeDef g_mock_gpio[MOCK_GPIO_PORT_COUNT];
 RCC_TypeDef g_mock_rcc;
 USART_TypeDef g_mock_usart3;
+
 /* Add to storage definitions, alongside g_mock_gpio and g_mock_rcc: */
 uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
 uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];

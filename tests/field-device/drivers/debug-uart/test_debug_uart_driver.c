@@ -3,6 +3,9 @@
 #include "debug_uart_driver.h"
 
 extern void debug_uart_reset_for_test(void);
+extern void debug_uart_set_ready_line_for_test(const uint8_t *line,
+                                               size_t len,
+                                               bool truncated);
 
 /* Test-controllable tick source. Tests set s_test_ms_value and the
  * driver's get_ms() reads it via this wrapper. */
@@ -245,4 +248,141 @@ void test_debug_uart_send_returns_tx_timeout_when_txe_never_asserts(void)
     const uint8_t data[] = {0xAA};
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_TX_TIMEOUT,
                           debug_uart_send(data, sizeof(data), 100U));
+}
+
+void test_debug_uart_read_line_returns_no_line_when_flag_clear(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NO_LINE_AVAILABLE,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+
+    /* NVIC must have been disabled and re-enabled exactly once each
+     * (the protective bracket around the empty-state check). */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_nvic_disable_count[USART3_IRQn]);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_nvic_enable_count[USART3_IRQn]);
+}
+
+void test_debug_uart_read_line_copies_line_and_clears_flag(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    const uint8_t injected[] = {'h', 'e', 'l', 'l', 'o'};
+    debug_uart_set_ready_line_for_test(injected, sizeof(injected), false);
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U] = {0};
+    size_t  length = 0xDEADBEEFu;
+    debug_uart_line_flag_t flag = DEBUG_UART_LINE_TRUNCATED;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+
+    /* Content copied verbatim. */
+    TEST_ASSERT_EQUAL_MEMORY(injected, buf, sizeof(injected));
+    TEST_ASSERT_EQUAL_UINT32(sizeof(injected), length);
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_OK, flag);
+
+    /* Second read returns NO_LINE_AVAILABLE — flag was cleared. */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NO_LINE_AVAILABLE,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+}
+
+void test_debug_uart_read_line_null_terminates_buffer(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    const uint8_t injected[] = {'h', 'i'};
+    debug_uart_set_ready_line_for_test(injected, sizeof(injected), false);
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    /* Pre-fill with non-zero to verify the driver writes the terminator. */
+    for (size_t i = 0; i < sizeof(buf); i++) {
+        buf[i] = 0xAAu;
+    }
+
+    size_t length;
+    debug_uart_line_flag_t flag;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+
+    /* buf[2] must be '\0' (terminator written at index = length). */
+    TEST_ASSERT_EQUAL_HEX8(0x00u, buf[2]);
+}
+
+void test_debug_uart_read_line_reports_ok_flag_when_not_truncated(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    const uint8_t injected[] = {'a', 'b'};
+    debug_uart_set_ready_line_for_test(injected, sizeof(injected), false);
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag = DEBUG_UART_LINE_TRUNCATED;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_OK, flag);
+}
+
+void test_debug_uart_read_line_reports_truncated_flag_when_overflow_occurred(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    const uint8_t injected[] = {'x', 'y'};
+    debug_uart_set_ready_line_for_test(injected, sizeof(injected), true);
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_TRUNCATED, flag);
+}
+
+void test_debug_uart_read_line_rejects_buf_size_too_small(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    /* buf_size = DEBUG_UART_LINE_MAX_LEN exactly — one byte short. */
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_INVALID_PARAM,
+                          debug_uart_read_line(buf, DEBUG_UART_LINE_MAX_LEN,
+                                               &length, &flag));
+}
+
+void test_debug_uart_read_line_rejects_null_pointers(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
+                          debug_uart_read_line(NULL, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
+                          debug_uart_read_line(buf, sizeof(buf), NULL, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
+                          debug_uart_read_line(buf, sizeof(buf), &length, NULL));
+}
+
+void test_debug_uart_read_line_rejects_not_initialised(void)
+{
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+
+    /* No debug_uart_init() called. */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
 }
