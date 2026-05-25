@@ -117,7 +117,7 @@ gpio_err_t gpio_read_pin(gpio_port_t port, uint8_t pin, gpio_level_t *out_level)
         return GPIO_ERR_INVALID_PIN;
     }
 
-    GPIO_TypeDef *const gpio_port = s_gpio.port_map[port];
+    const GPIO_TypeDef *gpio_port = s_gpio.port_map[port]; /* read-only */
 
     if ((gpio_port->IDR & (1 << pin)) != 0u)
     {
