@@ -65,10 +65,57 @@ typedef struct
      * Minimum required field below; add others only if a future
      * driver needs them. */
     volatile uint32_t AHB1ENR;
+    volatile uint32_t APB1ENR;
 } RCC_TypeDef;
 
 /* Storage lives in the .c — declared extern here. */
 extern GPIO_TypeDef g_mock_gpio[MOCK_GPIO_PORT_COUNT]; /* GPIOA..GPIOK */
 extern RCC_TypeDef g_mock_rcc;
+
+/* ------------------------------------------------------------------ */
+/* USART_TypeDef (F4 legacy USART — used by USART3)                    */
+/* Per RM0386 USART chapter.                                           */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    volatile uint32_t SR;    /**< Status register, offset 0x00. */
+    volatile uint32_t DR;    /**< Data register, offset 0x04. */
+    volatile uint32_t BRR;   /**< Baud rate register, offset 0x08. */
+    volatile uint32_t CR1;   /**< Control register 1, offset 0x0C. */
+    volatile uint32_t CR2;   /**< Control register 2, offset 0x10. */
+    volatile uint32_t CR3;   /**< Control register 3, offset 0x14. */
+    volatile uint32_t GTPR;  /**< Guard-time / prescaler, offset 0x18. */
+} USART_TypeDef;
+
+extern USART_TypeDef g_mock_usart3;
+#define USART3  (&g_mock_usart3)
+
+/* RCC: extend with APB1ENR for USART3. Note: real RCC has APB1ENR at
+ * offset 0x40, separate from AHB1ENR at 0x30. Field-name access means
+ * absolute offsets don't matter; we just append. */
+/* NOTE: also add 'volatile uint32_t APB1ENR;' to RCC_TypeDef above.
+ * Per the GpioDriver lesson, struct storage is non-volatile but
+ * register fields are. */
+
+#define RCC_APB1ENR_USART3EN_Pos  (18U)
+#define RCC_APB1ENR_USART3EN      (1UL << RCC_APB1ENR_USART3EN_Pos)
+
+/* ------------------------------------------------------------------ */
+/* NVIC (would normally come from core_cm4.h)                          */
+/* ------------------------------------------------------------------ */
+typedef enum {
+    USART3_IRQn = 39   /* Per stm32f469xx.h CMSIS canonical value. */
+    /* Add more IRQn values as future drivers need them. */
+} IRQn_Type;
+
+/* Mock NVIC tracks call counts per IRQn. Tests inspect counters
+ * directly; current-enabled state is derivable as
+ * (enable_count > disable_count). */
+#define NVIC_IRQ_COUNT_MAX  (128U)
+
+extern uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
+extern uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+
+void NVIC_EnableIRQ(IRQn_Type irqn);
+void NVIC_DisableIRQ(IRQn_Type irqn);
 
 #endif /* STM32F469XX_H */
