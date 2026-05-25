@@ -2,7 +2,6 @@
 #include "stm32_cmsis_mock.h"
 #include "gpio_driver.h"
 
-
 extern void gpio_driver_reset_for_test(void);
 
 void setUp(void)
@@ -52,17 +51,17 @@ void test_gpio_init_succeeds_first_call(void)
 /* Proves: GPIO initialisation idempotent after the first call. */
 void test_gpio_init_idempotent_second_call_returns_ok(void)
 {
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_init());
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_init());
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_init());
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_init());
 }
 
 /* Proves: The clock initialization for each gpio port*/
 void test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_k_bits(void)
 {
-	gpio_init();
+    gpio_init();
 
-	// 0x7FF = first 11 bits setted
-	TEST_ASSERT_EQUAL_HEX32(0x7FF, RCC->AHB1ENR);
+    // 0x7FF = first 11 bits setted
+    TEST_ASSERT_EQUAL_HEX32(0x7FF, RCC->AHB1ENR);
 }
 
 /* configure_pin set test */
@@ -74,31 +73,27 @@ void test_gpio_configure_pin_null_config_takes_priority_over_not_initialised(voi
 
 void test_gpio_configure_pin_returns_not_initialised_before_init(void)
 {
+    gpio_pin_config_t config = {.alternate = 0,
+                                .mode = GPIO_MODE_OUTPUT,
+                                .otype = GPIO_OTYPE_PUSH_PULL,
+                                .pin = 1,
+                                .port = GPIO_PORT_A,
+                                .pull = GPIO_PULL_UP,
+                                .speed = GPIO_SPEED_LOW};
 
-	gpio_pin_config_t config =
-	{
-			.alternate = 0,
-			.mode = GPIO_MODE_OUTPUT,
-			.otype = GPIO_OTYPE_PUSH_PULL,
-			.pin = 1,
-			.port = GPIO_PORT_A,
-			.pull = GPIO_PULL_UP,
-			.speed = GPIO_SPEED_LOW
-	};
-
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_configure_pin(&config));
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_configure_pin(&config));
 }
 
 void test_gpio_configure_pin_output_push_pull_succeeds(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_A,
-        .pin       = 5,
-        .mode      = GPIO_MODE_OUTPUT,
-        .otype     = GPIO_OTYPE_PUSH_PULL,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_A,
+        .pin = 5,
+        .mode = GPIO_MODE_OUTPUT,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 0,
     };
 
@@ -115,12 +110,12 @@ void test_gpio_configure_pin_input_pull_up_succeeds(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_B,
-        .pin       = 3,
-        .mode      = GPIO_MODE_INPUT,
-        .otype     = GPIO_OTYPE_OPEN_DRAIN,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_UP,
+        .port = GPIO_PORT_B,
+        .pin = 3,
+        .mode = GPIO_MODE_INPUT,
+        .otype = GPIO_OTYPE_OPEN_DRAIN,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_UP,
         .alternate = 0,
     };
 
@@ -137,12 +132,12 @@ void test_gpio_configure_pin_alternate_function_writes_afr_correctly(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_A,
-        .pin       = 9,
-        .mode      = GPIO_MODE_ALTERNATE,
-        .otype     = GPIO_OTYPE_OPEN_DRAIN,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_A,
+        .pin = 9,
+        .mode = GPIO_MODE_ALTERNATE,
+        .otype = GPIO_OTYPE_OPEN_DRAIN,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 0x07u, // AF7
     };
 
@@ -150,7 +145,6 @@ void test_gpio_configure_pin_alternate_function_writes_afr_correctly(void)
 
     /* MODER[19:18] = 10 (ALTERNATE) */
     TEST_ASSERT_EQUAL_HEX32(0x2u << 18, GPIOA->MODER);
-
 
     /* AFR[0] = pins 0..7 (untouched). */
     TEST_ASSERT_EQUAL_HEX32(0x0u, GPIOA->AFR[0]);
@@ -162,15 +156,15 @@ void test_gpio_configure_pin_alternate_function_writes_afr_correctly(void)
 void test_gpio_configure_pin_clears_mode_bits_before_setting(void)
 {
     gpio_init();
-    GPIOA->MODER = 0xFFFFFFFFu;     /* every pin starts in ANALOGUE state */
+    GPIOA->MODER = 0xFFFFFFFFu; /* every pin starts in ANALOGUE state */
 
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_A,
-        .pin       = 0,
-        .mode      = GPIO_MODE_OUTPUT,  /* value 0x01 — not 0x3, so we can see the clear */
-        .otype     = GPIO_OTYPE_PUSH_PULL,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_A,
+        .pin = 0,
+        .mode = GPIO_MODE_OUTPUT, /* value 0x01 — not 0x3, so we can see the clear */
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 0,
     };
 
@@ -199,12 +193,12 @@ void test_gpio_configure_pin_rejects_invalid_port(void)
     gpio_init();
 
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_COUNT,
-        .pin       = 0,
-        .mode      = GPIO_MODE_OUTPUT,
-        .otype     = GPIO_OTYPE_PUSH_PULL,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_COUNT,
+        .pin = 0,
+        .mode = GPIO_MODE_OUTPUT,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 0,
     };
 
@@ -216,12 +210,12 @@ void test_gpio_configure_pin_rejects_pin_above_15(void)
     gpio_init();
 
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_A,
-        .pin       = 16,
-        .mode      = GPIO_MODE_OUTPUT,
-        .otype     = GPIO_OTYPE_PUSH_PULL,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_A,
+        .pin = 16,
+        .mode = GPIO_MODE_OUTPUT,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 0,
     };
 
@@ -233,12 +227,12 @@ void test_gpio_configure_pin_rejects_invalid_mode(void)
     gpio_init();
 
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_A,
-        .pin       = 1,
-        .mode      = GPIO_MODE_ANALOGUE + 1,
-        .otype     = GPIO_OTYPE_PUSH_PULL,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_A,
+        .pin = 1,
+        .mode = GPIO_MODE_ANALOGUE + 1,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 0,
     };
 
@@ -250,12 +244,12 @@ void test_gpio_configure_pin_rejects_alternate_above_15(void)
     gpio_init();
 
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_A,
-        .pin       = 1,
-        .mode      = GPIO_MODE_ALTERNATE,
-        .otype     = GPIO_OTYPE_PUSH_PULL,
-        .speed     = GPIO_SPEED_LOW,
-        .pull      = GPIO_PULL_NONE,
+        .port = GPIO_PORT_A,
+        .pin = 1,
+        .mode = GPIO_MODE_ALTERNATE,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
         .alternate = 16,
     };
 
@@ -266,12 +260,12 @@ void test_gpio_configure_pin_writes_all_attribute_registers(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port      = GPIO_PORT_C,
-        .pin       = 4,
-        .mode      = GPIO_MODE_OUTPUT,        /* MODER[9:8] = 01 */
-        .otype     = GPIO_OTYPE_OPEN_DRAIN,   /* OTYPER[4]  = 1  */
-        .speed     = GPIO_SPEED_HIGH,         /* OSPEEDR[9:8] = 10 */
-        .pull      = GPIO_PULL_DOWN,          /* PUPDR[9:8]   = 10 */
+        .port = GPIO_PORT_C,
+        .pin = 4,
+        .mode = GPIO_MODE_OUTPUT,       /* MODER[9:8] = 01 */
+        .otype = GPIO_OTYPE_OPEN_DRAIN, /* OTYPER[4]  = 1  */
+        .speed = GPIO_SPEED_HIGH,       /* OSPEEDR[9:8] = 10 */
+        .pull = GPIO_PULL_DOWN,         /* PUPDR[9:8]   = 10 */
         .alternate = 0,
     };
 
@@ -287,9 +281,13 @@ void test_gpio_configure_pin_accepts_pin_15(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port = GPIO_PORT_A, .pin = 15, .mode = GPIO_MODE_OUTPUT,
-        .otype = GPIO_OTYPE_PUSH_PULL, .speed = GPIO_SPEED_LOW,
-        .pull = GPIO_PULL_NONE, .alternate = 0,
+        .port = GPIO_PORT_A,
+        .pin = 15,
+        .mode = GPIO_MODE_OUTPUT,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
+        .alternate = 0,
     };
     TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_configure_pin(&config));
 }
@@ -298,9 +296,13 @@ void test_gpio_configure_pin_accepts_analogue_mode(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port = GPIO_PORT_A, .pin = 0, .mode = GPIO_MODE_ANALOGUE,
-        .otype = GPIO_OTYPE_PUSH_PULL, .speed = GPIO_SPEED_LOW,
-        .pull = GPIO_PULL_NONE, .alternate = 0,
+        .port = GPIO_PORT_A,
+        .pin = 0,
+        .mode = GPIO_MODE_ANALOGUE,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
+        .alternate = 0,
     };
     TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_configure_pin(&config));
     TEST_ASSERT_EQUAL_HEX32(0x3u, GPIOA->MODER);
@@ -310,9 +312,13 @@ void test_gpio_configure_pin_accepts_af15(void)
 {
     gpio_init();
     gpio_pin_config_t config = {
-        .port = GPIO_PORT_A, .pin = 0, .mode = GPIO_MODE_ALTERNATE,
-        .otype = GPIO_OTYPE_PUSH_PULL, .speed = GPIO_SPEED_LOW,
-        .pull = GPIO_PULL_NONE, .alternate = 15,
+        .port = GPIO_PORT_A,
+        .pin = 0,
+        .mode = GPIO_MODE_ALTERNATE,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_LOW,
+        .pull = GPIO_PULL_NONE,
+        .alternate = 15,
     };
     TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_configure_pin(&config));
     TEST_ASSERT_EQUAL_HEX32(0xFu, GPIOA->AFR[0]);
@@ -321,93 +327,92 @@ void test_gpio_configure_pin_accepts_af15(void)
 /* read_pin set test */
 void test_gpio_read_pin_returns_not_initialised_before_init(void)
 {
-	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_read_pin(GPIO_PORT_A, 3, &out_level));
+    gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_read_pin(GPIO_PORT_A, 3, &out_level));
 }
 
 void test_gpio_read_pin_rejects_invalid_port(void)
 {
-	gpio_init();
-	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_read_pin(GPIO_PORT_COUNT, 5, &out_level));
+    gpio_init();
+    gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_read_pin(GPIO_PORT_COUNT, 5, &out_level));
 }
 
 void test_gpio_read_pin_rejects_pin_above_15(void)
 {
-	gpio_init();
-	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_read_pin(GPIO_PORT_F, 16, &out_level));
+    gpio_init();
+    gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_read_pin(GPIO_PORT_F, 16, &out_level));
 }
 
 void test_gpio_read_pin_rejects_null_out_level(void)
 {
-	gpio_init();
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NULL_POINTER, gpio_read_pin(GPIO_PORT_A, 0, NULL));
+    gpio_init();
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_NULL_POINTER, gpio_read_pin(GPIO_PORT_A, 0, NULL));
 }
 
 void test_gpio_read_pin_high_when_idr_bit_set(void)
 {
-	gpio_init();
-	GPIOK->IDR = 0x800u;
+    gpio_init();
+    GPIOK->IDR = 0x800u;
 
-	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_K, 11, &out_level));
-	TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_HIGH, out_level);
+    gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_K, 11, &out_level));
+    TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_HIGH, out_level);
 }
 
 void test_gpio_read_pin_low_when_idr_bit_clear(void)
 {
-	gpio_init();
-	GPIOI->IDR = 0x0u;
+    gpio_init();
+    GPIOI->IDR = 0x0u;
 
-	gpio_level_t out_level = GPIO_LEVEL_UNDEF;
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_I, 7, &out_level));
-	TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_LOW, out_level);
+    gpio_level_t out_level = GPIO_LEVEL_UNDEF;
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_read_pin(GPIO_PORT_I, 7, &out_level));
+    TEST_ASSERT_EQUAL_INT(GPIO_LEVEL_LOW, out_level);
 }
 
 /* write_pin set test */
 void test_gpio_write_pin_high_sets_lower_bsrr_bit(void)
 {
-	gpio_init();
-	/* No pre-load — BSRR is write-only, mock starts at 0. */
+    gpio_init();
+    /* No pre-load — BSRR is write-only, mock starts at 0. */
 
-	gpio_level_t level = GPIO_LEVEL_HIGH;
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_G, 0, level));
-	TEST_ASSERT_EQUAL_HEX32(0x1u, GPIOG->BSRR);
+    gpio_level_t level = GPIO_LEVEL_HIGH;
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_G, 0, level));
+    TEST_ASSERT_EQUAL_HEX32(0x1u, GPIOG->BSRR);
 }
 
 void test_gpio_write_pin_low_sets_upper_bsrr_bit(void)
 {
-	gpio_init();
-	/* No pre-load — BSRR is write-only, mock starts at 0. */
+    gpio_init();
+    /* No pre-load — BSRR is write-only, mock starts at 0. */
 
-	gpio_level_t level = GPIO_LEVEL_LOW;
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_J, 10, level));
-	/* Pin 10 LOW → bit 10+16 = 26 set in BSRR. Expected: 1u << 26 = 0x04000000. */
-	TEST_ASSERT_EQUAL_HEX32((1u<<26), GPIOJ->BSRR);
+    gpio_level_t level = GPIO_LEVEL_LOW;
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_write_pin(GPIO_PORT_J, 10, level));
+    /* Pin 10 LOW → bit 10+16 = 26 set in BSRR. Expected: 1u << 26 = 0x04000000. */
+    TEST_ASSERT_EQUAL_HEX32((1u << 26), GPIOJ->BSRR);
 }
 
 void test_gpio_write_pin_rejects_invalid_port(void)
 {
-	gpio_init();
+    gpio_init();
 
-	gpio_level_t level = GPIO_LEVEL_HIGH;
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_write_pin(GPIO_PORT_COUNT, 4, level));
-
+    gpio_level_t level = GPIO_LEVEL_HIGH;
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_write_pin(GPIO_PORT_COUNT, 4, level));
 }
 
 void test_gpio_write_pin_rejects_pin_above_15(void)
 {
-	gpio_init();
+    gpio_init();
 
-	gpio_level_t level = GPIO_LEVEL_LOW;
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_write_pin(GPIO_PORT_D, 16, level));
+    gpio_level_t level = GPIO_LEVEL_LOW;
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_write_pin(GPIO_PORT_D, 16, level));
 }
 
 void test_gpio_write_pin_returns_not_initialised_before_init(void)
 {
-	gpio_level_t level = GPIO_LEVEL_LOW;
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_write_pin(GPIO_PORT_A, 1, level));
+    gpio_level_t level = GPIO_LEVEL_LOW;
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_write_pin(GPIO_PORT_A, 1, level));
 }
 
 void test_gpio_write_pin_accepts_pin_15(void)
@@ -418,49 +423,47 @@ void test_gpio_write_pin_accepts_pin_15(void)
     TEST_ASSERT_EQUAL_HEX32(1u << 15, GPIOC->BSRR);
 }
 
-
 void test_gpio_toggle_pin_inverts_odr_bit(void)
 {
-	gpio_init();
-	GPIOK->ODR = (1u<<15);
+    gpio_init();
+    GPIOK->ODR = (1u << 15);
 
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_K, 15));
-	TEST_ASSERT_EQUAL_HEX32(0x0u, GPIOK->ODR);
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_K, 15));
+    TEST_ASSERT_EQUAL_HEX32(0x0u, GPIOK->ODR);
 }
 
 void test_gpio_toggle_pin_preserves_other_odr_bits(void)
 {
-	gpio_init();
-	GPIOA->ODR = 0xA5A5;
+    gpio_init();
+    GPIOA->ODR = 0xA5A5;
 
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_A, 5));
-	TEST_ASSERT_EQUAL_HEX32(0xA5A5u ^ (1u << 5), GPIOA->ODR);
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_A, 5));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5u ^ (1u << 5), GPIOA->ODR);
 }
 
 void test_gpio_toggle_pin_rejects_invalid_port(void)
 {
-	gpio_init();
+    gpio_init();
 
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_toggle_pin(GPIO_PORT_COUNT, 2));
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PORT, gpio_toggle_pin(GPIO_PORT_COUNT, 2));
 }
 void test_gpio_toggle_pin_rejects_pin_above_15(void)
 {
-	gpio_init();
+    gpio_init();
 
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_toggle_pin(GPIO_PORT_F, 16));
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_INVALID_PIN, gpio_toggle_pin(GPIO_PORT_F, 16));
 }
 
 void test_gpio_toggle_pin_returns_not_initialised_before_init(void)
 {
-	TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_toggle_pin(GPIO_PORT_H, 1));
+    TEST_ASSERT_EQUAL_INT(GPIO_ERR_NOT_INITIALISED, gpio_toggle_pin(GPIO_PORT_H, 1));
 }
 
 void test_gpio_toggle_pin_two_calls_return_to_original(void)
 {
-	gpio_init();
-	GPIOB->ODR = (1u<<5);
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_B, 5));
-	TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_B, 5));
-	TEST_ASSERT_EQUAL_HEX32((1u<<5), GPIOB->ODR);
-
+    gpio_init();
+    GPIOB->ODR = (1u << 5);
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_B, 5));
+    TEST_ASSERT_EQUAL_INT(GPIO_OK, gpio_toggle_pin(GPIO_PORT_B, 5));
+    TEST_ASSERT_EQUAL_HEX32((1u << 5), GPIOB->ODR);
 }

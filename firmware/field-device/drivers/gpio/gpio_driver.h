@@ -22,13 +22,13 @@
  */
 typedef enum
 {
-    GPIO_OK                  =  0, /**< Success. */
-    GPIO_ERR_NOT_INITIALISED =  1, /**< gpio_init() has not been called. */
-    GPIO_ERR_INVALID_PORT    =  2, /**< Port value out of range or not enabled. */
-    GPIO_ERR_INVALID_PIN     =  3, /**< Pin number outside 0..15. */
-    GPIO_ERR_INVALID_MODE    =  4, /**< Mode value out of range. */
-    GPIO_ERR_INVALID_CONFIG  =  5, /**< Config struct combination not permitted. */
-    GPIO_ERR_NULL_POINTER    =  6  /**< Required output pointer is NULL. */
+    GPIO_OK = 0,                  /**< Success. */
+    GPIO_ERR_NOT_INITIALISED = 1, /**< gpio_init() has not been called. */
+    GPIO_ERR_INVALID_PORT = 2,    /**< Port value out of range or not enabled. */
+    GPIO_ERR_INVALID_PIN = 3,     /**< Pin number outside 0..15. */
+    GPIO_ERR_INVALID_MODE = 4,    /**< Mode value out of range. */
+    GPIO_ERR_INVALID_CONFIG = 5,  /**< Config struct combination not permitted. */
+    GPIO_ERR_NULL_POINTER = 6     /**< Required output pointer is NULL. */
 } gpio_err_t;
 
 /* ------------------------------------------------------------------ */
@@ -51,9 +51,9 @@ typedef enum
     GPIO_PORT_F,
     GPIO_PORT_G,
     GPIO_PORT_H,
-    GPIO_PORT_I,  /**< STM32F469 only. */
-    GPIO_PORT_J,  /**< STM32F469 only. */
-    GPIO_PORT_K,  /**< STM32F469 only. */
+    GPIO_PORT_I, /**< STM32F469 only. */
+    GPIO_PORT_J, /**< STM32F469 only. */
+    GPIO_PORT_K, /**< STM32F469 only. */
     GPIO_PORT_COUNT
 } gpio_port_t;
 
@@ -62,10 +62,10 @@ typedef enum
  */
 typedef enum
 {
-    GPIO_MODE_INPUT     = 0,
-    GPIO_MODE_OUTPUT    = 1,
+    GPIO_MODE_INPUT = 0,
+    GPIO_MODE_OUTPUT = 1,
     GPIO_MODE_ALTERNATE = 2,
-    GPIO_MODE_ANALOGUE  = 3
+    GPIO_MODE_ANALOGUE = 3
 } gpio_mode_t;
 
 /**
@@ -73,7 +73,7 @@ typedef enum
  */
 typedef enum
 {
-    GPIO_OTYPE_PUSH_PULL  = 0,
+    GPIO_OTYPE_PUSH_PULL = 0,
     GPIO_OTYPE_OPEN_DRAIN = 1
 } gpio_otype_t;
 
@@ -82,9 +82,9 @@ typedef enum
  */
 typedef enum
 {
-    GPIO_SPEED_LOW       = 0,
-    GPIO_SPEED_MEDIUM    = 1,
-    GPIO_SPEED_HIGH      = 2,
+    GPIO_SPEED_LOW = 0,
+    GPIO_SPEED_MEDIUM = 1,
+    GPIO_SPEED_HIGH = 2,
     GPIO_SPEED_VERY_HIGH = 3
 } gpio_speed_t;
 
@@ -94,7 +94,7 @@ typedef enum
 typedef enum
 {
     GPIO_PULL_NONE = 0,
-    GPIO_PULL_UP   = 1,
+    GPIO_PULL_UP = 1,
     GPIO_PULL_DOWN = 2
 } gpio_pull_t;
 
@@ -103,9 +103,9 @@ typedef enum
  */
 typedef enum
 {
-    GPIO_LEVEL_LOW  = 0,
+    GPIO_LEVEL_LOW = 0,
     GPIO_LEVEL_HIGH = 1,
-	GPIO_LEVEL_UNDEF = 1,
+    GPIO_LEVEL_UNDEF = 1,
 } gpio_level_t;
 
 /* ------------------------------------------------------------------ */
@@ -121,13 +121,13 @@ typedef enum
  */
 typedef struct
 {
-    gpio_port_t  port;       /**< Port. */
-    uint8_t      pin;        /**< Pin number, 0..15. */
-    gpio_mode_t  mode;       /**< Operating mode. */
-    gpio_otype_t otype;      /**< Output type (ignored if mode is INPUT or ANALOGUE). */
-    gpio_speed_t speed;      /**< Slew rate (ignored if mode is INPUT or ANALOGUE). */
-    gpio_pull_t  pull;       /**< Pull configuration. */
-    uint8_t      alternate;  /**< AF0..AF15, valid only when mode is ALTERNATE. */
+    gpio_port_t port;   /**< Port. */
+    uint8_t pin;        /**< Pin number, 0..15. */
+    gpio_mode_t mode;   /**< Operating mode. */
+    gpio_otype_t otype; /**< Output type (ignored if mode is INPUT or ANALOGUE). */
+    gpio_speed_t speed; /**< Slew rate (ignored if mode is INPUT or ANALOGUE). */
+    gpio_pull_t pull;   /**< Pull configuration. */
+    uint8_t alternate;  /**< AF0..AF15, valid only when mode is ALTERNATE. */
 } gpio_pin_config_t;
 
 /* ------------------------------------------------------------------ */
