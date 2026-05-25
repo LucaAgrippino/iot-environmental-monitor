@@ -732,6 +732,7 @@ These are integration-phase concerns. Documented as not in scope for host tests.
 | DUART-O2 | PCLK values for both boards (PCLK1 = 45 MHz F469, PCLK2 = 80 MHz L475). Final clock tree decisions are made by the system-startup code (not yet specified in an LLD companion). | Resolve when a `clock-config.md` companion lands, or pin the assumed values in the implementation as named constants traceable to that future companion. | Open |
 | DUART-O3 | Statistics counters (`rx_overrun_count`, `tx_timeout_count`, etc.) are accumulated internally but not exposed via an `IDebugUartStats` interface. | Add the interface when `IHealthReport` integration becomes relevant (after `HealthMonitor` LLD companion is drafted). | Open |
 | DUART-O4 | `debug_uart_drain()` — block until the wire has flushed the last byte (TC flag). Not required by current consumers; useful before deliberate reset. | Add in v2 if a consumer needs it. | Open |
+| DUART-O5 | NVIC priority setting deferred to the consumer. Per §3.4 P1 the driver does not depend on FreeRTOS, so it cannot reference `configMAX_SYSCALL_INTERRUPT_PRIORITY`. The consumer (Logger, ConsoleService, or system-startup) is responsible for calling `NVIC_SetPriority()` with an RTOS-safe value before the first interrupt arrives. | Revisit when Logger lands and the full NVIC priority map is established. | Open |
 
 **Inherited TBDs from `lld.md` §5.** None of O1/O2/O3 in `lld.md` §5 is resolved by this companion. They remain open.
 
