@@ -1,8 +1,8 @@
 # DebugUartDriver — LLD Companion
 
-**Version:** 1.0
-**Date:** May 2026
-**Status:** Draft
+**Version:** 1.1
+**Date:** 25 May 2026
+**Status:** Draft (Pass H reconciled)
 
 **HLD anchor:** `DebugUartDriver` in `components.md` (Field Device §4 driver layer, line 168; Gateway §4 driver layer, line 426). Layer: Driver. Targets: STM32F469 Discovery (Field Device, USART3) and STM32L475 IoT Discovery (Gateway, USART1).
 
@@ -348,23 +348,37 @@ static debug_uart_driver_t s_debug_uart;
 
 ### 3.1 Module state
 
-Static storage, declared in the `.c` file:
+All module state is encapsulated in the `debug_uart_driver_t` struct
+declared in §3.0 above, instantiated as a single file-scope static
+`s_debug_uart`. Fields:
 
-| Symbol | Type | Purpose |
+| Field | Type | Purpose |
 |---|---|---|
-| `s_initialised` | `static bool` | Set true by `debug_uart_init()`. |
-| `s_rx_attached` | `static bool` | Set true by `debug_uart_attach_rx()`. |
-| `s_line_callback` | `static debug_uart_line_callback_t` | Invoked from ISR when a line is ready. |
-| `s_line_callback_context` | `static void *` | Opaque context passed to the callback. |
-| `s_rx_accum_buf` | `static uint8_t[DEBUG_UART_LINE_MAX_LEN]` | ISR accumulates the in-progress line. |
-| `s_rx_accum_len` | `static volatile size_t` | Bytes currently in the accumulating buffer. |
-| `s_rx_overflow` | `static volatile bool` | Set if accumulating buffer fills before EOL. |
-| `s_rx_ready_buf` | `static uint8_t[DEBUG_UART_LINE_MAX_LEN + 1U]` | Frozen line waiting to be read; null-terminated. |
-| `s_rx_ready_len` | `static volatile size_t` | Length of frozen line. |
-| `s_rx_ready_truncated` | `static volatile bool` | Set if the frozen line was truncated. |
-| `s_rx_ready_flag` | `static volatile bool` | Set when a frozen line is available; cleared after read. |
+| `initialised` | `bool` | Set true by `debug_uart_init()`; checked by every other entry point. |
+| `rx_attached` | `bool` | Set true by `debug_uart_attach_rx()`; checked by the RX ISR to determine whether the callback is wired. |
+| `line_callback` | `debug_uart_line_callback_t` | Invoked from the RX ISR when a complete line is ready. |
+| `line_callback_context` | `void *` | Opaque context passed to the callback. |
+| `rx_accum_buf[DEBUG_UART_LINE_MAX_LEN]` | `uint8_t []` | ISR accumulates the in-progress line. |
+| `rx_accum_len` | `volatile size_t` | Bytes currently in the accumulating buffer. Volatile because written from ISR, read implicitly when the ready buffer is populated. |
+| `rx_overflow` | `volatile bool` | Set by the ISR if the accumulating buffer fills before an EOL terminator arrives. |
+| `rx_ready_buf[DEBUG_UART_LINE_MAX_LEN + 1U]` | `uint8_t []` | Frozen line waiting to be read; null-terminator slot included. |
+| `rx_ready_len` | `volatile size_t` | Length of the frozen line. |
+| `rx_ready_truncated` | `volatile bool` | Set if the frozen line was truncated. |
+| `rx_ready_flag` | `volatile bool` | Set by the ISR when a frozen line is available; cleared by `debug_uart_read_line()` after copy. |
 
-No FreeRTOS handles, no mutex. Two buffers (accumulating and ready) implement a simple double-buffer. The ISR writes to the accumulating buffer; on EOL it transposes to the ready buffer (or replaces it if a previous unread line is still there).
+`volatile` is applied to the fields shared between ISR and task
+context — flags, indices, and the per-event truncation marker. The
+two buffer arrays themselves are not declared `volatile`; correctness
+of buffer reads is established by the `volatile` flag fields and the
+NVIC mask around `debug_uart_read_line()` (see §3.3), which together
+prevent the compiler from reordering buffer reads past the flag
+check or the NVIC operations.
+
+No FreeRTOS handles, no mutex. Two buffers (accumulating and ready)
+implement a simple double-buffer. The ISR writes to the accumulating
+buffer; on EOL it transposes to the ready buffer (or replaces an
+existing unread line). All state is contained in `s_debug_uart`; no
+other module-scope storage exists.
 
 ### 3.2 Per-function internal flow
 
@@ -634,10 +648,11 @@ No log calls are issued from within this driver. Logger depends on this driver; 
 
 Because the driver does not depend on FreeRTOS, the test harness needs only the CMSIS mock infrastructure already established for GPIO:
 
-- The shared mock header `tests/mocks/stm32_cmsis_mock.h` (introduced for GPIO) is extended with mock `USART_TypeDef` instances (`USART1`, `USART3`), the relevant `RCC` enable-register bits, and the NVIC enable/disable functions (`NVIC_EnableIRQ`, `NVIC_DisableIRQ` as test-visible counters).
-- The mock peripheral pointers point into static volatile storage that the tests inspect and manipulate.
+- The shared mock header `tests/mocks/stm32_cmsis_mock.h` (introduced for GPIO) is extended with mock `USART_TypeDef` instances (`USART1`, `USART3`), the relevant `RCC` enable-register bits (`USART3EN`, `USART1EN`, plus the `APB1ENR`/`APB2ENR` field already needed for clock gating), and the NVIC enable/disable functions (`NVIC_EnableIRQ`, `NVIC_DisableIRQ` as test-visible counters / state).
+- The mock peripheral pointers point into static storage that the tests inspect and manipulate. Per the GpioDriver convention, the storage itself is non-volatile; `volatile` lives on the individual register fields inside `USART_TypeDef`, matching the real CMSIS pattern (volatile on registers, not on the struct as a whole).
 - The driver source compiles unchanged. The board selection (`STM32F469xx` vs `STM32L475xx`) is set via `CFLAGS` to test either implementation.
 - The RX line callback is provided by each test as a simple function that records its invocations into a test-visible struct (callback count, last context value). No FreeRTOS, no task notification.
+- **Test-isolation hook.** Following the project-wide discipline established with GpioDriver, the driver exposes `debug_uart_reset_for_test(void)` under `#ifdef TEST`. The hook clears every field of `s_debug_uart` to its post-startup state (`initialised = false`, `rx_attached = false`, callback pointers null, buffer lengths zero, flags cleared). It is called from `setUp()` in `test_debug_uart_driver.c` alongside `stm32_cmsis_mock_reset()`. Without this hook the `initialised`/`rx_attached` flags persist across test cases and validation-cascade tests short-circuit incorrectly (passing for the wrong reason or failing nondeterministically by test order).
 
 The absence of a FreeRTOS mock is the visible benefit of the FreeRTOS-free design: the test harness for this driver is no more complex than the test harness for GPIO.
 
