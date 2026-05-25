@@ -329,15 +329,18 @@ static gpio_driver_t s_gpio;
 
 ### 3.1 Module state
 
-The module holds three pieces of static state:
+All module state is encapsulated in the `gpio_driver_t` struct
+declared in §3.0 above, instantiated as a single file-scope static
+`s_gpio`. Fields:
 
-| Symbol | Type | Purpose |
+| Field | Type | Purpose |
 |---|---|---|
-| `s_initialised` | `static bool` | Set true by `gpio_init()`; checked by every other entry point. |
-| `s_port_to_peripheral` | `static GPIO_TypeDef * const []` | Maps `gpio_port_t` to the CMSIS peripheral pointer (`GPIOA`, `GPIOB`, …) defined in the device header. |
-| `s_port_to_clock_bit` | `static const uint32_t []` | Maps `gpio_port_t` to the RCC enable-register bit for that port. |
+| `initialised` | `bool` | Set true by `gpio_init()`; checked by every other entry point. |
+| `port_map[GPIO_PORT_COUNT]` | `GPIO_TypeDef *[]` | Maps `gpio_port_t` to the CMSIS peripheral pointer (`GPIOA`, `GPIOB`, …) defined in the device header. Populated as a static initialiser, zero runtime cost. |
+| `clock_bits[GPIO_PORT_COUNT]` | `uint32_t []` | Maps `gpio_port_t` to the RCC enable-register bit mask for that port (`RCC_AHB1ENR_GPIOAEN`, …). Used by `gpio_init()` to enable the relevant peripheral clocks. |
 
-No instance data, no FreeRTOS objects, no buffers. The driver is a thin wrapper over register access.
+No instance data, no FreeRTOS objects, no buffers. The driver is a
+thin wrapper over register access.
 
 ### 3.2 Per-function internal flow
 
@@ -547,53 +550,38 @@ CMock not used here because the seam is register access, not function calls; CMo
 
 ### 7.3 Test cases
 
-For each public function: one happy-path case minimum, one error-path case minimum, and one boundary-condition case where applicable. Listed by `test_<module>_<function>_<scenario>` naming.
+Naming convention: `test_<function>_<scenario>`.
 
-**`gpio_init`**
+**Mock infrastructure (3 tests):**
+- `test_mock_gpio_write_read_round_trip` — verifies the mock GPIO storage is volatile-correct and macros resolve correctly.
+- `test_mock_reset_clears_gpio_moder` — verifies `stm32_cmsis_mock_reset()` zeroes GPIO state between tests.
+- `test_mock_reset_clears_rcc_ahb1enr` — verifies the reset also clears RCC state.
 
+**`gpio_init` (3 tests):**
 - `test_gpio_init_succeeds_first_call`
 - `test_gpio_init_idempotent_second_call_returns_ok`
-- `test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_k_bits` (verifies the right RCC bits set)
-- `test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_h_bits` (verifies the right RCC bits set)
+- `test_gpio_init_sets_rcc_ahb1enr_gpio_a_through_k_bits`
 
-**`gpio_configure_pin`**
+**`gpio_configure_pin` (15 tests):**
+- Happy paths: `_output_push_pull_succeeds`, `_input_pull_up_succeeds`, `_alternate_function_writes_afr_correctly` (pin 9, AF7), `_clears_mode_bits_before_setting`, `_writes_all_attribute_registers` (distinct value per field, catches copy-paste bugs across MODER/OTYPER/OSPEEDR/PUPDR).
+- Boundary acceptance: `_accepts_pin_15`, `_accepts_analogue_mode`, `_accepts_af15`.
+- Validation cascade: `_null_config_takes_priority_over_not_initialised`, `_returns_not_initialised_before_init`, `_rejects_null_config`, `_rejects_invalid_port`, `_rejects_pin_above_15`, `_rejects_invalid_mode`, `_rejects_alternate_above_15`.
+- `test_gpio_configure_pin_writes_moder_last`: **ignored** via `TEST_IGNORE_MESSAGE`. Not host-testable with a memory-backed mock (captures final state, not write order). Ordering enforced by code review against §3.2 step 8.
 
-- `test_gpio_configure_pin_output_push_pull_succeeds`
-- `test_gpio_configure_pin_input_pull_up_succeeds`
-- `test_gpio_configure_pin_alternate_function_writes_afr_correctly`
-- `test_gpio_configure_pin_analogue_clears_mode_bits_correctly`
-- `test_gpio_configure_pin_writes_moder_last` (order verification — see §3.2)
-- `test_gpio_configure_pin_returns_not_initialised_before_init`
-- `test_gpio_configure_pin_rejects_null_config`
-- `test_gpio_configure_pin_rejects_invalid_port`
-- `test_gpio_configure_pin_rejects_pin_above_15`
-- `test_gpio_configure_pin_rejects_invalid_mode`
-- `test_gpio_configure_pin_rejects_alternate_above_15`
+**`gpio_read_pin` (6 tests):**
+- Happy paths: `_high_when_idr_bit_set`, `_low_when_idr_bit_clear`.
+- Validation cascade: `_returns_not_initialised_before_init`, `_rejects_null_out_level`, `_rejects_invalid_port`, `_rejects_pin_above_15`.
 
-**`gpio_read_pin`**
+**`gpio_write_pin` (6 tests):**
+- Happy paths: `_high_sets_lower_bsrr_bit` (bit `pin`), `_low_sets_upper_bsrr_bit` (bit `pin+16`).
+- Boundary acceptance: `_accepts_pin_15`.
+- Validation cascade: `_returns_not_initialised_before_init`, `_rejects_invalid_port`, `_rejects_pin_above_15`.
 
-- `test_gpio_read_pin_high_when_idr_bit_set`
-- `test_gpio_read_pin_low_when_idr_bit_clear`
-- `test_gpio_read_pin_rejects_null_out_level`
-- `test_gpio_read_pin_rejects_invalid_port`
-- `test_gpio_read_pin_rejects_pin_above_15`
-- `test_gpio_read_pin_returns_not_initialised_before_init`
+**`gpio_toggle_pin` (6 tests):**
+- Happy paths: `_inverts_odr_bit`, `_preserves_other_odr_bits` (pre-loaded ODR), `_two_calls_return_to_original` (XOR identity, catches "unconditional set" bugs).
+- Validation cascade: `_returns_not_initialised_before_init`, `_rejects_invalid_port`, `_rejects_pin_above_15`.
 
-**`gpio_write_pin`**
-
-- `test_gpio_write_pin_high_sets_lower_bsrr_bit`
-- `test_gpio_write_pin_low_sets_upper_bsrr_bit`
-- `test_gpio_write_pin_rejects_invalid_port`
-- `test_gpio_write_pin_rejects_pin_above_15`
-- `test_gpio_write_pin_returns_not_initialised_before_init`
-
-**`gpio_toggle_pin`**
-
-- `test_gpio_toggle_pin_inverts_odr_bit`
-- `test_gpio_toggle_pin_preserves_other_odr_bits`
-- `test_gpio_toggle_pin_rejects_invalid_port`
-- `test_gpio_toggle_pin_rejects_pin_above_15`
-- `test_gpio_toggle_pin_returns_not_initialised_before_init`
+**Total: 39 active tests + 1 intentionally ignored. Coverage: 100% of public API; ≥90% statement coverage; every documented error code produced by at least one test.**
 
 ### 7.4 Coverage target
 
