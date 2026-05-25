@@ -482,7 +482,17 @@ Implementation note for the timeout: a portable, FreeRTOS-free approach is to us
 **RX ISR — `USARTx_IRQHandler()`**
 
 1. Read the status register (`SR` on F469 or `ISR` on L475) once into a local variable.
-2. If a framing, parity, noise, or overrun error is flagged, clear it (`SR` read followed by `DR` read on F469; `ICR` write on L475), drop the byte, and exit. Increment an error counter for observability.
+2. If a framing, parity, noise, or overrun error is flagged in `SR`,
+   clear those flags **explicitly** by reading `DR` (the F4 hardware
+   clears them on the SR-read-then-DR-read sequence; the explicit `DR`
+   read here completes that sequence). Drop the byte (do not append to
+   `s_rx_accum_buf`). Return from the ISR.
+
+   *Note: on real hardware the SR read in step 1 plus the DR read here
+   constitute the canonical F4 clear sequence. The explicit code path is
+   chosen over relying on the hardware's implicit clear so the behaviour
+   is host-testable: the test mock cannot replicate the SR-DR clear
+   side-effect.*
 3. If RXNE is set:
    a. Read the byte from the data register (`DR` on F469, `RDR` on L475).
    b. If the byte is `\r` or `\n`:
@@ -695,12 +705,19 @@ Because the driver does not depend on FreeRTOS, the test harness needs only the 
 - The driver source compiles unchanged. The board selection (`STM32F469xx` vs `STM32L475xx`) is set via `CFLAGS` to test either implementation.
 - The RX line callback is provided by each test as a simple function that records its invocations into a test-visible struct (callback count, last context value). No FreeRTOS, no task notification.
 - **Test-isolation hook.** Following the project-wide discipline established with GpioDriver, the driver exposes `debug_uart_reset_for_test(void)` under `#ifdef TEST`. The hook clears every field of `s_debug_uart` to its post-startup state (`initialised = false`, `rx_attached = false`, callback pointers null, buffer lengths zero, flags cleared). It is called from `setUp()` in `test_debug_uart_driver.c` alongside `stm32_cmsis_mock_reset()`. Without this hook the `initialised`/`rx_attached` flags persist across test cases and validation-cascade tests short-circuit incorrectly (passing for the wrong reason or failing nondeterministically by test order).
+- **Ready-line injection hook.** `debug_uart_read_line()` consumes state
+populated by the RX ISR. To unit-test `read_line` independently of the ISR, the driver exposes `debug_uart_set_ready_line_for_test(const uint8_t *line, size_t len, bool truncated)` under `#ifdef TEST`. It populates `s_debug_uart.rx_ready_buf`, `rx_ready_len`,
+  `rx_ready_truncated`, and sets `rx_ready_flag = true` — bypassing the ISR. Same discipline as `debug_uart_reset_for_test()`: kept out of production by the build flag.
 
 The absence of a FreeRTOS mock is the visible benefit of the FreeRTOS-free design: the test harness for this driver is no more complex than the test harness for GPIO.
 
 ### 7.3 Test cases
 
 For each function, at least one happy-path case and one error-path case. The ISR is tested by directly invoking the handler symbol with the mock peripheral pre-populated.
+The `_stores_callback_and_context` test deferred from `debug_uart_attach_rx`
+(§7.3 above) is realised here: feed an EOL byte through the ISR after
+attaching a callback with a distinctive context pointer, then verify the
+callback was invoked with that exact context.
 
 **`debug_uart_init`**
 

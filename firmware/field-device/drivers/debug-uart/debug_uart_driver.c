@@ -1,4 +1,4 @@
-#include <debug-uart/debug_uart_driver.h>
+#include "debug_uart_driver.h"
 #include "stm32f469xx.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -14,26 +14,20 @@
 #define DEBUG_UART_PCLK1_HZ  (45000000U)
 #define DEBUG_UART_BAUD      (115200U)
 
-/* USART CR1 bits we touch. */
-#define USART_CR1_UE_Pos      (13U)
-#define USART_CR1_UE          (1UL << USART_CR1_UE_Pos)
-#define USART_CR1_TE_Pos      (3U)
-#define USART_CR1_TE          (1UL << USART_CR1_TE_Pos)
-#define USART_CR1_RE_Pos      (2U)
-#define USART_CR1_RE          (1UL << USART_CR1_RE_Pos)
-#define USART_CR1_RXNEIE_Pos  (5U)
-#define USART_CR1_RXNEIE      (1UL << USART_CR1_RXNEIE_Pos)
-
-/* USART SR bits used by send. */
-#define USART_SR_TXE_Pos  (7U)
-#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
-
 /* GPIO MODER value for alternate function. */
 #define GPIO_MODER_AF  (0x2U)
 /* GPIO PUPDR value for pull-up. */
 #define GPIO_PUPDR_UP  (0x1U)
 /* GPIO OSPEEDR value for high speed. */
 #define GPIO_OSPEEDR_HIGH  (0x2U)
+
+/* UART error mask */
+#define USART_SR_ERR_MASK  (USART_SR_ORE | USART_SR_FE | \
+                            USART_SR_NE  | USART_SR_PE)
+
+/* Line-terminator characters. */
+#define DEBUG_UART_CR      ((uint8_t)'\r')
+#define DEBUG_UART_LF      ((uint8_t)'\n')
 
 
 typedef struct {
@@ -52,6 +46,8 @@ typedef struct {
 } debug_uart_driver_t;
 
 static debug_uart_driver_t s_debug_uart;
+
+
 
 debug_uart_err_t debug_uart_init(void)
 {
@@ -226,6 +222,59 @@ debug_uart_err_t debug_uart_read_line(uint8_t *out_buf,
     NVIC_EnableIRQ(USART3_IRQn);
     return DEBUG_UART_OK;
 }
+
+void USART3_IRQHandler(void)
+{
+    /* 1. Read status register once. */
+    const uint32_t sr = USART3->SR;
+
+    /* 2. Error path: read DR to complete the F4 SR-DR clear sequence,
+     *    drop the byte, exit. */
+    if ((sr & USART_SR_ERR_MASK) != 0U) {
+        (void)USART3->DR;   /* completes the SR-DR error clear */
+        return;
+    }
+
+    /* 3. RXNE path. */
+    if ((sr & USART_SR_RXNE) == 0U) {
+        return;   /* spurious vector — nothing to do */
+    }
+
+    const uint8_t byte = (uint8_t)(USART3->DR & 0xFFU);
+
+    /* 3b. Line terminator? */
+    if ((byte == DEBUG_UART_CR) || (byte == DEBUG_UART_LF)) {
+        if (s_debug_uart.rx_accum_len > 0U) {
+            /* Freeze the line. */
+            for (size_t i = 0U; i < s_debug_uart.rx_accum_len; i++) {
+                s_debug_uart.rx_ready_buf[i] = s_debug_uart.rx_accum_buf[i];
+            }
+            s_debug_uart.rx_ready_len       = s_debug_uart.rx_accum_len;
+            s_debug_uart.rx_ready_truncated = s_debug_uart.rx_overflow;
+            s_debug_uart.rx_ready_flag      = true;
+
+            /* Reset accumulator. */
+            s_debug_uart.rx_accum_len = 0U;
+            s_debug_uart.rx_overflow  = false;
+
+            /* Notify consumer. */
+            if (s_debug_uart.line_callback != NULL) {
+                s_debug_uart.line_callback(s_debug_uart.line_callback_context);
+            }
+        }
+        /* If accum_len == 0 (e.g. stray LF after a CR), silently ignore. */
+        return;
+    }
+
+    /* 3c. Regular byte — append if room, else mark overflow and drop. */
+    if (s_debug_uart.rx_accum_len < DEBUG_UART_LINE_MAX_LEN) {
+        s_debug_uart.rx_accum_buf[s_debug_uart.rx_accum_len] = byte;
+        s_debug_uart.rx_accum_len++;
+    } else {
+        s_debug_uart.rx_overflow = true;
+    }
+}
+
 
 #ifdef TEST
 void debug_uart_reset_for_test(void)

@@ -6,10 +6,18 @@ extern void debug_uart_reset_for_test(void);
 extern void debug_uart_set_ready_line_for_test(const uint8_t *line,
                                                size_t len,
                                                bool truncated);
+extern void USART3_IRQHandler(void);
 
 /* Test-controllable tick source. Tests set s_test_ms_value and the
  * driver's get_ms() reads it via this wrapper. */
 static uint32_t s_test_ms_value;
+
+/* Capture struct for the ISR-invoked callback. Tests inspect this
+ * after firing the ISR to verify the callback's arguments. */
+static struct {
+    uint32_t invocation_count;
+    void    *last_context_seen;
+} s_callback_capture;
 
 static uint32_t test_get_ms(void)
 {
@@ -26,6 +34,8 @@ void setUp(void)
     stm32_cmsis_mock_reset();
     debug_uart_reset_for_test();
     s_test_ms_value = 0U;
+    s_callback_capture.invocation_count = 0U;
+    s_callback_capture.last_context_seen = NULL;
 }
 
 void tearDown(void)
@@ -140,14 +150,6 @@ void test_debug_uart_attach_rx_happy_path_enables_rxneie(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_nvic_enable_count[USART3_IRQn]);
 }
 
-void test_debug_uart_attach_rx_stores_callback_and_context(void)
-{
-    TEST_IGNORE_MESSAGE("Verified by ISR tests once debug_uart_isr() "
-                        "implementation lands; the only way to observe "
-                        "callback storage from outside is to fire the "
-                        "ISR and check it was invoked.");
-}
-
 void test_debug_uart_attach_rx_rejects_not_initialised(void)
 {
     /* No debug_uart_init() called. */
@@ -170,7 +172,7 @@ void test_debug_uart_attach_rx_rejects_second_call(void)
                           debug_uart_attach_rx(test_dummy_callback, NULL));
 
     /* Second call with valid args must be rejected. */
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
+     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
                           debug_uart_attach_rx(test_dummy_callback, NULL));
 }
 
@@ -385,4 +387,218 @@ void test_debug_uart_read_line_rejects_not_initialised(void)
     /* No debug_uart_init() called. */
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED,
                           debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+}
+
+
+
+static void test_capturing_callback(void *ctx)
+{
+    s_callback_capture.invocation_count++;
+    s_callback_capture.last_context_seen = ctx;
+}
+
+/* Boilerplate for ISR tests: init + attach + clear setup state. */
+static void prime_driver_for_isr_test(void *callback_context)
+{
+    (void)debug_uart_init();
+    (void)debug_uart_attach_rx(test_capturing_callback, callback_context);
+}
+
+/* Resolved deferred test from step 5: callback storage proven by firing
+ * the ISR and observing the context value flowing through. */
+void test_debug_uart_attach_rx_stores_callback_and_context(void)
+{
+    void *const distinctive_ctx = (void *)0xCAFE5A5Au;
+    prime_driver_for_isr_test(distinctive_ctx);
+
+    /* Send 'A' then CR — the CR triggers freeze + callback. */
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = 'A';
+    USART3_IRQHandler();
+
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_CR;
+    USART3_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_callback_capture.invocation_count);
+    TEST_ASSERT_EQUAL_PTR(distinctive_ctx, s_callback_capture.last_context_seen);
+}
+
+void test_isr_accumulates_byte_into_buffer(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = 'X';
+    USART3_IRQHandler();
+
+    /* No EOL yet — no line ready, no callback. */
+    TEST_ASSERT_EQUAL_UINT32(0u, s_callback_capture.invocation_count);
+
+    /* Now finish with CR — the byte 'X' should be in the frozen line. */
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_CR;
+    USART3_IRQHandler();
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_UINT32(1u, length);
+    TEST_ASSERT_EQUAL_HEX8('X', buf[0]);
+}
+
+void test_isr_appends_until_eol_then_invokes_callback(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    const char message[] = "hello";
+    for (size_t i = 0; i < sizeof(message) - 1U; i++) {
+        USART3->SR = USART_SR_RXNE;
+        USART3->DR = (uint8_t)message[i];
+        USART3_IRQHandler();
+    }
+    /* No callback fired yet. */
+    TEST_ASSERT_EQUAL_UINT32(0u, s_callback_capture.invocation_count);
+
+    /* LF triggers the freeze + callback. */
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_LF;
+    USART3_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_callback_capture.invocation_count);
+}
+
+void test_isr_strips_cr_and_lf(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    /* Feed "hi" + LF. Read line back; it should be exactly "hi", no LF. */
+    const uint8_t bytes[] = {'h', 'i', DEBUG_UART_LF};
+    for (size_t i = 0; i < sizeof(bytes); i++) {
+        USART3->SR = USART_SR_RXNE;
+        USART3->DR = bytes[i];
+        USART3_IRQHandler();
+    }
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_UINT32(2u, length);
+    TEST_ASSERT_EQUAL_HEX8('h', buf[0]);
+    TEST_ASSERT_EQUAL_HEX8('i', buf[1]);
+    TEST_ASSERT_EQUAL_HEX8('\0', buf[2]);
+}
+
+void test_isr_handles_crlf_as_single_terminator(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    /* Feed 'a' + CR + LF — should produce one line "a", one callback. */
+    const uint8_t bytes[] = {'a', DEBUG_UART_CR, DEBUG_UART_LF};
+    for (size_t i = 0; i < sizeof(bytes); i++) {
+        USART3->SR = USART_SR_RXNE;
+        USART3->DR = bytes[i];
+        USART3_IRQHandler();
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_callback_capture.invocation_count);
+}
+
+void test_isr_marks_overflow_when_buffer_full_no_eol(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    /* Feed DEBUG_UART_LINE_MAX_LEN + 5 bytes with no EOL, then EOL.
+     * The first 128 bytes fill the buffer; the next 5 set overflow.
+     * On EOL, the frozen line should report TRUNCATED. */
+    for (size_t i = 0; i < DEBUG_UART_LINE_MAX_LEN + 5U; i++) {
+        USART3->SR = USART_SR_RXNE;
+        USART3->DR = 'Z';
+        USART3_IRQHandler();
+    }
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_LF;
+    USART3_IRQHandler();
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t  length;
+    debug_uart_line_flag_t flag;
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_UINT32(DEBUG_UART_LINE_MAX_LEN, length);
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_TRUNCATED, flag);
+}
+
+void test_isr_drops_byte_and_clears_error_on_ore(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    /* Set ORE flag — driver must read DR to clear, drop the byte. */
+    USART3->SR = USART_SR_ORE;
+    USART3->DR = 'X';
+    USART3_IRQHandler();
+
+    /* No data accumulated — feed a CR and verify the resulting line
+     * is empty (no callback fires because empty lines are dropped). */
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_CR;
+    USART3_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, s_callback_capture.invocation_count);
+}
+
+void test_isr_drops_byte_and_clears_error_on_fe(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    USART3->SR = USART_SR_FE;
+    USART3->DR = 'X';
+    USART3_IRQHandler();
+
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_CR;
+    USART3_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, s_callback_capture.invocation_count);
+}
+
+void test_isr_ignores_empty_line_terminator_after_full_line(void)
+{
+    prime_driver_for_isr_test(NULL);
+
+    /* "a" + LF → callback once. Then LF alone → no second callback. */
+    const uint8_t first[] = {'a', DEBUG_UART_LF};
+    for (size_t i = 0; i < sizeof(first); i++) {
+        USART3->SR = USART_SR_RXNE;
+        USART3->DR = first[i];
+        USART3_IRQHandler();
+    }
+    TEST_ASSERT_EQUAL_UINT32(1u, s_callback_capture.invocation_count);
+
+    /* Stray LF — accum_len is 0, callback must not fire. */
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_LF;
+    USART3_IRQHandler();
+    TEST_ASSERT_EQUAL_UINT32(1u, s_callback_capture.invocation_count);
+}
+
+void test_isr_invokes_callback_with_registered_context(void)
+{
+    void *const ctx = (void *)0xABCDEF01u;
+    prime_driver_for_isr_test(ctx);
+
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = 'q';
+    USART3_IRQHandler();
+
+    USART3->SR = USART_SR_RXNE;
+    USART3->DR = DEBUG_UART_LF;
+    USART3_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_callback_capture.invocation_count);
+    TEST_ASSERT_EQUAL_PTR(ctx, s_callback_capture.last_context_seen);
 }

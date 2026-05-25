@@ -102,6 +102,37 @@ extern USART_TypeDef g_mock_usart3;
 #define USART_SR_TXE_Pos  (7U)
 #define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
 
+/* USART SR bits read by the ISR. */
+#define USART_SR_RXNE_Pos  (5U)
+#define USART_SR_RXNE      (1UL << USART_SR_RXNE_Pos)
+#define USART_SR_ORE_Pos   (3U)
+#define USART_SR_ORE       (1UL << USART_SR_ORE_Pos)
+#define USART_SR_FE_Pos    (1U)
+#define USART_SR_FE        (1UL << USART_SR_FE_Pos)
+#define USART_SR_NE_Pos    (2U)
+#define USART_SR_NE        (1UL << USART_SR_NE_Pos)
+#define USART_SR_PE_Pos    (0U)
+#define USART_SR_PE        (1UL << USART_SR_PE_Pos)
+
+#define USART_SR_ERR_MASK  (USART_SR_ORE | USART_SR_FE | \
+                            USART_SR_NE  | USART_SR_PE)
+
+#define DEBUG_UART_CR      ((uint8_t)'\r')
+#define DEBUG_UART_LF      ((uint8_t)'\n')
+
+/* USART CR1 bits we touch. */
+#define USART_CR1_UE_Pos      (13U)
+#define USART_CR1_UE          (1UL << USART_CR1_UE_Pos)
+#define USART_CR1_TE_Pos      (3U)
+#define USART_CR1_TE          (1UL << USART_CR1_TE_Pos)
+#define USART_CR1_RE_Pos      (2U)
+#define USART_CR1_RE          (1UL << USART_CR1_RE_Pos)
+#define USART_CR1_RXNEIE_Pos  (5U)
+#define USART_CR1_RXNEIE      (1UL << USART_CR1_RXNEIE_Pos)
+
+/* USART SR bits used by send. */
+#define USART_SR_TXE_Pos  (7U)
+#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
 /* ------------------------------------------------------------------ */
 /* NVIC (would normally come from core_cm4.h)                          */
 /* ------------------------------------------------------------------ */
