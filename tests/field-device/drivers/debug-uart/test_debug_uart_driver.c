@@ -4,15 +4,31 @@
 
 extern void debug_uart_reset_for_test(void);
 
+/* Test-controllable tick source. Tests set s_test_ms_value and the
+ * driver's get_ms() reads it via this wrapper. */
+static uint32_t s_test_ms_value;
+
+static uint32_t test_get_ms(void)
+{
+    return s_test_ms_value;
+}
+
+static uint32_t test_get_ms_auto_advance(void)
+{
+    return s_test_ms_value++;   /* post-increment: first call returns 0, then 1, 2, ... */
+}
+
 void setUp(void)
 {
     stm32_cmsis_mock_reset();
     debug_uart_reset_for_test();
+    s_test_ms_value = 0U;
 }
 
 void tearDown(void)
 {
 }
+
 
 /* Proves: USART3 macro resolves to writable storage, fields are accessible
  * by their RM0386 names, and the volatile-on-fields pattern works. */
@@ -153,4 +169,80 @@ void test_debug_uart_attach_rx_rejects_second_call(void)
     /* Second call with valid args must be rejected. */
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
                           debug_uart_attach_rx(test_dummy_callback, NULL));
+}
+
+void test_debug_uart_send_zero_length_returns_ok_no_writes(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    /* length=0 with NULL data must still succeed. */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_send(NULL, 0U, 1000U));
+
+    /* DR untouched. */
+    TEST_ASSERT_EQUAL_HEX32(0u, USART3->DR);
+}
+
+void test_debug_uart_send_writes_each_byte_to_data_register(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    /* Pre-set TXE so the poll loop falls through immediately for every byte. */
+    USART3->SR = USART_SR_TXE;
+
+    const uint8_t data[] = {0x41, 0x42, 0x43};   /* "ABC" */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_send(data, sizeof(data), 1000U));
+
+    /* DR holds the last byte written (mock has no shift register). */
+    TEST_ASSERT_EQUAL_HEX32(0x43u, USART3->DR);
+}
+
+void test_debug_uart_send_polls_txe_between_bytes(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+    debug_uart_set_tick_source(test_get_ms);
+
+    /* TXE not set, time advances toward timeout, then we make TXE assert.
+     * For a memory-backed mock the poll loop reads the same SR value every
+     * iteration — so without setting TXE up front, we'd loop forever. We
+     * pre-set TXE so the loop exits on first read, and verify the byte
+     * lands. The "polls between bytes" intent is structural: each loop
+     * iteration re-reads SR. A multi-byte send confirms this isn't a
+     * single-byte coincidence. */
+    USART3->SR = USART_SR_TXE;
+
+    const uint8_t data[] = {0x10, 0x20, 0x30, 0x40};
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_send(data, sizeof(data), 1000U));
+
+    TEST_ASSERT_EQUAL_HEX32(0x40u, USART3->DR);
+}
+
+void test_debug_uart_send_rejects_null_data_when_length_nonzero(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
+                          debug_uart_send(NULL, 4U, 1000U));
+}
+
+void test_debug_uart_send_rejects_not_initialised(void)
+{
+    const uint8_t data[] = {0xAA};
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED,
+                          debug_uart_send(data, sizeof(data), 1000U));
+}
+
+void test_debug_uart_send_returns_tx_timeout_when_txe_never_asserts(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    /* Tick source advances on every read; timeout triggers after
+     * timeout_ms iterations of the poll loop. */
+    debug_uart_set_tick_source(test_get_ms_auto_advance);
+
+    /* TXE never set — loop must depend on the timeout to escape. */
+    const uint8_t data[] = {0xAA};
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_TX_TIMEOUT,
+                          debug_uart_send(data, sizeof(data), 100U));
 }

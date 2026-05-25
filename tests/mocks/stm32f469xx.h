@@ -99,6 +99,9 @@ extern USART_TypeDef g_mock_usart3;
 #define RCC_APB1ENR_USART3EN_Pos  (18U)
 #define RCC_APB1ENR_USART3EN      (1UL << RCC_APB1ENR_USART3EN_Pos)
 
+#define USART_SR_TXE_Pos  (7U)
+#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
+
 /* ------------------------------------------------------------------ */
 /* NVIC (would normally come from core_cm4.h)                          */
 /* ------------------------------------------------------------------ */

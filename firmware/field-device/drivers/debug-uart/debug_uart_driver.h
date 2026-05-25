@@ -203,4 +203,32 @@ debug_uart_err_t debug_uart_read_line(uint8_t *out_buf,
                                       size_t *out_length,
                                       debug_uart_line_flag_t *out_flag);
 
+
+/**
+ * @brief Inject the millisecond tick source used by debug_uart_send().
+ *
+ * The driver bounds each byte's TXE wait in debug_uart_send() against a
+ * monotonic millisecond counter. Because the driver is RTOS-free (P1)
+ * and host-testable, it cannot call into any specific RTOS tick API or
+ * into CMSIS SysTick/DWT directly — neither has a host equivalent. The
+ * tick source is therefore injected: production wires it to a real
+ * SysTick or DWT reader; tests wire it to a controllable counter.
+ *
+ * If never called (or called with NULL), debug_uart_send() falls back
+ * to an unbounded wait. Production code must wire a real tick source
+ * during system startup, before the first send call.
+ *
+ * May be called at any time, including before debug_uart_init().
+ * Subsequent calls replace the previously stored function pointer.
+ *
+ * @param[in] get_ms Function returning monotonic milliseconds since some
+ *                   fixed reference. 32-bit wrap is handled correctly by
+ *                   the driver via unsigned subtraction. May be NULL to
+ *                   disable the timeout mechanism.
+ *
+ * @note Threading: not internally serialised. Set once during startup;
+ *       do not change while debug_uart_send() may be executing.
+ */
+void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
+
 #endif /* DEBUG_UART_DRIVER_H */

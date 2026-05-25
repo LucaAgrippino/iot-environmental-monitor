@@ -24,6 +24,10 @@
 #define USART_CR1_RXNEIE_Pos  (5U)
 #define USART_CR1_RXNEIE      (1UL << USART_CR1_RXNEIE_Pos)
 
+/* USART SR bits used by send. */
+#define USART_SR_TXE_Pos  (7U)
+#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
+
 /* GPIO MODER value for alternate function. */
 #define GPIO_MODER_AF  (0x2U)
 /* GPIO PUPDR value for pull-up. */
@@ -37,6 +41,7 @@ typedef struct {
     bool                        rx_attached;           /**< Set by debug_uart_attach_rx(). */
     debug_uart_line_callback_t  line_callback;         /**< ISR invokes on line-complete. */
     void                       *line_callback_context; /**< Caller context for the callback. */
+    uint32_t (*get_ms)(void);   /**< Tick source for send timeout, or NULL. */
     uint8_t                     rx_accum_buf[DEBUG_UART_LINE_MAX_LEN]; /**< ISR accumulation buffer. */
     volatile size_t             rx_accum_len;          /**< Bytes currently in accum_buf. */
     volatile bool               rx_overflow;           /**< Set if accum_buf filled before EOL. */
@@ -136,6 +141,46 @@ debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback,
     NVIC_EnableIRQ(USART3_IRQn);
 
     s_debug_uart.rx_attached = true;
+    return DEBUG_UART_OK;
+}
+
+void debug_uart_set_tick_source(uint32_t (*get_ms)(void))
+{
+    s_debug_uart.get_ms = get_ms;
+}
+
+debug_uart_err_t debug_uart_send(const uint8_t *data,
+                                 size_t length,
+                                 uint32_t timeout_ms)
+{
+    if (!s_debug_uart.initialised) {
+        return DEBUG_UART_ERR_NOT_INITIALISED;
+    }
+    if (length == 0U) {
+        return DEBUG_UART_OK;  /* no-op, data may be NULL */
+    }
+    if (data == NULL) {
+        return DEBUG_UART_ERR_NULL_POINTER;
+    }
+
+    for (size_t i = 0U; i < length; i++) {
+        uint32_t start = (s_debug_uart.get_ms != NULL)
+                         ? s_debug_uart.get_ms()
+                         : 0U;
+
+        /* Poll TXE. If a tick source is wired, bound the wait. */
+        while ((USART3->SR & USART_SR_TXE) == 0U) {
+            if (s_debug_uart.get_ms != NULL) {
+                uint32_t elapsed = s_debug_uart.get_ms() - start;
+                if (elapsed >= timeout_ms) {
+                    return DEBUG_UART_ERR_TX_TIMEOUT;
+                }
+            }
+        }
+
+        USART3->DR = data[i];
+    }
+
     return DEBUG_UART_OK;
 }
 
