@@ -104,6 +104,41 @@ debug_uart_err_t debug_uart_init(void)
     return DEBUG_UART_OK;
 }
 
+debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback,
+                                      void *context)
+{
+    if (!s_debug_uart.initialised) {
+        return DEBUG_UART_ERR_NOT_INITIALISED;
+    }
+    if (callback == NULL) {
+        return DEBUG_UART_ERR_NULL_POINTER;
+    }
+    if (s_debug_uart.rx_attached) {
+        return DEBUG_UART_ERR_RX_ALREADY_ATTACHED;
+    }
+
+    /* Store callback and context. */
+    s_debug_uart.line_callback         = callback;
+    s_debug_uart.line_callback_context = context;
+
+    /* Reset RX state (defensive — module-load already zeroed these,
+     * but documents the entry-state contract). */
+    s_debug_uart.rx_accum_len = 0U;
+    s_debug_uart.rx_overflow  = false;
+    s_debug_uart.rx_ready_flag = false;
+
+    /* Enable RX in the peripheral: RE and RXNEIE. */
+    USART3->CR1 |= USART_CR1_RE | USART_CR1_RXNEIE;
+
+    /* Enable the USART NVIC vector. The consumer is responsible for
+     * setting an appropriate priority via NVIC_SetPriority() before
+     * the first interrupt arrives (see DUART-O5). */
+    NVIC_EnableIRQ(USART3_IRQn);
+
+    s_debug_uart.rx_attached = true;
+    return DEBUG_UART_OK;
+}
+
 #ifdef TEST
 void debug_uart_reset_for_test(void)
 {

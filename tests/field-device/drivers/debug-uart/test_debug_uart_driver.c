@@ -100,3 +100,57 @@ void test_debug_uart_init_programs_baud_rate_for_pclk(void)
     /* BRR = round(PCLK1 / BAUD) = round(45000000 / 115200) = 391 = 0x187. */
     TEST_ASSERT_EQUAL_HEX32(0x187u, USART3->BRR);
 }
+
+/* Dummy callback for tests that need a non-NULL function pointer. */
+static void test_dummy_callback(void *ctx)
+{
+    (void)ctx;
+}
+
+void test_debug_uart_attach_rx_happy_path_enables_rxneie(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_attach_rx(test_dummy_callback, NULL));
+
+    /* CR1.RE (bit 2) and CR1.RXNEIE (bit 5) must be set. */
+    TEST_ASSERT_BITS_HIGH((1u << 2) | (1u << 5), USART3->CR1);
+
+    /* NVIC vector for USART3 must have been enabled exactly once. */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_nvic_enable_count[USART3_IRQn]);
+}
+
+void test_debug_uart_attach_rx_stores_callback_and_context(void)
+{
+    TEST_IGNORE_MESSAGE("Verified by ISR tests once debug_uart_isr() "
+                        "implementation lands; the only way to observe "
+                        "callback storage from outside is to fire the "
+                        "ISR and check it was invoked.");
+}
+
+void test_debug_uart_attach_rx_rejects_not_initialised(void)
+{
+    /* No debug_uart_init() called. */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED,
+                          debug_uart_attach_rx(test_dummy_callback, NULL));
+}
+
+void test_debug_uart_attach_rx_rejects_null_callback(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
+                          debug_uart_attach_rx(NULL, NULL));
+}
+
+void test_debug_uart_attach_rx_rejects_second_call(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
+                          debug_uart_attach_rx(test_dummy_callback, NULL));
+
+    /* Second call with valid args must be rejected. */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
+                          debug_uart_attach_rx(test_dummy_callback, NULL));
+}
