@@ -73,7 +73,7 @@ jobs:
           echo "$sources" | xargs cppcheck \
             --enable=all \
             --error-exitcode=1 \
-            --suppressions-list=cppcheck-suppressions.xml
+            --suppressions-list=cppcheck-suppressions.txt
 
   clang-format-check:
     name: Formatting check (clang-format)

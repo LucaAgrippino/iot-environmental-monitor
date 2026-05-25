@@ -73,7 +73,7 @@ gpio_err_t gpio_configure_pin(const gpio_pin_config_t *config)
         return GPIO_ERR_INVALID_CONFIG;
     }
 
-    GPIO_TypeDef *gpio_port = s_gpio.port_map[config->port];
+    GPIO_TypeDef *const gpio_port = s_gpio.port_map[config->port];
 
     gpio_port->OTYPER &= ~(1 << config->pin);
     gpio_port->OTYPER |= ((uint32_t) config->otype << config->pin);
@@ -117,7 +117,7 @@ gpio_err_t gpio_read_pin(gpio_port_t port, uint8_t pin, gpio_level_t *out_level)
         return GPIO_ERR_INVALID_PIN;
     }
 
-    GPIO_TypeDef *gpio_port = s_gpio.port_map[port];
+    GPIO_TypeDef *const gpio_port = s_gpio.port_map[port];
 
     if ((gpio_port->IDR & (1 << pin)) != 0u)
     {
@@ -148,7 +148,7 @@ gpio_err_t gpio_write_pin(gpio_port_t port, uint8_t pin, gpio_level_t level)
         return GPIO_ERR_INVALID_PIN;
     }
 
-    GPIO_TypeDef *gpio_port = s_gpio.port_map[port];
+    GPIO_TypeDef *const gpio_port = s_gpio.port_map[port];
 
     const uint8_t shift = (level == GPIO_LEVEL_HIGH) ? pin : (pin + 16u);
     gpio_port->BSRR = (1u << shift);
@@ -179,7 +179,7 @@ gpio_err_t gpio_toggle_pin(gpio_port_t port, uint8_t pin)
         return GPIO_ERR_INVALID_PIN;
     }
 
-    GPIO_TypeDef *gpio_port = s_gpio.port_map[port];
+    GPIO_TypeDef *const gpio_port = s_gpio.port_map[port];
     gpio_port->ODR ^= (1u << pin);
 
     return GPIO_OK;
