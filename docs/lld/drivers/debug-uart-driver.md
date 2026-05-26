@@ -1,8 +1,8 @@
 # DebugUartDriver — LLD Companion
 
-**Version:** 1.0
-**Date:** May 2026
-**Status:** Draft
+**Version:** 1.1
+**Date:** 25 May 2026
+**Status:** Draft (Pass H reconciled)
 
 **HLD anchor:** `DebugUartDriver` in `components.md` (Field Device §4 driver layer, line 168; Gateway §4 driver layer, line 426). Layer: Driver. Targets: STM32F469 Discovery (Field Device, USART3) and STM32L475 IoT Discovery (Gateway, USART1).
 
@@ -298,6 +298,28 @@ debug_uart_err_t debug_uart_read_line(uint8_t *out_buf,
                                       size_t *out_length,
                                       debug_uart_line_flag_t *out_flag);
 
+/**
+ * @brief Override the millisecond tick source used by debug_uart_send().
+ *
+ * The driver needs a monotonic millisecond counter to bound the per-byte
+ * TXE wait in debug_uart_send(). It cannot call into any specific RTOS
+ * (the driver is RTOS-free per §3.4 P1).
+ *
+ * Default behaviour: if this function is never called, the timeout
+ * mechanism is effectively disabled — the per-byte loop becomes an
+ * unbounded wait. Production code must call this once during system
+ * startup, passing a function that reads SysTick or DWT.
+ *
+ * Tests inject a controllable counter so timeout behaviour is verifiable
+ * on the host.
+ *
+ * @param[in] get_ms Function returning monotonic milliseconds. May be NULL
+ *                   to revert to the default (no-timeout) behaviour.
+ *
+ * @note May be called at any time, including before debug_uart_init().
+ */
+void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
+
 #endif /* DEBUG_UART_DRIVER_H */
 ```
 
@@ -321,6 +343,14 @@ The unusual choices deserve note:
 
 - **No `debug_uart_recv_byte()` raw API.** The runtime contract explicitly says "line received". Bypassing the line buffering would invite consumers to break this contract.
 
+- **Tick source injected via function pointer.** The driver is RTOS-free
+  (P1) and host-testable. Both constraints rule out a hardcoded call to
+  any RTOS tick API or to a specific CMSIS tick source (SysTick/DWT have
+  no host counterpart). The tick source is therefore an injected function
+  pointer, defaulting to NULL (no timeout). Production code wires it to a
+  SysTick reader during startup. Tests wire it to a controllable counter.
+  This is the same seam pattern as the RX callback — consumers wire the
+  driver to whatever primitive their environment provides.
 ---
 
 ## 3. Internal design
@@ -333,6 +363,7 @@ typedef struct {
     bool                        rx_attached;           /**< Set by debug_uart_attach_rx(). */
     debug_uart_line_callback_t  line_callback;         /**< ISR invokes on line-complete. */
     void                       *line_callback_context; /**< Caller context for the callback. */
+    uint32_t                   (*get_ms)(void);   /**< Tick source for send timeout, or NULL. */
     uint8_t                     rx_accum_buf[DEBUG_UART_LINE_MAX_LEN]; /**< ISR accumulation buffer. */
     volatile size_t             rx_accum_len;          /**< Bytes currently in accum_buf. */
     volatile bool               rx_overflow;           /**< Set if accum_buf filled before EOL. */
@@ -348,23 +379,38 @@ static debug_uart_driver_t s_debug_uart;
 
 ### 3.1 Module state
 
-Static storage, declared in the `.c` file:
+All module state is encapsulated in the `debug_uart_driver_t` struct
+declared in §3.0 above, instantiated as a single file-scope static
+`s_debug_uart`. Fields:
 
-| Symbol | Type | Purpose |
+| Field | Type | Purpose |
 |---|---|---|
-| `s_initialised` | `static bool` | Set true by `debug_uart_init()`. |
-| `s_rx_attached` | `static bool` | Set true by `debug_uart_attach_rx()`. |
-| `s_line_callback` | `static debug_uart_line_callback_t` | Invoked from ISR when a line is ready. |
-| `s_line_callback_context` | `static void *` | Opaque context passed to the callback. |
-| `s_rx_accum_buf` | `static uint8_t[DEBUG_UART_LINE_MAX_LEN]` | ISR accumulates the in-progress line. |
-| `s_rx_accum_len` | `static volatile size_t` | Bytes currently in the accumulating buffer. |
-| `s_rx_overflow` | `static volatile bool` | Set if accumulating buffer fills before EOL. |
-| `s_rx_ready_buf` | `static uint8_t[DEBUG_UART_LINE_MAX_LEN + 1U]` | Frozen line waiting to be read; null-terminated. |
-| `s_rx_ready_len` | `static volatile size_t` | Length of frozen line. |
-| `s_rx_ready_truncated` | `static volatile bool` | Set if the frozen line was truncated. |
-| `s_rx_ready_flag` | `static volatile bool` | Set when a frozen line is available; cleared after read. |
+| `initialised` | `bool` | Set true by `debug_uart_init()`; checked by every other entry point. |
+| `rx_attached` | `bool` | Set true by `debug_uart_attach_rx()`; checked by the RX ISR to determine whether the callback is wired. |
+| `line_callback` | `debug_uart_line_callback_t` | Invoked from the RX ISR when a complete line is ready. |
+| `line_callback_context` | `void *` | Opaque context passed to the callback. |
+| `get_ms` | `uint32_t (*)(void)` | Injected millisecond tick source for `debug_uart_send()` timeout. NULL means no timeout (unbounded wait). Set via `debug_uart_set_tick_source()`. |
+| `rx_accum_buf[DEBUG_UART_LINE_MAX_LEN]` | `uint8_t []` | ISR accumulates the in-progress line. |
+| `rx_accum_len` | `volatile size_t` | Bytes currently in the accumulating buffer. Volatile because written from ISR, read implicitly when the ready buffer is populated. |
+| `rx_overflow` | `volatile bool` | Set by the ISR if the accumulating buffer fills before an EOL terminator arrives. |
+| `rx_ready_buf[DEBUG_UART_LINE_MAX_LEN + 1U]` | `uint8_t []` | Frozen line waiting to be read; null-terminator slot included. |
+| `rx_ready_len` | `volatile size_t` | Length of the frozen line. |
+| `rx_ready_truncated` | `volatile bool` | Set if the frozen line was truncated. |
+| `rx_ready_flag` | `volatile bool` | Set by the ISR when a frozen line is available; cleared by `debug_uart_read_line()` after copy. |
 
-No FreeRTOS handles, no mutex. Two buffers (accumulating and ready) implement a simple double-buffer. The ISR writes to the accumulating buffer; on EOL it transposes to the ready buffer (or replaces it if a previous unread line is still there).
+`volatile` is applied to the fields shared between ISR and task
+context — flags, indices, and the per-event truncation marker. The
+two buffer arrays themselves are not declared `volatile`; correctness
+of buffer reads is established by the `volatile` flag fields and the
+NVIC mask around `debug_uart_read_line()` (see §3.3), which together
+prevent the compiler from reordering buffer reads past the flag
+check or the NVIC operations.
+
+No FreeRTOS handles, no mutex. Two buffers (accumulating and ready)
+implement a simple double-buffer. The ISR writes to the accumulating
+buffer; on EOL it transposes to the ready buffer (or replaces an
+existing unread line). All state is contained in `s_debug_uart`; no
+other module-scope storage exists.
 
 ### 3.2 Per-function internal flow
 
@@ -401,13 +447,23 @@ No FreeRTOS objects are created here — there are none.
 **`debug_uart_send(data, length, timeout_ms)`**
 
 1. Reject if `s_initialised` is false → `DEBUG_UART_ERR_NOT_INITIALISED`.
-2. If `length == 0`, return `DEBUG_UART_OK` (no-op).
+2. If `length == 0`, return `DEBUG_UART_OK` (no-op, ignoring `data`).
 3. Reject if `data` is NULL → `DEBUG_UART_ERR_NULL_POINTER`.
 4. For each byte in `data[0..length-1]`:
-   a. Poll the TX-empty flag (`SR.TXE` on F469, `ISR.TXE` on L475) until set, or until `timeout_ms` has elapsed (measured by a free-running timer counter, since the driver cannot call into FreeRTOS tick APIs).
-   b. If the timeout elapses, return `DEBUG_UART_ERR_TX_TIMEOUT`. The peripheral is left in whatever state it reached — caller decides whether to reset or continue.
-   c. Write the byte to the data register (`DR` on F469, `TDR` on L475).
+   a. If `s_get_ms` is non-NULL, record `start = s_get_ms()` and define
+      the per-byte deadline as `start + timeout_ms` (with 32-bit unsigned
+      wrap handled by the difference test, not by absolute comparison).
+   b. Poll `USART3->SR & USART_SR_TXE` until set, or until
+      `(s_get_ms() - start) >= timeout_ms` if `s_get_ms` is non-NULL.
+   c. On timeout, return `DEBUG_UART_ERR_TX_TIMEOUT`. The peripheral is
+      left in whatever state it reached.
+   d. Write the byte to `USART3->DR`.
 5. Return `DEBUG_UART_OK`.
+
+When `s_get_ms` is NULL the loop becomes an unbounded wait — acceptable
+during startup before the tick source is wired and during tests that
+don't exercise the timeout path. Production wires the tick source
+before any send.
 
 Implementation note for the timeout: a portable, FreeRTOS-free approach is to use the Cortex-M SysTick or DWT cycle counter. Both are CMSIS-accessible. The implementation file selects one and converts `timeout_ms` to ticks/cycles at compile time using the known CPU clock.
 
@@ -426,7 +482,17 @@ Implementation note for the timeout: a portable, FreeRTOS-free approach is to us
 **RX ISR — `USARTx_IRQHandler()`**
 
 1. Read the status register (`SR` on F469 or `ISR` on L475) once into a local variable.
-2. If a framing, parity, noise, or overrun error is flagged, clear it (`SR` read followed by `DR` read on F469; `ICR` write on L475), drop the byte, and exit. Increment an error counter for observability.
+2. If a framing, parity, noise, or overrun error is flagged in `SR`,
+   clear those flags **explicitly** by reading `DR` (the F4 hardware
+   clears them on the SR-read-then-DR-read sequence; the explicit `DR`
+   read here completes that sequence). Drop the byte (do not append to
+   `s_rx_accum_buf`). Return from the ISR.
+
+   *Note: on real hardware the SR read in step 1 plus the DR read here
+   constitute the canonical F4 clear sequence. The explicit code path is
+   chosen over relying on the hardware's implicit clear so the behaviour
+   is host-testable: the test mock cannot replicate the SR-DR clear
+   side-effect.*
 3. If RXNE is set:
    a. Read the byte from the data register (`DR` on F469, `RDR` on L475).
    b. If the byte is `\r` or `\n`:
@@ -634,16 +700,24 @@ No log calls are issued from within this driver. Logger depends on this driver; 
 
 Because the driver does not depend on FreeRTOS, the test harness needs only the CMSIS mock infrastructure already established for GPIO:
 
-- The shared mock header `tests/mocks/stm32_cmsis_mock.h` (introduced for GPIO) is extended with mock `USART_TypeDef` instances (`USART1`, `USART3`), the relevant `RCC` enable-register bits, and the NVIC enable/disable functions (`NVIC_EnableIRQ`, `NVIC_DisableIRQ` as test-visible counters).
-- The mock peripheral pointers point into static volatile storage that the tests inspect and manipulate.
+- The shared mock header `tests/mocks/stm32_cmsis_mock.h` (introduced for GPIO) is extended with mock `USART_TypeDef` instances (`USART1`, `USART3`), the relevant `RCC` enable-register bits (`USART3EN`, `USART1EN`, plus the `APB1ENR`/`APB2ENR` field already needed for clock gating), and the NVIC enable/disable functions (`NVIC_EnableIRQ`, `NVIC_DisableIRQ` as test-visible counters / state).
+- The mock peripheral pointers point into static storage that the tests inspect and manipulate. Per the GpioDriver convention, the storage itself is non-volatile; `volatile` lives on the individual register fields inside `USART_TypeDef`, matching the real CMSIS pattern (volatile on registers, not on the struct as a whole).
 - The driver source compiles unchanged. The board selection (`STM32F469xx` vs `STM32L475xx`) is set via `CFLAGS` to test either implementation.
 - The RX line callback is provided by each test as a simple function that records its invocations into a test-visible struct (callback count, last context value). No FreeRTOS, no task notification.
+- **Test-isolation hook.** Following the project-wide discipline established with GpioDriver, the driver exposes `debug_uart_reset_for_test(void)` under `#ifdef TEST`. The hook clears every field of `s_debug_uart` to its post-startup state (`initialised = false`, `rx_attached = false`, callback pointers null, buffer lengths zero, flags cleared). It is called from `setUp()` in `test_debug_uart_driver.c` alongside `stm32_cmsis_mock_reset()`. Without this hook the `initialised`/`rx_attached` flags persist across test cases and validation-cascade tests short-circuit incorrectly (passing for the wrong reason or failing nondeterministically by test order).
+- **Ready-line injection hook.** `debug_uart_read_line()` consumes state
+populated by the RX ISR. To unit-test `read_line` independently of the ISR, the driver exposes `debug_uart_set_ready_line_for_test(const uint8_t *line, size_t len, bool truncated)` under `#ifdef TEST`. It populates `s_debug_uart.rx_ready_buf`, `rx_ready_len`,
+  `rx_ready_truncated`, and sets `rx_ready_flag = true` — bypassing the ISR. Same discipline as `debug_uart_reset_for_test()`: kept out of production by the build flag.
 
 The absence of a FreeRTOS mock is the visible benefit of the FreeRTOS-free design: the test harness for this driver is no more complex than the test harness for GPIO.
 
 ### 7.3 Test cases
 
 For each function, at least one happy-path case and one error-path case. The ISR is tested by directly invoking the handler symbol with the mock peripheral pre-populated.
+The `_stores_callback_and_context` test deferred from `debug_uart_attach_rx`
+(§7.3 above) is realised here: feed an EOL byte through the ISR after
+attaching a callback with a distinctive context pointer, then verify the
+callback was invoked with that exact context.
 
 **`debug_uart_init`**
 
@@ -717,6 +791,8 @@ These are integration-phase concerns. Documented as not in scope for host tests.
 | DUART-O2 | PCLK values for both boards (PCLK1 = 45 MHz F469, PCLK2 = 80 MHz L475). Final clock tree decisions are made by the system-startup code (not yet specified in an LLD companion). | Resolve when a `clock-config.md` companion lands, or pin the assumed values in the implementation as named constants traceable to that future companion. | Open |
 | DUART-O3 | Statistics counters (`rx_overrun_count`, `tx_timeout_count`, etc.) are accumulated internally but not exposed via an `IDebugUartStats` interface. | Add the interface when `IHealthReport` integration becomes relevant (after `HealthMonitor` LLD companion is drafted). | Open |
 | DUART-O4 | `debug_uart_drain()` — block until the wire has flushed the last byte (TC flag). Not required by current consumers; useful before deliberate reset. | Add in v2 if a consumer needs it. | Open |
+| DUART-O5 | NVIC priority setting deferred to the consumer. Per §3.4 P1 the driver does not depend on FreeRTOS, so it cannot reference `configMAX_SYSCALL_INTERRUPT_PRIORITY`. The consumer (Logger, ConsoleService, or system-startup) is responsible for calling `NVIC_SetPriority()` with an RTOS-safe value before the first interrupt arrives. | Revisit when Logger lands and the full NVIC priority map is established. | Open |
+| DUART-O6 | `debug_uart_set_tick_source()` defaults to NULL → no timeout. If production code forgets to wire the tick source, a wedged peripheral hangs the calling task indefinitely. | Add a non-NULL-by-default tick source when SystemTimer/SysTick wrapper module lands. Until then, document the requirement in the integration checklist. | Open |
 
 **Inherited TBDs from `lld.md` §5.** None of O1/O2/O3 in `lld.md` §5 is resolved by this companion. They remain open.
 
