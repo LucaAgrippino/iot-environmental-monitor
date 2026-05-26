@@ -76,18 +76,19 @@ extern RCC_TypeDef g_mock_rcc;
 /* USART_TypeDef (F4 legacy USART — used by USART3)                    */
 /* Per RM0386 USART chapter.                                           */
 /* ------------------------------------------------------------------ */
-typedef struct {
-    volatile uint32_t SR;    /**< Status register, offset 0x00. */
-    volatile uint32_t DR;    /**< Data register, offset 0x04. */
-    volatile uint32_t BRR;   /**< Baud rate register, offset 0x08. */
-    volatile uint32_t CR1;   /**< Control register 1, offset 0x0C. */
-    volatile uint32_t CR2;   /**< Control register 2, offset 0x10. */
-    volatile uint32_t CR3;   /**< Control register 3, offset 0x14. */
-    volatile uint32_t GTPR;  /**< Guard-time / prescaler, offset 0x18. */
+typedef struct
+{
+    volatile uint32_t SR;   /**< Status register, offset 0x00. */
+    volatile uint32_t DR;   /**< Data register, offset 0x04. */
+    volatile uint32_t BRR;  /**< Baud rate register, offset 0x08. */
+    volatile uint32_t CR1;  /**< Control register 1, offset 0x0C. */
+    volatile uint32_t CR2;  /**< Control register 2, offset 0x10. */
+    volatile uint32_t CR3;  /**< Control register 3, offset 0x14. */
+    volatile uint32_t GTPR; /**< Guard-time / prescaler, offset 0x18. */
 } USART_TypeDef;
 
 extern USART_TypeDef g_mock_usart3;
-#define USART3  (&g_mock_usart3)
+#define USART3 (&g_mock_usart3)
 
 /* RCC: extend with APB1ENR for USART3. Note: real RCC has APB1ENR at
  * offset 0x40, separate from AHB1ENR at 0x30. Field-name access means
@@ -96,55 +97,55 @@ extern USART_TypeDef g_mock_usart3;
  * Per the GpioDriver lesson, struct storage is non-volatile but
  * register fields are. */
 
-#define RCC_APB1ENR_USART3EN_Pos  (18U)
-#define RCC_APB1ENR_USART3EN      (1UL << RCC_APB1ENR_USART3EN_Pos)
+#define RCC_APB1ENR_USART3EN_Pos (18U)
+#define RCC_APB1ENR_USART3EN (1UL << RCC_APB1ENR_USART3EN_Pos)
 
-#define USART_SR_TXE_Pos  (7U)
-#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
+#define USART_SR_TXE_Pos (7U)
+#define USART_SR_TXE (1UL << USART_SR_TXE_Pos)
 
 /* USART SR bits read by the ISR. */
-#define USART_SR_RXNE_Pos  (5U)
-#define USART_SR_RXNE      (1UL << USART_SR_RXNE_Pos)
-#define USART_SR_ORE_Pos   (3U)
-#define USART_SR_ORE       (1UL << USART_SR_ORE_Pos)
-#define USART_SR_FE_Pos    (1U)
-#define USART_SR_FE        (1UL << USART_SR_FE_Pos)
-#define USART_SR_NE_Pos    (2U)
-#define USART_SR_NE        (1UL << USART_SR_NE_Pos)
-#define USART_SR_PE_Pos    (0U)
-#define USART_SR_PE        (1UL << USART_SR_PE_Pos)
+#define USART_SR_RXNE_Pos (5U)
+#define USART_SR_RXNE (1UL << USART_SR_RXNE_Pos)
+#define USART_SR_ORE_Pos (3U)
+#define USART_SR_ORE (1UL << USART_SR_ORE_Pos)
+#define USART_SR_FE_Pos (1U)
+#define USART_SR_FE (1UL << USART_SR_FE_Pos)
+#define USART_SR_NE_Pos (2U)
+#define USART_SR_NE (1UL << USART_SR_NE_Pos)
+#define USART_SR_PE_Pos (0U)
+#define USART_SR_PE (1UL << USART_SR_PE_Pos)
 
-#define USART_SR_ERR_MASK  (USART_SR_ORE | USART_SR_FE | \
-                            USART_SR_NE  | USART_SR_PE)
+#define USART_SR_ERR_MASK (USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)
 
-#define DEBUG_UART_CR      ((uint8_t)'\r')
-#define DEBUG_UART_LF      ((uint8_t)'\n')
+#define DEBUG_UART_CR ((uint8_t) '\r')
+#define DEBUG_UART_LF ((uint8_t) '\n')
 
 /* USART CR1 bits we touch. */
-#define USART_CR1_UE_Pos      (13U)
-#define USART_CR1_UE          (1UL << USART_CR1_UE_Pos)
-#define USART_CR1_TE_Pos      (3U)
-#define USART_CR1_TE          (1UL << USART_CR1_TE_Pos)
-#define USART_CR1_RE_Pos      (2U)
-#define USART_CR1_RE          (1UL << USART_CR1_RE_Pos)
-#define USART_CR1_RXNEIE_Pos  (5U)
-#define USART_CR1_RXNEIE      (1UL << USART_CR1_RXNEIE_Pos)
+#define USART_CR1_UE_Pos (13U)
+#define USART_CR1_UE (1UL << USART_CR1_UE_Pos)
+#define USART_CR1_TE_Pos (3U)
+#define USART_CR1_TE (1UL << USART_CR1_TE_Pos)
+#define USART_CR1_RE_Pos (2U)
+#define USART_CR1_RE (1UL << USART_CR1_RE_Pos)
+#define USART_CR1_RXNEIE_Pos (5U)
+#define USART_CR1_RXNEIE (1UL << USART_CR1_RXNEIE_Pos)
 
 /* USART SR bits used by send. */
-#define USART_SR_TXE_Pos  (7U)
-#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
+#define USART_SR_TXE_Pos (7U)
+#define USART_SR_TXE (1UL << USART_SR_TXE_Pos)
 /* ------------------------------------------------------------------ */
 /* NVIC (would normally come from core_cm4.h)                          */
 /* ------------------------------------------------------------------ */
-typedef enum {
-    USART3_IRQn = 39   /* Per stm32f469xx.h CMSIS canonical value. */
+typedef enum
+{
+    USART3_IRQn = 39 /* Per stm32f469xx.h CMSIS canonical value. */
     /* Add more IRQn values as future drivers need them. */
 } IRQn_Type;
 
 /* Mock NVIC tracks call counts per IRQn. Tests inspect counters
  * directly; current-enabled state is derivable as
  * (enable_count > disable_count). */
-#define NVIC_IRQ_COUNT_MAX  (128U)
+#define NVIC_IRQ_COUNT_MAX (128U)
 
 extern uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
 extern uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];

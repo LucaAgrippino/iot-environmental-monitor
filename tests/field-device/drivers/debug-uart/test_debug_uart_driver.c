@@ -3,9 +3,7 @@
 #include "debug_uart_driver.h"
 
 extern void debug_uart_reset_for_test(void);
-extern void debug_uart_set_ready_line_for_test(const uint8_t *line,
-                                               size_t len,
-                                               bool truncated);
+extern void debug_uart_set_ready_line_for_test(const uint8_t *line, size_t len, bool truncated);
 extern void USART3_IRQHandler(void);
 
 /* Test-controllable tick source. Tests set s_test_ms_value and the
@@ -14,9 +12,10 @@ static uint32_t s_test_ms_value;
 
 /* Capture struct for the ISR-invoked callback. Tests inspect this
  * after firing the ISR to verify the callback's arguments. */
-static struct {
+static struct
+{
     uint32_t invocation_count;
-    void    *last_context_seen;
+    void *last_context_seen;
 } s_callback_capture;
 
 static uint32_t test_get_ms(void)
@@ -26,7 +25,7 @@ static uint32_t test_get_ms(void)
 
 static uint32_t test_get_ms_auto_advance(void)
 {
-    return s_test_ms_value++;   /* post-increment: first call returns 0, then 1, 2, ... */
+    return s_test_ms_value++; /* post-increment: first call returns 0, then 1, 2, ... */
 }
 
 void setUp(void)
@@ -42,13 +41,12 @@ void tearDown(void)
 {
 }
 
-
 /* Proves: USART3 macro resolves to writable storage, fields are accessible
  * by their RM0386 names, and the volatile-on-fields pattern works. */
 void test_mock_usart3_round_trip(void)
 {
-    USART3->BRR = 0x1869u;   /* Some plausible BRR value */
-    USART3->CR1 = (1u << 13) | (1u << 3);   /* UE | TE */
+    USART3->BRR = 0x1869u;                /* Some plausible BRR value */
+    USART3->CR1 = (1u << 13) | (1u << 3); /* UE | TE */
 
     TEST_ASSERT_EQUAL_HEX32(0x1869u, USART3->BRR);
     TEST_ASSERT_EQUAL_HEX32((1u << 13) | (1u << 3), USART3->CR1);
@@ -133,15 +131,14 @@ void test_debug_uart_init_programs_baud_rate_for_pclk(void)
 /* Dummy callback for tests that need a non-NULL function pointer. */
 static void test_dummy_callback(void *ctx)
 {
-    (void)ctx;
+    (void) ctx;
 }
 
 void test_debug_uart_attach_rx_happy_path_enables_rxneie(void)
 {
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_attach_rx(test_dummy_callback, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_attach_rx(test_dummy_callback, NULL));
 
     /* CR1.RE (bit 2) and CR1.RXNEIE (bit 5) must be set. */
     TEST_ASSERT_BITS_HIGH((1u << 2) | (1u << 5), USART3->CR1);
@@ -161,18 +158,16 @@ void test_debug_uart_attach_rx_rejects_null_callback(void)
 {
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
-                          debug_uart_attach_rx(NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER, debug_uart_attach_rx(NULL, NULL));
 }
 
 void test_debug_uart_attach_rx_rejects_second_call(void)
 {
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_attach_rx(test_dummy_callback, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_attach_rx(test_dummy_callback, NULL));
 
     /* Second call with valid args must be rejected. */
-     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
                           debug_uart_attach_rx(test_dummy_callback, NULL));
 }
 
@@ -194,9 +189,8 @@ void test_debug_uart_send_writes_each_byte_to_data_register(void)
     /* Pre-set TXE so the poll loop falls through immediately for every byte. */
     USART3->SR = USART_SR_TXE;
 
-    const uint8_t data[] = {0x41, 0x42, 0x43};   /* "ABC" */
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_send(data, sizeof(data), 1000U));
+    const uint8_t data[] = {0x41, 0x42, 0x43}; /* "ABC" */
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_send(data, sizeof(data), 1000U));
 
     /* DR holds the last byte written (mock has no shift register). */
     TEST_ASSERT_EQUAL_HEX32(0x43u, USART3->DR);
@@ -217,8 +211,7 @@ void test_debug_uart_send_polls_txe_between_bytes(void)
     USART3->SR = USART_SR_TXE;
 
     const uint8_t data[] = {0x10, 0x20, 0x30, 0x40};
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_send(data, sizeof(data), 1000U));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_send(data, sizeof(data), 1000U));
 
     TEST_ASSERT_EQUAL_HEX32(0x40u, USART3->DR);
 }
@@ -227,8 +220,7 @@ void test_debug_uart_send_rejects_null_data_when_length_nonzero(void)
 {
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
-                          debug_uart_send(NULL, 4U, 1000U));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER, debug_uart_send(NULL, 4U, 1000U));
 }
 
 void test_debug_uart_send_rejects_not_initialised(void)
@@ -248,8 +240,7 @@ void test_debug_uart_send_returns_tx_timeout_when_txe_never_asserts(void)
 
     /* TXE never set — loop must depend on the timeout to escape. */
     const uint8_t data[] = {0xAA};
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_TX_TIMEOUT,
-                          debug_uart_send(data, sizeof(data), 100U));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_TX_TIMEOUT, debug_uart_send(data, sizeof(data), 100U));
 }
 
 void test_debug_uart_read_line_returns_no_line_when_flag_clear(void)
@@ -257,7 +248,7 @@ void test_debug_uart_read_line_returns_no_line_when_flag_clear(void)
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
 
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NO_LINE_AVAILABLE,
@@ -277,11 +268,10 @@ void test_debug_uart_read_line_copies_line_and_clears_flag(void)
     debug_uart_set_ready_line_for_test(injected, sizeof(injected), false);
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U] = {0};
-    size_t  length = 0xDEADBEEFu;
+    size_t length = 0xDEADBEEFu;
     debug_uart_line_flag_t flag = DEBUG_UART_LINE_TRUNCATED;
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
 
     /* Content copied verbatim. */
     TEST_ASSERT_EQUAL_MEMORY(injected, buf, sizeof(injected));
@@ -302,15 +292,15 @@ void test_debug_uart_read_line_null_terminates_buffer(void)
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
     /* Pre-fill with non-zero to verify the driver writes the terminator. */
-    for (size_t i = 0; i < sizeof(buf); i++) {
+    for (size_t i = 0; i < sizeof(buf); i++)
+    {
         buf[i] = 0xAAu;
     }
 
     size_t length;
     debug_uart_line_flag_t flag;
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
 
     /* buf[2] must be '\0' (terminator written at index = length). */
     TEST_ASSERT_EQUAL_HEX8(0x00u, buf[2]);
@@ -324,11 +314,10 @@ void test_debug_uart_read_line_reports_ok_flag_when_not_truncated(void)
     debug_uart_set_ready_line_for_test(injected, sizeof(injected), false);
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag = DEBUG_UART_LINE_TRUNCATED;
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_OK, flag);
 }
 
@@ -340,11 +329,10 @@ void test_debug_uart_read_line_reports_truncated_flag_when_overflow_occurred(voi
     debug_uart_set_ready_line_for_test(injected, sizeof(injected), true);
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
 
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_TRUNCATED, flag);
 }
 
@@ -354,12 +342,11 @@ void test_debug_uart_read_line_rejects_buf_size_too_small(void)
 
     /* buf_size = DEBUG_UART_LINE_MAX_LEN exactly — one byte short. */
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
 
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_INVALID_PARAM,
-                          debug_uart_read_line(buf, DEBUG_UART_LINE_MAX_LEN,
-                                               &length, &flag));
+                          debug_uart_read_line(buf, DEBUG_UART_LINE_MAX_LEN, &length, &flag));
 }
 
 void test_debug_uart_read_line_rejects_null_pointers(void)
@@ -367,7 +354,7 @@ void test_debug_uart_read_line_rejects_null_pointers(void)
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
 
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER,
@@ -381,15 +368,13 @@ void test_debug_uart_read_line_rejects_null_pointers(void)
 void test_debug_uart_read_line_rejects_not_initialised(void)
 {
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
 
     /* No debug_uart_init() called. */
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED,
                           debug_uart_read_line(buf, sizeof(buf), &length, &flag));
 }
-
-
 
 static void test_capturing_callback(void *ctx)
 {
@@ -400,15 +385,15 @@ static void test_capturing_callback(void *ctx)
 /* Boilerplate for ISR tests: init + attach + clear setup state. */
 static void prime_driver_for_isr_test(void *callback_context)
 {
-    (void)debug_uart_init();
-    (void)debug_uart_attach_rx(test_capturing_callback, callback_context);
+    (void) debug_uart_init();
+    (void) debug_uart_attach_rx(test_capturing_callback, callback_context);
 }
 
 /* Resolved deferred test from step 5: callback storage proven by firing
  * the ISR and observing the context value flowing through. */
 void test_debug_uart_attach_rx_stores_callback_and_context(void)
 {
-    void *const distinctive_ctx = (void *)0xCAFE5A5Au;
+    void *const distinctive_ctx = (void *) 0xCAFE5A5Au;
     prime_driver_for_isr_test(distinctive_ctx);
 
     /* Send 'A' then CR — the CR triggers freeze + callback. */
@@ -441,10 +426,9 @@ void test_isr_accumulates_byte_into_buffer(void)
     USART3_IRQHandler();
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
     TEST_ASSERT_EQUAL_UINT32(1u, length);
     TEST_ASSERT_EQUAL_HEX8('X', buf[0]);
 }
@@ -454,9 +438,10 @@ void test_isr_appends_until_eol_then_invokes_callback(void)
     prime_driver_for_isr_test(NULL);
 
     const char message[] = "hello";
-    for (size_t i = 0; i < sizeof(message) - 1U; i++) {
+    for (size_t i = 0; i < sizeof(message) - 1U; i++)
+    {
         USART3->SR = USART_SR_RXNE;
-        USART3->DR = (uint8_t)message[i];
+        USART3->DR = (uint8_t) message[i];
         USART3_IRQHandler();
     }
     /* No callback fired yet. */
@@ -476,17 +461,17 @@ void test_isr_strips_cr_and_lf(void)
 
     /* Feed "hi" + LF. Read line back; it should be exactly "hi", no LF. */
     const uint8_t bytes[] = {'h', 'i', DEBUG_UART_LF};
-    for (size_t i = 0; i < sizeof(bytes); i++) {
+    for (size_t i = 0; i < sizeof(bytes); i++)
+    {
         USART3->SR = USART_SR_RXNE;
         USART3->DR = bytes[i];
         USART3_IRQHandler();
     }
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
     TEST_ASSERT_EQUAL_UINT32(2u, length);
     TEST_ASSERT_EQUAL_HEX8('h', buf[0]);
     TEST_ASSERT_EQUAL_HEX8('i', buf[1]);
@@ -499,7 +484,8 @@ void test_isr_handles_crlf_as_single_terminator(void)
 
     /* Feed 'a' + CR + LF — should produce one line "a", one callback. */
     const uint8_t bytes[] = {'a', DEBUG_UART_CR, DEBUG_UART_LF};
-    for (size_t i = 0; i < sizeof(bytes); i++) {
+    for (size_t i = 0; i < sizeof(bytes); i++)
+    {
         USART3->SR = USART_SR_RXNE;
         USART3->DR = bytes[i];
         USART3_IRQHandler();
@@ -515,7 +501,8 @@ void test_isr_marks_overflow_when_buffer_full_no_eol(void)
     /* Feed DEBUG_UART_LINE_MAX_LEN + 5 bytes with no EOL, then EOL.
      * The first 128 bytes fill the buffer; the next 5 set overflow.
      * On EOL, the frozen line should report TRUNCATED. */
-    for (size_t i = 0; i < DEBUG_UART_LINE_MAX_LEN + 5U; i++) {
+    for (size_t i = 0; i < DEBUG_UART_LINE_MAX_LEN + 5U; i++)
+    {
         USART3->SR = USART_SR_RXNE;
         USART3->DR = 'Z';
         USART3_IRQHandler();
@@ -525,10 +512,9 @@ void test_isr_marks_overflow_when_buffer_full_no_eol(void)
     USART3_IRQHandler();
 
     uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
-    size_t  length;
+    size_t length;
     debug_uart_line_flag_t flag;
-    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK,
-                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_read_line(buf, sizeof(buf), &length, &flag));
     TEST_ASSERT_EQUAL_UINT32(DEBUG_UART_LINE_MAX_LEN, length);
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_LINE_TRUNCATED, flag);
 }
@@ -572,7 +558,8 @@ void test_isr_ignores_empty_line_terminator_after_full_line(void)
 
     /* "a" + LF → callback once. Then LF alone → no second callback. */
     const uint8_t first[] = {'a', DEBUG_UART_LF};
-    for (size_t i = 0; i < sizeof(first); i++) {
+    for (size_t i = 0; i < sizeof(first); i++)
+    {
         USART3->SR = USART_SR_RXNE;
         USART3->DR = first[i];
         USART3_IRQHandler();
@@ -588,7 +575,7 @@ void test_isr_ignores_empty_line_terminator_after_full_line(void)
 
 void test_isr_invokes_callback_with_registered_context(void)
 {
-    void *const ctx = (void *)0xABCDEF01u;
+    void *const ctx = (void *) 0xABCDEF01u;
     prime_driver_for_isr_test(ctx);
 
     USART3->SR = USART_SR_RXNE;

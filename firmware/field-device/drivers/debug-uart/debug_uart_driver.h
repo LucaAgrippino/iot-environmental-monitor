@@ -37,7 +37,7 @@
  * Lines longer than this are truncated; the truncation is reported via
  * the line-flag output of debug_uart_read_line().
  */
-#define DEBUG_UART_LINE_MAX_LEN  (128U)
+#define DEBUG_UART_LINE_MAX_LEN (128U)
 
 /* ------------------------------------------------------------------ */
 /* Error codes                                                         */
@@ -48,13 +48,14 @@
  */
 typedef enum
 {
-    DEBUG_UART_OK                      =  0, /**< Success. */
-    DEBUG_UART_ERR_NOT_INITIALISED     =  1, /**< debug_uart_init() not yet called. */
-    DEBUG_UART_ERR_NULL_POINTER        =  2, /**< Required pointer is NULL. */
-    DEBUG_UART_ERR_INVALID_PARAM       =  3, /**< Out-of-range parameter. */
-    DEBUG_UART_ERR_TX_TIMEOUT          =  4, /**< Peripheral TXE flag did not assert within timeout. */
-    DEBUG_UART_ERR_NO_LINE_AVAILABLE   =  5, /**< debug_uart_read_line() called with nothing pending. */
-    DEBUG_UART_ERR_RX_ALREADY_ATTACHED =  6  /**< debug_uart_attach_rx() called twice. */
+    DEBUG_UART_OK = 0,                  /**< Success. */
+    DEBUG_UART_ERR_NOT_INITIALISED = 1, /**< debug_uart_init() not yet called. */
+    DEBUG_UART_ERR_NULL_POINTER = 2,    /**< Required pointer is NULL. */
+    DEBUG_UART_ERR_INVALID_PARAM = 3,   /**< Out-of-range parameter. */
+    DEBUG_UART_ERR_TX_TIMEOUT = 4,      /**< Peripheral TXE flag did not assert within timeout. */
+    DEBUG_UART_ERR_NO_LINE_AVAILABLE =
+        5, /**< debug_uart_read_line() called with nothing pending. */
+    DEBUG_UART_ERR_RX_ALREADY_ATTACHED = 6 /**< debug_uart_attach_rx() called twice. */
 } debug_uart_err_t;
 
 /* ------------------------------------------------------------------ */
@@ -66,8 +67,8 @@ typedef enum
  */
 typedef enum
 {
-    DEBUG_UART_LINE_OK        = 0, /**< Line fitted within DEBUG_UART_LINE_MAX_LEN. */
-    DEBUG_UART_LINE_TRUNCATED = 1  /**< Line exceeded DEBUG_UART_LINE_MAX_LEN; tail was dropped. */
+    DEBUG_UART_LINE_OK = 0,       /**< Line fitted within DEBUG_UART_LINE_MAX_LEN. */
+    DEBUG_UART_LINE_TRUNCATED = 1 /**< Line exceeded DEBUG_UART_LINE_MAX_LEN; tail was dropped. */
 } debug_uart_line_flag_t;
 
 /* ------------------------------------------------------------------ */
@@ -144,8 +145,7 @@ debug_uart_err_t debug_uart_init(void);
  *
  * @note Threading: not internally serialised. Caller calls once.
  */
-debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback,
-                                      void *context);
+debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback, void *context);
 
 /**
  * @brief Send a buffer of bytes synchronously.
@@ -170,9 +170,7 @@ debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback,
  *       duration of the transmission (~87 µs per byte at 115200 bps).
  *       NOT internally serialised. NOT ISR-safe.
  */
-debug_uart_err_t debug_uart_send(const uint8_t *data,
-                                 size_t length,
-                                 uint32_t timeout_ms);
+debug_uart_err_t debug_uart_send(const uint8_t *data, size_t length, uint32_t timeout_ms);
 
 /**
  * @brief Read the most recent complete line.
@@ -198,11 +196,8 @@ debug_uart_err_t debug_uart_send(const uint8_t *data,
  *       task after its callback has notified it. Briefly disables the
  *       USART NVIC vector while copying.
  */
-debug_uart_err_t debug_uart_read_line(uint8_t *out_buf,
-                                      size_t buf_size,
-                                      size_t *out_length,
+debug_uart_err_t debug_uart_read_line(uint8_t *out_buf, size_t buf_size, size_t *out_length,
                                       debug_uart_line_flag_t *out_flag);
-
 
 /**
  * @brief Inject the millisecond tick source used by debug_uart_send().
