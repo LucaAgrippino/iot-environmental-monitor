@@ -1,7 +1,7 @@
 # RtcDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/rtc-driver.md`
-**Version:** 0.2 (Pass H complete — ready for implementation)
+**Version:** 0.4 (BKPR access corrected to pointer arithmetic per real CMSIS layout)
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
 **Status:** Pass H complete
@@ -85,12 +85,12 @@ typedef struct {
  * <module>_err_t, not _status_t.
  */
 typedef enum {
-    RTC_ERR_OK             = 0,  /**< Operation succeeded. */
+    RTC_OK             = 0,  /**< Operation succeeded. */
     RTC_ERR_INIT_TIMEOUT   = 1,  /**< INITF flag did not assert within timeout. */
     RTC_ERR_SYNC_TIMEOUT   = 2,  /**< RSF flag did not assert within timeout. */
     RTC_ERR_NULL_ARG       = 3,  /**< Null pointer passed to a pointer parameter. */
     RTC_ERR_BACKUP_BOUNDS  = 4,  /**< Backup register index out of range for this board. */
-    RTC_ERR_LSE_NOT_READY  = 5,  /**< LSE oscillator is not running at rtc_init() entry. */
+    RTC_ERR_LSE_NOT_READY  = 5,  /**< LSE not running, or RCC_BDCR.RTCSEL locked to non-LSE source. */
 } rtc_err_t;
 
 /* Maximum backup register indices per board (LLD-D16).                    */
@@ -130,9 +130,9 @@ typedef enum {
  *    (2000-01-01 00:00:00), exits init mode, waits for RSF.
  *  - If the backup domain is valid (INITS = 1): leaves the prescaler
  *    and calendar registers untouched.
- *  - Idempotent: a second call returns RTC_ERR_OK with no side effects.
+ *  - Idempotent: a second call returns RTC_OK with no side effects.
  *
- * @return RTC_ERR_OK on success.
+ * @return RTC_OK on success.
  *         RTC_ERR_LSE_NOT_READY if LSE is not running.
  *         RTC_ERR_INIT_TIMEOUT if INITF does not assert within timeout.
  *         RTC_ERR_SYNC_TIMEOUT if RSF does not assert within timeout
@@ -153,8 +153,8 @@ rtc_err_t rtc_init(void);
  * stale shadow-register values immediately after rtc_set_time().
  *
  * @param[out] dt Pointer to caller-allocated rtc_datetime_t; populated
- *                on RTC_ERR_OK. Zeroed on error.
- * @return RTC_ERR_OK on success.
+ *                on RTC_OK. Zeroed on error.
+ * @return RTC_OK on success.
  *         RTC_ERR_NULL_ARG if dt is NULL.
  *         RTC_ERR_SYNC_TIMEOUT if RSF does not assert within timeout.
  *
@@ -176,7 +176,7 @@ rtc_err_t rtc_get_time(rtc_datetime_t *dt);
  * exit init mode → lock WPR → wait RSF.
  *
  * @param dt Pointer to the new date/time. Must not be NULL.
- * @return RTC_ERR_OK on success.
+ * @return RTC_OK on success.
  *         RTC_ERR_NULL_ARG if dt is NULL.
  *         RTC_ERR_INIT_TIMEOUT if INITF does not assert within timeout.
  *         RTC_ERR_SYNC_TIMEOUT if RSF does not assert within timeout.
@@ -225,9 +225,9 @@ bool rtc_is_backup_valid(void);
  * @param idx     Backup register index. Valid range: 0..19 on F469,
  *                0..31 on L475. Returns RTC_ERR_BACKUP_BOUNDS if
  *                exceeded.
- * @param[out] out Set to the 32-bit register value on RTC_ERR_OK.
+ * @param[out] out Set to the 32-bit register value on RTC_OK.
  *                 Untouched on error.
- * @return RTC_ERR_OK, RTC_ERR_NULL_ARG, or RTC_ERR_BACKUP_BOUNDS.
+ * @return RTC_OK, RTC_ERR_NULL_ARG, or RTC_ERR_BACKUP_BOUNDS.
  *
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
  * @note Pre-condition (debug builds): rtc_init() has returned OK.
@@ -244,12 +244,48 @@ rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out);
  * @param idx   Backup register index. Valid range: 0..19 on F469,
  *              0..31 on L475.
  * @param value 32-bit value to write.
- * @return RTC_ERR_OK or RTC_ERR_BACKUP_BOUNDS.
+ * @return RTC_OK or RTC_ERR_BACKUP_BOUNDS.
  *
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
  * @note Pre-condition (debug builds): rtc_init() has returned OK.
  */
 rtc_err_t rtc_write_backup(uint8_t idx, uint32_t value);
+
+/**
+ * @brief Tick-source function signature for timeout deadlines.
+ *
+ * Returns a monotonically increasing tick count. Units are
+ * implementation-defined but must be consistent with the
+ * RTC_MS_TO_TICKS() macro used internally.
+ */
+typedef uint32_t (*rtc_tick_source_fn)(void);
+
+/**
+ * @brief Override the tick source used for INITF/RSF poll timeouts.
+ *
+ * The driver enforces the §4.2 timeout budgets by sampling a
+ * monotonic tick counter at the start of each poll loop and bailing
+ * when a deadline is passed. The default tick source is an internal
+ * SysTick-based reader that works pre- and post-scheduler.
+ *
+ * Tests inject a controllable tick source to drive the timeout error
+ * paths deterministically (TC-RTC-004, TC-RTC-005, TC-RTC-013,
+ * TC-RTC-016, TC-RTC-017). Production firmware does not need to call
+ * this function — the default works for both the bootstrap call and
+ * the post-scheduler caller in TimeServiceTask.
+ *
+ * Passing NULL restores the default reader.
+ *
+ * Project-wide idiom for environmental-dependency injection
+ * (DebugUartDriver established the pattern — session_summary
+ * 26 May 2026; RTCD-D13).
+ *
+ * @param fn Tick-reader function, or NULL to restore the default.
+ *
+ * @note Threading: set once during system init. Not safe to change
+ *       while another driver call is in flight.
+ */
+void rtc_set_tick_source(rtc_tick_source_fn fn);
 ```
 
 ### 2.5 Test-only hooks (`#ifdef TEST`)
@@ -296,12 +332,16 @@ Exactly one RTC peripheral per board; the driver is a singleton with no handle. 
 
 ```c
 typedef struct {
-    bool initialised;   /**< Set true at end of successful rtc_init().      */
-    bool backup_valid;  /**< Captured at rtc_init() from RTC_ISR.INITS;     */
-                        /*   immutable thereafter.                          */
+    bool initialised;            /**< Set true at end of successful rtc_init().      */
+    bool backup_valid;           /**< Captured at rtc_init() from RTC_ISR.INITS;     */
+                                 /*   immutable thereafter.                          */
+    rtc_tick_source_fn tick;     /**< Injectable timeout tick source; NULL selects   */
+                                 /*   the internal SysTick-based default.            */
 } rtc_driver_t;
 
 static rtc_driver_t s_rtc;  /* Zero-initialised by .bss startup. */
+
+static uint32_t default_tick_source(void);  /* SysTick-based; internal linkage. */
 ```
 
 The peripheral itself is accessed directly via the CMSIS `RTC` macro (which expands to an `RTC_TypeDef *` at the fixed peripheral base address). No runtime pointer indirection is needed for register access; in test builds the macro is redefined to point at a mock `RTC_TypeDef` instance (see §7).
@@ -377,17 +417,24 @@ static rtc_err_t rtc_clock_select_and_enable(void) {
         return RTC_ERR_LSE_NOT_READY;
     }
 
-    /* Select LSE as RTC source and enable the RTC clock.                 */
-    /* RTCSEL is write-once after a backup-domain reset — only write if   */
-    /* not already configured, to avoid the spurious "ignored" path.      */
-    uint32_t bdcr = RCC->BDCR;
-    if ((bdcr & RCC_BDCR_RTCSEL) != RCC_BDCR_RTCSEL_0) {  /* LSE = 0b01 */
-        bdcr &= ~RCC_BDCR_RTCSEL;
-        bdcr |= RCC_BDCR_RTCSEL_0;
+    /* RTCSEL is write-once after a backup-domain reset. If a previous   */
+    /* boot selected a non-LSE source, the only way to change it is      */
+    /* BDRST — which wipes every backup register, including              */
+    /* TimeProvider's sync-persisted flag (REQ-TS-040). Treat this as a  */
+    /* system clock configuration fault and refuse to enable the RTC.    */
+    /* See RTCD-D14.                                                     */
+    uint32_t bdcr   = RCC->BDCR;
+    uint32_t rtcsel = bdcr & RCC_BDCR_RTCSEL;
+    if (rtcsel == 0U) {
+        /* First boot after backup-domain reset — select LSE. */
+        bdcr |= RCC_BDCR_RTCSEL_0;        /* LSE = 0b01 */
+    } else if (rtcsel != RCC_BDCR_RTCSEL_0) {
+        /* Already locked to HSE or LSI — clock-config fault. */
+        return RTC_ERR_LSE_NOT_READY;
     }
     bdcr |= RCC_BDCR_RTCEN;
     RCC->BDCR = bdcr;
-    return RTC_ERR_OK;
+    return RTC_OK;
 }
 ```
 
@@ -398,26 +445,44 @@ static rtc_err_t rtc_clock_select_and_enable(void) {
 **`rtc_init`**
 
 ```
-1. If s_rtc.initialised, return RTC_ERR_OK (idempotent).
-2. backup_domain_unlock().
-3. err = rtc_clock_select_and_enable(); if err, return err.
-4. Capture s_rtc.backup_valid = (RTC->ISR & RTC_ISR_INITS) != 0.
-5. If !s_rtc.backup_valid:
-   a. wpr_unlock().
-   b. Set RTC->ISR.INIT = 1.
-   c. Poll RTC->ISR.INITF; if timeout (§4.2), wpr_lock() and return
-      RTC_ERR_INIT_TIMEOUT.
-   d. RTC->CR &= ~RTC_CR_FMT;                   /* 24-hour format */
-   e. RTC->PRER = (127 << 16) | 255;            /* PREDIV_A, PREDIV_S */
-   f. Write TR = bin_to_bcd-packed (0,0,0).
-   g. Write DR = packed default-epoch (2000-01-01).
-   h. Clear RTC->ISR.INIT.
-   i. Poll RTC->ISR.RSF; if timeout, wpr_lock() and return
-      RTC_ERR_SYNC_TIMEOUT.
-   j. wpr_lock().
-6. s_rtc.initialised = true.
-7. Return RTC_ERR_OK.
+1.  If s_rtc.initialised, return RTC_OK (idempotent — RTCD-D10).
+2.  If s_rtc.tick == NULL, s_rtc.tick = &default_tick_source.
+3.  backup_domain_unlock().                       /* PWR clock + DBP   */
+4.  err = rtc_clock_select_and_enable();          /* may return        */
+    if (err != RTC_OK) return err;                /* LSE_NOT_READY     */
+5.  s_rtc.backup_valid = (RTC->ISR & RTC_ISR_INITS) != 0.
+6.  If !s_rtc.backup_valid:
+    a. wpr_unlock().
+    b. RTC->ISR |= RTC_ISR_INIT.
+    c. deadline = s_rtc.tick() + RTC_MS_TO_TICKS(2);
+       while (!(RTC->ISR & RTC_ISR_INITF)) {
+           if (s_rtc.tick() >= deadline) {
+               wpr_lock();
+               return RTC_ERR_INIT_TIMEOUT;
+           }
+       }
+    d. RTC->CR  &= ~RTC_CR_FMT;                   /* 24-hour format    */
+    e. RTC->PRER = (127U << 16) | 255U;           /* PREDIV_A,         */
+                                                  /* PREDIV_S          */
+    f. RTC->TR   = 0x00000000U;                   /* 00:00:00 BCD      */
+    g. RTC->DR   = 0x00002101U;                   /* 2000-01-01 (RM    */
+                                                  /* reset value;      */
+                                                  /* weekday field is  */
+                                                  /* not API-exposed)  */
+    h. RTC->ISR &= ~RTC_ISR_INIT.
+    i. deadline = s_rtc.tick() + RTC_MS_TO_TICKS(2);
+       while (!(RTC->ISR & RTC_ISR_RSF)) {
+           if (s_rtc.tick() >= deadline) {
+               wpr_lock();
+               return RTC_ERR_SYNC_TIMEOUT;
+           }
+       }
+    j. wpr_lock().
+7.  s_rtc.initialised = true.
+8.  Return RTC_OK.
 ```
+
+**No rollback on partial-init failure (RTCD-D15).** PWREN, DBP, RTCEN are left enabled on the error paths. The board transitions to Faulted (§6); leftover clock-enable bits have no operational effect. WPR is the only state with a security implication and is always re-locked before returning an error. Unwinding adds branches without operational benefit.
 
 **`rtc_get_time`**
 
@@ -425,31 +490,43 @@ static rtc_err_t rtc_clock_select_and_enable(void) {
 1. assert(s_rtc.initialised).
 2. If dt == NULL, return RTC_ERR_NULL_ARG.
 3. Zero *dt for the error-return path.
-4. Poll RTC->ISR.RSF until set; if timeout (§4.2), return
-   RTC_ERR_SYNC_TIMEOUT.
-5. Atomically snapshot TR and DR (read TR first, then DR — the read of
-   TR locks the calendar shadow until DR is read; see RM0386 §27.3.6
-   / RM0351 §38.4.4).
+4. deadline = s_rtc.tick() + RTC_MS_TO_TICKS(2);
+   while (!(RTC->ISR & RTC_ISR_RSF)) {
+       if (s_rtc.tick() >= deadline) return RTC_ERR_SYNC_TIMEOUT;
+   }
+5. Atomically snapshot TR and DR — read TR first, then DR. The read of
+   TR locks the calendar shadow until DR is read (RM0386 §27.3.6,
+   RM0351 §38.4.4).
 6. Decode BCD fields into *dt; add 2000 to year.
-7. Return RTC_ERR_OK.
+7. Return RTC_OK.
 ```
 
 **`rtc_set_time`**
 
 ```
-1. assert(s_rtc.initialised).
-2. If dt == NULL, return RTC_ERR_NULL_ARG.
-3. wpr_unlock().
-4. Set RTC->ISR.INIT = 1.
-5. Poll RTC->ISR.INITF; if timeout, wpr_lock() and return
-   RTC_ERR_INIT_TIMEOUT.
-6. Encode dt as BCD and pack into TR / DR (subtract 2000 from year).
-7. Write RTC->TR and RTC->DR.
-8. Clear RTC->ISR.INIT.
-9. Poll RTC->ISR.RSF; if timeout, wpr_lock() and return
-   RTC_ERR_SYNC_TIMEOUT.
+1.  assert(s_rtc.initialised).
+2.  If dt == NULL, return RTC_ERR_NULL_ARG.
+3.  wpr_unlock().
+4.  RTC->ISR |= RTC_ISR_INIT.
+5.  deadline = s_rtc.tick() + RTC_MS_TO_TICKS(2);
+    while (!(RTC->ISR & RTC_ISR_INITF)) {
+        if (s_rtc.tick() >= deadline) {
+            wpr_lock();
+            return RTC_ERR_INIT_TIMEOUT;
+        }
+    }
+6.  Encode dt as BCD; pack TR and DR (subtract 2000 from year).
+7.  Write RTC->TR and RTC->DR.
+8.  RTC->ISR &= ~RTC_ISR_INIT.
+9.  deadline = s_rtc.tick() + RTC_MS_TO_TICKS(2);
+    while (!(RTC->ISR & RTC_ISR_RSF)) {
+        if (s_rtc.tick() >= deadline) {
+            wpr_lock();
+            return RTC_ERR_SYNC_TIMEOUT;
+        }
+    }
 10. wpr_lock().
-11. Return RTC_ERR_OK.
+11. Return RTC_OK.
 ```
 
 **`rtc_is_backup_valid`**
@@ -465,17 +542,21 @@ static rtc_err_t rtc_clock_select_and_enable(void) {
 1. assert(s_rtc.initialised).
 2. If out == NULL, return RTC_ERR_NULL_ARG.
 3. If idx > RTC_BACKUP_MAX_IDX, return RTC_ERR_BACKUP_BOUNDS.
-4. *out = RTC->BKPR[idx].
-5. Return RTC_ERR_OK.
+4. volatile uint32_t *bkp = &RTC->BKP0R;
+   *out = bkp[idx];
+5. Return RTC_OK.
 ```
+
+Real CMSIS headers (both F469 and L475) declare backup registers as individual named fields `BKP0R, BKP1R, …`. The driver accesses them via pointer arithmetic starting at `&RTC->BKP0R`; the fields are guaranteed contiguous because they are all `uint32_t` (no padding). The mock follows the same layout.
 
 **`rtc_write_backup`**
 
 ```
 1. assert(s_rtc.initialised).
 2. If idx > RTC_BACKUP_MAX_IDX, return RTC_ERR_BACKUP_BOUNDS.
-3. RTC->BKPR[idx] = value.
-4. Return RTC_ERR_OK.
+3. volatile uint32_t *bkp = &RTC->BKP0R;
+   bkp[idx] = value;
+4. Return RTC_OK.
 ```
 
 ### 3.7 No ISR, no DMA, no callbacks
@@ -489,11 +570,12 @@ The driver has no interrupt handler and registers no callbacks. The RTC alarm an
 void rtc_reset_for_test(void) {
     s_rtc.initialised = false;
     s_rtc.backup_valid = false;
+    s_rtc.tick = NULL;          /* Restores default on next rtc_init(). */
 }
 #endif
 ```
 
-Pattern established in `DebugUartDriver`. Every module with file-scope static state exposes this hook; tests call it from `setUp()`.
+Pattern established in `DebugUartDriver`. Every module with file-scope static state exposes this hook; tests call it from `setUp()`. The tick-source override is also installed per-test via `rtc_set_tick_source()` after the reset.
 
 ### 3.9 Principles applied
 
@@ -533,6 +615,8 @@ Timeouts are polled (busy-wait) using a software loop counter calibrated against
 
 For `rtc_get_time` called by `Logger`, RSF is normally already set in steady state (the calendar updates every 1 Hz); the RSF poll exits on the first iteration.
 
+Timeouts are enforced by sampling a monotonic tick source at the start of each poll loop and bailing once a deadline is passed. The tick source is function-pointer-injected via `rtc_set_tick_source()`; the default is an internal SysTick-based reader that works pre- and post-scheduler. Tests inject a controllable tick source to drive the timeout error paths deterministically (RTCD-D13).
+
 The use of busy-wait rather than an RTOS-blocking primitive is deliberate (LLD-D6): the wait is bounded and short, and importing FreeRTOS would violate the no-RTOS-in-drivers convention (LLD-D3).
 
 ### 4.3 Backup domain reset detection
@@ -547,12 +631,12 @@ Both `stm32f469xx.h` and `stm32l475xx.h` define `RTC_TypeDef` with the same rele
 
 **Backup register count differs by board (LLD-D16):**
 
-| Board | Backup registers | Valid `idx` range | CMSIS access |
-|---|---|---|---|
-| STM32F469 (FD) | 20 (BKP0R..BKP19R) | 0..19 | `RTC->BKPR[idx]` |
-| STM32L475 (GW) | 32 (BKP0R..BKP31R) | 0..31 | `RTC->BKPR[idx]` |
+| Board | Backup registers | Valid `idx` range |
+|---|---|---|
+| STM32F469 (FD) | 20 (BKP0R..BKP19R) | 0..19 |
+| STM32L475 (GW) | 32 (BKP0R..BKP31R) | 0..31 |
 
-The implementation defines a single `RTC_BACKUP_MAX_IDX` symbol inside `rtc_driver.c`, selected at compile time via the active CMSIS device macro. `rtc_read_backup` / `rtc_write_backup` validate `idx` against this symbol.
+Both CMSIS headers declare the backup registers as individually named fields (`BKP0R, BKP1R, …`), not as an array. The driver accesses them via pointer arithmetic over `&RTC->BKP0R`; the fields are guaranteed contiguous (uniform `uint32_t`, no padding). The implementation defines a single `RTC_BACKUP_MAX_IDX` symbol inside `rtc_driver.c`, selected at compile time via the active CMSIS device macro; `rtc_read_backup` / `rtc_write_backup` validate `idx` against this symbol.
 
 ### 4.5 Backup register persistence scope
 
@@ -613,7 +697,7 @@ All public functions return `rtc_err_t`; callers must not ignore non-OK returns.
 | `RTC_ERR_SYNC_TIMEOUT` | RSF flag did not assert after exiting init mode or before a read | Return error; WPR re-locked if applicable | Non-OK return | No retry — caller may re-attempt after a reset cycle | Caller logs at WARN via `ILogger` |
 | `RTC_ERR_NULL_ARG` | Null pointer passed to `rtc_get_time`, `rtc_set_time`, or `rtc_read_backup` | Return error; no register access | Non-OK return | No retry — programming error | Caller logs at ERROR via `ILogger` |
 | `RTC_ERR_BACKUP_BOUNDS` | Backup register index exceeds the board limit (`RTC_BACKUP_MAX_IDX`) | Return error; no register access | Non-OK return | No retry — programming error | Caller logs at ERROR via `ILogger` |
-| `RTC_ERR_LSE_NOT_READY` | `RCC_BDCR.LSERDY` was 0 at `rtc_init` entry | Return error; no RTC clock enabled | Non-OK return | No retry from the driver — system clock config bug | LifecycleController logs at ERROR via `ILogger` and Faults the board |
+| `RTC_ERR_LSE_NOT_READY` | LSE oscillator not running, OR `RCC_BDCR.RTCSEL` already locked to a non-LSE source | Return error; no RTC clock enabled | Non-OK return | No retry from the driver — system clock config bug | LifecycleController logs at ERROR via `ILogger` and Faults the board |
 
 ---
 
@@ -633,37 +717,39 @@ Both paths to be added to `tests/project.yml`.
 | ID | Test case | Expected result |
 |---|---|---|
 | TC-RTC-001 | `rtc_init` with LSERDY = 0 | Returns `RTC_ERR_LSE_NOT_READY`; RTC clock not enabled; `s_rtc.initialised` remains false |
-| TC-RTC-002 | `rtc_init` cold start (LSERDY = 1, INITS = 0) | PWR clock enabled; DBP set; LSE selected and RTC clock enabled in BDCR; `PRER = (127<<16) \| 255`; TR/DR set to default-epoch packed values; WPR locked at exit; `s_rtc.backup_valid == false`; `s_rtc.initialised == true`; returns `RTC_ERR_OK` |
-| TC-RTC-003 | `rtc_init` warm start (LSERDY = 1, INITS = 1) | PWR clock enabled; DBP set; LSE selected; PRER untouched; TR/DR unchanged; `s_rtc.backup_valid == true`; `s_rtc.initialised == true`; returns `RTC_ERR_OK` |
+| TC-RTC-002 | `rtc_init` cold start (LSERDY = 1, RTCSEL = 0, INITS = 0) | PWR clock enabled; DBP set; LSE selected and RTC clock enabled in BDCR; `PRER = (127<<16) \| 255`; `TR == 0x00000000`, `DR == 0x00002101`; WPR locked at exit; `s_rtc.backup_valid == false`; `s_rtc.initialised == true`; returns `RTC_OK` |
+| TC-RTC-003 | `rtc_init` warm start (LSERDY = 1, INITS = 1) | PWR clock enabled; DBP set; LSE selected; PRER untouched; TR/DR unchanged; `s_rtc.backup_valid == true`; `s_rtc.initialised == true`; returns `RTC_OK` |
 | TC-RTC-004 | `rtc_init` INITF timeout on cold start | Returns `RTC_ERR_INIT_TIMEOUT`; WPR locked; `s_rtc.initialised` remains false |
 | TC-RTC-005 | `rtc_init` RSF timeout on cold start | Returns `RTC_ERR_SYNC_TIMEOUT`; WPR locked; `s_rtc.initialised` remains false |
-| TC-RTC-006 | `rtc_init` called twice | Second call returns `RTC_ERR_OK` with no register writes (idempotent) |
+| TC-RTC-006 | `rtc_init` called twice | Second call returns `RTC_OK` with no register writes (idempotent) |
 | TC-RTC-007 | WPR write sequence ordering | Mock WPR records writes; verify the sequence is `0xCA, 0x53, …, 0xFF` (unlock-write-lock) |
 | TC-RTC-008 | `rtc_get_time` NULL argument | Returns `RTC_ERR_NULL_ARG`; no register access |
-| TC-RTC-009 | `rtc_get_time` happy path (TR = 0x162359, DR = 0x261231 BCD) | Returns `RTC_ERR_OK`; `dt == {2026, 12, 31, 16, 23, 59}` |
-| TC-RTC-010 | `rtc_get_time` BCD boundary low (TR = 0x000000, DR = 0x000101) | Returns `RTC_ERR_OK`; `dt == {2000, 1, 1, 0, 0, 0}` |
-| TC-RTC-011 | `rtc_get_time` BCD boundary high (TR = 0x235959, DR = 0x991231) | Returns `RTC_ERR_OK`; `dt == {2099, 12, 31, 23, 59, 59}` |
-| TC-RTC-012 | `rtc_get_time` RSF clear on entry, then sets after one poll | Returns `RTC_ERR_OK`; correct datetime |
+| TC-RTC-009 | `rtc_get_time` happy path (TR = 0x162359, DR = 0x261231 BCD) | Returns `RTC_OK`; `dt == {2026, 12, 31, 16, 23, 59}` |
+| TC-RTC-010 | `rtc_get_time` BCD boundary low (TR = 0x000000, DR = 0x000101) | Returns `RTC_OK`; `dt == {2000, 1, 1, 0, 0, 0}` |
+| TC-RTC-011 | `rtc_get_time` BCD boundary high (TR = 0x235959, DR = 0x991231) | Returns `RTC_OK`; `dt == {2099, 12, 31, 23, 59, 59}` |
+| TC-RTC-012 | `rtc_get_time` RSF clear on entry, then sets after one poll | Returns `RTC_OK`; correct datetime |
 | TC-RTC-013 | `rtc_get_time` RSF never sets | Returns `RTC_ERR_SYNC_TIMEOUT`; `*dt` zeroed |
 | TC-RTC-014 | `rtc_set_time` NULL argument | Returns `RTC_ERR_NULL_ARG`; no register access; WPR not unlocked |
-| TC-RTC-015 | `rtc_set_time` happy path (`{2026, 5, 16, 10, 30, 0}`) | WPR unlocked (0xCA, 0x53); INIT set; INITF observed; `TR = 0x103000`, `DR = 0x260516` written; INIT cleared; RSF observed; WPR locked (0xFF); returns `RTC_ERR_OK` |
+| TC-RTC-015 | `rtc_set_time` happy path (`{2026, 5, 16, 10, 30, 0}`) | WPR unlocked (0xCA, 0x53); INIT set; INITF observed; `TR = 0x103000`, `DR = 0x260516` written; INIT cleared; RSF observed; WPR locked (0xFF); returns `RTC_OK` |
 | TC-RTC-016 | `rtc_set_time` INITF timeout | Returns `RTC_ERR_INIT_TIMEOUT`; TR/DR not written; WPR re-locked |
 | TC-RTC-017 | `rtc_set_time` RSF timeout | Returns `RTC_ERR_SYNC_TIMEOUT`; WPR re-locked |
 | TC-RTC-018 | `rtc_set_time` does not modify `backup_valid` | After cold-init (`backup_valid == false`), call set_time; `rtc_is_backup_valid()` still returns false |
 | TC-RTC-019 | `rtc_is_backup_valid` after cold-start init | Returns `false` |
 | TC-RTC-020 | `rtc_is_backup_valid` after warm-start init | Returns `true` |
-| TC-RTC-021 | `rtc_write_backup(0, 0xA5A55A5A)` + `rtc_read_backup(0, &v)` | Both return `RTC_ERR_OK`; `v == 0xA5A55A5A` |
-| TC-RTC-022 | `rtc_write_backup(0, 0)` + `rtc_read_backup(0, &v)` | Both return `RTC_ERR_OK`; `v == 0` |
+| TC-RTC-021 | `rtc_write_backup(0, 0xA5A55A5A)` + `rtc_read_backup(0, &v)` | Both return `RTC_OK`; `v == 0xA5A55A5A` |
+| TC-RTC-022 | `rtc_write_backup(0, 0)` + `rtc_read_backup(0, &v)` | Both return `RTC_OK`; `v == 0` |
 | TC-RTC-023 | `rtc_read_backup` with `out == NULL` | Returns `RTC_ERR_NULL_ARG`; no register access |
-| TC-RTC-024 | `rtc_read_backup` at max valid index (F469: 19; L475: 31) | Returns `RTC_ERR_OK`; correct value returned |
+| TC-RTC-024 | `rtc_read_backup` at max valid index (F469: 19; L475: 31) | Returns `RTC_OK`; correct value returned |
 | TC-RTC-025 | `rtc_read_backup` at first invalid index (F469: 20; L475: 32) | Returns `RTC_ERR_BACKUP_BOUNDS`; no register access |
 | TC-RTC-026 | `rtc_read_backup` with `idx = 0xFF` (obvious overflow) | Returns `RTC_ERR_BACKUP_BOUNDS` |
-| TC-RTC-027 | `rtc_write_backup` at max valid index | Returns `RTC_ERR_OK`; register written |
+| TC-RTC-027 | `rtc_write_backup` at max valid index | Returns `RTC_OK`; register written |
 | TC-RTC-028 | `rtc_write_backup` at first invalid index | Returns `RTC_ERR_BACKUP_BOUNDS`; no register access |
 | TC-RTC-029 | DBP bit set after `rtc_init` | Read PWR_CR (F469) or PWR_CR1 (L475); DBP bit is set |
 | TC-RTC-030 | PWR clock enabled after `rtc_init` | Read RCC_APB1ENR (F469) or RCC_APB1ENR1 (L475); PWREN bit is set |
 | TC-RTC-031 | RTC clock enabled and LSE selected after `rtc_init` | Read RCC_BDCR; `RTCEN == 1` and `RTCSEL == 0b01` |
 | TC-RTC-032 | BCD round-trip (`bin_to_bcd(bcd_to_bin(x)) == x` for x in 0x00..0x99 valid BCD) | Helper-level test on the internal conversion functions; exposed for test via `#ifdef TEST` if needed |
+| TC-RTC-033 | `rtc_init` with LSERDY = 1 but RTCSEL already set to HSE (0b10) | Returns `RTC_ERR_LSE_NOT_READY`; `RCC_BDCR.RTCEN` is **not** set; no BDRST issued; `s_rtc.initialised` remains false |
+| TC-RTC-034 | `rtc_set_tick_source(custom_tick)` then trigger an INITF timeout path | `custom_tick` is invoked at least twice (deadline computation + poll check); driver bails when `custom_tick` returns a value past the deadline; returns `RTC_ERR_INIT_TIMEOUT` |
 
 **Coverage notes:** every documented error value in §6 is produced by ≥ 1 test. Every public API function has happy-path + at least one error-path test. Pre-condition `assert()` calls are **not** unit-tested (they are debug-build aids; tests run as release-equivalent unless an assertion-trapping harness is added later).
 
@@ -673,7 +759,7 @@ Both paths to be added to `tests/project.yml`.
 
 | ID | Item | Owner | Resolution path |
 |---|---|---|---|
-| RTCD-O1 | Calibration of the busy-wait timeout loop counter to actual CPU cycles. The §4.2 budgets are time-based (2 ms); the implementation needs a concrete loop iteration count once the CPU clock is pinned (see clock-config TBDs in `project_status.md`). | Luca | Resolve at implementation; replace placeholder constant once `clock-config.md` lands. |
+| RTCD-O1 | SysTick frequency for the `RTC_MS_TO_TICKS()` conversion in `default_tick_source`. The §4.2 budgets are time-based (2 ms); the conversion depends on the CPU clock pinned by `clock-config.md` (the same clock-config TBD recorded in `project_status.md`). | Luca | Resolve at implementation — replace the placeholder `RTC_MS_TO_TICKS()` constant once SysTick frequency is known. |
 | RTCD-O2 | Logger timestamps are unmarked-as-unsynchronised until NTP completes. Logger does not go through TimeProvider and therefore cannot query the sync-state flag — this is the accepted cost of the bootstrap exception. | Luca | Document explicitly in the future Logger companion's open-items section. |
 | RTCD-O3 | Empirical verification on L475 that INITS clears reliably after a full power-cycle (VDD + VBAT both removed). RM0351 §38 describes the reset domains; this is a board-level check at integration. | Luca | Verify during Phase 5 integration; §4.5 already documents the expected behaviour on Discovery boards. |
 | RTCD-O4 | BCD helper unit-test exposure — `bcd_to_bin` / `bin_to_bcd` are `static`. TC-RTC-032 needs either a `#ifdef TEST` declaration in the header or a dedicated `rtc_driver_internal.h` test seam. Decide at first implementation pass. | Luca | Pick the lighter option (forward-declaration inside the test TU) at implementation time. |
@@ -701,3 +787,7 @@ Both paths to be added to `tests/project.yml`.
 | RTCD-D10 | Idempotent `rtc_init` (no-op + OK on second call) | Matches `DebugUartDriver`; simpler caller contract than an error code for double-init |
 | RTCD-D11 | Default epoch = 2000-01-01 00:00:00 | The STM32 RTC stores the year as a two-digit offset from 2000; this is the hardware origin and the safest default value for an uninitialised calendar |
 | RTCD-D12 | Driver verifies `LSERDY` and returns `RTC_ERR_LSE_NOT_READY`; LSE oscillator setup remains the system-clock-config responsibility | Surfaces a system-init ordering bug clearly without claiming ownership of a shared resource |
+| RTCD-D13 | Timeout tick source is function-pointer-injected via `rtc_set_tick_source`, defaulting to an internal SysTick-based reader | Matches the project-wide idiom for environmental-dependency injection (DebugUartDriver, session_summary 26 May 2026). Lets tests cover INITF/RSF timeout paths deterministically without target-cycle calibration tricks; production firmware does not need to call it |
+| RTCD-D14 | If `RCC_BDCR.RTCSEL` is already locked to a non-LSE source, `rtc_init` returns `RTC_ERR_LSE_NOT_READY` rather than issuing `BDRST` | `BDRST` wipes every backup register, including TimeProvider's sync-persisted flag (REQ-TS-040). Forcing a clear configuration error is better than silently destroying state. The same enum value covers both LSE-not-running and wrong-RTCSEL because the responsibility (system clock config) is the same |
+| RTCD-D15 | No rollback on partial `rtc_init` failure | PWREN, DBP, RTCEN are left enabled on the error paths; the board transitions to Faulted (§6) so the leftover state has no operational effect. WPR is always re-locked because it is the only state with a security implication. Unwinding adds test surface without operational benefit |
+| RTCD-D16 | Success value named `RTC_OK`, not `RTC_ERR_OK` | OK is not an error. The enum type remains `rtc_err_t` (project convention), but an error-prefix on the success value is misleading. Subsequent driver companions should follow the same pattern; existing `<MODULE>_ERR_OK` symbols stay as-is until their next revision |
