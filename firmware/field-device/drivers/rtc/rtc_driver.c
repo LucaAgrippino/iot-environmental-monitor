@@ -346,7 +346,7 @@ rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out)
         return RTC_ERR_BACKUP_BOUNDS;
     }
 
-    volatile uint32_t *bkp = &RTC->BKP0R;
+    volatile const uint32_t *bkp = &RTC->BKP0R;
     *out = bkp[idx];
     return RTC_OK;
 }
