@@ -27,7 +27,7 @@
  * Production builds set this via -D before any device header is included;
  * the mock supplies it here to make the test environment self-contained. */
 #ifndef STM32F469xx
-#  define STM32F469xx
+#define STM32F469xx
 #endif
 
 /* ====================================================================== */
@@ -76,26 +76,25 @@ extern RCC_TypeDef g_mock_rcc;
 
 /* --- APB1ENR bits (DebugUartDriver, RtcDriver) ------------------------ */
 #define RCC_APB1ENR_USART3EN_Pos (18U)
-#define RCC_APB1ENR_USART3EN     (1UL << RCC_APB1ENR_USART3EN_Pos)
+#define RCC_APB1ENR_USART3EN (1UL << RCC_APB1ENR_USART3EN_Pos)
 
-#define RCC_APB1ENR_PWREN_Pos    (28U)
-#define RCC_APB1ENR_PWREN        (1UL << RCC_APB1ENR_PWREN_Pos)
+#define RCC_APB1ENR_PWREN_Pos (28U)
+#define RCC_APB1ENR_PWREN (1UL << RCC_APB1ENR_PWREN_Pos)
 
 /* --- BDCR bits (RtcDriver) -------------------------------------------- */
-#define RCC_BDCR_LSEON_Pos    (0U)
-#define RCC_BDCR_LSEON        (1UL << RCC_BDCR_LSEON_Pos)
-#define RCC_BDCR_LSERDY_Pos   (1U)
-#define RCC_BDCR_LSERDY       (1UL << RCC_BDCR_LSERDY_Pos)
+#define RCC_BDCR_LSEON_Pos (0U)
+#define RCC_BDCR_LSEON (1UL << RCC_BDCR_LSEON_Pos)
+#define RCC_BDCR_LSERDY_Pos (1U)
+#define RCC_BDCR_LSERDY (1UL << RCC_BDCR_LSERDY_Pos)
 #define RCC_BDCR_RTCSEL_0_Pos (8U)
-#define RCC_BDCR_RTCSEL_0     (1UL << RCC_BDCR_RTCSEL_0_Pos)
+#define RCC_BDCR_RTCSEL_0 (1UL << RCC_BDCR_RTCSEL_0_Pos)
 #define RCC_BDCR_RTCSEL_1_Pos (9U)
-#define RCC_BDCR_RTCSEL_1     (1UL << RCC_BDCR_RTCSEL_1_Pos)
-#define RCC_BDCR_RTCSEL       (RCC_BDCR_RTCSEL_0 | RCC_BDCR_RTCSEL_1)
-#define RCC_BDCR_RTCEN_Pos    (15U)
-#define RCC_BDCR_RTCEN        (1UL << RCC_BDCR_RTCEN_Pos)
-#define RCC_BDCR_BDRST_Pos    (16U)
-#define RCC_BDCR_BDRST        (1UL << RCC_BDCR_BDRST_Pos)
-
+#define RCC_BDCR_RTCSEL_1 (1UL << RCC_BDCR_RTCSEL_1_Pos)
+#define RCC_BDCR_RTCSEL (RCC_BDCR_RTCSEL_0 | RCC_BDCR_RTCSEL_1)
+#define RCC_BDCR_RTCEN_Pos (15U)
+#define RCC_BDCR_RTCEN (1UL << RCC_BDCR_RTCEN_Pos)
+#define RCC_BDCR_BDRST_Pos (16U)
+#define RCC_BDCR_BDRST (1UL << RCC_BDCR_BDRST_Pos)
 
 /* ====================================================================== */
 /* §GPIO                                                                  */
@@ -132,7 +131,6 @@ extern GPIO_TypeDef g_mock_gpio[MOCK_GPIO_PORT_COUNT];
 #define GPIOJ (&g_mock_gpio[9])
 #define GPIOK (&g_mock_gpio[10])
 
-
 /* ====================================================================== */
 /* §USART (DebugUartDriver)                                               */
 /* ====================================================================== */
@@ -154,35 +152,34 @@ extern USART_TypeDef g_mock_usart3;
 #define USART3 (&g_mock_usart3)
 
 /* --- USART_SR bits (status, used by ISR and send) --------------------- */
-#define USART_SR_TXE_Pos  (7U)
-#define USART_SR_TXE      (1UL << USART_SR_TXE_Pos)
+#define USART_SR_TXE_Pos (7U)
+#define USART_SR_TXE (1UL << USART_SR_TXE_Pos)
 #define USART_SR_RXNE_Pos (5U)
-#define USART_SR_RXNE     (1UL << USART_SR_RXNE_Pos)
-#define USART_SR_ORE_Pos  (3U)
-#define USART_SR_ORE      (1UL << USART_SR_ORE_Pos)
-#define USART_SR_NE_Pos   (2U)
-#define USART_SR_NE       (1UL << USART_SR_NE_Pos)
-#define USART_SR_FE_Pos   (1U)
-#define USART_SR_FE       (1UL << USART_SR_FE_Pos)
-#define USART_SR_PE_Pos   (0U)
-#define USART_SR_PE       (1UL << USART_SR_PE_Pos)
+#define USART_SR_RXNE (1UL << USART_SR_RXNE_Pos)
+#define USART_SR_ORE_Pos (3U)
+#define USART_SR_ORE (1UL << USART_SR_ORE_Pos)
+#define USART_SR_NE_Pos (2U)
+#define USART_SR_NE (1UL << USART_SR_NE_Pos)
+#define USART_SR_FE_Pos (1U)
+#define USART_SR_FE (1UL << USART_SR_FE_Pos)
+#define USART_SR_PE_Pos (0U)
+#define USART_SR_PE (1UL << USART_SR_PE_Pos)
 
 #define USART_SR_ERR_MASK (USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)
 
 /* --- USART_CR1 bits --------------------------------------------------- */
-#define USART_CR1_UE_Pos     (13U)
-#define USART_CR1_UE         (1UL << USART_CR1_UE_Pos)
-#define USART_CR1_TE_Pos     (3U)
-#define USART_CR1_TE         (1UL << USART_CR1_TE_Pos)
-#define USART_CR1_RE_Pos     (2U)
-#define USART_CR1_RE         (1UL << USART_CR1_RE_Pos)
+#define USART_CR1_UE_Pos (13U)
+#define USART_CR1_UE (1UL << USART_CR1_UE_Pos)
+#define USART_CR1_TE_Pos (3U)
+#define USART_CR1_TE (1UL << USART_CR1_TE_Pos)
+#define USART_CR1_RE_Pos (2U)
+#define USART_CR1_RE (1UL << USART_CR1_RE_Pos)
 #define USART_CR1_RXNEIE_Pos (5U)
-#define USART_CR1_RXNEIE     (1UL << USART_CR1_RXNEIE_Pos)
+#define USART_CR1_RXNEIE (1UL << USART_CR1_RXNEIE_Pos)
 
 /* --- Debug-UART line endings (consumed by DebugUartDriver) ------------ */
 #define DEBUG_UART_CR ((uint8_t) '\r')
 #define DEBUG_UART_LF ((uint8_t) '\n')
-
 
 /* ====================================================================== */
 /* §PWR (RtcDriver)                                                       */
@@ -191,7 +188,7 @@ extern USART_TypeDef g_mock_usart3;
 /* Minimal layout — RtcDriver only touches CR. */
 typedef struct
 {
-    volatile uint32_t CR;   /**< Power control register, offset 0x00. */
+    volatile uint32_t CR; /**< Power control register, offset 0x00. */
 } PWR_TypeDef;
 
 extern PWR_TypeDef g_mock_pwr;
@@ -200,8 +197,7 @@ extern PWR_TypeDef g_mock_pwr;
 
 /* --- PWR_CR bits ------------------------------------------------------ */
 #define PWR_CR_DBP_Pos (8U)
-#define PWR_CR_DBP     (1UL << PWR_CR_DBP_Pos)
-
+#define PWR_CR_DBP (1UL << PWR_CR_DBP_Pos)
 
 /* ====================================================================== */
 /* §RTC (RtcDriver)                                                       */
@@ -216,14 +212,14 @@ extern PWR_TypeDef g_mock_pwr;
  * trailing array therefore covers BKP1R..BKP19R as a single block. */
 typedef struct
 {
-    volatile uint32_t TR;                       /**< Time register. */
-    volatile uint32_t DR;                       /**< Date register. */
-    volatile uint32_t CR;                       /**< Control register. */
-    volatile uint32_t ISR;                      /**< Init / status register. */
-    volatile uint32_t PRER;                     /**< Prescaler register. */
-    volatile uint32_t WPR;                      /**< Write-protection register. */
-    volatile uint32_t BKP0R;                    /**< Backup register 0. */
-    volatile uint32_t BKP1R_to_BKP19R[19];      /**< Contiguous with BKP0R. */
+    volatile uint32_t TR;                  /**< Time register. */
+    volatile uint32_t DR;                  /**< Date register. */
+    volatile uint32_t CR;                  /**< Control register. */
+    volatile uint32_t ISR;                 /**< Init / status register. */
+    volatile uint32_t PRER;                /**< Prescaler register. */
+    volatile uint32_t WPR;                 /**< Write-protection register. */
+    volatile uint32_t BKP0R;               /**< Backup register 0. */
+    volatile uint32_t BKP1R_to_BKP19R[19]; /**< Contiguous with BKP0R. */
 } RTC_TypeDef;
 
 extern RTC_TypeDef g_mock_rtc;
@@ -231,19 +227,18 @@ extern RTC_TypeDef g_mock_rtc;
 #define RTC (&g_mock_rtc)
 
 /* --- RTC_ISR bits ----------------------------------------------------- */
-#define RTC_ISR_INIT_Pos  (7U)
-#define RTC_ISR_INIT      (1UL << RTC_ISR_INIT_Pos)
+#define RTC_ISR_INIT_Pos (7U)
+#define RTC_ISR_INIT (1UL << RTC_ISR_INIT_Pos)
 #define RTC_ISR_INITF_Pos (6U)
-#define RTC_ISR_INITF     (1UL << RTC_ISR_INITF_Pos)
-#define RTC_ISR_RSF_Pos   (5U)
-#define RTC_ISR_RSF       (1UL << RTC_ISR_RSF_Pos)
+#define RTC_ISR_INITF (1UL << RTC_ISR_INITF_Pos)
+#define RTC_ISR_RSF_Pos (5U)
+#define RTC_ISR_RSF (1UL << RTC_ISR_RSF_Pos)
 #define RTC_ISR_INITS_Pos (4U)
-#define RTC_ISR_INITS     (1UL << RTC_ISR_INITS_Pos)
+#define RTC_ISR_INITS (1UL << RTC_ISR_INITS_Pos)
 
 /* --- RTC_CR bits ------------------------------------------------------ */
 #define RTC_CR_FMT_Pos (6U)
-#define RTC_CR_FMT     (1UL << RTC_CR_FMT_Pos)
-
+#define RTC_CR_FMT (1UL << RTC_CR_FMT_Pos)
 
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */

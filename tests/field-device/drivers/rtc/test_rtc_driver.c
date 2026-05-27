@@ -36,7 +36,7 @@ static uint32_t g_tc034_tick_calls;
 static uint32_t tc034_tick(void)
 {
     g_tc034_tick_calls++;
-    return UINT32_MAX;                  /* large value → triggers timeout too */
+    return UINT32_MAX; /* large value → triggers timeout too */
 }
 
 /*
@@ -85,7 +85,7 @@ static void arrange_init_warm_path_success(void)
 static void arrange_init_cold_path_success(void)
 {
     mock_clocks_ready();
-    mock_initf_and_rsf_set();           /* INITS stays clear → cold path */
+    mock_initf_and_rsf_set(); /* INITS stays clear → cold path */
     TEST_ASSERT_EQUAL(RTC_OK, rtc_init());
 }
 
@@ -96,16 +96,16 @@ static void arrange_init_cold_path_success(void)
 void setUp(void)
 {
     /* Zero every mock peripheral instance — fresh state per test. */
-    (void)memset(&g_mock_rtc, 0, sizeof(g_mock_rtc));
-    (void)memset(&g_mock_rcc, 0, sizeof(g_mock_rcc));
-    (void)memset(&g_mock_pwr, 0, sizeof(g_mock_pwr));
+    (void) memset(&g_mock_rtc, 0, sizeof(g_mock_rtc));
+    (void) memset(&g_mock_rcc, 0, sizeof(g_mock_rcc));
+    (void) memset(&g_mock_pwr, 0, sizeof(g_mock_pwr));
 
     /* Reset driver static state. */
     rtc_reset_for_test();
 
     /* Reset per-test helper counters. */
     g_tc034_tick_calls = 0U;
-    g_rsf_latch_calls  = 0U;
+    g_rsf_latch_calls = 0U;
 }
 
 void tearDown(void)
@@ -136,7 +136,7 @@ void test_TC_RTC_002_init_cold_start_configures_peripheral(void)
 {
     /* Arrange */
     mock_clocks_ready();
-    mock_initf_and_rsf_set();           /* INITS clear → cold path */
+    mock_initf_and_rsf_set(); /* INITS clear → cold path */
 
     /* Act */
     rtc_err_t err = rtc_init();
@@ -149,7 +149,7 @@ void test_TC_RTC_002_init_cold_start_configures_peripheral(void)
     TEST_ASSERT_EQUAL_HEX32((127UL << 16) | 255UL, g_mock_rtc.PRER);
     TEST_ASSERT_EQUAL_HEX32(0x00000000UL, g_mock_rtc.TR);
     TEST_ASSERT_EQUAL_HEX32(0x00002101UL, g_mock_rtc.DR);
-    TEST_ASSERT_EQUAL_HEX32(0xFFUL,       g_mock_rtc.WPR); /* re-locked */
+    TEST_ASSERT_EQUAL_HEX32(0xFFUL, g_mock_rtc.WPR); /* re-locked */
     TEST_ASSERT_FALSE(rtc_is_backup_valid());
 }
 
@@ -157,8 +157,8 @@ void test_TC_RTC_003_init_warm_start_leaves_calendar_untouched(void)
 {
     /* Arrange */
     mock_clocks_ready();
-    g_mock_rtc.ISR |= RTC_ISR_INITS;    /* warm path */
-    g_mock_rtc.TR = 0xDEADBEEFUL;       /* placeholder values that should survive */
+    g_mock_rtc.ISR |= RTC_ISR_INITS; /* warm path */
+    g_mock_rtc.TR = 0xDEADBEEFUL;    /* placeholder values that should survive */
     g_mock_rtc.DR = 0xCAFEBABEUL;
     g_mock_rtc.PRER = 0x12345678UL;
 
@@ -180,7 +180,7 @@ void test_TC_RTC_004_init_returns_init_timeout_when_initf_never_asserts(void)
 {
     /* Arrange: cold path, INITF NEVER set, RSF pre-set */
     mock_clocks_ready();
-    g_mock_rtc.ISR = RTC_ISR_RSF;       /* INITF and INITS clear */
+    g_mock_rtc.ISR = RTC_ISR_RSF; /* INITF and INITS clear */
     rtc_set_tick_source(fake_tick_past_deadline);
 
     /* Act */
@@ -195,7 +195,7 @@ void test_TC_RTC_005_init_returns_sync_timeout_when_rsf_never_asserts(void)
 {
     /* Arrange: cold path, INITF pre-set, RSF NEVER set */
     mock_clocks_ready();
-    g_mock_rtc.ISR = RTC_ISR_INITF;     /* RSF and INITS clear */
+    g_mock_rtc.ISR = RTC_ISR_INITF; /* RSF and INITS clear */
     rtc_set_tick_source(fake_tick_past_deadline);
 
     /* Act */
@@ -210,9 +210,9 @@ void test_TC_RTC_006_init_is_idempotent_on_second_call(void)
 {
     /* Arrange */
     arrange_init_cold_path_success();
-    uint32_t pwr_cr_after_first  = g_mock_pwr.CR;
-    uint32_t bdcr_after_first    = g_mock_rcc.BDCR;
-    uint32_t prer_after_first    = g_mock_rtc.PRER;
+    uint32_t pwr_cr_after_first = g_mock_pwr.CR;
+    uint32_t bdcr_after_first = g_mock_rcc.BDCR;
+    uint32_t prer_after_first = g_mock_rtc.PRER;
 
     /* Act — second call */
     rtc_err_t err = rtc_init();
@@ -220,8 +220,8 @@ void test_TC_RTC_006_init_is_idempotent_on_second_call(void)
     /* Assert: returns OK, no side effects */
     TEST_ASSERT_EQUAL(RTC_OK, err);
     TEST_ASSERT_EQUAL_HEX32(pwr_cr_after_first, g_mock_pwr.CR);
-    TEST_ASSERT_EQUAL_HEX32(bdcr_after_first,   g_mock_rcc.BDCR);
-    TEST_ASSERT_EQUAL_HEX32(prer_after_first,   g_mock_rtc.PRER);
+    TEST_ASSERT_EQUAL_HEX32(bdcr_after_first, g_mock_rcc.BDCR);
+    TEST_ASSERT_EQUAL_HEX32(prer_after_first, g_mock_rtc.PRER);
 }
 
 void test_TC_RTC_007_init_locks_wpr_at_exit(void)
@@ -277,19 +277,19 @@ void test_TC_RTC_009_get_time_decodes_typical_datetime(void)
 {
     arrange_init_warm_path_success();
     g_mock_rtc.ISR |= RTC_ISR_RSF;
-    g_mock_rtc.TR = 0x00162359UL;       /* 16:23:59 */
-    g_mock_rtc.DR = 0x00261231UL;       /* 2026-12-31 (WDU bits ignored on decode) */
+    g_mock_rtc.TR = 0x00162359UL; /* 16:23:59 */
+    g_mock_rtc.DR = 0x00261231UL; /* 2026-12-31 (WDU bits ignored on decode) */
     rtc_datetime_t dt = {0};
 
     rtc_err_t err = rtc_get_time(&dt);
 
     TEST_ASSERT_EQUAL(RTC_OK, err);
     TEST_ASSERT_EQUAL_UINT16(2026, dt.year);
-    TEST_ASSERT_EQUAL_UINT8(12,    dt.month);
-    TEST_ASSERT_EQUAL_UINT8(31,    dt.day);
-    TEST_ASSERT_EQUAL_UINT8(16,    dt.hour);
-    TEST_ASSERT_EQUAL_UINT8(23,    dt.minute);
-    TEST_ASSERT_EQUAL_UINT8(59,    dt.second);
+    TEST_ASSERT_EQUAL_UINT8(12, dt.month);
+    TEST_ASSERT_EQUAL_UINT8(31, dt.day);
+    TEST_ASSERT_EQUAL_UINT8(16, dt.hour);
+    TEST_ASSERT_EQUAL_UINT8(23, dt.minute);
+    TEST_ASSERT_EQUAL_UINT8(59, dt.second);
 }
 
 void test_TC_RTC_010_get_time_decodes_low_boundary(void)
@@ -297,37 +297,37 @@ void test_TC_RTC_010_get_time_decodes_low_boundary(void)
     arrange_init_warm_path_success();
     g_mock_rtc.ISR |= RTC_ISR_RSF;
     g_mock_rtc.TR = 0x00000000UL;
-    g_mock_rtc.DR = 0x00002101UL;       /* 2000-01-01 (RM reset value) */
+    g_mock_rtc.DR = 0x00002101UL; /* 2000-01-01 (RM reset value) */
     rtc_datetime_t dt = {0};
 
     rtc_err_t err = rtc_get_time(&dt);
 
     TEST_ASSERT_EQUAL(RTC_OK, err);
     TEST_ASSERT_EQUAL_UINT16(2000, dt.year);
-    TEST_ASSERT_EQUAL_UINT8(1,     dt.month);
-    TEST_ASSERT_EQUAL_UINT8(1,     dt.day);
-    TEST_ASSERT_EQUAL_UINT8(0,     dt.hour);
-    TEST_ASSERT_EQUAL_UINT8(0,     dt.minute);
-    TEST_ASSERT_EQUAL_UINT8(0,     dt.second);
+    TEST_ASSERT_EQUAL_UINT8(1, dt.month);
+    TEST_ASSERT_EQUAL_UINT8(1, dt.day);
+    TEST_ASSERT_EQUAL_UINT8(0, dt.hour);
+    TEST_ASSERT_EQUAL_UINT8(0, dt.minute);
+    TEST_ASSERT_EQUAL_UINT8(0, dt.second);
 }
 
 void test_TC_RTC_011_get_time_decodes_high_boundary(void)
 {
     arrange_init_warm_path_success();
     g_mock_rtc.ISR |= RTC_ISR_RSF;
-    g_mock_rtc.TR = 0x00235959UL;       /* 23:59:59 */
-    g_mock_rtc.DR = 0x00991231UL;       /* 2099-12-31 */
+    g_mock_rtc.TR = 0x00235959UL; /* 23:59:59 */
+    g_mock_rtc.DR = 0x00991231UL; /* 2099-12-31 */
     rtc_datetime_t dt = {0};
 
     rtc_err_t err = rtc_get_time(&dt);
 
     TEST_ASSERT_EQUAL(RTC_OK, err);
     TEST_ASSERT_EQUAL_UINT16(2099, dt.year);
-    TEST_ASSERT_EQUAL_UINT8(12,    dt.month);
-    TEST_ASSERT_EQUAL_UINT8(31,    dt.day);
-    TEST_ASSERT_EQUAL_UINT8(23,    dt.hour);
-    TEST_ASSERT_EQUAL_UINT8(59,    dt.minute);
-    TEST_ASSERT_EQUAL_UINT8(59,    dt.second);
+    TEST_ASSERT_EQUAL_UINT8(12, dt.month);
+    TEST_ASSERT_EQUAL_UINT8(31, dt.day);
+    TEST_ASSERT_EQUAL_UINT8(23, dt.hour);
+    TEST_ASSERT_EQUAL_UINT8(59, dt.minute);
+    TEST_ASSERT_EQUAL_UINT8(59, dt.second);
 }
 
 void test_TC_RTC_012_get_time_polls_until_rsf_latches(void)
@@ -343,7 +343,7 @@ void test_TC_RTC_012_get_time_polls_until_rsf_latches(void)
 
     TEST_ASSERT_EQUAL(RTC_OK, err);
     TEST_ASSERT_EQUAL_UINT16(2026, dt.year);
-    TEST_ASSERT_EQUAL_UINT8(59,    dt.second);
+    TEST_ASSERT_EQUAL_UINT8(59, dt.second);
     /* The custom tick was invoked (otherwise RSF never latches → hang). */
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2U, g_rsf_latch_calls);
 }
@@ -353,15 +353,15 @@ void test_TC_RTC_013_get_time_returns_sync_timeout_when_rsf_never_sets(void)
     arrange_init_warm_path_success();
     /* RSF stays clear. Inject past-deadline tick. */
     rtc_set_tick_source(fake_tick_past_deadline);
-    rtc_datetime_t dt = {.year = 9999, .month = 99, .day = 99,
-                         .hour = 99, .minute = 99, .second = 99};
+    rtc_datetime_t dt = {
+        .year = 9999, .month = 99, .day = 99, .hour = 99, .minute = 99, .second = 99};
 
     rtc_err_t err = rtc_get_time(&dt);
 
     TEST_ASSERT_EQUAL(RTC_ERR_SYNC_TIMEOUT, err);
     /* On error, the driver memset()s dt to zeros before the poll. */
     TEST_ASSERT_EQUAL_UINT16(0, dt.year);
-    TEST_ASSERT_EQUAL_UINT8(0,  dt.month);
+    TEST_ASSERT_EQUAL_UINT8(0, dt.month);
 }
 
 /* ===================================================================== */
@@ -384,16 +384,15 @@ void test_TC_RTC_015_set_time_writes_packed_tr_dr_and_relocks_wpr(void)
 {
     arrange_init_warm_path_success();
     g_mock_rtc.ISR |= RTC_ISR_INITF | RTC_ISR_RSF;
-    rtc_datetime_t dt = {.year = 2026, .month = 5, .day = 16,
-                         .hour = 10, .minute = 30, .second = 0};
+    rtc_datetime_t dt = {
+        .year = 2026, .month = 5, .day = 16, .hour = 10, .minute = 30, .second = 0};
 
     rtc_err_t err = rtc_set_time(&dt);
 
     TEST_ASSERT_EQUAL(RTC_OK, err);
     TEST_ASSERT_EQUAL_HEX32(0x00103000UL, g_mock_rtc.TR);
     /* DR: year offset 0x26, WDU=1 (bit 13), month 0x05, day 0x16 */
-    TEST_ASSERT_EQUAL_HEX32((0x26UL << 16) | (1UL << 13) | (0x05UL << 8) | 0x16UL,
-                            g_mock_rtc.DR);
+    TEST_ASSERT_EQUAL_HEX32((0x26UL << 16) | (1UL << 13) | (0x05UL << 8) | 0x16UL, g_mock_rtc.DR);
     TEST_ASSERT_EQUAL_HEX32(0xFFUL, g_mock_rtc.WPR);
 }
 
@@ -402,8 +401,8 @@ void test_TC_RTC_016_set_time_returns_init_timeout_when_initf_never_asserts(void
     arrange_init_warm_path_success();
     /* After init the mock ISR has INITS set but INITF clear. */
     rtc_set_tick_source(fake_tick_past_deadline);
-    rtc_datetime_t dt = {.year = 2026, .month = 5, .day = 16,
-                         .hour = 10, .minute = 30, .second = 0};
+    rtc_datetime_t dt = {
+        .year = 2026, .month = 5, .day = 16, .hour = 10, .minute = 30, .second = 0};
 
     rtc_err_t err = rtc_set_time(&dt);
 
@@ -419,8 +418,8 @@ void test_TC_RTC_017_set_time_returns_sync_timeout_when_rsf_never_asserts(void)
     /* INITF pre-set so we get past the first poll; RSF stays clear. */
     g_mock_rtc.ISR |= RTC_ISR_INITF;
     rtc_set_tick_source(fake_tick_past_deadline);
-    rtc_datetime_t dt = {.year = 2026, .month = 5, .day = 16,
-                         .hour = 10, .minute = 30, .second = 0};
+    rtc_datetime_t dt = {
+        .year = 2026, .month = 5, .day = 16, .hour = 10, .minute = 30, .second = 0};
 
     rtc_err_t err = rtc_set_time(&dt);
 
@@ -435,8 +434,8 @@ void test_TC_RTC_018_set_time_does_not_modify_backup_valid(void)
     TEST_ASSERT_FALSE(rtc_is_backup_valid());
 
     g_mock_rtc.ISR |= RTC_ISR_INITF | RTC_ISR_RSF;
-    rtc_datetime_t dt = {.year = 2026, .month = 5, .day = 16,
-                         .hour = 10, .minute = 30, .second = 0};
+    rtc_datetime_t dt = {
+        .year = 2026, .month = 5, .day = 16, .hour = 10, .minute = 30, .second = 0};
 
     TEST_ASSERT_EQUAL(RTC_OK, rtc_set_time(&dt));
 
@@ -499,7 +498,7 @@ void test_TC_RTC_023_read_backup_rejects_null_out(void)
 void test_TC_RTC_024_read_backup_at_max_valid_index_f469(void)
 {
     arrange_init_warm_path_success();
-    g_mock_rtc.BKP1R_to_BKP19R[18] = 0xDEADBEEFUL;     /* BKP19R */
+    g_mock_rtc.BKP1R_to_BKP19R[18] = 0xDEADBEEFUL; /* BKP19R */
 
     uint32_t v = 0;
     rtc_err_t err = rtc_read_backup(RTC_BACKUP_MAX_IDX_F469, &v);
@@ -516,7 +515,7 @@ void test_TC_RTC_025_read_backup_at_first_invalid_index_f469(void)
     rtc_err_t err = rtc_read_backup(RTC_BACKUP_MAX_IDX_F469 + 1U, &v);
 
     TEST_ASSERT_EQUAL(RTC_ERR_BACKUP_BOUNDS, err);
-    TEST_ASSERT_EQUAL_HEX32(0UL, v);     /* untouched */
+    TEST_ASSERT_EQUAL_HEX32(0UL, v); /* untouched */
 }
 
 void test_TC_RTC_026_read_backup_with_obvious_overflow_index(void)
@@ -574,8 +573,8 @@ void test_TC_RTC_031_init_selects_lse_and_enables_rtc_clock(void)
     arrange_init_warm_path_success();
 
     TEST_ASSERT_BITS_HIGH(RCC_BDCR_RTCSEL_0, g_mock_rcc.BDCR);
-    TEST_ASSERT_BITS_LOW (RCC_BDCR_RTCSEL_1, g_mock_rcc.BDCR);
-    TEST_ASSERT_BITS_HIGH(RCC_BDCR_RTCEN,    g_mock_rcc.BDCR);
+    TEST_ASSERT_BITS_LOW(RCC_BDCR_RTCSEL_1, g_mock_rcc.BDCR);
+    TEST_ASSERT_BITS_HIGH(RCC_BDCR_RTCEN, g_mock_rcc.BDCR);
 }
 
 /* ===================================================================== */
@@ -589,7 +588,7 @@ void test_TC_RTC_032_bcd_round_trip_covers_all_valid_values(void)
     {
         for (uint8_t units = 0U; units < 10U; units++)
         {
-            uint8_t bin = (uint8_t)(tens * 10U + units);
+            uint8_t bin = (uint8_t) (tens * 10U + units);
             uint8_t bcd = rtc_bin_to_bcd(bin);
             uint8_t round_trip = rtc_bcd_to_bin(bcd);
             TEST_ASSERT_EQUAL_UINT8(bin, round_trip);

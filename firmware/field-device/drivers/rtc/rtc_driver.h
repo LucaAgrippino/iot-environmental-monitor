@@ -26,10 +26,10 @@
 /* --------------------------------------------------------------------- */
 
 /** Maximum backup-register index (inclusive) on STM32F469: BKP0R..BKP19R. */
-#define RTC_BACKUP_MAX_IDX_F469  (19U)
+#define RTC_BACKUP_MAX_IDX_F469 (19U)
 
 /** Maximum backup-register index (inclusive) on STM32L475: BKP0R..BKP31R. */
-#define RTC_BACKUP_MAX_IDX_L475  (31U)
+#define RTC_BACKUP_MAX_IDX_L475 (31U)
 
 /* --------------------------------------------------------------------- */
 /* Calendar date and time                                                 */
@@ -51,11 +51,11 @@
 typedef struct
 {
     uint16_t year;
-    uint8_t  month;
-    uint8_t  day;
-    uint8_t  hour;
-    uint8_t  minute;
-    uint8_t  second;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
 } rtc_datetime_t;
 
 /* --------------------------------------------------------------------- */
@@ -67,12 +67,12 @@ typedef struct
  */
 typedef enum
 {
-    RTC_OK                 = 0, /**< Operation succeeded. */
-    RTC_ERR_INIT_TIMEOUT   = 1, /**< INITF flag did not assert within timeout. */
-    RTC_ERR_SYNC_TIMEOUT   = 2, /**< RSF flag did not assert within timeout. */
-    RTC_ERR_NULL_ARG       = 3, /**< Null pointer passed to a pointer parameter. */
-    RTC_ERR_BACKUP_BOUNDS  = 4, /**< Backup-register index out of range for this board. */
-    RTC_ERR_LSE_NOT_READY  = 5  /**< LSE not running, or RTCSEL locked to a non-LSE source. */
+    RTC_OK = 0,                /**< Operation succeeded. */
+    RTC_ERR_INIT_TIMEOUT = 1,  /**< INITF flag did not assert within timeout. */
+    RTC_ERR_SYNC_TIMEOUT = 2,  /**< RSF flag did not assert within timeout. */
+    RTC_ERR_NULL_ARG = 3,      /**< Null pointer passed to a pointer parameter. */
+    RTC_ERR_BACKUP_BOUNDS = 4, /**< Backup-register index out of range for this board. */
+    RTC_ERR_LSE_NOT_READY = 5  /**< LSE not running, or RTCSEL locked to a non-LSE source. */
 } rtc_err_t;
 
 /* --------------------------------------------------------------------- */
@@ -237,13 +237,13 @@ typedef struct
     rtc_err_t (*init)(void);
     rtc_err_t (*get_time)(rtc_datetime_t *dt);
     rtc_err_t (*set_time)(const rtc_datetime_t *dt);
-    bool      (*is_backup_valid)(void);
+    bool (*is_backup_valid)(void);
     rtc_err_t (*read_backup)(uint8_t idx, uint32_t *out);
     rtc_err_t (*write_backup)(uint8_t idx, uint32_t value);
 } irtc_t;
 
 /** Singleton pointer to the RtcDriver vtable instance. */
-extern const irtc_t * const rtc_driver;
+extern const irtc_t *const rtc_driver;
 
 /* --------------------------------------------------------------------- */
 /* Test-only hooks (#ifdef TEST)                                          */
