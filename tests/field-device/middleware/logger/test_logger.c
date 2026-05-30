@@ -436,7 +436,7 @@ void test_TC_LOG_021_error_line_starts_with_red_ansi(void)
     init_logger_at_debug();
     logger_log(LOG_LEVEL_ERROR, "M", "boom");
     /* Expect leading red, then [ERROR], then reset, then continue. */
-    TEST_ASSERT_EQUAL_STRING_LEN("\033[31m[ERROR]\033[0m",
+    TEST_ASSERT_EQUAL_STRING_LEN("\033[91m[ERROR]\033[0m",
                                  (const char *)g_stub_uart_buf, 16);
 }
 
@@ -445,17 +445,17 @@ void test_TC_LOG_022_other_levels_use_correct_ansi(void)
     init_logger_at_debug();
 
     logger_log(LOG_LEVEL_WARN, "M", "x");
-    TEST_ASSERT_EQUAL_STRING_LEN("\033[33m[ WARN]\033[0m",
+    TEST_ASSERT_EQUAL_STRING_LEN("\033[93m[ WARN]\033[0m",
                                  (const char *)g_stub_uart_buf, 16);
 
     (void)memset(g_stub_uart_buf, 0, sizeof(g_stub_uart_buf));
     logger_log(LOG_LEVEL_INFO, "M", "x");
-    TEST_ASSERT_EQUAL_STRING_LEN("\033[36m[ INFO]\033[0m",
+    TEST_ASSERT_EQUAL_STRING_LEN("\033[96m[ INFO]\033[0m",
                                  (const char *)g_stub_uart_buf, 16);
 
     (void)memset(g_stub_uart_buf, 0, sizeof(g_stub_uart_buf));
     logger_log(LOG_LEVEL_DEBUG, "M", "x");
-    TEST_ASSERT_EQUAL_STRING_LEN("\033[2m[DEBUG]\033[0m",
+    TEST_ASSERT_EQUAL_STRING_LEN("\033[97m[DEBUG]\033[0m",
                                  (const char *)g_stub_uart_buf, 15);
 }
 

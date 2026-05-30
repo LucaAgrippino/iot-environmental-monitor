@@ -15,30 +15,32 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "stm32f469xx.h"   /* for __disable_irq() */
+#include "stm32f469xx.h" /* for __disable_irq() */
 
 /* --- Idle-task static memory ------------------------------------------- */
 
 static StaticTask_t s_idle_tcb;
-static StackType_t  s_idle_stack[configMINIMAL_STACK_SIZE];
+static StackType_t s_idle_stack[configMINIMAL_STACK_SIZE];
 
 void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
-                                   StackType_t  **ppxIdleTaskStackBuffer,
-                                   uint32_t      *pulIdleTaskStackSize)
+                                   StackType_t **ppxIdleTaskStackBuffer,
+                                   uint32_t *pulIdleTaskStackSize)
 {
-    *ppxIdleTaskTCBBuffer   = &s_idle_tcb;
+    *ppxIdleTaskTCBBuffer = &s_idle_tcb;
     *ppxIdleTaskStackBuffer = s_idle_stack;
-    *pulIdleTaskStackSize   = configMINIMAL_STACK_SIZE;
+    *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
 }
 
 /* --- Stack overflow trap ----------------------------------------------- */
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
-    (void)xTask;
-    (void)pcTaskName;
+    (void) xTask;
+    (void) pcTaskName;
     /* A stack overflow is unrecoverable. Disable interrupts and spin so a
      * debugger lands here with pcTaskName visible in the inspector. */
     __disable_irq();
-    for (;;) { }
+    for (;;)
+    {
+    }
 }
