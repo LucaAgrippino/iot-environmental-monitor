@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h>   /* snprintf — used inside the LOG_* macros */
+#include <stdio.h> /* snprintf — used inside the LOG_* macros */
 
 /* ====================================================================== */
 /* Compile-time configuration                                             */
@@ -12,42 +12,44 @@
 /* Numeric level constants — preprocessor-visible so they can be used in
  * #if expressions for compile-time level filtering. Lower value = higher
  * severity. */
-#define LOG_LVL_ERROR  (0)
-#define LOG_LVL_WARN   (1)
-#define LOG_LVL_INFO   (2)
-#define LOG_LVL_DEBUG  (3)
+#define LOG_LVL_ERROR (0)
+#define LOG_LVL_WARN (1)
+#define LOG_LVL_INFO (2)
+#define LOG_LVL_DEBUG (3)
 
 /* Compile-time minimum severity. Levels less severe than this are stripped
  * at compile time — no function call, no argument evaluation, no local
  * buffer. Override per build with -DLOG_LEVEL_MIN=LOG_LVL_xxx. */
 #ifndef LOG_LEVEL_MIN
-#define LOG_LEVEL_MIN  LOG_LVL_DEBUG
+#define LOG_LEVEL_MIN LOG_LVL_INFO
 #endif
 
 /* ANSI colour codes around the level tag. Set to 0 for plain text. */
 #ifndef LOGGER_USE_ANSI_COLORS
-#define LOGGER_USE_ANSI_COLORS  (1)
+#define LOGGER_USE_ANSI_COLORS (1)
 #endif
 
 /* Caller-side scratch buffer for printf substitution in the macros. The
  * substituted message is copied (truncated) into the queue entry. */
-#define LOGGER_MESSAGE_MAX   (64U)
-#define LOGGER_MODULE_WIDTH  (16U)
+#define LOGGER_MESSAGE_MAX (64U)
+#define LOGGER_MODULE_WIDTH (16U)
 
 /* ====================================================================== */
 /* Types                                                                  */
 /* ====================================================================== */
 
-typedef enum {
+typedef enum
+{
     LOG_LEVEL_ERROR = LOG_LVL_ERROR,
-    LOG_LEVEL_WARN  = LOG_LVL_WARN,
-    LOG_LEVEL_INFO  = LOG_LVL_INFO,
+    LOG_LEVEL_WARN = LOG_LVL_WARN,
+    LOG_LEVEL_INFO = LOG_LVL_INFO,
     LOG_LEVEL_DEBUG = LOG_LVL_DEBUG
 } log_level_t;
 
-typedef enum {
-    LOGGER_OK              = 0,
-    LOGGER_ERR_NOT_INIT    = 1,
+typedef enum
+{
+    LOGGER_OK = 0,
+    LOGGER_ERR_NOT_INIT = 1,
     LOGGER_ERR_INVALID_ARG = 2
 } logger_err_t;
 
@@ -75,43 +77,51 @@ uint32_t logger_get_dropped_count(void);
 /* ====================================================================== */
 
 #if (LOG_LVL_ERROR <= LOG_LEVEL_MIN)
-#define LOG_ERROR(mod, fmt, ...) do {                                       \
-    char _logger_msg[LOGGER_MESSAGE_MAX];                                   \
-    (void)snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__); \
-    logger_log(LOG_LEVEL_ERROR, (mod), _logger_msg);                        \
-} while (0)
+#define LOG_ERROR(mod, fmt, ...)                                                                   \
+    do                                                                                             \
+    {                                                                                              \
+        char _logger_msg[LOGGER_MESSAGE_MAX];                                                      \
+        (void) snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__);                   \
+        logger_log(LOG_LEVEL_ERROR, (mod), _logger_msg);                                           \
+    } while (0)
 #else
-#define LOG_ERROR(mod, fmt, ...)  ((void)0)
+#define LOG_ERROR(mod, fmt, ...) ((void) 0)
 #endif
 
 #if (LOG_LVL_WARN <= LOG_LEVEL_MIN)
-#define LOG_WARN(mod, fmt, ...) do {                                        \
-    char _logger_msg[LOGGER_MESSAGE_MAX];                                   \
-    (void)snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__); \
-    logger_log(LOG_LEVEL_WARN, (mod), _logger_msg);                         \
-} while (0)
+#define LOG_WARN(mod, fmt, ...)                                                                    \
+    do                                                                                             \
+    {                                                                                              \
+        char _logger_msg[LOGGER_MESSAGE_MAX];                                                      \
+        (void) snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__);                   \
+        logger_log(LOG_LEVEL_WARN, (mod), _logger_msg);                                            \
+    } while (0)
 #else
-#define LOG_WARN(mod, fmt, ...)   ((void)0)
+#define LOG_WARN(mod, fmt, ...) ((void) 0)
 #endif
 
 #if (LOG_LVL_INFO <= LOG_LEVEL_MIN)
-#define LOG_INFO(mod, fmt, ...) do {                                        \
-    char _logger_msg[LOGGER_MESSAGE_MAX];                                   \
-    (void)snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__); \
-    logger_log(LOG_LEVEL_INFO, (mod), _logger_msg);                         \
-} while (0)
+#define LOG_INFO(mod, fmt, ...)                                                                    \
+    do                                                                                             \
+    {                                                                                              \
+        char _logger_msg[LOGGER_MESSAGE_MAX];                                                      \
+        (void) snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__);                   \
+        logger_log(LOG_LEVEL_INFO, (mod), _logger_msg);                                            \
+    } while (0)
 #else
-#define LOG_INFO(mod, fmt, ...)   ((void)0)
+#define LOG_INFO(mod, fmt, ...) ((void) 0)
 #endif
 
 #if (LOG_LVL_DEBUG <= LOG_LEVEL_MIN)
-#define LOG_DEBUG(mod, fmt, ...) do {                                       \
-    char _logger_msg[LOGGER_MESSAGE_MAX];                                   \
-    (void)snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__); \
-    logger_log(LOG_LEVEL_DEBUG, (mod), _logger_msg);                        \
-} while (0)
+#define LOG_DEBUG(mod, fmt, ...)                                                                   \
+    do                                                                                             \
+    {                                                                                              \
+        char _logger_msg[LOGGER_MESSAGE_MAX];                                                      \
+        (void) snprintf(_logger_msg, sizeof(_logger_msg), (fmt), ##__VA_ARGS__);                   \
+        logger_log(LOG_LEVEL_DEBUG, (mod), _logger_msg);                                           \
+    } while (0)
 #else
-#define LOG_DEBUG(mod, fmt, ...)  ((void)0)
+#define LOG_DEBUG(mod, fmt, ...) ((void) 0)
 #endif
 
 /* ====================================================================== */
@@ -119,15 +129,15 @@ uint32_t logger_get_dropped_count(void);
 /* ====================================================================== */
 
 #if (LOG_LVL_ERROR <= LOG_LEVEL_MIN)
-#define LOG_ERROR_ISR(mod, msg)  logger_log_from_isr(LOG_LEVEL_ERROR, (mod), (msg))
+#define LOG_ERROR_ISR(mod, msg) logger_log_from_isr(LOG_LEVEL_ERROR, (mod), (msg))
 #else
-#define LOG_ERROR_ISR(mod, msg)  ((void)0)
+#define LOG_ERROR_ISR(mod, msg) ((void) 0)
 #endif
 
 #if (LOG_LVL_WARN <= LOG_LEVEL_MIN)
-#define LOG_WARN_ISR(mod, msg)   logger_log_from_isr(LOG_LEVEL_WARN, (mod), (msg))
+#define LOG_WARN_ISR(mod, msg) logger_log_from_isr(LOG_LEVEL_WARN, (mod), (msg))
 #else
-#define LOG_WARN_ISR(mod, msg)   ((void)0)
+#define LOG_WARN_ISR(mod, msg) ((void) 0)
 #endif
 
 /* ====================================================================== */
@@ -141,15 +151,18 @@ uint32_t logger_get_dropped_count(void);
  *        what producers put on the queue. Identical to the private
  *        definition in logger.c — keep in sync.
  */
-typedef struct {
+typedef struct
+{
     log_level_t level;
-    bool        use_uptime;
-    union {
-        struct {
+    bool use_uptime;
+    union
+    {
+        struct
+        {
             uint8_t hour;
             uint8_t minute;
             uint8_t second;
-        }        wallclock;
+        } wallclock;
         uint32_t uptime_ms;
     } ts;
     char module[LOGGER_MODULE_WIDTH + 1U];
