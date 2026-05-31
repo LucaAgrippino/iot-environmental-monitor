@@ -27,6 +27,8 @@ typedef enum
 {
     LED_ERR_OK         = 0,
     LED_ERR_INVALID_ID = 1,
+    LED_ERR_NOT_INIT   = 2,
+    LED_ERR_NULL_ARG   = 3,
 } led_err_t;
 
 led_err_t led_on(led_id_t id);
