@@ -1,0 +1,3 @@
+[submodule "firmware/external-library/freertos-kernel"]
+	path = vendor/freertos-kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
