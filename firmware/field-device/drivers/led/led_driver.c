@@ -1,91 +1,51 @@
 /**
  * @file led_driver.c
- * @brief LedDriver implementation for STM32F469 (Field Device) and
- *        STM32L475 (Gateway).
+ * @brief LedDriver implementation.
  *
  * GPIO access is delegated entirely to GpioDriver; no CMSIS registers are
- * touched here. Active-high polarity is hardcoded in the compile-time pin
- * table (P1: polarity knowledge stays in the driver).
+ * touched here. Active-level polarity is read from the caller-supplied pin
+ * table at runtime — the driver contains no board-conditional #if directives.
  *
  * Layout:
- *   §1  Includes and configuration
- *   §2  Private types
- *   §3  Pin table (compile-time constant)
- *   §4  Module state
- *   §5  Internal helpers
- *   §6  Public API
- *   §7  Singleton vtable
- *   §8  Test-only hooks
+ *   §1  Includes
+ *   §2  Module state
+ *   §3  Internal helpers
+ *   §4  Public API
+ *   §5  Singleton vtable
+ *   §6  Test-only hooks
  */
 
 #include "led_driver.h"
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "gpio/gpio_driver.h"
 
 /* ===================================================================== */
-/* §1. Configuration                                                     */
-/* ===================================================================== */
-
-#if !defined(STM32F469xx) && !defined(STM32L475xx)
-#error "LedDriver: define STM32F469xx (Field Device) or STM32L475xx (Gateway)."
-#endif
-
-/* ===================================================================== */
-/* §2. Private types                                                     */
-/* ===================================================================== */
-
-/** Maps a logical LED identifier to the GpioDriver pin descriptor. */
-typedef struct
-{
-    gpio_port_t port; /**< GPIO port. */
-    uint8_t pin;      /**< Pin number, 0..15. */
-    bool fitted;      /**< False when this LED is absent on this board variant. */
-} led_pin_t;
-
-/* ===================================================================== */
-/* §3. Pin table (compile-time constant)                                 */
-/* ===================================================================== */
-
-/*
- * Active-high on both discovery boards (UM1932 §6.5, UM2153 §6.9).
- * A false 'fitted' entry marks an LED absent on this board variant;
- * public functions return LED_ERR_INVALID_ID for those entries.
- */
-#if defined(STM32F469xx)
-static const led_pin_t s_led_pins[LED_COUNT] = {
-    [LED_GREEN] = {.port = GPIO_PORT_G, .pin = 6U, .fitted = true},
-    [LED_RED] = {.port = GPIO_PORT_D, .pin = 5U, .fitted = true},
-};
-#else /* STM32L475xx */
-static const led_pin_t s_led_pins[LED_COUNT] = {
-    [LED_GREEN] = {.port = GPIO_PORT_B, .pin = 14U, .fitted = true},
-    [LED_RED] = {.port = GPIO_PORT_A, .pin = 5U, .fitted = false},
-};
-#endif
-
-/* ===================================================================== */
-/* §4. Module state                                                      */
+/* §2. Module state                                                      */
 /* ===================================================================== */
 
 typedef struct
 {
-    bool initialised; /**< Set true by led_init(); guards against duplicate init. */
+    const led_pin_t *pins;        /**< Caller-supplied pin table (pointer only). */
+    uint8_t count;                /**< Validated == LED_COUNT. */
+    led_state_t state[LED_COUNT]; /**< Current logical state per LED. */
+    bool initialised;
 } led_driver_t;
 
 static led_driver_t s_led;
 
 /* ===================================================================== */
-/* §5. Internal helpers                                                  */
+/* §3. Internal helpers                                                  */
 /* ===================================================================== */
 
 /**
  * @brief Validate an led_id_t argument.
  *
- * Returns LED_ERR_INVALID_ID if id is out of range or not fitted on the
- * active board variant.
+ * Returns LED_ERR_INVALID_ID if id is out of range or not fitted.
+ * Callers must check initialised before calling this.
  */
 LED_TEST_VISIBLE led_err_t validate_id(led_id_t id)
 {
@@ -93,7 +53,7 @@ LED_TEST_VISIBLE led_err_t validate_id(led_id_t id)
     {
         return LED_ERR_INVALID_ID;
     }
-    if (!s_led_pins[(uint8_t) id].fitted)
+    if (!s_led.pins[(uint8_t) id].fitted)
     {
         return LED_ERR_INVALID_ID;
     }
@@ -101,34 +61,48 @@ LED_TEST_VISIBLE led_err_t validate_id(led_id_t id)
 }
 
 /* ===================================================================== */
-/* §6. Public API                                                        */
+/* §4. Public API                                                        */
 /* ===================================================================== */
 
-led_err_t led_init(void)
+led_err_t led_init(const led_pin_t *pins, uint8_t count)
 {
-    if (s_led.initialised)
+    uint8_t i;
+
+    if (pins == NULL)
     {
-        return LED_ERR_OK;
+        return LED_ERR_NULL_ARG;
+    }
+    if (count != (uint8_t) LED_COUNT)
+    {
+        return LED_ERR_INVALID_ID;
     }
 
-    for (uint8_t i = 0U; i < (uint8_t) LED_COUNT; i++)
+    s_led.pins = pins;
+    s_led.count = count;
+
+    for (i = 0U; i < (uint8_t) LED_COUNT; i++)
     {
-        if (!s_led_pins[i].fitted)
+        gpio_level_t off_level;
+        gpio_pin_config_t cfg;
+
+        if (!pins[i].fitted)
         {
             continue;
         }
 
-        gpio_pin_config_t cfg = {
-            .port = s_led_pins[i].port,
-            .pin = s_led_pins[i].pin,
-            .mode = GPIO_MODE_OUTPUT,
-            .otype = GPIO_OTYPE_PUSH_PULL,
-            .speed = GPIO_SPEED_MEDIUM,
-            .pull = GPIO_PULL_NONE,
-            .alternate = 0U,
-        };
+        cfg.port = (gpio_port_t) pins[i].port;
+        cfg.pin = pins[i].pin;
+        cfg.mode = GPIO_MODE_OUTPUT;
+        cfg.otype = GPIO_OTYPE_OPEN_DRAIN;
+        cfg.speed = GPIO_SPEED_LOW;
+        cfg.pull = GPIO_PULL_NONE;
+        cfg.alternate = 0U;
         (void) gpio_configure_pin(&cfg);
-        (void) gpio_write_pin(s_led_pins[i].port, s_led_pins[i].pin, GPIO_LEVEL_HIGH);
+
+        off_level = pins[i].active_high ? GPIO_LEVEL_LOW : GPIO_LEVEL_HIGH;
+        (void) gpio_write_pin((gpio_port_t) pins[i].port, pins[i].pin, off_level);
+
+        s_led.state[i] = LED_STATE_OFF;
     }
 
     s_led.initialised = true;
@@ -137,59 +111,131 @@ led_err_t led_init(void)
 
 led_err_t led_on(led_id_t id)
 {
-    led_err_t err = validate_id(id);
+    gpio_level_t level;
+    led_err_t err;
+
+    if (!s_led.initialised)
+    {
+        return LED_ERR_NOT_INIT;
+    }
+    err = validate_id(id);
     if (err != LED_ERR_OK)
     {
         return err;
     }
-    (void) gpio_write_pin(s_led_pins[(uint8_t) id].port, s_led_pins[(uint8_t) id].pin,
-                          GPIO_LEVEL_LOW);
+
+    level = s_led.pins[(uint8_t) id].active_high ? GPIO_LEVEL_HIGH : GPIO_LEVEL_LOW;
+    (void) gpio_write_pin((gpio_port_t) s_led.pins[(uint8_t) id].port, s_led.pins[(uint8_t) id].pin,
+                          level);
+    s_led.state[(uint8_t) id] = LED_STATE_ON;
     return LED_ERR_OK;
 }
 
 led_err_t led_off(led_id_t id)
 {
-    led_err_t err = validate_id(id);
+    gpio_level_t level;
+    led_err_t err;
+
+    if (!s_led.initialised)
+    {
+        return LED_ERR_NOT_INIT;
+    }
+    err = validate_id(id);
     if (err != LED_ERR_OK)
     {
         return err;
     }
-    (void) gpio_write_pin(s_led_pins[(uint8_t) id].port, s_led_pins[(uint8_t) id].pin,
-                          GPIO_LEVEL_HIGH);
+
+    level = s_led.pins[(uint8_t) id].active_high ? GPIO_LEVEL_LOW : GPIO_LEVEL_HIGH;
+    (void) gpio_write_pin((gpio_port_t) s_led.pins[(uint8_t) id].port, s_led.pins[(uint8_t) id].pin,
+                          level);
+    s_led.state[(uint8_t) id] = LED_STATE_OFF;
     return LED_ERR_OK;
 }
 
 led_err_t led_toggle(led_id_t id)
 {
-    led_err_t err = validate_id(id);
+    led_state_t new_state;
+    led_err_t err;
+    gpio_level_t level;
+
+    if (!s_led.initialised)
+    {
+        return LED_ERR_NOT_INIT;
+    }
+    err = validate_id(id);
     if (err != LED_ERR_OK)
     {
         return err;
     }
-    (void) gpio_toggle_pin(s_led_pins[(uint8_t) id].port, s_led_pins[(uint8_t) id].pin);
+
+    new_state = (s_led.state[(uint8_t) id] == LED_STATE_OFF) ? LED_STATE_ON : LED_STATE_OFF;
+
+    if (new_state == LED_STATE_ON)
+    {
+        level = s_led.pins[(uint8_t) id].active_high ? GPIO_LEVEL_HIGH : GPIO_LEVEL_LOW;
+    }
+    else
+    {
+        level = s_led.pins[(uint8_t) id].active_high ? GPIO_LEVEL_LOW : GPIO_LEVEL_HIGH;
+    }
+
+    (void) gpio_write_pin((gpio_port_t) s_led.pins[(uint8_t) id].port, s_led.pins[(uint8_t) id].pin,
+                          level);
+    s_led.state[(uint8_t) id] = new_state;
+    return LED_ERR_OK;
+}
+
+led_err_t led_get_state(led_id_t id, led_state_t *state)
+{
+    led_err_t err;
+
+    if (!s_led.initialised)
+    {
+        return LED_ERR_NOT_INIT;
+    }
+    if (state == NULL)
+    {
+        return LED_ERR_NULL_ARG;
+    }
+    err = validate_id(id);
+    if (err != LED_ERR_OK)
+    {
+        return err;
+    }
+
+    *state = s_led.state[(uint8_t) id];
     return LED_ERR_OK;
 }
 
 /* ===================================================================== */
-/* §7. Singleton vtable                                                  */
+/* §5. Singleton vtable                                                  */
 /* ===================================================================== */
 
 static const iled_t s_led_vtable = {
-    .init = led_init,
     .on = led_on,
     .off = led_off,
     .toggle = led_toggle,
+    .get_state = led_get_state,
 };
 
 const iled_t *const led_driver = &s_led_vtable;
 
 /* ===================================================================== */
-/* §8. Test-only hooks                                                   */
+/* §6. Test-only hooks                                                   */
 /* ===================================================================== */
 
 #ifdef TEST
 void led_reset_for_test(void)
 {
+    uint8_t i;
+
+    s_led.pins = NULL;
+    s_led.count = 0U;
     s_led.initialised = false;
+    for (i = 0U; i < (uint8_t) LED_COUNT; i++)
+    {
+        s_led.state[i] = LED_STATE_OFF;
+    }
 }
 #endif
