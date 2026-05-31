@@ -32,6 +32,7 @@
   :test_logger:
     - STM32F469xx
     - LOG_LEVEL_MIN=LOG_LVL_DEBUG
+    - TEST
   :test_led_driver_fd:
     - STM32F469xx
     - TEST
