@@ -18,3 +18,9 @@ missingInclude
 // land (Logger, ModbusSlave, etc.). Cppcheck has no cross-module visibility from the
 // CI invocation. Revisit at Phase 5 integration.
 unusedFunction
+
+// unusedStructMember: vtable function pointers in iXxx_t structs and
+// pin descriptor fields in led_pin_t are consumed by downstream
+// components not yet compiled in this CI invocation.
+// Same justification as unusedFunction above.
+unusedStructMember
