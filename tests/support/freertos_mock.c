@@ -39,6 +39,13 @@ uint32_t    g_mock_xQueueReceive_call_count;
 uint8_t     g_mock_xQueueReceive_next_item[256];
 size_t      g_mock_xQueueReceive_next_item_size;
 
+SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
+BaseType_t        g_mock_xSemaphoreTake_return;
+uint32_t          g_mock_xSemaphoreTake_call_count;
+BaseType_t        g_mock_xSemaphoreGive_return;
+uint32_t          g_mock_xSemaphoreGive_call_count;
+UBaseType_t       g_mock_uxTaskGetStackHighWaterMark_return;
+
 /* A canned non-NULL handle used as the default return value of the
  * static-create functions. Tests don't dereference it. */
 static int g_dummy_handle_sentinel;
@@ -77,6 +84,13 @@ void mock_freertos_reset(void)
     (void)memset(g_mock_xQueueReceive_next_item, 0,
                  sizeof(g_mock_xQueueReceive_next_item));
     g_mock_xQueueReceive_next_item_size = 0U;
+
+    g_mock_xSemaphoreCreateMutexStatic_return = DUMMY_HANDLE;
+    g_mock_xSemaphoreTake_return              = pdTRUE;
+    g_mock_xSemaphoreTake_call_count          = 0U;
+    g_mock_xSemaphoreGive_return              = pdTRUE;
+    g_mock_xSemaphoreGive_call_count          = 0U;
+    g_mock_uxTaskGetStackHighWaterMark_return  = 512U;
 }
 
 /* --------------------------------------------------------------------- */
@@ -166,4 +180,31 @@ TickType_t xTaskGetTickCount(void)
 TickType_t xTaskGetTickCountFromISR(void)
 {
     return g_mock_tick_count_from_isr;
+}
+
+SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *buf)
+{
+    (void)buf;
+    return g_mock_xSemaphoreCreateMutexStatic_return;
+}
+
+BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, TickType_t ticks)
+{
+    (void)sem;
+    (void)ticks;
+    g_mock_xSemaphoreTake_call_count++;
+    return g_mock_xSemaphoreTake_return;
+}
+
+BaseType_t xSemaphoreGive(SemaphoreHandle_t sem)
+{
+    (void)sem;
+    g_mock_xSemaphoreGive_call_count++;
+    return g_mock_xSemaphoreGive_return;
+}
+
+UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t task)
+{
+    (void)task;
+    return g_mock_uxTaskGetStackHighWaterMark_return;
 }

@@ -42,3 +42,7 @@ firmware/**/*.launch
 # Python
 __pycache__/
 *.pyc
+
+# Private dev-tools — bug answer keys and interview tests must not be published
+docs/dev-tools/bug-log.md
+docs/dev-tools/interview-tests/
