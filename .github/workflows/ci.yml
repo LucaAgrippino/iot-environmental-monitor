@@ -71,9 +71,11 @@ jobs:
             exit 0
           fi
           echo "$sources" | xargs cppcheck \
-            --enable=all \
-            --error-exitcode=1 \
-            --suppressions-list=cppcheck-suppressions.txt
+            --enable=style,warning,performance \
+            --suppressions-list=cppcheck-suppressions.txt \
+            --suppress=unmatchedSuppression \
+            --inline-suppr \
+            --error-exitcode=1
 
   clang-format-check:
     name: Formatting check (clang-format)

@@ -29,6 +29,20 @@
   :test_preprocess:
     - *common_defines
     - TEST
+  :test_logger:
+    - STM32F469xx
+    - LOG_LEVEL_MIN=LOG_LVL_DEBUG
+    - TEST
+  :test_led_driver_fd:
+    - STM32F469xx
+    - TEST
+  :test_led_driver_gw:
+    - STM32L475xx
+    - TEST
+  :test_health_monitor:
+    - STM32F469xx
+    - TEST
+    - UNIT_TEST
 
 :cmock:
   :mock_prefix: mock_

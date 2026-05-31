@@ -1,10 +1,10 @@
 # LedDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/led-driver.md`
-**Version:** 0.1 (draft — pending Luca review)
+**Version:** 0.2
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
-**Status:** Draft
+**Status:** Approved for implementation
 **Date:** May 2026
 
 **HLD anchor:** LedDriver in `components.md` (FD + GW driver layer)
@@ -20,21 +20,38 @@
 | USES (downward) | `GpioDriver` | `GpioDriver` |
 | Root requirement | REQ-LD-250 | REQ-LD-250 |
 
-**REQ-LD-200 status:** flagged as not yet present in `SRS.md` (tracked as F-07 SRS fix per `components.md`). The requirement exists in the component specification; the SRS gap must be resolved before the LLD gate review.
+**Consumer:** `HealthMonitor` (Application) on both boards. It drives LEDs to
+indicate device health state (idle, acquiring, alarm, error).
 
-**Consumer:** `HealthMonitor` (Application) on both boards. `HealthMonitor USES LedDriver, ILogger`. It drives LEDs to indicate device status (idle, acquiring, alarm, error).
+**This is the first driver that `USES` another driver** rather than CMSIS
+directly. LedDriver consumes `IGpio` from GpioDriver; it never accesses GPIO
+registers directly. This is correct per the established project convention:
+bus drivers self-configure via CMSIS; non-bus control-line drivers (including
+LED drivers) consume `IGpio`.
 
-**This is the first driver that `USES` another driver** rather than CMSIS directly. LedDriver consumes `IGpio` from GpioDriver; it never accesses GPIO registers. This is correct per the convention: *"Only LedDriver and device drivers with non-bus control lines USES GpioDriver."* (`lld-methodology.md` v1.1, established convention).
+**Physical LEDs — Field Device (STM32F469):**
 
-**Physical LEDs:**
+| LED | Colour | GPIO pin | Active level | Notes |
+|---|---|---|---|---|
+| LD3 | Green | PG6 | Low | Common anode → GND via resistor; GPIO low = on |
+| LD4 | Red | PD5 | Low | Same circuit as LD3 |
 
-| Board | LED | Colour | GPIO pin |
-|---|---|---|---|
-| STM32F469 (FD) | LD3 | Green | PG13 |
-| STM32F469 (FD) | LD4 | Red | PD5 |
-| STM32L475 (GW) | LED2 | Green | PB14 |
+**Physical LEDs — Gateway (STM32L475):**
 
-Pin assignments are from the UM1932 and UM2153 schematics. Verify against the board schematics at implementation.
+| LED | Colour | GPIO pin | Active level | Notes |
+|---|---|---|---|---|
+| LD2 | Green | PB14 | High | Cathode → GND; MCU drives anode via resistor; GPIO high = on |
+
+**Gateway LED constraints (from UM2153 schematic):**
+
+- **LD1 (PA5):** Shared with SPI1_SCK/ARD.D13 via solder bridge SB1. Not
+  usable without hardware modification — omitted from the Gateway pin table.
+- **LD3/LD4 (PC9):** Wi-Fi and BLE activity LEDs driven from the same pin;
+  not independently controllable by the MCU application — omitted.
+- The Gateway therefore has **one fitted user LED** (LD2, PB14).
+
+**The two boards use opposite active levels.** This is a key driver of the
+LED-D5 dependency-injection design decision (§9).
 
 ---
 
@@ -42,61 +59,84 @@ Pin assignments are from the UM1932 and UM2153 schematics. Verify against the bo
 
 ### 2.1 Dependency-conformance check
 
-`led_driver.h` includes `stdint.h` and `led_driver.h` itself produces no direct CMSIS or GPIO register includes. GPIO access goes through the `IGpio` interface provided by GpioDriver. Confirmed clean.
+`led_driver.h` includes `stdint.h` and `stdbool.h`. No CMSIS or GPIO register
+includes. GPIO access goes through the `IGpio` interface. Confirmed clean.
 
 ### 2.2 P3 consideration
 
 Single consumer (`HealthMonitor`). No ISP split warranted.
 
-### 2.3 LED identifiers
-
-Both boards share the same `led_id_t` enum. The gateway has no red LED; calling `led_on(LED_RED)` on the gateway returns `LED_ERR_INVALID_ID`. `HealthMonitor` uses only IDs valid for its board — this is a compile-time concern for the application, not the driver.
+### 2.3 Types
 
 ```c
 /**
- * @brief LED identifier.
+ * @brief LED logical identifier.
  *
  * LED_GREEN is present on both boards.
- * LED_RED is present on the Field Device only; returns LED_ERR_INVALID_ID
- * on the Gateway.
+ * LED_RED is present on the Field Device only. Calling any API function
+ * with LED_RED on the Gateway (where the pin table marks it not fitted)
+ * returns LED_ERR_INVALID_ID.
  */
 typedef enum {
-    LED_GREEN = 0, /**< Green status LED. FD: LD3 (PG13). GW: LED2 (PB14). */
-    LED_RED   = 1, /**< Red alarm LED.   FD: LD4 (PD5).  GW: not fitted.   */
-    LED_COUNT      /**< Sentinel — do not pass to API functions. */
+    LED_GREEN = 0U, /**< Green status LED. */
+    LED_RED   = 1U, /**< Red alarm LED.   */
+    LED_COUNT       /**< Sentinel — never pass to API functions. */
 } led_id_t;
 
 /**
- * @brief Error codes returned by all LedDriver operations.
- *
- * Naming follows the cross-cutting convention established in lld.md §3.2.
+ * @brief Error codes returned by LedDriver operations.
  */
 typedef enum {
-    LED_ERR_OK         = 0, /**< Operation succeeded. */
-    LED_ERR_INVALID_ID = 1, /**< LED identifier not fitted on this board. */
+    LED_ERR_OK          = 0, /**< Operation succeeded. */
+    LED_ERR_INVALID_ID  = 1, /**< LED not fitted on this board. */
+    LED_ERR_NOT_INIT    = 2, /**< led_init() not yet called. */
+    LED_ERR_NULL_ARG    = 3, /**< NULL argument passed. */
 } led_err_t;
+
+/**
+ * @brief Hardware descriptor for one LED pin.
+ *
+ * The caller (board-level config) provides an array of these to led_init().
+ * The driver reads polarity from the active_high field — it never hard-codes
+ * board identity or active-level assumptions internally.
+ */
+typedef struct {
+    uint8_t port;         /**< GPIO port identifier (gpio_port_t from gpio_driver.h). */
+    uint8_t pin;          /**< GPIO pin number (0–15). */
+    bool    active_high;  /**< true → GPIO high = LED on; false → GPIO low = LED on. */
+    bool    fitted;       /**< false → API calls for this ID return LED_ERR_INVALID_ID. */
+} led_pin_t;
 ```
 
 ### 2.4 Public API (`led_driver.h`)
 
 ```c
 /**
- * @brief Initialise LedDriver.
+ * @brief Initialise LedDriver from a caller-supplied pin table.
  *
- * Configures the GPIO pins for all fitted LEDs (via GpioDriver) and
- * sets the initial state to off. Must be called once after gpio_init().
+ * Configures the GPIO pins for all fitted LEDs via GpioDriver and sets the
+ * initial state to off. Must be called once, after gpio_init().
  *
- * @return LED_ERR_OK on success.
- * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ * The pin table is owned by the caller (typically board_config.c or the
+ * integration-test main). The driver stores only a pointer — the caller
+ * must ensure the array's lifetime exceeds the driver's lifetime (static
+ * storage in practice).
+ *
+ * @param pins   Array of LED pin descriptors. One entry per led_id_t,
+ *               indexed by the led_id_t value.
+ * @param count  Number of entries in @p pins. Must equal LED_COUNT.
+ * @return LED_ERR_OK on success; LED_ERR_NULL_ARG if @p pins is NULL;
+ *         LED_ERR_INVALID_ID if @p count != LED_COUNT.
+ * @note Threading: task-context only, non-blocking. Call before the
+ *       scheduler starts.
  */
-led_err_t led_init(void);
+led_err_t led_init(const led_pin_t *pins, uint8_t count);
 
 /**
  * @brief Turn an LED on.
  *
  * @param id  LED to turn on.
- * @return LED_ERR_OK on success; LED_ERR_INVALID_ID if the LED is not
- *         fitted on this board.
+ * @return LED_ERR_OK; LED_ERR_NOT_INIT; LED_ERR_INVALID_ID.
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 led_err_t led_on(led_id_t id);
@@ -105,149 +145,236 @@ led_err_t led_on(led_id_t id);
  * @brief Turn an LED off.
  *
  * @param id  LED to turn off.
- * @return LED_ERR_OK on success; LED_ERR_INVALID_ID if the LED is not
- *         fitted on this board.
+ * @return LED_ERR_OK; LED_ERR_NOT_INIT; LED_ERR_INVALID_ID.
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 led_err_t led_off(led_id_t id);
 
 /**
- * @brief Toggle an LED state.
+ * @brief Toggle an LED.
  *
  * @param id  LED to toggle.
- * @return LED_ERR_OK on success; LED_ERR_INVALID_ID if the LED is not
- *         fitted on this board.
+ * @return LED_ERR_OK; LED_ERR_NOT_INIT; LED_ERR_INVALID_ID.
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
 led_err_t led_toggle(led_id_t id);
+
+/**
+ * @brief Query the current logical state of an LED.
+ *
+ * @param id     LED to query.
+ * @param state  Output — LED_STATE_ON or LED_STATE_OFF.
+ * @return LED_ERR_OK; LED_ERR_NOT_INIT; LED_ERR_INVALID_ID;
+ *         LED_ERR_NULL_ARG if @p state is NULL.
+ * @note Threading: task-context only, non-blocking.
+ */
+led_err_t led_get_state(led_id_t id, led_state_t *state);
+```
+
+Additionally expose the LED state enum:
+
+```c
+typedef enum {
+    LED_STATE_OFF = 0U,
+    LED_STATE_ON  = 1U
+} led_state_t;
+```
+
+### 2.5 Board pin-table convention
+
+The pin tables are defined at board-configuration scope, NOT inside the
+driver. Each board's integration-test main (and eventually `board_config.c`)
+defines its own table as a `static const` array:
+
+```c
+/* --- Field Device (STM32F469) board pin table --- */
+static const led_pin_t k_fd_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = GPIO_PORT_G, .pin =  6U,
+                   .active_high = false, .fitted = true},
+    [LED_RED]   = {.port = GPIO_PORT_D, .pin =  5U,
+                   .active_high = false, .fitted = true},
+};
+
+/* --- Gateway (STM32L475) board pin table --- */
+static const led_pin_t k_gw_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = GPIO_PORT_B, .pin = 14U,
+                   .active_high = true, .fitted = true},
+    [LED_RED]   = {.port = GPIO_PORT_A, .pin =  5U,
+                   .active_high = true, .fitted = false},  /* LD1/SB1 — not usable */
+};
 ```
 
 ---
 
 ## 3. Internal design
 
-### 3.0 Private struct
+### 3.1 Module structure
+
+```
+led_driver.h   — public types, API, led_pin_t definition
+led_driver.c   — singleton state, init, set/toggle/query logic
+```
+
+### 3.2 Singleton state
 
 ```c
 typedef struct {
-    bool initialised; /**< Set by led_init(); confirms GpioDriver is ready. */
+    const led_pin_t *pins;        /**< Caller-supplied pin table (pointer only). */
+    uint8_t          count;       /**< Number of entries; validated == LED_COUNT. */
+    led_state_t      state[LED_COUNT]; /**< Current logical state per LED. */
+    bool             initialised;
 } led_driver_t;
 
 static led_driver_t s_led;
 ```
 
+The driver stores only a pointer to the caller's pin table — no copy. This
+is valid because the pin tables are `static const` at board-config scope.
 
-### 3.1 Module-level state
+### 3.3 led_init flow
 
-```c
-/* Compile-time table mapping led_id_t to the GpioDriver pin descriptor.
- * A NULL entry marks an LED not fitted on this board. */
-static const led_pin_t s_led_pins[LED_COUNT] = {
-    /* LED_GREEN */ { /* GpioDriver pin descriptor for green LED */ },
-    /* LED_RED   */ { /* GpioDriver pin descriptor for red LED, or NULL sentinel on GW */ },
-};
+```
+1. Validate pins != NULL; count == LED_COUNT → LED_ERR_NULL_ARG / INVALID_ID.
+2. Store pointer + count in s_led.
+3. For each entry i in 0..LED_COUNT-1:
+     a. If !pins[i].fitted → skip.
+     b. gpio_configure(port, pin, OUTPUT_PUSHPULL, SPEED_LOW, PULL_NONE).
+     c. Write the GPIO level for "off":
+          active_high → gpio_write(port, pin, GPIO_LEVEL_LOW)
+          !active_high → gpio_write(port, pin, GPIO_LEVEL_HIGH)
+     d. s_led.state[i] = LED_STATE_OFF.
+4. s_led.initialised = true.
+5. Return LED_ERR_OK.
 ```
 
-`led_pin_t` is an internal struct wrapping the port and pin values expected by `GpioDriver`'s `gpio_write()` and `gpio_toggle()` calls (per the IGpio API in `gpio-driver.md`). The table is `const` and populated at compile time — no dynamic state, no heap.
+### 3.4 led_on / led_off / led_toggle flow
 
-### 3.2 Validation
+All three follow the same guard pattern:
 
-Every public function validates the `led_id_t` argument against the fitted-LED table before calling GpioDriver. If the entry is the null sentinel, `LED_ERR_INVALID_ID` is returned immediately. No silent failures (BARR-C §5).
+```
+1. If !s_led.initialised → LED_ERR_NOT_INIT.
+2. If id >= LED_COUNT → LED_ERR_INVALID_ID.
+3. If !s_led.pins[id].fitted → LED_ERR_INVALID_ID.
+4. Compute target GPIO level from active_high + desired state.
+   led_on:     target = active_high ? HIGH : LOW
+   led_off:    target = active_high ? LOW  : HIGH
+   led_toggle: invert s_led.state[id] → derive target
+5. gpio_write(port, pin, target).
+6. Update s_led.state[id].
+7. Return LED_ERR_OK.
+```
 
-### 3.3 No ISR, no DMA, no callbacks
-
-LedDriver is purely synchronous. `HealthMonitor` calls it from within `LifecycleTask` or `SensorTask` context (both boards). Blocking time is negligible — a single GPIO write is a register store.
-
-### 3.4 Active-low vs active-high
-
-Both discovery boards drive their user LEDs active-high (LED on when GPIO pin is high). This is hardcoded in the `s_led_pins` table. If a future board uses active-low LEDs, the polarity is encapsulated in the table entry and the public API remains unchanged. This satisfies P1 (polarity knowledge stays in the driver).
-
----
+The `active_high` field is read from the injected pin table at runtime — the
+driver contains zero board-conditional `#if` directives.
 
 ### 3.5 Principles applied
 
-- **P1 (Strict directional layering).** Depends only on GpioDriver (IGpio); no RTOS, no middleware.
-- **P2 (Dependency Inversion).** Exposes `iled_t` vtable; consumers depend on `ILed`.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Static pin-map table (compile-time constant); no heap; no RTOS objects.
-- **P6 (Responsibility traces to requirements).** LED set/toggle traces to REQ-NF-202 status-indicator requirements.
-- **P8 (Total error propagation, no silent failures).** `led_err_t` on configure and write; invalid-ID arguments return error.
-- **P9 (BARR-C coding standard).** `uint8_t` for LED ID; active-level documented explicitly; no implicit widening.
-- **P10 (Naming conventions).** Prefix `led_`; interface `ILed` -> `iled_t`; errors `LED_ERR_*`.
+- **P1 (Strict directional layering).** Depends only on GpioDriver (IGpio);
+  no RTOS, no middleware dependencies.
+- **P2 (Dependency Inversion).** Exposes `iled_t` vtable; consumers depend on
+  `ILed`, not the concrete driver.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static singleton
+  state; pointer to caller's static pin table; no heap.
+- **P6 (Responsibility traces to requirements).** LED control traces to
+  REQ-LD-250.
+- **P8 (Total error propagation, no silent failures).** Every public function
+  returns `led_err_t`; no fallthrough on invalid ID.
+- **P9 (BARR-C coding standard).** Fixed-width types; explicit active-level
+  handling; no implicit widening.
+- **P10 (Naming conventions).** Prefix `led_`; interface `iled_t`; errors
+  `LED_ERR_*`.
 
-
-### Synchronisation
-
-Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
-
-### led_init
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### led_on
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### led_off
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### led_toggle
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
+---
 
 ## 4. Hardware contract
 
-### 4.1 Pin configuration
+### 4.1 Pin configuration (applied by led_init via GpioDriver)
 
-LED GPIO pins must be configured as push-pull output, no pull-up, medium speed. This configuration is applied by `led_init()` via `gpio_configure()` (GpioDriver API). LedDriver does not call CMSIS directly for pin configuration.
+| Setting | Value | Reason |
+|---|---|---|
+| Mode | Output push-pull | Must actively drive both levels |
+| Speed | Low | No timing requirement; reduces EMI |
+| Pull | None | External resistor provides the return path |
+| Initial state | Off (via active-level logic) | Safe default at boot |
 
-| Board | LED | Pin | Active level |
-|---|---|---|---|
-| STM32F469 | LD3 (green) | PG13 | High |
-| STM32F469 | LD4 (red) | PD5 | High |
-| STM32L475 | LED2 (green) | PB14 | High |
+### 4.2 Init ordering requirement
 
-**Action required (Luca at implementation):** confirm active level and pin assignments against the UM1932 and UM2153 schematics before writing code.
+`gpio_init()` must complete before `led_init()` is called. Enforced by the
+boot sequence in `main()` / `board_init()`.
 
-### 4.2 `gpio_init()` ordering requirement
+### 4.3 L475 notes
 
-`led_init()` calls `gpio_configure()` internally. `gpio_init()` must have been called before `led_init()`. This ordering is enforced by the boot sequence in `main()` and is documented here for the integration checklist.
+- **LED_RED is not fitted on the Gateway.** The driver returns
+  `LED_ERR_INVALID_ID` for any call with `LED_RED` on the Gateway pin table.
+  `HealthMonitor` must handle this gracefully (log at WARN and continue).
+- **LD1 (PA5) is explicitly excluded** — SB1 solder bridge connects PA5 to
+  SPI1_SCK/ARD.D13. Using it as a user LED would conflict with any SPI
+  peripheral usage and is not permitted without hardware modification.
 
 ---
 
 ## 5. Sequence integration
 
-`LedDriver` has no HLD-level sequence diagram surface. LED state changes are side-effects of lifecycle and health transitions, not primary actors in any sequence. No changes to `sequence-diagrams.md` are required.
+LedDriver has no HLD-level sequence diagram surface. LED state changes are
+side-effects of lifecycle and health transitions, not primary actors in any
+HLD sequence. No changes to `sequence-diagrams.md` are required.
 
 ---
 
 ## 6. Error and fault behaviour
 
-All public functions return `led_err_t`; callers must not ignore non-OK returns.
-No retry is performed internally — the driver surfaces the error; the caller
-decides the retry and logging policy.
+| Error | Cause | Local behaviour | Caller responsibility |
+|---|---|---|---|
+| `LED_ERR_NULL_ARG` | `led_init()` called with `pins == NULL` or `led_get_state()` with `state == NULL` | Return error; no state change | Assert in debug; log + halt |
+| `LED_ERR_INVALID_ID` | `led_id_t` not fitted; `LED_COUNT` passed; `count != LED_COUNT` in init | Return error; no GPIO change | Log at WARN; continue |
+| `LED_ERR_NOT_INIT` | Any API called before `led_init()` | Return error; no GPIO access | Assert in debug |
 
-| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
-|---|---|---|---|---|---|
-| `LED_ERR_INVALID_ID` | `led_on()` / `led_off()` called with an `led_id_t` not fitted on the active board variant | Return error; no GPIO change | Non-OK return | No retry — programming error; caller must check the board variant before calling | Caller logs at WARN via ILogger |
+No internal retry. No silent failures.
 
+---
 
 ## 7. Unit-test plan
 
-Host-platform tests (Unity framework). GpioDriver calls are intercepted via a mock `IGpio` implementation substituted at link time (stub functions that record calls and return `GPIO_ERR_OK`).
+Host-platform tests (Unity). GpioDriver calls intercepted via
+`gpio_driver_stub.h` (stub functions recording calls and returning
+`GPIO_ERR_OK`). Each test file passes its own static pin table to
+`led_init()` — no board-conditional `#if` in the test files.
+
+**Field Device tests** (`tests/field-device/drivers/led/test_led_driver_fd.c`):
+
+```c
+static const led_pin_t k_test_pins_fd[LED_COUNT] = {
+    [LED_GREEN] = {.port = GPIO_PORT_G, .pin =  6U, .active_high = false, .fitted = true},
+    [LED_RED]   = {.port = GPIO_PORT_D, .pin =  5U, .active_high = false, .fitted = true},
+};
+```
+
+**Gateway tests** (`tests/field-device/drivers/led/test_led_driver_gw.c`):
+
+```c
+static const led_pin_t k_test_pins_gw[LED_COUNT] = {
+    [LED_GREEN] = {.port = GPIO_PORT_B, .pin = 14U, .active_high = true, .fitted = true},
+    [LED_RED]   = {.port = GPIO_PORT_A, .pin =  5U, .active_high = true, .fitted = false},
+};
+```
 
 | ID | Test case | Expected result |
 |---|---|---|
-| T-LED-01 | `led_init`: verify `gpio_configure` called for all fitted LEDs; initial state set to off | Mock records configure call per fitted LED; `gpio_write(LOW)` called for each |
-| T-LED-02 | `led_on(LED_GREEN)`: verify `gpio_write(HIGH)` called on correct pin | Mock records write call with correct port/pin/state |
-| T-LED-03 | `led_off(LED_GREEN)`: verify `gpio_write(LOW)` called | Correct pin set low |
-| T-LED-04 | `led_toggle(LED_GREEN)`: verify `gpio_toggle` called on correct pin | Mock records toggle call |
-| T-LED-05 | `led_on(LED_RED)` on Gateway build: verify `LED_ERR_INVALID_ID` returned | No GpioDriver call made |
-| T-LED-06 | `led_on(LED_RED)` on Field Device build: verify succeeds | `gpio_write(HIGH)` called on PD5 |
-| T-LED-07 | `led_on` with out-of-range id (e.g. `LED_COUNT`): verify `LED_ERR_INVALID_ID` | No GpioDriver call made |
-
-Test files: `tests/drivers/test_led_driver_fd.c` and `tests/drivers/test_led_driver_gw.c` (separate builds per board).
+| TC-LED-FD-01 | `led_init(k_test_pins_fd, LED_COUNT)` — verify configure called for both LEDs; initial state off (GPIO_LEVEL_HIGH for active-low) | Two `gpio_configure` calls; two `gpio_write(HIGH)` calls |
+| TC-LED-FD-02 | `led_on(LED_GREEN)` — active-low; verify `gpio_write(LOW)` on PG6 | GPIO driven LOW |
+| TC-LED-FD-03 | `led_off(LED_GREEN)` — verify `gpio_write(HIGH)` on PG6 | GPIO driven HIGH |
+| TC-LED-FD-04 | `led_toggle(LED_GREEN)` from off state — verify `gpio_write(LOW)` on PG6 | GPIO driven LOW; state updated to ON |
+| TC-LED-FD-05 | `led_on(LED_RED)` — verify `gpio_write(LOW)` on PD5 | GPIO driven LOW |
+| TC-LED-FD-06 | `led_get_state(LED_GREEN)` after `led_on` — verify returns `LED_STATE_ON` | State matches driver internal state |
+| TC-LED-GW-01 | `led_init(k_test_pins_gw, LED_COUNT)` — one fitted LED; initial state off (GPIO_LEVEL_LOW for active-high) | One `gpio_configure` call; one `gpio_write(LOW)` call |
+| TC-LED-GW-02 | `led_on(LED_GREEN)` — active-high; verify `gpio_write(HIGH)` on PB14 | GPIO driven HIGH |
+| TC-LED-GW-03 | `led_off(LED_GREEN)` — verify `gpio_write(LOW)` on PB14 | GPIO driven LOW |
+| TC-LED-GW-04 | `led_on(LED_RED)` on Gateway — verify `LED_ERR_INVALID_ID`; no GPIO call | Returns error; stub records zero write calls |
+| TC-LED-GW-05 | `led_toggle(LED_GREEN)` from on state — verify `gpio_write(LOW)` on PB14 | GPIO driven LOW; state updated to OFF |
+| TC-LED-CMN-01 | `led_init(NULL, LED_COUNT)` — verify `LED_ERR_NULL_ARG` | Returns error; not initialised |
+| TC-LED-CMN-02 | `led_init(valid_pins, LED_COUNT - 1U)` — wrong count; verify `LED_ERR_INVALID_ID` | Returns error |
+| TC-LED-CMN-03 | `led_on(LED_COUNT)` — out-of-range id; verify `LED_ERR_INVALID_ID` | No GPIO call |
+| TC-LED-CMN-04 | `led_on(LED_GREEN)` before `led_init()` — verify `LED_ERR_NOT_INIT` | No GPIO call |
 
 ---
 
@@ -255,6 +382,8 @@ Test files: `tests/drivers/test_led_driver_fd.c` and `tests/drivers/test_led_dri
 
 | ID | Item | Owner | Resolution path |
 |---|---|---|---|
+| LED-O1 | `task-breakdown.md` has no LedDriver entry (no task — purely synchronous). Confirm no update needed. | Luca | Verify at HealthMonitor PR time |
+| LED-O2 | L475 has no red LED. HealthMonitor must handle `LED_ERR_INVALID_ID` gracefully on Gateway. Verify HealthMonitor companion covers this case. | Luca | Check HealthMonitor companion §6 |
 
 ---
 
@@ -262,7 +391,8 @@ Test files: `tests/drivers/test_led_driver_fd.c` and `tests/drivers/test_led_dri
 
 | ID | Decision | Rationale |
 |---|---|---|
-| LEDD-D1 | LedDriver consumes `IGpio`; never accesses GPIO registers directly | Consistent with the driver convention: *"Only LedDriver… USES GpioDriver."* Single responsibility — LedDriver knows LED semantics; GpioDriver knows GPIO registers |
-| LEDD-D2 | Shared `led_id_t` enum on both boards; `LED_ERR_INVALID_ID` for missing LEDs | Keeps a single header; the caller (HealthMonitor) is responsible for using only the IDs valid for its board. The alternative (separate headers per board) would require HealthMonitor to `#ifdef` its LED calls — worse than an error return |
-| LEDD-D3 | Active-level polarity encapsulated in the compile-time table | P1: polarity knowledge must not leak to the caller. If a board ever uses active-low LEDs, only the table changes |
-| LEDD-D4 | Singleton module (no handle) | Two or fewer LEDs per board; consistent with all prior companion decisions |
+| LED-D1 | LedDriver consumes `IGpio`; never accesses GPIO registers directly | Single responsibility — LedDriver knows LED semantics; GpioDriver knows GPIO registers. Consistent with established project convention |
+| LED-D2 | Shared `led_id_t` enum on both boards; `LED_ERR_INVALID_ID` for missing LEDs | Single header; HealthMonitor handles the error gracefully. Alternative (separate enums per board) forces `#ifdef` into HealthMonitor — worse than an error return |
+| LED-D3 | Active-level polarity encapsulated in the injected pin table | P1: polarity knowledge must not leak to the caller. Changing a board's active level requires only editing the pin table, not the driver |
+| LED-D4 | Singleton module (no handle parameter) | Two or fewer LEDs per board; consistent with all prior companion decisions (GpioDriver, RtcDriver, Logger) |
+| LED-D5 | `led_init()` takes a caller-supplied `const led_pin_t *` pin table instead of a compile-time internal table | Removes all `#if defined(STM32F469xx)` conditionals from the driver. The driver contains zero board-identity logic — it is a pure implementation of LED semantics over any GPIO-backed pin map. Board wiring belongs at board-configuration scope (board_config.c or the integration-test main), not in the driver. Adding a third board requires only a new pin table, not a driver edit. Test files pass their own pin tables, eliminating board-conditional `#if` from test code too |
