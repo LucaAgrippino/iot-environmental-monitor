@@ -31,17 +31,20 @@
 /* SS-O1: IConfigProvider not yet implemented; compile-time defaults used. */
 /* ======================================================================= */
 
-#define ALARM_TEMP_HIGH_DEFAULT (35.0f)
-#define ALARM_TEMP_LOW_DEFAULT (0.0f)
-#define ALARM_TEMP_HYST_DEFAULT (2.0f)
+/* Units match sensor_reading_t.value per sensor ID:
+ *   TEMPERATURE / HUMIDITY: x100 (0.01 °C / 0.01 %RH)
+ *   PRESSURE: x10 (0.1 hPa) */
+#define ALARM_TEMP_HIGH_DEFAULT (3500) /*  35.00 °C  */
+#define ALARM_TEMP_LOW_DEFAULT (0)     /*   0.00 °C  */
+#define ALARM_TEMP_HYST_DEFAULT (200)  /*   2.00 °C  */
 
-#define ALARM_HUMIDITY_HIGH_DEFAULT (80.0f)
-#define ALARM_HUMIDITY_LOW_DEFAULT (20.0f)
-#define ALARM_HUMIDITY_HYST_DEFAULT (5.0f)
+#define ALARM_HUMIDITY_HIGH_DEFAULT (8000) /* 80.00 %RH */
+#define ALARM_HUMIDITY_LOW_DEFAULT (2000)  /* 20.00 %RH */
+#define ALARM_HUMIDITY_HYST_DEFAULT (500)  /*  5.00 %RH */
 
-#define ALARM_PRESSURE_HIGH_DEFAULT (1050.0f)
-#define ALARM_PRESSURE_LOW_DEFAULT (950.0f)
-#define ALARM_PRESSURE_HYST_DEFAULT (5.0f)
+#define ALARM_PRESSURE_HIGH_DEFAULT (10500) /* 1050.0 hPa */
+#define ALARM_PRESSURE_LOW_DEFAULT (9500)   /*  950.0 hPa */
+#define ALARM_PRESSURE_HYST_DEFAULT (50)    /*    5.0 hPa */
 
 /* ======================================================================= */
 /* Internal types                                                           */
@@ -49,9 +52,9 @@
 
 typedef struct
 {
-    float high;
-    float low;
-    float hysteresis;
+    int32_t high;
+    int32_t low;
+    int32_t hysteresis;
 } alarm_threshold_t;
 
 typedef struct
@@ -213,9 +216,9 @@ ALARM_SERVICE_TEST_VISIBLE void alarm_service_evaluate(const sensor_snapshot_t *
             continue;
         } /* skip invalid readings */
 
-        float thr_high = s_as.thresholds[i].high;
-        float thr_low = s_as.thresholds[i].low;
-        float hyst = s_as.thresholds[i].hysteresis;
+        int32_t thr_high = s_as.thresholds[i].high;
+        int32_t thr_low = s_as.thresholds[i].low;
+        int32_t hyst = s_as.thresholds[i].hysteresis;
 
         switch (s_as.alarm_state[i])
         {

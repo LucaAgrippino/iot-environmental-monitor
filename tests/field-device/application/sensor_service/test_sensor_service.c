@@ -20,7 +20,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include <math.h>
 
 /* health_monitor_stub.h must come before sensor_service.h so that
  * struct ihealth_report_s is complete when time_provider.h typedef resolves. */
@@ -187,7 +186,7 @@ static void init_with_default_alpha(void)
 {
     sensor_service_err_t err = sensor_service_init();
     TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, err);
-    /* alpha initialised to SENSOR_ALPHA_DEFAULT (0.1) inside init */
+    /* alpha_num=1, alpha_den=10 (alpha=0.1) set inside init */
 }
 
 /* ======================================================================= */
@@ -264,10 +263,10 @@ void test_TC_SS_003_range_violation_valid_false_clamped_feeds_filter(void)
     /* Reading marked invalid due to range check */
     TEST_ASSERT_FALSE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
 
-    /* Filter should have been updated with the CLAMPED value (85.0°C):
-     * filtered = 0.1 * 85.0 + 0.9 * 0.0 = 8.5
+    /* Filter should have been updated with the CLAMPED value (8500 x100 = 85.00°C):
+     * cycle 1: (1*8500 + 9*0 + 5) / 10 = 850  (= 8.50°C x100)
      * Verify by running a second cycle with an in-range value; the filter
-     * output must reflect the 8.5 contribution from the previous cycle. */
+     * output must reflect the 850 contribution from the previous cycle. */
     g_ht_temp_x100 = 2200; /* 22.00°C — in range */
     err = sensor_service_run_cycle();
     TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, err);
@@ -275,9 +274,8 @@ void test_TC_SS_003_range_violation_valid_false_clamped_feeds_filter(void)
     TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_get_snapshot(&snap));
     TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
 
-    /* cycle 1 filter: 0.1*85 + 0.9*0 = 8.5
-     * cycle 2 filter: 0.1*22 + 0.9*8.5 = 2.2 + 7.65 = 9.85 */
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 9.85f, snap.readings[SENSOR_ID_TEMPERATURE].value);
+    /* cycle 2: (1*2200 + 9*850 + 5) / 10 = 9855 / 10 = 985  (= 9.85°C x100) */
+    TEST_ASSERT_EQUAL_INT32(985, snap.readings[SENSOR_ID_TEMPERATURE].value);
 }
 
 /* ======================================================================= */
@@ -288,25 +286,25 @@ void test_TC_SS_004_iir_filter_single_step_known_values(void)
 {
     init_with_default_alpha();
 
-    /* Force alpha = 0.2 and prev_filtered[TEMP] = 10.0 for a known result. */
-    sensor_service_set_alpha_for_test(0.2f);
-    sensor_service_set_prev_filtered_for_test((int) SENSOR_ID_TEMPERATURE, 10.0f);
+    /* Force alpha = 1/5 (0.2) and prev_filtered[TEMP] = 1000 (10.00°C x100). */
+    sensor_service_set_alpha_for_test(1U, 5U);
+    sensor_service_set_prev_filtered_for_test((int) SENSOR_ID_TEMPERATURE, 1000);
 
-    /* Set stub to return 30.00°C (in-range). */
+    /* Set stub to return 3000 (30.00°C x100, in-range). */
     g_ht_temp_x100 = 3000;
 
     sensor_service_run_cycle();
 
-    float prev_out[SENSOR_ID_COUNT];
+    int32_t prev_out[SENSOR_ID_COUNT];
     sensor_service_get_prev_filtered_for_test(prev_out);
 
-    /* filtered = 0.2 * 30.0 + 0.8 * 10.0 = 6.0 + 8.0 = 14.0 */
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 14.0f, prev_out[SENSOR_ID_TEMPERATURE]);
+    /* filtered = (1*3000 + 4*1000 + 2) / 5 = 7002 / 5 = 1400  (14.00°C x100) */
+    TEST_ASSERT_EQUAL_INT32(1400, prev_out[SENSOR_ID_TEMPERATURE]);
 
-    /* Snapshot value should equal the filtered result */
+    /* Snapshot value must equal the filtered result */
     sensor_snapshot_t snap;
     sensor_service_get_snapshot(&snap);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 14.0f, snap.readings[SENSOR_ID_TEMPERATURE].value);
+    TEST_ASSERT_EQUAL_INT32(1400, snap.readings[SENSOR_ID_TEMPERATURE].value);
 }
 
 /* ======================================================================= */
@@ -325,14 +323,14 @@ void test_TC_SS_005_get_snapshot_returns_copy(void)
 
     /* Modify snap1 — should NOT affect internal state */
     snap1.cycle_count = 99U;
-    snap1.readings[SENSOR_ID_TEMPERATURE].value = -999.0f;
+    snap1.readings[SENSOR_ID_TEMPERATURE].value = (int32_t) -9999;
 
     sensor_service_get_snapshot(&snap2);
 
-    /* snap2 should still reflect the internal state (cycle_count = 1) */
+    /* snap2 should still reflect the internal state (cycle_count = 1).
+     * First-cycle filter: (1*2500 + 9*0 + 5) / 10 = 250  (2.50°C x100) */
     TEST_ASSERT_EQUAL_UINT32(1U, snap2.cycle_count);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.1f * (2500.0f / 100.0f),
-                             snap2.readings[SENSOR_ID_TEMPERATURE].value);
+    TEST_ASSERT_EQUAL_INT32(250, snap2.readings[SENSOR_ID_TEMPERATURE].value);
 }
 
 /* ======================================================================= */

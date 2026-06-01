@@ -67,17 +67,19 @@ static void alarm_event_cb(sensor_id_t sensor, alarm_event_t event, const sensor
                               : (sensor == SENSOR_ID_PRESSURE)  ? "PRESSURE"
                                                                 : "UNKNOWN";
 
+    /* value is x100 for temperature/humidity, x10 for pressure */
+    int32_t v = reading->value;
     if (event == ALARM_EVENT_RAISED_HIGH)
     {
-        LOG_ERROR(IT_TAG, "ALARM RAISED HIGH %s (val=%.2f)", sensor_name, (double) reading->value);
+        LOG_ERROR(IT_TAG, "ALARM RAISED HIGH %s (val=%ld)", sensor_name, (long) v);
     }
     else if (event == ALARM_EVENT_RAISED_LOW)
     {
-        LOG_ERROR(IT_TAG, "ALARM RAISED LOW %s (val=%.2f)", sensor_name, (double) reading->value);
+        LOG_ERROR(IT_TAG, "ALARM RAISED LOW %s (val=%ld)", sensor_name, (long) v);
     }
     else
     {
-        LOG_INFO(IT_TAG, "ALARM CLEARED %s (val=%.2f)", sensor_name, (double) reading->value);
+        LOG_INFO(IT_TAG, "ALARM CLEARED %s (val=%ld)", sensor_name, (long) v);
     }
 }
 
@@ -104,11 +106,15 @@ static void vSensorTask(void *pvParameters)
         sensor_snapshot_t snap;
         if (sensor_service_get_snapshot(&snap) == SENSOR_SERVICE_ERR_OK)
         {
-            LOG_INFO(IT_TAG, "Cycle %lu  T=%.2f  H=%.2f  P=%.1f  rdy=%d",
-                     (unsigned long) snap.cycle_count,
-                     (double) snap.readings[SENSOR_ID_TEMPERATURE].value,
-                     (double) snap.readings[SENSOR_ID_HUMIDITY].value,
-                     (double) snap.readings[SENSOR_ID_PRESSURE].value,
+            /* Fixed-point display: T and H are x100 (0.01°C / %RH), P is x10 (0.1 hPa).
+             * e.g. T=2200 → 22.00°C, H=5000 → 50.00%RH, P=10132 → 1013.2 hPa */
+            int32_t t = snap.readings[SENSOR_ID_TEMPERATURE].value;
+            int32_t h = snap.readings[SENSOR_ID_HUMIDITY].value;
+            int32_t p = snap.readings[SENSOR_ID_PRESSURE].value;
+            LOG_INFO(IT_TAG, "Cycle %lu  T=%ld.%02ld C  H=%ld.%02ld%%  P=%ld.%01ld hPa  rdy=%d",
+                     (unsigned long) snap.cycle_count, (long) (t / 100L),
+                     (long) (t < 0 ? -(t % 100L) : t % 100L), (long) (h / 100L), (long) (h % 100L),
+                     (long) (p / 10L), (long) (p < 0 ? -(p % 10L) : p % 10L),
                      (int) sensor_service_is_ready());
         }
     }

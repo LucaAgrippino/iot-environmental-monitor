@@ -74,15 +74,13 @@ static void spy_reset(void)
 /* Helpers                                                                  */
 /* ======================================================================= */
 
-/* Default thresholds (mirror alarm_service.c defaults):
- * Temperature: high=35°C, low=0°C, hysteresis=2°C
- * Humidity:    high=80%,  low=20%, hysteresis=5%
- * Pressure:    high=1050, low=950, hysteresis=5 hPa */
-#define TEST_TEMP_HIGH (35.0f)
-#define TEST_TEMP_LOW (0.0f)
-#define TEST_TEMP_HYST (2.0f)
+/* Default thresholds matching alarm_service.c defaults (fixed-point x100):
+ * Temperature: high=3500 (35.00°C), low=0 (0.00°C), hysteresis=200 (2.00°C) */
+#define TEST_TEMP_HIGH ((int32_t) 3500)
+#define TEST_TEMP_LOW ((int32_t) 0)
+#define TEST_TEMP_HYST ((int32_t) 200)
 
-static sensor_snapshot_t make_snap_with_temp(float temp, bool valid)
+static sensor_snapshot_t make_snap_with_temp(int32_t temp, bool valid)
 {
     sensor_snapshot_t snap;
     (void) memset(&snap, 0, sizeof(snap));
@@ -114,7 +112,7 @@ void tearDown(void)
 
 void test_TC_AS_001_reading_within_range_state_stays_clear(void)
 {
-    sensor_snapshot_t snap = make_snap_with_temp(20.0f, true);
+    sensor_snapshot_t snap = make_snap_with_temp(2000, true); /* 20.00°C */
     alarm_service_evaluate(&snap);
 
     alarm_state_t state;
@@ -130,7 +128,7 @@ void test_TC_AS_001_reading_within_range_state_stays_clear(void)
 
 void test_TC_AS_002_reading_above_threshold_high_raises_alarm(void)
 {
-    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 1.0f, true);
+    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 100, true); /* 36.00°C */
     alarm_service_evaluate(&snap);
 
     alarm_state_t state;
@@ -140,7 +138,7 @@ void test_TC_AS_002_reading_above_threshold_high_raises_alarm(void)
     TEST_ASSERT_EQUAL_UINT8(1U, g_spy_count);
     TEST_ASSERT_EQUAL(SENSOR_ID_TEMPERATURE, g_spy_events[0].sensor);
     TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_HIGH, g_spy_events[0].event);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, TEST_TEMP_HIGH + 1.0f, g_spy_events[0].reading.value);
+    TEST_ASSERT_EQUAL_INT32(TEST_TEMP_HIGH + 100, g_spy_events[0].reading.value);
 }
 
 /* ======================================================================= */
@@ -150,14 +148,14 @@ void test_TC_AS_002_reading_above_threshold_high_raises_alarm(void)
 void test_TC_AS_003_hysteresis_stays_active_high_above_clear_threshold(void)
 {
     /* First, raise the alarm */
-    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 1.0f, true);
+    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 100, true); /* 36.00°C */
     alarm_service_evaluate(&snap);
 
     spy_reset();
 
-    /* Value is within hysteresis band: (high - hyst + epsilon) = 35 - 2 + 0.1 = 33.1
-     * Must remain ACTIVE_HIGH (not yet cleared) */
-    float within_hyst = TEST_TEMP_HIGH - TEST_TEMP_HYST + 0.1f;
+    /* Value within hysteresis band: (high - hyst + 10) = 3500 - 200 + 10 = 3310 (33.10°C)
+     * Must remain ACTIVE_HIGH (not yet cleared). */
+    int32_t within_hyst = TEST_TEMP_HIGH - TEST_TEMP_HYST + 10;
     snap = make_snap_with_temp(within_hyst, true);
     alarm_service_evaluate(&snap);
 
@@ -175,13 +173,13 @@ void test_TC_AS_003_hysteresis_stays_active_high_above_clear_threshold(void)
 void test_TC_AS_004_reading_below_clear_threshold_clears_alarm(void)
 {
     /* Raise alarm */
-    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 1.0f, true);
+    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 100, true); /* 36.00°C */
     alarm_service_evaluate(&snap);
 
     spy_reset();
 
-    /* Value below (high - hyst): 35 - 2 = 33.0; use 32.9 */
-    snap = make_snap_with_temp(TEST_TEMP_HIGH - TEST_TEMP_HYST - 0.1f, true);
+    /* Value below clear threshold: 3500 - 200 - 10 = 3290 (32.90°C) */
+    snap = make_snap_with_temp(TEST_TEMP_HIGH - TEST_TEMP_HYST - 10, true);
     alarm_service_evaluate(&snap);
 
     alarm_state_t state;
@@ -198,8 +196,8 @@ void test_TC_AS_004_reading_below_clear_threshold_clears_alarm(void)
 
 void test_TC_AS_005_low_alarm_symmetric_to_high_alarm(void)
 {
-    /* Raise LOW alarm (temperature = -1°C < threshold_low = 0°C) */
-    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_LOW - 1.0f, true);
+    /* Raise LOW alarm (temperature = -100 x100 = -1.00°C < threshold_low = 0) */
+    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_LOW - 100, true);
     alarm_service_evaluate(&snap);
 
     alarm_state_t state;
@@ -210,16 +208,16 @@ void test_TC_AS_005_low_alarm_symmetric_to_high_alarm(void)
 
     spy_reset();
 
-    /* Stay in hysteresis band: (low + hyst - epsilon) = 0 + 2 - 0.1 = 1.9
-     * Must remain ACTIVE_LOW */
-    snap = make_snap_with_temp(TEST_TEMP_LOW + TEST_TEMP_HYST - 0.1f, true);
+    /* Stay in hysteresis band: (low + hyst - 10) = 0 + 200 - 10 = 190 (1.90°C)
+     * Must remain ACTIVE_LOW. */
+    snap = make_snap_with_temp(TEST_TEMP_LOW + TEST_TEMP_HYST - 10, true);
     alarm_service_evaluate(&snap);
     alarm_service_get_state(SENSOR_ID_TEMPERATURE, &state);
     TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_LOW, state);
     TEST_ASSERT_EQUAL_UINT8(0U, g_spy_count);
 
-    /* Clear: exceed (low + hyst): 0 + 2 + 0.1 = 2.1 */
-    snap = make_snap_with_temp(TEST_TEMP_LOW + TEST_TEMP_HYST + 0.1f, true);
+    /* Clear: exceed (low + hyst): 0 + 200 + 10 = 210 (2.10°C) */
+    snap = make_snap_with_temp(TEST_TEMP_LOW + TEST_TEMP_HYST + 10, true);
     alarm_service_evaluate(&snap);
     alarm_service_get_state(SENSOR_ID_TEMPERATURE, &state);
     TEST_ASSERT_EQUAL(ALARM_STATE_CLEAR, state);
@@ -234,7 +232,7 @@ void test_TC_AS_005_low_alarm_symmetric_to_high_alarm(void)
 void test_TC_AS_006_invalid_reading_state_unchanged(void)
 {
     /* Start with alarm raised */
-    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 1.0f, true);
+    sensor_snapshot_t snap = make_snap_with_temp(TEST_TEMP_HIGH + 100, true); /* 36.00°C */
     alarm_service_evaluate(&snap);
 
     alarm_state_t state_before;
@@ -242,7 +240,7 @@ void test_TC_AS_006_invalid_reading_state_unchanged(void)
     spy_reset();
 
     /* Now inject an invalid reading (valid = false) well below threshold */
-    snap = make_snap_with_temp(-100.0f, false);
+    snap = make_snap_with_temp(-10000, false); /* -100.00°C, but invalid */
     alarm_service_evaluate(&snap);
 
     alarm_state_t state_after;
@@ -258,7 +256,8 @@ void test_TC_AS_006_invalid_reading_state_unchanged(void)
 
 void test_TC_AS_007_subscriber_receives_correct_fields(void)
 {
-    const float trigger_temp = TEST_TEMP_HIGH + 3.5f;
+    /* 3850 = 38.50°C x100 */
+    const int32_t trigger_temp = TEST_TEMP_HIGH + 350;
     sensor_snapshot_t snap = make_snap_with_temp(trigger_temp, true);
     snap.readings[SENSOR_ID_TEMPERATURE].timestamp.epoch = 12345UL;
 
@@ -267,6 +266,6 @@ void test_TC_AS_007_subscriber_receives_correct_fields(void)
     TEST_ASSERT_EQUAL_UINT8(1U, g_spy_count);
     TEST_ASSERT_EQUAL(SENSOR_ID_TEMPERATURE, g_spy_events[0].sensor);
     TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_HIGH, g_spy_events[0].event);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, trigger_temp, g_spy_events[0].reading.value);
+    TEST_ASSERT_EQUAL_INT32(trigger_temp, g_spy_events[0].reading.value);
     TEST_ASSERT_EQUAL_UINT32(12345UL, g_spy_events[0].reading.timestamp.epoch);
 }

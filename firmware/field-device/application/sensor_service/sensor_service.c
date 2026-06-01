@@ -8,7 +8,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <math.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -42,27 +41,36 @@
 /* Constants                                                                */
 /* ======================================================================= */
 
-#define SENSOR_ALPHA_DEFAULT (0.1f)
+/* Default IIR alpha as fraction: alpha = ALPHA_NUM / ALPHA_DEN = 0.1 */
+#define SENSOR_ALPHA_NUM_DEFAULT (1U)
+#define SENSOR_ALPHA_DEN_DEFAULT (10U)
 
 /* Poll timer period.
  * DEVIATION from companion §9: period is 200 ms instead of 100 ms.
  * See bug-log.md for details. */
 #define SENSOR_POLL_INTERVAL_MS (200U)
 
-/* Default range limits (used when IConfigProvider is absent — REQ-SA-050).
- * SS-O1: IConfigProvider not yet implemented; these are compile-time defaults. */
-static const float s_range_min[SENSOR_ID_COUNT] = {
-    [SENSOR_ID_TEMPERATURE] = -40.0f, [SENSOR_ID_HUMIDITY] = 0.0f,   [SENSOR_ID_PRESSURE] = 300.0f,
-    [SENSOR_ID_ACCEL_X] = -100.0f,    [SENSOR_ID_ACCEL_Y] = -100.0f, [SENSOR_ID_ACCEL_Z] = -100.0f,
-    [SENSOR_ID_GYRO_X] = -250.0f,     [SENSOR_ID_GYRO_Y] = -250.0f,  [SENSOR_ID_GYRO_Z] = -250.0f,
-    [SENSOR_ID_MAG_X] = -4000.0f,     [SENSOR_ID_MAG_Y] = -4000.0f,  [SENSOR_ID_MAG_Z] = -4000.0f,
+/* Default range limits in native driver fixed-point units (REQ-SA-050).
+ * TEMPERATURE / HUMIDITY: x100 (0.01 °C / 0.01 %RH)
+ * PRESSURE: x10 (0.1 hPa)
+ * GW-only sensors use reasonable physical bounds; they are pre-failed on FD
+ * so these values are never evaluated. */
+static const int32_t s_range_min[SENSOR_ID_COUNT] = {
+    [SENSOR_ID_TEMPERATURE] = -4000, /* -40.00 °C  */
+    [SENSOR_ID_HUMIDITY] = 0,        /*   0.00 %RH */
+    [SENSOR_ID_PRESSURE] = 3000,     /* 300.0 hPa  */
+    [SENSOR_ID_ACCEL_X] = -10000,    [SENSOR_ID_ACCEL_Y] = -10000, [SENSOR_ID_ACCEL_Z] = -10000,
+    [SENSOR_ID_GYRO_X] = -25000,     [SENSOR_ID_GYRO_Y] = -25000,  [SENSOR_ID_GYRO_Z] = -25000,
+    [SENSOR_ID_MAG_X] = -40000,      [SENSOR_ID_MAG_Y] = -40000,   [SENSOR_ID_MAG_Z] = -40000,
 };
 
-static const float s_range_max[SENSOR_ID_COUNT] = {
-    [SENSOR_ID_TEMPERATURE] = 85.0f, [SENSOR_ID_HUMIDITY] = 100.0f, [SENSOR_ID_PRESSURE] = 1100.0f,
-    [SENSOR_ID_ACCEL_X] = 100.0f,    [SENSOR_ID_ACCEL_Y] = 100.0f,  [SENSOR_ID_ACCEL_Z] = 100.0f,
-    [SENSOR_ID_GYRO_X] = 250.0f,     [SENSOR_ID_GYRO_Y] = 250.0f,   [SENSOR_ID_GYRO_Z] = 250.0f,
-    [SENSOR_ID_MAG_X] = 4000.0f,     [SENSOR_ID_MAG_Y] = 4000.0f,   [SENSOR_ID_MAG_Z] = 4000.0f,
+static const int32_t s_range_max[SENSOR_ID_COUNT] = {
+    [SENSOR_ID_TEMPERATURE] = 8500, /*  85.00 °C  */
+    [SENSOR_ID_HUMIDITY] = 10000,   /* 100.00 %RH */
+    [SENSOR_ID_PRESSURE] = 11000,   /* 1100.0 hPa */
+    [SENSOR_ID_ACCEL_X] = 10000,    [SENSOR_ID_ACCEL_Y] = 10000, [SENSOR_ID_ACCEL_Z] = 10000,
+    [SENSOR_ID_GYRO_X] = 25000,     [SENSOR_ID_GYRO_Y] = 25000,  [SENSOR_ID_GYRO_Z] = 25000,
+    [SENSOR_ID_MAG_X] = 40000,      [SENSOR_ID_MAG_Y] = 40000,   [SENSOR_ID_MAG_Z] = 40000,
 };
 
 /* ======================================================================= */
@@ -72,10 +80,11 @@ static const float s_range_max[SENSOR_ID_COUNT] = {
 typedef struct
 {
     bool initialised;
-    sensor_snapshot_t snapshot;           /* guarded by taskENTER_CRITICAL for reads */
-    float prev_filtered[SENSOR_ID_COUNT]; /* IIR filter state */
-    float alpha;                          /* IIR coefficient */
-    bool driver_failed[SENSOR_ID_COUNT];  /* permanent fail flag */
+    sensor_snapshot_t snapshot;             /* guarded by taskENTER_CRITICAL for reads */
+    int32_t prev_filtered[SENSOR_ID_COUNT]; /* IIR filter state (same units as reading.value) */
+    uint8_t alpha_num;                      /* IIR coefficient numerator   */
+    uint8_t alpha_den;                      /* IIR coefficient denominator */
+    bool driver_failed[SENSOR_ID_COUNT];    /* permanent fail flag */
     void (*subscribers[SENSOR_MAX_SUBSCRIBERS])(const sensor_snapshot_t *);
     uint8_t subscriber_count;
     TimerHandle_t poll_timer;
@@ -90,7 +99,7 @@ static SensorServiceState s_ss;
 /* ======================================================================= */
 
 static void poll_timer_cb(TimerHandle_t xTimer);
-static void process_sensor_reading(int id, float raw_value, bool driver_ok,
+static void process_sensor_reading(int id, int32_t raw_value, bool driver_ok,
                                    bool *first_fail_this_cycle, sensor_snapshot_t *working_snap);
 static sensor_service_err_t run_cycle_impl(void);
 
@@ -116,7 +125,8 @@ const isensor_service_t *const sensor_service = &s_sensor_service_vtable;
 sensor_service_err_t sensor_service_init(void)
 {
     (void) memset(&s_ss, 0, sizeof(s_ss));
-    s_ss.alpha = SENSOR_ALPHA_DEFAULT;
+    s_ss.alpha_num = SENSOR_ALPHA_NUM_DEFAULT;
+    s_ss.alpha_den = SENSOR_ALPHA_DEN_DEFAULT;
 
     /* Pre-fail GW-only sensors on FD builds (no driver available). */
 #if !defined(BOARD_GATEWAY)
@@ -259,15 +269,16 @@ static sensor_service_err_t run_cycle_impl(void)
 
         if (!s_ss.driver_failed[SENSOR_ID_TEMPERATURE])
         {
-            float raw_temp = ht_ok ? ((float) ht.temperature_x100 / 100.0f) : 0.0f;
-            process_sensor_reading((int) SENSOR_ID_TEMPERATURE, raw_temp, ht_ok, &first_fail,
-                                   &working);
+            /* temperature_x100 is int32_t in 0.01 °C units — use directly. */
+            process_sensor_reading((int) SENSOR_ID_TEMPERATURE, ht_ok ? ht.temperature_x100 : 0,
+                                   ht_ok, &first_fail, &working);
         }
 
         if (!s_ss.driver_failed[SENSOR_ID_HUMIDITY])
         {
-            float raw_hum = ht_ok ? ((float) ht.humidity_x100 / 100.0f) : 0.0f;
-            process_sensor_reading((int) SENSOR_ID_HUMIDITY, raw_hum, ht_ok, &first_fail, &working);
+            /* humidity_x100 is uint32_t; cast to int32_t (0..10000 fits safely). */
+            process_sensor_reading((int) SENSOR_ID_HUMIDITY, ht_ok ? (int32_t) ht.humidity_x100 : 0,
+                                   ht_ok, &first_fail, &working);
         }
     }
 
@@ -275,8 +286,9 @@ static sensor_service_err_t run_cycle_impl(void)
     {
         baro_reading_t baro = {0};
         bool baro_ok = (barometer_read(&baro) == BARO_ERR_OK);
-        float raw_pres = baro_ok ? ((float) baro.pressure_x10 / 10.0f) : 0.0f;
-        process_sensor_reading((int) SENSOR_ID_PRESSURE, raw_pres, baro_ok, &first_fail, &working);
+        /* pressure_x10 is int32_t in 0.1 hPa units — use directly. */
+        process_sensor_reading((int) SENSOR_ID_PRESSURE, baro_ok ? baro.pressure_x10 : 0, baro_ok,
+                               &first_fail, &working);
     }
 #endif /* !BOARD_GATEWAY */
 
@@ -298,7 +310,7 @@ static sensor_service_err_t run_cycle_impl(void)
     return SENSOR_SERVICE_ERR_OK;
 }
 
-static void process_sensor_reading(int id, float raw_value, bool driver_ok,
+static void process_sensor_reading(int id, int32_t raw_value, bool driver_ok,
                                    bool *first_fail_this_cycle, sensor_snapshot_t *working_snap)
 {
     sensor_reading_t *r = &working_snap->readings[id];
@@ -329,7 +341,7 @@ static void process_sensor_reading(int id, float raw_value, bool driver_ok,
     }
 
     /* Step 4: clamp (REQ-SA-130). */
-    float clamped = raw_value;
+    int32_t clamped = raw_value;
     if (clamped < s_range_min[id])
     {
         clamped = s_range_min[id];
@@ -339,9 +351,14 @@ static void process_sensor_reading(int id, float raw_value, bool driver_ok,
         clamped = s_range_max[id];
     }
 
-    /* Step 5: IIR low-pass filter (REQ-SA-140).
-     * Applied to the clamped value, not the raw value. */
-    float filtered = s_ss.alpha * clamped + (1.0f - s_ss.alpha) * s_ss.prev_filtered[id];
+    /* Step 5: IIR low-pass filter (REQ-SA-140). Applied to clamped value.
+     * filtered = (alpha_num * clamped + (alpha_den - alpha_num) * prev + alpha_den/2)
+     *            / alpha_den
+     * The half-denominator term provides round-to-nearest rather than truncation. */
+    int32_t filtered = ((int32_t) s_ss.alpha_num * clamped +
+                        (int32_t) (s_ss.alpha_den - s_ss.alpha_num) * s_ss.prev_filtered[id] +
+                        (int32_t) (s_ss.alpha_den / 2U)) /
+                       (int32_t) s_ss.alpha_den;
     s_ss.prev_filtered[id] = filtered;
     r->value = filtered;
 }
@@ -362,18 +379,19 @@ void sensor_service_reset_for_test(void)
     (void) memset(&s_ss, 0, sizeof(s_ss));
 }
 
-void sensor_service_set_alpha_for_test(float alpha)
+void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den)
 {
-    s_ss.alpha = alpha;
+    s_ss.alpha_num = num;
+    s_ss.alpha_den = den;
 }
 
-void sensor_service_set_prev_filtered_for_test(int id, float value)
+void sensor_service_set_prev_filtered_for_test(int id, int32_t value)
 {
     s_ss.prev_filtered[id] = value;
 }
 
-void sensor_service_get_prev_filtered_for_test(float out[SENSOR_ID_COUNT])
+void sensor_service_get_prev_filtered_for_test(int32_t out[SENSOR_ID_COUNT])
 {
-    (void) memcpy(out, s_ss.prev_filtered, sizeof(float) * (size_t) SENSOR_ID_COUNT);
+    (void) memcpy(out, s_ss.prev_filtered, sizeof(int32_t) * (size_t) SENSOR_ID_COUNT);
 }
 #endif /* TEST */

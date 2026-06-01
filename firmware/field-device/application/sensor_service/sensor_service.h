@@ -45,11 +45,16 @@ typedef enum
 
 /**
  * @brief One processed sensor sample (value after IIR filter, with validity flag).
+ *
+ * @p value is a fixed-point integer in native driver units per sensor ID:
+ *   - TEMPERATURE: 0.01 °C  (e.g. 2200 = 22.00 °C)
+ *   - HUMIDITY:    0.01 %RH (e.g. 5000 = 50.00 %RH)
+ *   - PRESSURE:    0.1  hPa (e.g. 10132 = 1013.2 hPa)
  */
 typedef struct
 {
     /* cppcheck-suppress unusedStructMember -- consumed by AlarmService, LcdUi, CloudPublisher */
-    float value; /**< Engineering units (°C, %RH, hPa, m/s², dps, µT). */
+    int32_t value; /**< Fixed-point; units depend on sensor_id_t (see struct comment). */
     /* cppcheck-suppress unusedStructMember -- consumed by AlarmService */
     bool valid; /**< false if driver returned error or range check failed. */
     /* cppcheck-suppress unusedStructMember -- consumed by CloudPublisher */
@@ -222,18 +227,22 @@ void sensor_service_reset_for_test(void);
 
 /**
  * @brief Set the IIR filter coefficient directly (TC-SS-004).
+ *
+ * @p num / @p den defines alpha as a fraction, e.g. num=1 den=10 gives α=0.1.
  */
-void sensor_service_set_alpha_for_test(float alpha);
+void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den);
 
 /**
  * @brief Set prev_filtered for one sensor (TC-SS-004).
+ *
+ * @p value is in the same fixed-point units as sensor_reading_t.value.
  */
-void sensor_service_set_prev_filtered_for_test(int id, float value);
+void sensor_service_set_prev_filtered_for_test(int id, int32_t value);
 
 /**
  * @brief Read back prev_filtered state for all sensors.
  */
-void sensor_service_get_prev_filtered_for_test(float out[SENSOR_ID_COUNT]);
+void sensor_service_get_prev_filtered_for_test(int32_t out[SENSOR_ID_COUNT]);
 #endif /* TEST */
 
 #endif /* SENSOR_SERVICE_H */
