@@ -46,6 +46,12 @@
   :test_time_provider:
     - STM32F469xx
     - TEST
+  :test_i2c_driver_f4:
+    - STM32F469xx
+    - TEST
+  :test_i2c_driver_l4:
+    - STM32L475xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_

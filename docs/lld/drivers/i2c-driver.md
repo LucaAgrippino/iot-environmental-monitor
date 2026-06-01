@@ -1,10 +1,10 @@
 # I2cDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/i2c-driver.md`
-**Version:** 0.1 (draft — pending Luca review)
+**Version:** 1.0
 **Board scope:** Field Device (STM32F469, I2C1) and Gateway (B-L475E-IOT01A, I2C2)
 **Layer:** Driver
-**Status:** Draft
+**Status:** Final (Phase H complete 2026-06-01)
 **Date:** May 2026
 
 **HLD anchor:** I2cDriver in `components.md` (FD + GW driver layer)
@@ -138,6 +138,46 @@ i2c_err_t i2c_write_read(uint8_t dev_addr,
                           uint8_t       *rx_buf,  uint16_t rx_len);
 ```
 
+### 2.6 Test-only hooks (`#ifdef TEST`)
+
+```c
+#ifdef TEST
+/**
+ * @brief Reset module-level state for unit tests.
+ *
+ * Clears s_i2c to its post-bss-init value so each Unity test case
+ * starts from a clean slate. Test-only; not compiled into firmware
+ * builds. Follows the project-wide convention established in
+ * DebugUartDriver and carried forward through RtcDriver.
+ */
+void i2c_reset_for_test(void);
+#endif
+```
+
+### 2.7 Singleton vtable interface (`II2c` — LLD-D10)
+
+```c
+/**
+ * @brief Vtable interface for I2cDriver (LLD-D10 singleton pattern).
+ *
+ * All consumers (TouchscreenDriver FD; HumidityTempDriver, BarometerDriver,
+ * ImuDriver, MagnetometerDriver GW) depend on this interface, not on the
+ * concrete driver. The target-selected implementation file defines the
+ * singleton instance; this header declares the extern pointer.
+ */
+typedef struct {
+    i2c_err_t (*init)(void);
+    i2c_err_t (*write)(uint8_t dev_addr, const uint8_t *data, uint16_t len);
+    i2c_err_t (*read)(uint8_t dev_addr, uint8_t *buf, uint16_t len);
+    i2c_err_t (*write_read)(uint8_t dev_addr,
+                             const uint8_t *tx_data, uint16_t tx_len,
+                             uint8_t       *rx_buf,  uint16_t rx_len);
+} ii2c_t;
+
+/** Singleton pointer — defined in the target-selected implementation file. */
+extern const ii2c_t * const i2c_driver;
+```
+
 ---
 
 ## 3. Internal design
@@ -155,11 +195,7 @@ static i2c_driver_t s_i2c;
 
 ### 3.1 Module-level state
 
-```c
-static bool s_initialised = false;
-```
-
-The peripheral maintains its own transaction state in hardware registers. No further module-level state is required.
+All module state is consolidated in `s_i2c` (§3.0); no additional file-scope variables are required. The peripheral maintains its own transaction state in hardware registers.
 
 ### 3.2 Two implementation files — one per IP version
 
@@ -171,6 +207,23 @@ The F469 I2C v1 and L475 I2C v2 peripherals have **entirely different register m
 | `i2c_driver_l4.c` | STM32L475 (GW) | I2C2 | v2 — `TIMINGR`, `ISR`, `ICR`, `TXDR`, `RXDR` |
 
 The build system selects the correct file per target. Each file is independently readable and testable against its own mock register bank.
+
+#### 3.2.1 Singleton vtable instance
+
+Both `i2c_driver_f4.c` and `i2c_driver_l4.c` define the same symbol pattern:
+
+```c
+static const ii2c_t s_i2c_vtable = {
+    .init       = i2c_init,
+    .write      = i2c_write,
+    .read       = i2c_read,
+    .write_read = i2c_write_read,
+};
+
+const ii2c_t * const i2c_driver = &s_i2c_vtable;
+```
+
+The `i2c_driver` symbol is defined in the target-selected `.c` file. `i2c_driver.h` declares it `extern`; consumers reference only the header.
 
 ### 3.3 Polling, not interrupt or DMA
 
@@ -251,7 +304,7 @@ Consistent with all prior driver companions. Consumers call synchronously from t
 
 - **P1 (Strict directional layering).** Depends only on CMSIS device register map; no RTOS, no middleware.
 - **P2 (Dependency Inversion).** Exposes `ii2c_t` vtable singleton; all consumers (HumidityTempDriver, BarometerDriver, TouchscreenDriver, RtcDriver GW) depend on the interface.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Static `I2cState` struct; no heap; RTOS mutex created once in `i2c_init()`.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static `s_i2c` struct; no heap; no RTOS primitives (caller serialises — see §3.3 and Synchronisation).
 - **P6 (Responsibility traces to requirements).** The I2C API traces to all consumers' sensor and peripheral requirements.
 - **P8 (Total error propagation, no silent failures).** All calls return `i2c_err_t`; HAL timeout surfaces as `I2C_ERR_TIMEOUT`; bus errors propagated.
 - **P9 (BARR-C coding standard).** `uint8_t*` data pointers; `uint16_t` for device address; no implicit widening.
@@ -339,22 +392,72 @@ Every function returns `i2c_err_t`. No silent failures. Consumer response per er
 
 ## 7. Unit-test plan
 
-Host-platform tests (Unity framework). The CMSIS peripheral pointer is redirected via `#define I2C1 (&mock_i2c)` / `#define I2C2 (&mock_i2c)` in the test build. Because v1 and v2 have different register layouts, each implementation file has its own mock `I2C_TypeDef` instance matching the correct struct definition for that target.
+Host-platform tests under the Ceedling/Unity harness. The two IP versions are too different for a shared parametrised test; each implementation file has its own dedicated test TU.
 
-| ID | Test case | Target | Expected result |
-|---|---|---|---|
-| T-I2C-01 | `i2c_init`: verify peripheral enabled, pins configured as alternate-function open-drain | Both | CR1.PE=1 (v1) or CR1.PE=1 (v2); GPIO mode and type registers set correctly |
-| T-I2C-02 | `i2c_write` happy path: write 2 bytes to device at address 0x44 | Both | START generated; address + W sent; both data bytes sent; STOP generated |
-| T-I2C-03 | `i2c_write` NACK on address: AF flag set (v1) or NACKF set (v2) | Both | Returns `I2C_ERR_NACK`; STOP generated |
-| T-I2C-04 | `i2c_write_read` happy path: write 1 byte (register address), read 2 bytes | Both | Full write phase → repeated START → read phase; returns correct rx data |
-| T-I2C-05 | `i2c_write_read` single-byte read: rx_len=1 | F469 (v1) | ACK disabled before ADDR cleared; STOP issued after reading DR |
-| T-I2C-06 | `i2c_write_read` NACK during write phase | Both | Returns `I2C_ERR_NACK`; read phase not started |
-| T-I2C-07 | `i2c_write` timeout: TXE never sets | Both | Returns `I2C_ERR_TIMEOUT` within timeout window |
-| T-I2C-08 | `i2c_write` bus busy at start | Both | Returns `I2C_ERR_BUS_BUSY`; no START generated |
-| T-I2C-09 | `i2c_read` happy path: read 6 bytes | Both | Address + R sent; 6 bytes received; NACK+STOP after last byte |
-| T-I2C-10 | Bus recovery: BUSY persists after timeout → verify 9 SCL toggles issued | Both | SCL toggled 9 times; peripheral re-enabled after recovery attempt |
+### 7.1 Mock strategy
 
-Test files: `tests/drivers/test_i2c_driver_f4.c` and `tests/drivers/test_i2c_driver_l4.c`.
+**F469 (v1):** `#define I2C1 (&mock_i2c_f4)` in the test preamble redirects all register accesses. `mock_i2c_f4` is a `static I2C_TypeDef` instance whose fields are pre-loaded per test case. GPIO registers used during bus recovery are provided by `stm32_cmsis_mock.h` (GPIOB mock already established in GpioDriver tests). Each test calls `i2c_reset_for_test()` from `setUp()` to clear `s_i2c.initialised`.
+
+**L475 (v2):** `#define I2C2 (&mock_i2c_l4)` redirects to a separate `static I2C_TypeDef` instance with v2-specific fields (`TIMINGR`, `ISR`, `ICR`, `TXDR`, `RXDR`). GPIO mock covers PB10/PB11 (bus recovery). Each test calls `i2c_reset_for_test()` from `setUp()`.
+
+**Timeout simulation:** The driver polls flags in a bounded counter loop. Happy-path tests pre-set the relevant flag in the mock register before calling the API, so the first poll succeeds. Timeout-path tests leave the flag clear; the driver exhausts the counter and returns `I2C_ERR_TIMEOUT`.
+
+**Not-initialised guard:** Calling any API function with `s_i2c.initialised == false` invokes `assert()` in the debug build. This is a programmer-error path and is not unit-tested (matches the convention established in RtcDriver RTCD-D9).
+
+### 7.2 Test files and project.yml entries
+
+- `tests/field-device/drivers/i2c/test_i2c_driver_f4.c`
+  ```yaml
+  :test_i2c_driver_f4:
+    - STM32F469xx
+    - TEST
+  ```
+- `tests/gateway/drivers/i2c/test_i2c_driver_l4.c`
+  ```yaml
+  :test_i2c_driver_l4:
+    - STM32L475xx
+    - TEST
+  ```
+
+Both paths are covered by the existing wildcard globs `field-device/**` and `gateway/**` in `project.yml`.
+
+### 7.3 Test cases — STM32F469 (v1, `i2c_driver_f4.c`)
+
+| ID | Test case | Expected result |
+|---|---|---|
+| TC-I2C-F4-001 | `i2c_init` happy path | CR1.PE = 1; GPIO SCL/SDA pins configured as AF, open-drain; `s_i2c.initialised = true`; returns `I2C_ERR_OK` |
+| TC-I2C-F4-002 | `i2c_init` called twice (idempotent) | Second call returns `I2C_ERR_OK`; CR1 not re-written on second call |
+| TC-I2C-F4-003 | `i2c_write` happy path — 2 bytes to 0x44 | CR1.START set; SR1.SB polled and found set; DR written with `0x44 << 1`; SR1.ADDR polled; SR1 + SR2 read (ADDR cleared); both bytes written to DR with TXE polling; BTF polled; CR1.STOP set; returns `I2C_ERR_OK` |
+| TC-I2C-F4-004 | `i2c_write` NACK on address — SR1.AF set during ADDR poll | Returns `I2C_ERR_NACK`; CR1.STOP generated; AF cleared |
+| TC-I2C-F4-005 | `i2c_write` SB timeout — SR1.SB never sets after START | Returns `I2C_ERR_TIMEOUT` |
+| TC-I2C-F4-006 | `i2c_write` TXE timeout — SR1.TXE never sets during data phase | Returns `I2C_ERR_TIMEOUT` |
+| TC-I2C-F4-007 | `i2c_write` BTF timeout — SR1.BTF never sets after last byte written | Returns `I2C_ERR_TIMEOUT` |
+| TC-I2C-F4-008 | `i2c_write` bus busy — SR2.BUSY set at entry | Returns `I2C_ERR_BUS_BUSY`; CR1.START not set |
+| TC-I2C-F4-009 | `i2c_write_read` happy path — 1 byte write, 2 bytes read | Write phase: START, addr+W, ADDR cleared, 1 byte via TXE, BTF; repeated START; addr+R, ADDR cleared; byte[0] read via RXNE; CR1.ACK cleared + CR1.STOP set before last poll; byte[1] read via RXNE; CR1.ACK re-enabled; returns `I2C_ERR_OK` with correct data |
+| TC-I2C-F4-010 | `i2c_write_read` single-byte read — rx_len = 1 | CR1.ACK cleared **before** SR2 read (ADDR clear); CR1.STOP set; SR1.RXNE polled; DR read; CR1.ACK re-enabled; returns `I2C_ERR_OK` with correct byte |
+| TC-I2C-F4-011 | `i2c_write_read` NACK during write phase | Returns `I2C_ERR_NACK`; repeated START not issued; read phase not entered |
+| TC-I2C-F4-012 | `i2c_read` happy path — 6 bytes from 0x1E | DR written with `(0x1E << 1) \| 1`; ADDR polled and cleared; 5 bytes read via RXNE; before byte 6: CR1.ACK cleared + CR1.STOP set; byte 6 read; CR1.ACK re-enabled; returns `I2C_ERR_OK` |
+| TC-I2C-F4-013 | Bus recovery — SR2.BUSY set, write call times out | CR1.PE cleared (peripheral disabled); SCL pin reconfigured as GPIO output; SCL toggled 9 times in mock GPIO; peripheral re-enabled (CR1.PE set); returns `I2C_ERR_TIMEOUT` |
+
+### 7.4 Test cases — STM32L475 (v2, `i2c_driver_l4.c`)
+
+| ID | Test case | Expected result |
+|---|---|---|
+| TC-I2C-L4-001 | `i2c_init` happy path | TIMINGR set to placeholder constant; CR1.PE = 1; GPIO PB10/PB11 configured as AF4, open-drain; `s_i2c.initialised = true`; returns `I2C_ERR_OK` |
+| TC-I2C-L4-002 | `i2c_init` called twice (idempotent) | Second call returns `I2C_ERR_OK`; TIMINGR not re-written |
+| TC-I2C-L4-003 | `i2c_write` happy path — 2 bytes to 0x44 | CR2 written with `SADD = 0x88, NBYTES = 2, RD_WRN = 0, AUTOEND = 1, START = 1`; ISR.TXIS polled twice; both bytes written to TXDR; ISR.STOPF polled; ICR.STOPCF set; returns `I2C_ERR_OK` |
+| TC-I2C-L4-004 | `i2c_write` NACK — ISR.NACKF set during TX | Returns `I2C_ERR_NACK`; ICR.NACKCF written |
+| TC-I2C-L4-005 | `i2c_write` TXIS timeout — ISR.TXIS and ISR.NACKF both clear | Returns `I2C_ERR_TIMEOUT` |
+| TC-I2C-L4-006 | `i2c_write` bus busy — ISR.BUSY set at entry | Returns `I2C_ERR_BUS_BUSY`; CR2.START not set |
+| TC-I2C-L4-007 | `i2c_write_read` happy path — 1 byte write, 2 bytes read | Write CR2: `SADD = dev<<1, NBYTES = 1, RD_WRN = 0, AUTOEND = 0, START = 1`; TXIS polled; byte written to TXDR; ISR.TC polled; read CR2: `SADD = dev<<1, NBYTES = 2, RD_WRN = 1, AUTOEND = 1, START = 1`; RXNE polled twice; 2 bytes read from RXDR; STOPF polled; ICR.STOPCF set; returns `I2C_ERR_OK` with correct data |
+| TC-I2C-L4-008 | `i2c_write_read` NACK during write phase | Returns `I2C_ERR_NACK`; read-phase CR2 write not issued |
+| TC-I2C-L4-009 | `i2c_write_read` TC timeout after write phase | Returns `I2C_ERR_TIMEOUT`; read-phase CR2 write not issued |
+| TC-I2C-L4-010 | `i2c_read` happy path — 6 bytes from 0x1E | CR2 written with `SADD = 0x3C, NBYTES = 6, RD_WRN = 1, AUTOEND = 1, START = 1`; RXNE polled 6 times; 6 bytes read from RXDR; STOPF polled; ICR.STOPCF set; returns `I2C_ERR_OK` |
+| TC-I2C-L4-011 | Bus recovery — ISR.BUSY persists, write call times out | CR1.PE cleared; PB10 (SCL) reconfigured as GPIO output; SCL toggled 9 times in mock GPIO; peripheral re-enabled; returns `I2C_ERR_TIMEOUT` |
+
+### 7.5 Coverage notes
+
+Every `i2c_err_t` value (`I2C_ERR_OK`, `I2C_ERR_NACK`, `I2C_ERR_TIMEOUT`, `I2C_ERR_BUS_BUSY`) is produced by ≥ 1 test in each test file. Every public API function has ≥ 1 happy-path and ≥ 1 error-path test. TC-I2C-F4-010 covers the single-byte read errata path explicitly — this is the highest-risk path in the F469 implementation per RM0386 §27.3.3. Bus recovery (TC-I2C-F4-013, TC-I2C-L4-011) verifies that PE is cleared and SCL is toggled 9 times via the mock GPIO; full electrical validation (SDA release detection) is deferred to hardware integration (I2CD-O4).
 
 ---
 

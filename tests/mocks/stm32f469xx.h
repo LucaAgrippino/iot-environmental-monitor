@@ -241,6 +241,68 @@ extern RTC_TypeDef g_mock_rtc;
 #define RTC_CR_FMT (1UL << RTC_CR_FMT_Pos)
 
 /* ====================================================================== */
+/* §I2C (I2cDriver — F469 I2C v1, peripheral I2C1)                       */
+/* ====================================================================== */
+
+/* I2C v1 register layout per RM0386 §27.                                 */
+typedef struct
+{
+    volatile uint32_t CR1;   /**< Control register 1,   offset 0x00. */
+    volatile uint32_t CR2;   /**< Control register 2,   offset 0x04. */
+    volatile uint32_t OAR1;  /**< Own address 1,         offset 0x08. */
+    volatile uint32_t OAR2;  /**< Own address 2,         offset 0x0C. */
+    volatile uint32_t DR;    /**< Data register,         offset 0x10. */
+    volatile uint32_t SR1;   /**< Status register 1,     offset 0x14. */
+    volatile uint32_t SR2;   /**< Status register 2,     offset 0x18. */
+    volatile uint32_t CCR;   /**< Clock control register,offset 0x1C. */
+    volatile uint32_t TRISE; /**< Rise time register,    offset 0x20. */
+} I2C_TypeDef;
+
+extern I2C_TypeDef g_mock_i2c1;
+
+#define I2C1 (&g_mock_i2c1)
+
+/* --- RCC_APB1ENR bit — I2C1 clock enable (bit 21) -------------------- */
+#define RCC_APB1ENR_I2C1EN_Pos (21U)
+#define RCC_APB1ENR_I2C1EN     (1UL << RCC_APB1ENR_I2C1EN_Pos)
+
+/* --- I2C_CR1 bits ----------------------------------------------------- */
+#define I2C_CR1_PE_Pos    (0U)
+#define I2C_CR1_PE        (1UL << I2C_CR1_PE_Pos)
+#define I2C_CR1_START_Pos (8U)
+#define I2C_CR1_START     (1UL << I2C_CR1_START_Pos)
+#define I2C_CR1_STOP_Pos  (9U)
+#define I2C_CR1_STOP      (1UL << I2C_CR1_STOP_Pos)
+#define I2C_CR1_ACK_Pos   (10U)
+#define I2C_CR1_ACK       (1UL << I2C_CR1_ACK_Pos)
+#define I2C_CR1_SWRST_Pos (15U)
+#define I2C_CR1_SWRST     (1UL << I2C_CR1_SWRST_Pos)
+
+/* --- I2C_SR1 bits ----------------------------------------------------- */
+#define I2C_SR1_SB_Pos   (0U)
+#define I2C_SR1_SB       (1UL << I2C_SR1_SB_Pos)
+#define I2C_SR1_ADDR_Pos (1U)
+#define I2C_SR1_ADDR     (1UL << I2C_SR1_ADDR_Pos)
+#define I2C_SR1_BTF_Pos  (2U)
+#define I2C_SR1_BTF      (1UL << I2C_SR1_BTF_Pos)
+#define I2C_SR1_RXNE_Pos (6U)
+#define I2C_SR1_RXNE     (1UL << I2C_SR1_RXNE_Pos)
+#define I2C_SR1_TXE_Pos  (7U)
+#define I2C_SR1_TXE      (1UL << I2C_SR1_TXE_Pos)
+#define I2C_SR1_AF_Pos   (10U)
+#define I2C_SR1_AF       (1UL << I2C_SR1_AF_Pos)
+
+/* --- I2C_SR2 bits ----------------------------------------------------- */
+#define I2C_SR2_BUSY_Pos (1U)
+#define I2C_SR2_BUSY     (1UL << I2C_SR2_BUSY_Pos)
+
+/* --- I2C_CCR bits ----------------------------------------------------- */
+#define I2C_CCR_FS_Pos   (15U)
+#define I2C_CCR_FS       (1UL << I2C_CCR_FS_Pos)
+#define I2C_CCR_DUTY_Pos (14U)
+#define I2C_CCR_DUTY     (1UL << I2C_CCR_DUTY_Pos)
+
+/* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
 
