@@ -13,7 +13,7 @@
 #include <stdint.h>
 
 /** BKP0R allocated for sync-flag persistence (LLD-D16). */
-#define TIME_PROVIDER_BKUP_REG   (0U)
+#define TIME_PROVIDER_BKUP_REG (0U)
 
 /** Magic value stored in BKP0R when synchronised (LLD-D16). */
 #define TIME_PROVIDER_SYNC_MAGIC (0xA5A55A5AUL)

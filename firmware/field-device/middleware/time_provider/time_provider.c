@@ -248,7 +248,7 @@ time_provider_err_t time_provider_set_time(uint32_t new_epoch)
         rtc_err = rtc_driver->get_time(&current_dt);
         if (rtc_err != RTC_OK)
         {
-        	(void) xSemaphoreGive(s_tp.mutex);
+            (void) xSemaphoreGive(s_tp.mutex);
             LOG_WARN(MODULE_TAG, "Sanity-check RTC read failed: %d", (int) rtc_err);
             return TIME_PROVIDER_ERR_RTC_FAIL;
         }
