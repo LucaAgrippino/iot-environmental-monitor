@@ -52,6 +52,12 @@
   :test_i2c_driver_l4:
     - STM32L475xx
     - TEST
+  :test_barometer_driver:
+    - STM32F469xx
+    - TEST
+  :test_humidity_temp_driver:
+    - STM32F469xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
