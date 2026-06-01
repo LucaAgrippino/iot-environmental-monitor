@@ -64,15 +64,17 @@
 #include <stdbool.h>
 
 #include "stm32f469xx.h"
+#include "system_clock.h"
+
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "gpio_driver.h"
-#include "led_driver.h"
-#include "debug_uart_driver.h"
-#include "rtc_driver.h"
-#include "logger.h"
-#include "i2c_driver.h"
+#include "gpio/gpio_driver.h"
+#include "led/led_driver.h"
+#include "debug-uart/debug_uart_driver.h"
+#include "rtc/rtc_driver.h"
+#include "logger/logger.h"
+#include "i2c/i2c_driver.h"
 
 /* --------------------------------------------------------------------- */
 /* Constants                                                              */
@@ -86,6 +88,16 @@
 
 #define TEST_TASK_STACK_WORDS (256U)
 #define TEST_TASK_PRIORITY    (1U)
+
+#define LOG_MODULE  ("i2c")
+/* ===================================================================== */
+/* Board pin table (Field Device — STM32F469I-DISCO)                    */
+/* ===================================================================== */
+
+static const led_pin_t k_fd_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = GPIO_PORT_G, .pin =  6U, .active_high = false, .fitted = true},
+    [LED_RED]   = {.port = GPIO_PORT_D, .pin =  5U, .active_high = false, .fitted = true},
+};
 
 /* --------------------------------------------------------------------- */
 /* Integration test task                                                  */
@@ -103,7 +115,7 @@ static void i2c_test_task(void *arg)
     for (;;)
     {
         tick++;
-        LOG_INFO("[I2C-task] tick %u", (unsigned) tick);
+        LOG_INFO(LOG_MODULE,"[I2C-task] tick %u", (unsigned) tick);
         led_toggle(LED_GREEN);
         vTaskDelay(pdMS_TO_TICKS(1000U));
     }
@@ -118,29 +130,29 @@ int main(void)
     /* ---- Init chain ---- */
     system_clock_init();
     gpio_init();
-    led_init();
+    (void)led_init(k_fd_led_pins, LED_COUNT);
     debug_uart_init();
     rtc_init();
-    logger_init(rtc_driver);
+    logger_init(LOG_LVL_DEBUG);
 
-    LOG_INFO("[I2C] ===== I2cDriver integration test =====");
+    LOG_INFO(LOG_MODULE,"[I2C] ===== I2cDriver integration test =====");
 
     /* ---- i2c_init ---- */
     i2c_err_t err = i2c_init();
     if (err == I2C_ERR_OK)
     {
-        LOG_INFO("[I2C] i2c_init OK");
+        LOG_INFO(LOG_MODULE,"[I2C] i2c_init OK");
     }
     else
     {
-        LOG_ERROR("[I2C] i2c_init FAILED err=%u", (unsigned) err);
+        LOG_ERROR(LOG_MODULE, "[I2C] i2c_init FAILED err=%u", (unsigned) err);
     }
 
     /* ---- Phase 1: bus idle check ---- */
     /* If init succeeds the peripheral is enabled and BUSY should be clear
      * (no transaction in progress). A write with a zero-length placeholder
      * would immediately return BUS_BUSY if the bus is stuck.              */
-    LOG_INFO("[I2C] Phase 1: bus idle -- BUSY clear after init");
+    LOG_INFO(LOG_MODULE,"[I2C] Phase 1: bus idle -- BUSY clear after init");
 
     /* ---- Phase 2: i2c_write (set touch threshold register) ---- */
     {
@@ -148,11 +160,11 @@ int main(void)
         err = i2c_write(FT6206_ADDR, tx, 2U);
         if (err == I2C_ERR_OK)
         {
-            LOG_INFO("[I2C] Phase 2: i2c_write OK (wrote threshold register)");
+            LOG_INFO(LOG_MODULE,"[I2C] Phase 2: i2c_write OK (wrote threshold register)");
         }
         else
         {
-            LOG_ERROR("[I2C] Phase 2: i2c_write FAILED err=%u (check pin "
+            LOG_ERROR(LOG_MODULE, "[I2C] Phase 2: i2c_write FAILED err=%u (check pin "
                       "assignment I2CD-O3)", (unsigned) err);
         }
     }
@@ -166,19 +178,19 @@ int main(void)
         {
             if (chip_id == FT6206_CHIP_ID_VAL)
             {
-                LOG_INFO("[I2C] Phase 3: chip_id=0x%02X (expected 0x06) PASS",
+                LOG_INFO(LOG_MODULE,"[I2C] Phase 3: chip_id=0x%02X (expected 0x06) PASS",
                          (unsigned) chip_id);
             }
             else
             {
-                LOG_WARN("[I2C] Phase 3: chip_id=0x%02X (expected 0x06) FAIL "
+                LOG_WARN(LOG_MODULE,"[I2C] Phase 3: chip_id=0x%02X (expected 0x06) FAIL "
                          "-- check I2CD-O3 pin assignment",
                          (unsigned) chip_id);
             }
         }
         else
         {
-            LOG_ERROR("[I2C] Phase 3: i2c_write_read FAILED err=%u",
+            LOG_ERROR(LOG_MODULE,"[I2C] Phase 3: i2c_write_read FAILED err=%u",
                       (unsigned) err);
         }
     }
@@ -191,12 +203,12 @@ int main(void)
         err = i2c_write_read(FT6206_ADDR, &reg, 1U, &fw_ver, 1U);
         if (err == I2C_ERR_OK)
         {
-            LOG_INFO("[I2C] Phase 4: fw_ver=0x%02X (any non-zero is OK)",
+            LOG_INFO(LOG_MODULE,"[I2C] Phase 4: fw_ver=0x%02X (any non-zero is OK)",
                      (unsigned) fw_ver);
         }
         else
         {
-            LOG_ERROR("[I2C] Phase 4: i2c_read FAILED err=%u", (unsigned) err);
+            LOG_ERROR(LOG_MODULE,"[I2C] Phase 4: i2c_read FAILED err=%u", (unsigned) err);
         }
     }
 
@@ -209,15 +221,15 @@ int main(void)
         const uint8_t dummy[1] = {0x00U};
         -- Artificially block SDA to prevent bus idle (hardware modification) --
         err = i2c_write(0x00U, dummy, 1U);  / unaddressed device, will timeout /
-        LOG_INFO("[I2C] Phase 5: forced-timeout recovery done, err=%u",
+        LOG_INFO(LOG_MODULE,"[I2C] Phase 5: forced-timeout recovery done, err=%u",
                  (unsigned) err);
         err = i2c_write(FT6206_ADDR, dummy, 0U);
         if (err == I2C_ERR_OK) {
-            LOG_INFO("[I2C] Phase 5: subsequent i2c_write OK (bus recovered)");
+            LOG_INFO(LOG_MODULE,"[I2C] Phase 5: subsequent i2c_write OK (bus recovered)");
         }
     }
     */
-    LOG_INFO("[I2C] Phase 5: skipped (requires logic analyser + hardware "
+    LOG_INFO(LOG_MODULE,"[I2C] Phase 5: skipped (requires logic analyser + hardware "
              "modification; see comment in test file)");
 
     /* ---- Phase 6: vtable access ---- */
@@ -227,12 +239,12 @@ int main(void)
         err = i2c_driver->write_read(FT6206_ADDR, &reg, 1U, &chip_id, 1U);
         if (err == I2C_ERR_OK)
         {
-            LOG_INFO("[I2C] Phase 6: vtable write_read OK, chip_id=0x%02X",
+            LOG_INFO(LOG_MODULE,"[I2C] Phase 6: vtable write_read OK, chip_id=0x%02X",
                      (unsigned) chip_id);
         }
         else
         {
-            LOG_ERROR("[I2C] Phase 6: vtable write_read FAILED err=%u",
+            LOG_ERROR(LOG_MODULE, "[I2C] Phase 6: vtable write_read FAILED err=%u",
                       (unsigned) err);
         }
     }
