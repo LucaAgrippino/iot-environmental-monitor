@@ -37,26 +37,26 @@
 #include "rtc/rtc_driver.h"
 #include "logger/logger.h"
 
-#include "drivers/barometer_driver/barometer_driver.h"
-#include "drivers/humidity_temp_driver/humidity_temp_driver.h"
+#include "barometer_driver/barometer_driver.h"
+#include "humidity_temp_driver/humidity_temp_driver.h"
 
 /* ===================================================================== */
 /* Configuration                                                         */
 /* ===================================================================== */
 
 #define SENSOR_STACK_WORDS (384U)
-#define SENSOR_PRIORITY    (tskIDLE_PRIORITY + 2U)
+#define SENSOR_PRIORITY (tskIDLE_PRIORITY + 2U)
 
-#define HAPPY_PATH_READS  (10U)
-#define FAULT_READS       (3U)
-#define RECOVERY_READS    (3U)
+#define HAPPY_PATH_READS (10U)
+#define FAULT_READS (3U)
+#define RECOVERY_READS (3U)
 
 /* ===================================================================== */
 /* Sensor task                                                           */
 /* ===================================================================== */
 
 static StaticTask_t s_sensor_tcb;
-static StackType_t  s_sensor_stack[SENSOR_STACK_WORDS];
+static StackType_t s_sensor_stack[SENSOR_STACK_WORDS];
 
 static void sensor_task(void *arg)
 {
@@ -70,22 +70,19 @@ static void sensor_task(void *arg)
         {
             /* Happy-path sampling. */
             baro_reading_t baro = {0};
-            ht_reading_t   ht   = {0};
+            ht_reading_t ht = {0};
 
             baro_err_t berr = barometer_read(&baro);
-            ht_err_t   herr = humidity_temp_read(&ht);
+            ht_err_t herr = humidity_temp_read(&ht);
 
             if ((BARO_ERR_OK == berr) && (HT_ERR_OK == herr))
             {
-                LOG_INFO("SensorTask", "BARO ok p=%ld  T=%ld H=%lu",
-                         (long) baro.pressure_x10,
-                         (long) ht.temperature_x100,
-                         (unsigned long) ht.humidity_x100);
+                LOG_INFO("SensorTask", "BARO ok p=%ld  T=%ld H=%lu", (long) baro.pressure_x10,
+                         (long) ht.temperature_x100, (unsigned long) ht.humidity_x100);
             }
             else
             {
-                LOG_WARN("SensorTask", "Unexpected error: BARO=%d HT=%d",
-                         (int) berr, (int) herr);
+                LOG_WARN("SensorTask", "Unexpected error: BARO=%d HT=%d", (int) berr, (int) herr);
             }
 
             count++;
@@ -102,10 +99,10 @@ static void sensor_task(void *arg)
         {
             /* Fault-injection phase. */
             baro_reading_t baro = {0};
-            ht_reading_t   ht   = {0};
+            ht_reading_t ht = {0};
 
             baro_err_t berr = barometer_read(&baro);
-            ht_err_t   herr = humidity_temp_read(&ht);
+            ht_err_t herr = humidity_temp_read(&ht);
 
             if ((BARO_ERR_FAULT == berr) && (HT_ERR_FAULT == herr))
             {
@@ -113,8 +110,8 @@ static void sensor_task(void *arg)
             }
             else
             {
-                LOG_ERROR("SensorTask", "Expected faults but got: BARO=%d HT=%d",
-                          (int) berr, (int) herr);
+                LOG_ERROR("SensorTask", "Expected faults but got: BARO=%d HT=%d", (int) berr,
+                          (int) herr);
             }
 
             count++;
@@ -131,17 +128,15 @@ static void sensor_task(void *arg)
         {
             /* Recovery reads. */
             baro_reading_t baro = {0};
-            ht_reading_t   ht   = {0};
+            ht_reading_t ht = {0};
 
             baro_err_t berr = barometer_read(&baro);
-            ht_err_t   herr = humidity_temp_read(&ht);
+            ht_err_t herr = humidity_temp_read(&ht);
 
             if ((BARO_ERR_OK == berr) && (HT_ERR_OK == herr))
             {
-                LOG_INFO("SensorTask", "BARO ok p=%ld  T=%ld H=%lu",
-                         (long) baro.pressure_x10,
-                         (long) ht.temperature_x100,
-                         (unsigned long) ht.humidity_x100);
+                LOG_INFO("SensorTask", "BARO ok p=%ld  T=%ld H=%lu", (long) baro.pressure_x10,
+                         (long) ht.temperature_x100, (unsigned long) ht.humidity_x100);
             }
 
             count++;
@@ -156,15 +151,13 @@ static void sensor_task(void *arg)
         {
             /* Steady-state 1 Hz polling. */
             baro_reading_t baro = {0};
-            ht_reading_t   ht   = {0};
+            ht_reading_t ht = {0};
 
             (void) barometer_read(&baro);
             (void) humidity_temp_read(&ht);
 
-            LOG_INFO("SensorTask", "p=%ld T=%ld H=%lu",
-                     (long) baro.pressure_x10,
-                     (long) ht.temperature_x100,
-                     (unsigned long) ht.humidity_x100);
+            LOG_INFO("SensorTask", "p=%ld T=%ld H=%lu", (long) baro.pressure_x10,
+                     (long) ht.temperature_x100, (unsigned long) ht.humidity_x100);
         }
 
         vTaskDelay(pdMS_TO_TICKS(1000U));
@@ -191,8 +184,8 @@ int main(void)
     LOG_INFO("Boot", "===== Simulated Sensors integration test =====");
     LOG_INFO("Boot", "BARO init OK | HT init OK");
 
-    (void) xTaskCreateStatic(sensor_task, "SensorTask", SENSOR_STACK_WORDS, NULL,
-                             SENSOR_PRIORITY, s_sensor_stack, &s_sensor_tcb);
+    (void) xTaskCreateStatic(sensor_task, "SensorTask", SENSOR_STACK_WORDS, NULL, SENSOR_PRIORITY,
+                             s_sensor_stack, &s_sensor_tcb);
 
     vTaskStartScheduler();
 
