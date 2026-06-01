@@ -15,7 +15,7 @@ static bool s_fault_injected = false;
 
 BARO_TEST_VISIBLE int32_t random_delta(void)
 {
-    return (int32_t) (rand() % 4) - 2;
+    return (int32_t) (rand() % 5) - 2;
 }
 
 /* ------------------------------------------------------------------ */
