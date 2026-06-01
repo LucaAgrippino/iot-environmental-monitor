@@ -43,6 +43,9 @@
     - STM32F469xx
     - TEST
     - UNIT_TEST
+  :test_time_provider:
+    - STM32F469xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
