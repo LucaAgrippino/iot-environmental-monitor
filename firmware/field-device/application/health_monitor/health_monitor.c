@@ -56,8 +56,8 @@ _Static_assert(sizeof(device_health_snapshot_t) <= 512U,
 
 typedef enum
 {
-    HM_LED_OFF       = 0U,
-    HM_LED_ON        = 1U,
+    HM_LED_OFF = 0U,
+    HM_LED_ON = 1U,
     HM_LED_BLINK_SLOW = 2U,
     HM_LED_BLINK_FAST = 3U,
 } hm_led_target_t;
