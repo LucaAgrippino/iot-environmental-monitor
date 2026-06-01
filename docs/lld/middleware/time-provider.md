@@ -5,10 +5,10 @@
 **Provides:** `ITimeProvider`  
 **Consumes:** `IRtc` (RtcDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212  
-**HLD ref:** `components.md` §Middleware — TimeProvider; `hld.md` §5.2, §5.5
-**Version:** 0.1
-**Date:** May 2026
-**Status:** Draft
+**HLD ref:** `components.md` §Middleware — TimeProvider; `hld.md` §5.2, §5.5  
+**Version:** 1.0  
+**Date:** May 2026  
+**Status:** Released
 
 **HLD anchor:** TimeProvider in `components.md` (FD + GW middleware layer)
 
@@ -74,7 +74,7 @@ sync flag is threaded through layers.
 
 ---
 
-## 2. Public API — `ITimeProvider`
+## 3. Public API — `ITimeProvider`
 
 ```c
 /**
@@ -88,7 +88,7 @@ sync flag is threaded through layers.
  * @return TIME_PROVIDER_ERR_OK or TIME_PROVIDER_ERR_RTC_FAIL.
  * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
-time_provider_err_t time_provider_init(IHealthReport *health);
+time_provider_err_t time_provider_init(const ihealth_report_t *health);
 
 /**
  * @brief  Get the current timestamp.
@@ -110,6 +110,8 @@ time_provider_err_t time_provider_get(time_provider_ts_t *ts_out);
  * Sanity-check: if |new_epoch - rtc_current| > TIME_PROVIDER_SANITY_DELTA_S,
  * the update is rejected and TIME_PROVIDER_ERR_RTC_FAIL is returned. The
  * threshold is defined in time_provider_config.h (TBD — see TP-O3).
+ * The sanity check is skipped when sync_state == TIME_SYNC_UNSYNCHRONISED
+ * (first sync after cold boot must succeed regardless of RTC default date).
  *
  * Thread-safe.
  *
@@ -145,7 +147,7 @@ time_sync_state_t time_provider_get_sync_state(void);
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-    time_provider_err_t (*init)(IHealthReport *health);
+    time_provider_err_t (*init)(const ihealth_report_t *health);
     time_provider_err_t (*get)(time_provider_ts_t *ts_out);
     time_provider_err_t (*set_time)(uint32_t new_epoch);
     time_provider_err_t (*mark_unsynchronised)(void);
@@ -155,6 +157,71 @@ typedef struct {
 /** Singleton pointer to the TimeProvider vtable (FD + GW). */
 extern const itime_provider_t * const time_provider;
 ```
+
+### Internal design
+
+```c
+/* time_provider.c — static module state */
+typedef struct {
+    bool                  initialised;
+    time_sync_state_t     sync_state;
+    const ihealth_report_t *health;
+    StaticSemaphore_t     mutex_buf;
+    SemaphoreHandle_t     mutex;   /* FreeRTOS mutex, priority inheritance enabled */
+} time_provider_state_t;
+
+static time_provider_state_t s_tp;
+```
+
+All public functions acquire `s_tp.mutex` before accessing `sync_state` or
+calling `rtc_*`. The mutex is created in `time_provider_init()` — never
+dynamically after init (P8: no post-init dynamic allocation).
+
+`time_provider_get_sync_state()` reads `s_tp.sync_state` under the mutex and
+returns a copy. No RTC access.
+
+#### Synchronisation
+
+This component uses an internal mutex to serialise concurrent callers. The
+mutex is created during `_init()` and held only for the duration of each
+guarded operation (bounded, short hold time). All public functions are
+task-safe but not ISR-safe. The health event push (`push_event`) is performed
+**after** releasing the mutex to avoid priority inversion between TimeProvider
+and HealthMonitor mutexes.
+
+#### Function-level pre- and post-conditions
+
+Each public function (except `init`) verifies `s_tp.initialised` and returns
+`TIME_PROVIDER_ERR_NOT_INIT` on failure before acquiring the mutex.
+`time_provider_get()` additionally checks `ts_out != NULL` and returns
+`TIME_PROVIDER_ERR_NULL_ARG` before acquiring the mutex.
+
+All error paths release the mutex before returning. See §7 (unit-test plan)
+for the exhaustive error-path coverage requirements.
+
+#### Principles applied
+
+- **P1 (Strict directional layering).** Depends on IRtc (driver layer); IHealthReport and ILogger are cross-cutting exceptions (P4).
+- **P2 (Dependency Inversion).** Exposes `itime_provider_t` vtable singleton (LLD-D10); all consumers depend on `ITimeProvider`. Backup-register access is through `irtc_t` vtable calls (LLD-D16), not direct register access.
+- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Single static `time_provider_state_t` struct; FreeRTOS mutex created once in `time_provider_init()` and never freed.
+- **P6 (Responsibility traces to requirements).** `time_provider_get()` and `time_provider_set_time()` trace to REQ-TS-040 / REQ-NF-210-212 timestamping requirements.
+- **P7 (Pull-based downstream consumption).** All consumers call `time_provider_get()` on their own task schedule; TimeProvider does not push time values to any consumer.
+- **P8 (Total error propagation, no silent failures).** All public functions return `time_provider_err_t`; RTC driver errors propagated; sanity-delta check returns a distinct error code.
+- **P9 (BARR-C coding standard).** Unix epoch `uint32_t`; sync-flag magic `uint32_t`; mutex handle opaque pointer; no floating-point.
+- **P10 (Naming conventions).** Prefix `time_provider_`; interface `ITimeProvider` -> `itime_provider_t`; errors `TIME_PROVIDER_ERR_*`.
+
+### Error and fault behaviour
+
+All public functions return `time_provider_err_t`; callers must not ignore
+non-OK returns. No retry is performed by TimeProvider — TimeService decides
+the retry and logging policy.
+
+| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
+|---|---|---|---|---|---|
+| `TIME_PROVIDER_ERR_NOT_INIT` | Function called before `time_provider_init()` | Return error; no RTC access | Non-OK return | No retry — programming error; boot sequence must initialise TimeProvider after RtcDriver | Caller logs at ERROR via ILogger |
+| `TIME_PROVIDER_ERR_RTC_FAIL` | `rtc_get_time()` or `rtc_set_time()` returned a non-OK code | Return error; time value not updated | Non-OK return | No retry by TimeProvider — TimeService may retry after a brief delay | Logged at WARN via ILogger |
+| `TIME_PROVIDER_ERR_NULL_ARG` | Null pointer passed to an output parameter | Return error; no RTC access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
 
 ---
 
@@ -256,70 +323,46 @@ of successful vs failed NTP queries) are not owned here — they belong to
 
 ---
 
-## 3. Internal design
+## 7. Unit-test plan
+
+Inject the `rtc_driver` mock vtable and a stub `ihealth_report_t` in `setUp()`:
 
 ```c
-/* time_provider.c — static module state */
-typedef struct {
-    bool              initialised;
-    time_sync_state_t sync_state;
-    IHealthReport    *health;
-    SemaphoreHandle_t mutex;   /* FreeRTOS mutex, priority inheritance enabled */
-} TimeProviderState;
-
-static TimeProviderState s_tp;
+/* For tests compiled on the host (no RTC hardware) */
+#ifdef TEST
+/* Replace rtc_driver singleton with a mock vtable (LLD-D10). */
+static irtc_t s_mock_rtc;
+void setUp(void) {
+    s_mock_rtc.get_time        = stub_rtc_read;
+    s_mock_rtc.set_time        = stub_rtc_write;
+    s_mock_rtc.read_backup     = stub_rtc_bkup_read;
+    s_mock_rtc.write_backup    = stub_rtc_bkup_write;
+    s_mock_rtc.is_backup_valid = stub_rtc_is_backup_valid;
+    *(const irtc_t **)&rtc_driver = &s_mock_rtc;
+}
+#endif /* TEST */
 ```
 
-All public functions acquire `s_tp.mutex` before accessing `sync_state` or
-calling `rtc_*`. The mutex is created in `time_provider_init()` — never
-dynamically after init (P8: no post-init dynamic allocation).
+Minimum test cases (TC-TP-001 to TC-TP-010):
 
-`time_provider_get_sync_state()` reads `s_tp.sync_state` under the mutex and
-returns a copy. No RTC access.
+| ID | Function | Stimulus | Expected result |
+|----|----------|----------|-----------------|
+| TC-TP-001 | `time_provider_get()` | Called before `time_provider_init()` | Returns `TIME_PROVIDER_ERR_NOT_INIT` |
+| TC-TP-002 | `time_provider_get()` | Called after `init()`, no `set_time()` called yet | Returns `TIME_PROVIDER_ERR_OK`; `ts.sync_state == TIME_SYNC_UNSYNCHRONISED`; `ts.epoch` equals uptime seconds |
+| TC-TP-003 | `time_provider_get()` | `ts_out` argument is `NULL` | Returns `TIME_PROVIDER_ERR_NULL_ARG` |
+| TC-TP-004 | `time_provider_set_time()` | First call with a valid epoch; state is `UNSYNCHRONISED` | Returns `TIME_PROVIDER_ERR_OK`; state transitions to `TIME_SYNC_SYNCHRONISED`; `HEALTH_EVENT_TIME_SYNC_ACQUIRED` pushed exactly once |
+| TC-TP-005 | `time_provider_set_time()` | Called again while already `SYNCHRONISED`; delta within threshold | Returns `TIME_PROVIDER_ERR_OK`; event **not** pushed again |
+| TC-TP-006 | `time_provider_mark_unsynchronised()` | Called while `SYNCHRONISED` | Returns `TIME_PROVIDER_ERR_OK`; state transitions to `TIME_SYNC_UNSYNCHRONISED`; `HEALTH_EVENT_TIME_SYNC_LOST` pushed exactly once |
+| TC-TP-007 | `time_provider_mark_unsynchronised()` | Called while already `UNSYNCHRONISED` | Returns `TIME_PROVIDER_ERR_OK`; event **not** pushed |
+| TC-TP-008 | `time_provider_set_time()` | `\|new_epoch − rtc_current\|` > `TIME_PROVIDER_SANITY_DELTA_S` while `SYNCHRONISED` | Returns `TIME_PROVIDER_ERR_RTC_FAIL`; sync state unchanged |
+| TC-TP-009 | `time_provider_init()` | Backup register BKP0R contains `TIME_PROVIDER_SYNC_MAGIC` | Returns `TIME_PROVIDER_ERR_OK`; initial state is `TIME_SYNC_SYNCHRONISED` |
+| TC-TP-010 | `time_provider_init()` | Backup register BKP0R does not contain magic value | Returns `TIME_PROVIDER_ERR_OK`; initial state is `TIME_SYNC_UNSYNCHRONISED` |
 
 ---
 
-
-### Synchronisation
-
-This component uses an internal mutex to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
-
-### time_provider_init
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### time_provider_get
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### time_provider_set_time
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### time_provider_mark_unsynchronised
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### time_provider_get_sync_state
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### Principles applied
-
-- **P1 (Strict directional layering).** Depends on IRtc (driver layer); IHealthReport and ILogger are cross-cutting exceptions (P4).
-- **P2 (Dependency Inversion).** Exposes `itime_provider_t` vtable singleton (LLD-D10); all consumers depend on `ITimeProvider`. Backup-register access is through `irtc_t` vtable calls (LLD-D16), not direct register access.
-- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Single static `TimeProviderState` struct; FreeRTOS mutex created once in `time_provider_init()` and never freed.
-- **P6 (Responsibility traces to requirements).** `time_provider_get()` and `time_provider_set_time()` trace to REQ-TS-040 / REQ-NF-210-212 timestamping requirements.
-- **P7 (Pull-based downstream consumption).** All consumers call `time_provider_get()` on their own task schedule; TimeProvider does not push time values to any consumer.
-- **P8 (Total error propagation, no silent failures).** All public functions return `time_provider_err_t`; RTC driver errors propagated; sanity-delta check returns a distinct error code.
-- **P9 (BARR-C coding standard).** Unix epoch `uint32_t`; sync-flag magic `uint32_t`; mutex handle opaque pointer; no floating-point.
-- **P10 (Naming conventions).** Prefix `time_provider_`; interface `ITimeProvider` -> `itime_provider_t`; errors `TIME_PROVIDER_ERR_*`.
-
-
 ## 8. Init sequence and boot ordering
 
-```
+```text
 rtc_init()           ← driver layer already up
 logger_init()        ← Logger uses RtcDriver directly (bootstrap exception)
 time_provider_init() ← now safe: RtcDriver ready, Logger ready
@@ -334,57 +377,7 @@ in UNSYNCHRONISED state regardless.
 
 ---
 
-## 5. Sequence integration
-
-See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
-
-## 6. Error and fault behaviour
-
-All public functions return `time_provider_err_t`; callers must not ignore
-non-OK returns.  No retry is performed by TimeProvider — TimeService decides
-the retry and logging policy.
-
-| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
-|---|---|---|---|---|---|
-| `TIME_PROVIDER_ERR_NOT_INIT` | Function called before `time_provider_init()` | Return error; no RTC access | Non-OK return | No retry — programming error; boot sequence must initialise TimeProvider after RtcDriver | Caller logs at ERROR via ILogger |
-| `TIME_PROVIDER_ERR_RTC_FAIL` | `rtc_get_time()` or `rtc_set_time()` returned a non-OK code (e.g., `RTC_ERR_SYNC_TIMEOUT`) | Return error; time value not updated | Non-OK return | No retry by TimeProvider — TimeService may retry after a brief delay; persistent failure triggers `HEALTH_EVENT_TIME_SYNC_LOST` | Logged at WARN via ILogger; IHealthReport event on repeated failures |
-| `TIME_PROVIDER_ERR_NULL_ARG` | Null pointer passed to an output parameter | Return error; no RTC access | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
-
-
-## 7. Unit-test plan
-
-```c
-/* For tests compiled on the host (no RTC hardware) */
-#ifdef UNIT_TEST
-/* Replace rtc_driver singleton with a mock vtable (LLD-D10). */
-static irtc_t s_mock_rtc;
-void setUp(void) {
-    s_mock_rtc.get_time      = stub_rtc_read;
-    s_mock_rtc.set_time      = stub_rtc_write;
-    s_mock_rtc.read_backup   = stub_rtc_bkup_read;
-    s_mock_rtc.write_backup  = stub_rtc_bkup_write;
-    s_mock_rtc.is_backup_valid = stub_rtc_is_backup_valid;
-    *(const irtc_t **)&rtc_driver = &s_mock_rtc;
-}
-#endif /* UNIT_TEST */
-```
-
-Test cases to cover at minimum:
-- `time_provider_get()` returns UNSYNCHRONISED + uptime epoch before any
-  `set_time()` call.
-- `time_provider_set_time()` transitions state to SYNCHRONISED and pushes
-  `HEALTH_EVENT_TIME_SYNC_ACQUIRED` exactly once.
-- Repeated `set_time()` calls do not push the event again.
-- `time_provider_mark_unsynchronised()` transitions back and pushes
-  `HEALTH_EVENT_TIME_SYNC_LOST` exactly once.
-- Sanity-check rejection: `set_time()` with delta > `TIME_PROVIDER_SANITY_DELTA_S`
-  returns `TIME_PROVIDER_ERR_RTC_FAIL` and does not change state.
-- Init with magic backup register → starts SYNCHRONISED; without → starts
-  UNSYNCHRONISED.
-
----
-
-## 10. Per-board notes
+## 9. Per-board notes
 
 ### Field Device
 
@@ -407,7 +400,7 @@ the primary validation path.
 
 ---
 
-## 8. Open items
+## 10. Open items
 
 | ID | Item | Resolution path | Status |
 |--------|------|-----------------|--------|
