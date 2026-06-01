@@ -43,20 +43,20 @@ const irtc_t *rtc_driver = NULL;
 /* Health report mock                                                       */
 /* ======================================================================= */
 
-static uint32_t       g_health_push_calls;
+static uint32_t g_health_push_calls;
 static health_event_t g_health_last_event;
 
 static health_monitor_err_t stub_push_event(health_event_t event, uint32_t param)
 {
-    (void)param;
+    (void) param;
     g_health_push_calls++;
     g_health_last_event = event;
     return HEALTH_MONITOR_ERR_OK;
 }
 
 static const ihealth_report_t s_stub_health = {
-    .init        = NULL,
-    .push_event  = stub_push_event,
+    .init = NULL,
+    .push_event = stub_push_event,
 };
 
 const ihealth_report_t *const health_report = &s_stub_health;
@@ -64,7 +64,7 @@ const ihealth_report_t *const health_report = &s_stub_health;
 static void health_mock_reset(void)
 {
     g_health_push_calls = 0U;
-    g_health_last_event = (health_event_t)0xFFU;
+    g_health_last_event = (health_event_t) 0xFFU;
 }
 
 /* ======================================================================= */
@@ -72,47 +72,56 @@ static void health_mock_reset(void)
 /* ======================================================================= */
 
 static baro_err_t g_baro_read_ret;
-static int32_t    g_baro_pressure_x10;
+static int32_t g_baro_pressure_x10;
 
-baro_err_t stub_baro_init(void) { return BARO_ERR_OK; }
+baro_err_t stub_baro_init(void)
+{
+    return BARO_ERR_OK;
+}
 
 baro_err_t stub_baro_read(baro_reading_t *r)
 {
-    if (r != NULL) { r->pressure_x10 = g_baro_pressure_x10; }
+    if (r != NULL)
+    {
+        r->pressure_x10 = g_baro_pressure_x10;
+    }
     return g_baro_read_ret;
 }
 
 static void baro_stub_reset(void)
 {
-    g_baro_read_ret      = BARO_ERR_OK;
-    g_baro_pressure_x10  = 10132; /* 1013.2 hPa — standard atmosphere */
+    g_baro_read_ret = BARO_ERR_OK;
+    g_baro_pressure_x10 = 10132; /* 1013.2 hPa — standard atmosphere */
 }
 
 /* ======================================================================= */
 /* HumidityTemp driver stub                                                 */
 /* ======================================================================= */
 
-static ht_err_t  g_ht_read_ret;
-static int32_t   g_ht_temp_x100;
-static uint32_t  g_ht_hum_x100;
+static ht_err_t g_ht_read_ret;
+static int32_t g_ht_temp_x100;
+static uint32_t g_ht_hum_x100;
 
-ht_err_t stub_ht_init(void) { return HT_ERR_OK; }
+ht_err_t stub_ht_init(void)
+{
+    return HT_ERR_OK;
+}
 
 ht_err_t stub_ht_read(ht_reading_t *r)
 {
     if (r != NULL)
     {
         r->temperature_x100 = g_ht_temp_x100;
-        r->humidity_x100    = g_ht_hum_x100;
+        r->humidity_x100 = g_ht_hum_x100;
     }
     return g_ht_read_ret;
 }
 
 static void ht_stub_reset(void)
 {
-    g_ht_read_ret  = HT_ERR_OK;
-    g_ht_temp_x100 = 2200;  /* 22.00 °C */
-    g_ht_hum_x100  = 5000U; /* 50.00 %RH */
+    g_ht_read_ret = HT_ERR_OK;
+    g_ht_temp_x100 = 2200; /* 22.00 °C */
+    g_ht_hum_x100 = 5000U; /* 50.00 %RH */
 }
 
 /* ======================================================================= */
@@ -123,14 +132,17 @@ static time_provider_ts_t g_ts;
 
 time_provider_err_t stub_time_get(time_provider_ts_t *ts)
 {
-    if (ts != NULL) { *ts = g_ts; }
+    if (ts != NULL)
+    {
+        *ts = g_ts;
+    }
     return TIME_PROVIDER_ERR_OK;
 }
 
 static void ts_stub_reset(void)
 {
-    (void)memset(&g_ts, 0, sizeof(g_ts));
-    g_ts.epoch      = 1000UL;
+    (void) memset(&g_ts, 0, sizeof(g_ts));
+    g_ts.epoch = 1000UL;
     g_ts.sync_state = TIME_SYNC_SYNCHRONISED;
 }
 
@@ -138,12 +150,12 @@ static void ts_stub_reset(void)
 /* Subscriber callback spy                                                  */
 /* ======================================================================= */
 
-static bool              g_cb_called;
+static bool g_cb_called;
 static sensor_snapshot_t g_cb_snapshot;
 
 static void snapshot_cb(const sensor_snapshot_t *snap)
 {
-    g_cb_called   = true;
+    g_cb_called = true;
     g_cb_snapshot = *snap;
 }
 
@@ -159,11 +171,13 @@ void setUp(void)
     ht_stub_reset();
     ts_stub_reset();
     g_cb_called = false;
-    (void)memset(&g_cb_snapshot, 0, sizeof(g_cb_snapshot));
+    (void) memset(&g_cb_snapshot, 0, sizeof(g_cb_snapshot));
     sensor_service_reset_for_test();
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 /* ======================================================================= */
 /* Helper: initialise then set alpha to default directly                    */
@@ -239,7 +253,7 @@ void test_TC_SS_003_range_violation_valid_false_clamped_feeds_filter(void)
     /* Set temperature above range_max (85°C → 8500 in x100 units).
      * Use 9000 (90.00°C) — above the 85°C range limit. */
     g_ht_temp_x100 = 9000; /* 90.00°C — out of range */
-    g_ht_hum_x100  = 5000U;
+    g_ht_hum_x100 = 5000U;
 
     sensor_service_err_t err = sensor_service_run_cycle();
     TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, err);
@@ -276,7 +290,7 @@ void test_TC_SS_004_iir_filter_single_step_known_values(void)
 
     /* Force alpha = 0.2 and prev_filtered[TEMP] = 10.0 for a known result. */
     sensor_service_set_alpha_for_test(0.2f);
-    sensor_service_set_prev_filtered_for_test((int)SENSOR_ID_TEMPERATURE, 10.0f);
+    sensor_service_set_prev_filtered_for_test((int) SENSOR_ID_TEMPERATURE, 10.0f);
 
     /* Set stub to return 30.00°C (in-range). */
     g_ht_temp_x100 = 3000;
@@ -317,8 +331,7 @@ void test_TC_SS_005_get_snapshot_returns_copy(void)
 
     /* snap2 should still reflect the internal state (cycle_count = 1) */
     TEST_ASSERT_EQUAL_UINT32(1U, snap2.cycle_count);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f,
-                             0.1f * (2500.0f / 100.0f),
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.1f * (2500.0f / 100.0f),
                              snap2.readings[SENSOR_ID_TEMPERATURE].value);
 }
 
@@ -352,7 +365,7 @@ void test_TC_SS_007_callback_fired_with_correct_snapshot(void)
     sensor_service_subscribe(snapshot_cb);
 
     g_ht_temp_x100 = 2200; /* 22.00°C */
-    g_ht_hum_x100  = 5500U; /* 55.00 %RH */
+    g_ht_hum_x100 = 5500U; /* 55.00 %RH */
 
     sensor_service_run_cycle();
 

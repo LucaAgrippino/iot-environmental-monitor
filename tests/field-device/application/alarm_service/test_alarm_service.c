@@ -30,10 +30,9 @@
 
 static uint32_t g_ss_subscribe_calls;
 
-sensor_service_err_t sensor_service_subscribe(
-    void (*cb)(const sensor_snapshot_t *snap))
+sensor_service_err_t sensor_service_subscribe(void (*cb)(const sensor_snapshot_t *snap))
 {
-    (void)cb;
+    (void) cb;
     g_ss_subscribe_calls++;
     return SENSOR_SERVICE_ERR_OK;
 }
@@ -46,22 +45,20 @@ sensor_service_err_t sensor_service_subscribe(
 
 typedef struct
 {
-    sensor_id_t      sensor;
-    alarm_event_t    event;
+    sensor_id_t sensor;
+    alarm_event_t event;
     sensor_reading_t reading;
 } alarm_spy_entry_t;
 
 static alarm_spy_entry_t g_spy_events[SPY_MAX_EVENTS];
-static uint8_t           g_spy_count;
+static uint8_t g_spy_count;
 
-static void alarm_spy_cb(sensor_id_t           sensor,
-                          alarm_event_t         event,
-                          const sensor_reading_t *reading)
+static void alarm_spy_cb(sensor_id_t sensor, alarm_event_t event, const sensor_reading_t *reading)
 {
     if (g_spy_count < SPY_MAX_EVENTS)
     {
-        g_spy_events[g_spy_count].sensor  = sensor;
-        g_spy_events[g_spy_count].event   = event;
+        g_spy_events[g_spy_count].sensor = sensor;
+        g_spy_events[g_spy_count].event = event;
         g_spy_events[g_spy_count].reading = *reading;
         g_spy_count++;
     }
@@ -69,7 +66,7 @@ static void alarm_spy_cb(sensor_id_t           sensor,
 
 static void spy_reset(void)
 {
-    (void)memset(g_spy_events, 0, sizeof(g_spy_events));
+    (void) memset(g_spy_events, 0, sizeof(g_spy_events));
     g_spy_count = 0U;
 }
 
@@ -81,14 +78,14 @@ static void spy_reset(void)
  * Temperature: high=35°C, low=0°C, hysteresis=2°C
  * Humidity:    high=80%,  low=20%, hysteresis=5%
  * Pressure:    high=1050, low=950, hysteresis=5 hPa */
-#define TEST_TEMP_HIGH  (35.0f)
-#define TEST_TEMP_LOW   ( 0.0f)
-#define TEST_TEMP_HYST  ( 2.0f)
+#define TEST_TEMP_HIGH (35.0f)
+#define TEST_TEMP_LOW (0.0f)
+#define TEST_TEMP_HYST (2.0f)
 
 static sensor_snapshot_t make_snap_with_temp(float temp, bool valid)
 {
     sensor_snapshot_t snap;
-    (void)memset(&snap, 0, sizeof(snap));
+    (void) memset(&snap, 0, sizeof(snap));
     snap.readings[SENSOR_ID_TEMPERATURE].value = temp;
     snap.readings[SENSOR_ID_TEMPERATURE].valid = valid;
     return snap;
@@ -107,7 +104,9 @@ void setUp(void)
     alarm_service_subscribe(alarm_spy_cb);
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 /* ======================================================================= */
 /* TC-AS-001: Reading within range — state stays CLEAR, no event            */
@@ -141,9 +140,7 @@ void test_TC_AS_002_reading_above_threshold_high_raises_alarm(void)
     TEST_ASSERT_EQUAL_UINT8(1U, g_spy_count);
     TEST_ASSERT_EQUAL(SENSOR_ID_TEMPERATURE, g_spy_events[0].sensor);
     TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_HIGH, g_spy_events[0].event);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f,
-                             TEST_TEMP_HIGH + 1.0f,
-                             g_spy_events[0].reading.value);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, TEST_TEMP_HIGH + 1.0f, g_spy_events[0].reading.value);
 }
 
 /* ======================================================================= */
