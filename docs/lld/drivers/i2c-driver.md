@@ -1,7 +1,7 @@
 # I2cDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/i2c-driver.md`
-**Version:** 0.1 (draft — pending Luca review)
+**Version:** 1.0
 **Board scope:** Field Device (STM32F469, I2C1) and Gateway (B-L475E-IOT01A, I2C2)
 **Layer:** Driver
 **Status:** Final (Phase H complete 2026-06-01)
