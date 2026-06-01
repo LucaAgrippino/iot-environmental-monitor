@@ -78,8 +78,11 @@ typedef struct
 #ifndef TEST
 #include "health_monitor/health_monitor.h"
 #else
+#ifndef IHEALTH_REPORT_T_DEFINED
+#define IHEALTH_REPORT_T_DEFINED
 struct ihealth_report_s;
 typedef struct ihealth_report_s ihealth_report_t;
+#endif /* IHEALTH_REPORT_T_DEFINED */
 #endif /* TEST */
 
 /* ========================================================================= */

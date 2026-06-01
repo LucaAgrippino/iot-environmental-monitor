@@ -33,6 +33,9 @@ typedef struct { uint32_t _dummy[4]; } StaticTask_t;
 
 typedef void  *QueueHandle_t;
 typedef void  *TaskHandle_t;
+typedef void  *TimerHandle_t;
+typedef struct { uint32_t _dummy[8]; } StaticTimer_t;
+typedef void (*TimerCallbackFunction_t)(TimerHandle_t xTimer);
 
 /* In FreeRTOS, semaphores are implemented as queues. */
 typedef QueueHandle_t  SemaphoreHandle_t;
@@ -118,6 +121,19 @@ extern uint32_t   g_mock_xSemaphoreGive_call_count;
 /* uxTaskGetStackHighWaterMark mock */
 extern UBaseType_t g_mock_uxTaskGetStackHighWaterMark_return;
 
+/* xTimerCreateStatic / xTimerStart mock */
+extern TimerHandle_t g_mock_xTimerCreateStatic_return;
+extern uint32_t      g_mock_xTimerCreateStatic_call_count;
+extern BaseType_t    g_mock_xTimerStart_return;
+extern uint32_t      g_mock_xTimerStart_call_count;
+
+/* xTaskGetCurrentTaskHandle mock */
+extern TaskHandle_t  g_mock_xTaskGetCurrentTaskHandle_return;
+
+/* xTaskNotifyGive / ulTaskNotifyTake mock */
+extern uint32_t      g_mock_xTaskNotifyGive_call_count;
+extern uint32_t      g_mock_ulTaskNotifyTake_return;
+
 /* Reset all g_mock_* state to defaults. Call from setUp(). */
 void mock_freertos_reset(void);
 
@@ -146,5 +162,14 @@ SemaphoreHandle_t     xSemaphoreCreateMutexStatic(StaticSemaphore_t *buf);
 BaseType_t            xSemaphoreTake(SemaphoreHandle_t sem, TickType_t ticks);
 BaseType_t            xSemaphoreGive(SemaphoreHandle_t sem);
 UBaseType_t           uxTaskGetStackHighWaterMark(TaskHandle_t task);
+
+TimerHandle_t xTimerCreateStatic(const char *name, TickType_t period,
+                                  UBaseType_t reload, void *id,
+                                  TimerCallbackFunction_t cb,
+                                  StaticTimer_t *buf);
+BaseType_t    xTimerStart(TimerHandle_t timer, TickType_t wait);
+TaskHandle_t  xTaskGetCurrentTaskHandle(void);
+void          xTaskNotifyGive(TaskHandle_t task);
+uint32_t      ulTaskNotifyTake(BaseType_t clear, TickType_t wait);
 
 #endif /* FREERTOS_H */

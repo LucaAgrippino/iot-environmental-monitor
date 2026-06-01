@@ -54,6 +54,8 @@ typedef enum
 #endif /* TIME_SYNC_STATE_DEFINED */
 
 /* sensor_service.h */
+#ifndef SENSOR_ID_DEFINED
+#define SENSOR_ID_DEFINED
 typedef enum
 {
     SENSOR_ID_TEMPERATURE = 0,
@@ -70,14 +72,18 @@ typedef enum
     SENSOR_ID_MAG_Z = 11,
     SENSOR_ID_COUNT = 12,
 } sensor_id_t;
+#endif /* SENSOR_ID_DEFINED */
 
 /* alarm_service.h */
+#ifndef ALARM_STATE_DEFINED
+#define ALARM_STATE_DEFINED
 typedef enum
 {
     ALARM_STATE_CLEAR = 0,
     ALARM_STATE_ACTIVE_HIGH = 1,
     ALARM_STATE_ACTIVE_LOW = 2,
 } alarm_state_t;
+#endif /* ALARM_STATE_DEFINED */
 
 /* modbus_slave.h */
 typedef struct

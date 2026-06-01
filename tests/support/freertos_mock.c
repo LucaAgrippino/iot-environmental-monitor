@@ -46,6 +46,14 @@ BaseType_t        g_mock_xSemaphoreGive_return;
 uint32_t          g_mock_xSemaphoreGive_call_count;
 UBaseType_t       g_mock_uxTaskGetStackHighWaterMark_return;
 
+TimerHandle_t g_mock_xTimerCreateStatic_return;
+uint32_t      g_mock_xTimerCreateStatic_call_count;
+BaseType_t    g_mock_xTimerStart_return;
+uint32_t      g_mock_xTimerStart_call_count;
+TaskHandle_t  g_mock_xTaskGetCurrentTaskHandle_return;
+uint32_t      g_mock_xTaskNotifyGive_call_count;
+uint32_t      g_mock_ulTaskNotifyTake_return;
+
 /* A canned non-NULL handle used as the default return value of the
  * static-create functions. Tests don't dereference it. */
 static int g_dummy_handle_sentinel;
@@ -91,6 +99,14 @@ void mock_freertos_reset(void)
     g_mock_xSemaphoreGive_return              = pdTRUE;
     g_mock_xSemaphoreGive_call_count          = 0U;
     g_mock_uxTaskGetStackHighWaterMark_return  = 512U;
+
+    g_mock_xTimerCreateStatic_return          = DUMMY_HANDLE;
+    g_mock_xTimerCreateStatic_call_count      = 0U;
+    g_mock_xTimerStart_return                 = pdTRUE;
+    g_mock_xTimerStart_call_count             = 0U;
+    g_mock_xTaskGetCurrentTaskHandle_return   = DUMMY_HANDLE;
+    g_mock_xTaskNotifyGive_call_count         = 0U;
+    g_mock_ulTaskNotifyTake_return            = 1U;
 }
 
 /* --------------------------------------------------------------------- */
@@ -207,4 +223,45 @@ UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t task)
 {
     (void)task;
     return g_mock_uxTaskGetStackHighWaterMark_return;
+}
+
+TimerHandle_t xTimerCreateStatic(const char *name, TickType_t period,
+                                  UBaseType_t reload, void *id,
+                                  TimerCallbackFunction_t cb,
+                                  StaticTimer_t *buf)
+{
+    (void)name;
+    (void)period;
+    (void)reload;
+    (void)id;
+    (void)cb;
+    (void)buf;
+    g_mock_xTimerCreateStatic_call_count++;
+    return g_mock_xTimerCreateStatic_return;
+}
+
+BaseType_t xTimerStart(TimerHandle_t timer, TickType_t wait)
+{
+    (void)timer;
+    (void)wait;
+    g_mock_xTimerStart_call_count++;
+    return g_mock_xTimerStart_return;
+}
+
+TaskHandle_t xTaskGetCurrentTaskHandle(void)
+{
+    return g_mock_xTaskGetCurrentTaskHandle_return;
+}
+
+void xTaskNotifyGive(TaskHandle_t task)
+{
+    (void)task;
+    g_mock_xTaskNotifyGive_call_count++;
+}
+
+uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t wait)
+{
+    (void)clear;
+    (void)wait;
+    return g_mock_ulTaskNotifyTake_return;
 }

@@ -18,6 +18,15 @@
 
 #include <stdint.h>
 
+/* Forward typedef so ihealth_report_t can be used in the extern declaration
+ * below even when time_provider.h has not yet been included.
+ * Redefinition is valid in C99+ when both typedef refer to the same type. */
+#ifndef IHEALTH_REPORT_T_DEFINED
+#define IHEALTH_REPORT_T_DEFINED
+struct ihealth_report_s;
+typedef struct ihealth_report_s ihealth_report_t;
+#endif /* IHEALTH_REPORT_T_DEFINED */
+
 /* --------------------------------------------------------------------- */
 /* Minimal types — only what TimeProvider needs from health_monitor.h    */
 /* --------------------------------------------------------------------- */
@@ -33,8 +42,12 @@ typedef enum
 {
     HEALTH_EVENT_TIME_SYNC_ACQUIRED = 0,
     HEALTH_EVENT_TIME_SYNC_LOST     = 1,
+    HEALTH_EVENT_CONFIG_WRITE_FAIL  = 2,
+    HEALTH_EVENT_CONFIG_READ_FAIL   = 3,
+    HEALTH_EVENT_CONFIG_NO_VALID_SLOT = 4,
+    HEALTH_EVENT_SENSOR_FAIL        = 5,
     /* Remaining event constants exist in health_monitor.h but are not
-     * called by TimeProvider — omitted to keep the stub minimal. */
+     * needed for sensor_service stub builds. */
 } health_event_t;
 
 /* --------------------------------------------------------------------- */
@@ -48,8 +61,14 @@ struct ihealth_report_s
 {
     health_monitor_err_t (*init)(void);
     health_monitor_err_t (*push_event)(health_event_t event, uint32_t param);
-    /* Remaining function pointers intentionally omitted — TimeProvider
-     * only calls push_event. Callers must not access beyond push_event. */
+    /* Remaining function pointers intentionally omitted — callers must not
+     * access beyond push_event in stub builds. */
 };
+
+/* Singleton pointer — declared here, defined in the test TU that needs it.
+ * e.g. test_sensor_service.c defines:
+ *   static const ihealth_report_t s_stub_health = { .push_event = ... };
+ *   const ihealth_report_t *const health_report = &s_stub_health;        */
+extern const ihealth_report_t *const health_report;
 
 #endif /* HEALTH_MONITOR_STUB_H */
