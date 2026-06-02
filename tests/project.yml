@@ -58,6 +58,17 @@
   :test_humidity_temp_driver:
     - STM32F469xx
     - TEST
+  :test_sensor_service:
+    - STM32F469xx
+    - TEST
+    - UNIT_TEST
+  :test_alarm_service:
+    - STM32F469xx
+    - TEST
+  :test_qspi_flash_driver:
+    - STM32F469xx
+    - BOARD_FIELD_DEVICE
+    - TEST
 
 :cmock:
   :mock_prefix: mock_

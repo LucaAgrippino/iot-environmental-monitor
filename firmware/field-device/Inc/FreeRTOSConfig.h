@@ -44,11 +44,15 @@
 #define configUSE_RECURSIVE_MUTEXES 0
 #define configUSE_COUNTING_SEMAPHORES 0
 #define configUSE_QUEUE_SETS 0
-#define configUSE_TIMERS 0 /* no software-timer task */
 #define configUSE_TASK_NOTIFICATIONS 1
 #define configUSE_TRACE_FACILITY 0
 #define configUSE_STATS_FORMATTING_FUNCTIONS 0
 #define configGENERATE_RUN_TIME_STATS 0
+
+#define configUSE_TIMERS 1
+#define configTIMER_TASK_PRIORITY       ( configMAX_PRIORITIES - 1 )
+#define configTIMER_QUEUE_LENGTH        10
+#define configTIMER_TASK_STACK_DEPTH    256
 
 /* --- Hooks ------------------------------------------------------------- */
 

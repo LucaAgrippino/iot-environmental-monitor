@@ -110,8 +110,6 @@ static void epoch_to_datetime(uint32_t epoch, rtc_datetime_t *dt)
     uint32_t remaining = epoch;
     uint32_t days;
     uint8_t month;
-    /* cppcheck-suppress variableScope - BARR-C: all declarations at block start */
-    uint8_t mdays;
 
     dt->second = (uint8_t) (remaining % 60U);
     remaining /= 60U;
@@ -134,7 +132,7 @@ static void epoch_to_datetime(uint32_t epoch, rtc_datetime_t *dt)
 
     for (month = 1U; month <= 12U; month++)
     {
-        mdays = days_in_month(month, dt->year);
+        uint8_t mdays = days_in_month(month, dt->year);
         if (days < (uint32_t) mdays)
         {
             break;
@@ -184,8 +182,6 @@ time_provider_err_t time_provider_init(const ihealth_report_t *health)
 time_provider_err_t time_provider_get(time_provider_ts_t *ts_out)
 {
     rtc_datetime_t dt;
-    /* cppcheck-suppress variableScope - BARR-C: all declarations at block start */
-    rtc_err_t rtc_err;
 
     if (!s_tp.initialised)
     {
@@ -203,7 +199,7 @@ time_provider_err_t time_provider_get(time_provider_ts_t *ts_out)
 
     if (s_tp.sync_state == TIME_SYNC_SYNCHRONISED)
     {
-        rtc_err = rtc_driver->get_time(&dt);
+        rtc_err_t rtc_err = rtc_driver->get_time(&dt);
         if (rtc_err != RTC_OK)
         {
             (void) xSemaphoreGive(s_tp.mutex);
@@ -226,10 +222,6 @@ time_provider_err_t time_provider_set_time(uint32_t new_epoch)
 {
     rtc_datetime_t dt;
     rtc_datetime_t current_dt;
-    /* cppcheck-suppress variableScope - BARR-C: all declarations at block start */
-    uint32_t current_epoch;
-    /* cppcheck-suppress variableScope - BARR-C: all declarations at block start */
-    uint32_t delta;
     bool was_unsynchronised;
     rtc_err_t rtc_err;
 
@@ -253,8 +245,8 @@ time_provider_err_t time_provider_set_time(uint32_t new_epoch)
             return TIME_PROVIDER_ERR_RTC_FAIL;
         }
 
-        current_epoch = datetime_to_epoch(&current_dt);
-        delta =
+        uint32_t current_epoch = datetime_to_epoch(&current_dt);
+        uint32_t delta =
             (new_epoch > current_epoch) ? (new_epoch - current_epoch) : (current_epoch - new_epoch);
         if (delta > TIME_PROVIDER_SANITY_DELTA_S)
         {

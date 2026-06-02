@@ -44,3 +44,16 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
     {
     }
 }
+
+
+void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
+                                     StackType_t  **ppxTimerTaskStackBuffer,
+                                     uint32_t *pulTimerTaskStackSize)
+{
+    static StaticTask_t xTimerTaskTCB;
+    static StackType_t  uxTimerTaskStack[configTIMER_TASK_STACK_DEPTH];
+
+    *ppxTimerTaskTCBBuffer   = &xTimerTaskTCB;
+    *ppxTimerTaskStackBuffer = uxTimerTaskStack;
+    *pulTimerTaskStackSize   = configTIMER_TASK_STACK_DEPTH;
+}

@@ -47,6 +47,15 @@ PWR_TypeDef g_mock_pwr;
 I2C_TypeDef g_mock_i2c1;
 
 /* ====================================================================== */
+/* §QUADSPI storage (QspiFlashDriver)                                    */
+/* ====================================================================== */
+
+QUADSPI_TypeDef g_mock_quadspi;
+uint8_t         g_mock_quadspi_rx_fifo[QUADSPI_MOCK_FIFO_DEPTH];
+uint32_t        g_mock_quadspi_rx_fifo_idx;
+
+
+/* ====================================================================== */
 /* §RTC storage                                                           */
 /* ====================================================================== */
 
@@ -88,6 +97,7 @@ void stm32_cmsis_mock_reset(void)
 
     /* §RCC */
     g_mock_rcc.AHB1ENR = 0;
+    g_mock_rcc.AHB3ENR = 0;
     g_mock_rcc.APB1ENR = 0;
     g_mock_rcc.BDCR    = 0;
 
@@ -113,6 +123,22 @@ void stm32_cmsis_mock_reset(void)
     g_mock_i2c1.SR2   = 0;
     g_mock_i2c1.CCR   = 0;
     g_mock_i2c1.TRISE = 0;
+
+    /* §QUADSPI */
+    g_mock_quadspi.CR  = 0;
+    g_mock_quadspi.DCR = 0;
+    g_mock_quadspi.SR  = 0;
+    g_mock_quadspi.FCR = 0;
+    g_mock_quadspi.DLR = 0;
+    g_mock_quadspi.CCR = 0;
+    g_mock_quadspi.AR  = 0;
+    g_mock_quadspi.ABR = 0;
+    g_mock_quadspi.DR  = 0;
+    for (uint32_t i = 0; i < QUADSPI_MOCK_FIFO_DEPTH; ++i)
+    {
+        g_mock_quadspi_rx_fifo[i] = 0;
+    }
+    g_mock_quadspi_rx_fifo_idx = 0;
 
     /* §RTC */
     g_mock_rtc.TR    = 0;
