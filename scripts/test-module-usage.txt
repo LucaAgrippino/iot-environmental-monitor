@@ -1,0 +1,5 @@
+# Check only
+.\scripts\test-module.ps1 -Module config_service
+
+# Check and auto-fix clang-format
+.\scripts\test-module.ps1 -Module config_service -Fix
