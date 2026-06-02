@@ -48,7 +48,7 @@
 /* Poll timer period.
  * DEVIATION from companion §9: period is 200 ms instead of 100 ms.
  * See bug-log.md for details. */
-#define SENSOR_POLL_INTERVAL_MS (200U)
+#define SENSOR_POLL_INTERVAL_MS (100U)
 
 /* Default range limits in native driver fixed-point units (REQ-SA-050).
  * TEMPERATURE / HUMIDITY: x100 (0.01 °C / 0.01 %RH)

@@ -76,6 +76,7 @@ static AlarmServiceState s_as;
 static void set_alarm(int id, alarm_state_t new_state, alarm_event_t event,
                       const sensor_reading_t *reading);
 
+ALARM_SERVICE_TEST_VISIBLE void alarm_service_evaluate(const sensor_snapshot_t *snap);
 /* ======================================================================= */
 /* Singleton vtable                                                         */
 /* ======================================================================= */
