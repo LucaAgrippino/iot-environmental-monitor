@@ -147,3 +147,65 @@ value regardless of prior content. The NOR flash constraint (can only clear bits
 without prior erase) is not enforced in the RAM sim. Starting from a fresh
 `sim_reset` (all 0xFF), the first use of each slot sees an already-erased CRC
 field, so the short erase causes no observable difference in the host test.
+
+---
+
+## ConfigService — mutex not released on validation failure in set_param()
+
+**File:** `firmware/field-device/application/config_service/config_service.c`
+**Line:** 347
+**Category:** missing state-clear
+
+**What the code does:**
+After acquiring the mutex in `config_service_set_param()`, the function calls
+`validate_param_internal()` and, if validation fails, returns the error code
+directly — without calling `xSemaphoreGive(s_cs.mutex)`.
+
+**What it should do:**
+Release the mutex before returning on any error path, including validation
+failure, so that subsequent callers can acquire the mutex for their own
+operations.
+
+**Correct fix:**
+```c
+/* before */
+    if (v_err != CONFIG_SERVICE_ERR_OK)
+    {
+        return v_err;
+    }
+/* after */
+    if (v_err != CONFIG_SERVICE_ERR_OK)
+    {
+        (void) xSemaphoreGive(s_cs.mutex);
+        return v_err;
+    }
+```
+
+**How to find it with a debugger:**
+1. Flash the ConfigService integration test to the STM32F469I-DISCO.
+2. Observe that step 5 (`set poll_interval=50: ERR_INVALID`) prints correctly.
+3. Observe that step 6 onwards never prints — the task blocks indefinitely.
+4. Pause execution in the debugger and inspect the call stack.  The test task
+   will be blocked in `xSemaphoreTake()` inside `config_service_flush()` or
+   `config_service_restore_snapshot()`.
+5. In the FreeRTOS task viewer, confirm the mutex is held by the test task
+   itself (mutex owner = test task handle, but test task is blocked waiting
+   for the same mutex — a self-deadlock because the priority-inheritance mutex
+   is not recursive).
+6. Set a breakpoint at line 347 (`return v_err`) in config_service.c.
+7. Re-run and confirm the breakpoint is hit when the invalid set_param call
+   is made.  Step through and observe that no `xSemaphoreGive` is called before
+   the function returns.
+8. Apply the fix, reflash, and verify all 12 checklist items appear on the
+   terminal.
+
+**Why it passes CI:**
+The FreeRTOS mock (`freertos_mock.c`) implements `xSemaphoreTake` and
+`xSemaphoreGive` as counter increments that always return `pdTRUE`.  The mock
+does not track mutex ownership, does not enforce that a mutex must be given
+before it can be taken again by the same notional holder, and does not block.
+TC-CSVC-006 calls `set_param` with an invalid value in one test function and a
+valid value in a separate test function (each starting with a fresh `setUp()`
+that calls `config_service_reset_for_test()` — clearing s_cs including the
+mutex handle).  No test exercises invalid-then-valid within the same function
+with the same initialized state, so the hung mutex never surfaces.
