@@ -74,6 +74,10 @@
     - TEST
     - UNIT_TEST
     - LOG_LEVEL_MIN=-1
+  :test_config_service:
+    - STM32F469xx
+    - TEST
+    - UNIT_TEST
 
 :cmock:
   :mock_prefix: mock_
