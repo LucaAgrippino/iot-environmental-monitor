@@ -117,6 +117,20 @@ macro pattern:
 
 Execute these steps in order. Do not skip ahead.
 
+### Step 0 — Create feature branch
+
+```bash
+git fetch origin
+git switch main && git pull origin main
+git switch -c feature/phase-4-<module>
+git branch --show-current
+```
+
+The last command must print `feature/phase-4-<module>`.
+Do NOT proceed if it prints `main`.
+
+---
+
 ### Step 1 — Read the companion
 
 Read the companion document in full before writing a single line of
@@ -168,11 +182,11 @@ module not yet implemented). Do not leave empty test functions.
 Add the `:test_<module>:` defines block.
 Verify the test path is covered.
 
-### Step 8 — Build and fix loop
+### Step 8 — Run the test script
 
 ```bash
-cd tests
-ceedling test:test_<module>
+cd ..
+powershell -ExecutionPolicy Bypass -File scripts/test-module.ps1 -Module <module>
 ```
 
 Fix errors iteratively. For each error:
@@ -181,33 +195,46 @@ Fix errors iteratively. For each error:
 - Fix the minimal change that resolves it.
 - Re-run.
 
-Do not move to Step 9 until all tests pass (or are explicitly
-`TEST_IGNORE_MESSAGE`'d with a documented reason).
-
-### Step 9 — Static analysis
+Do not move to Step 9 until the script exits with ALL CHECKS PASSED.
+If clang-format violations are found, re-run with `-Fix` to auto-correct:
 
 ```bash
-cppcheck --enable=style,warning,performance \
-  --suppress=missingIncludeSystem \
-  --inline-suppr \
-  firmware/field-device/<layer>/<module>/<module>.c \
-  firmware/field-device/<layer>/<module>/<module>.h
+powershell -ExecutionPolicy Bypass -File scripts/test-module.ps1 -Module <module> -Fix
 ```
 
-Fix any findings. Do not suppress a finding without a comment
-explaining why.
+Then re-run without `-Fix` to verify clean.
 
-### Step 10 — Format
+### Step 9 — Commit implementation to feature branch
+
+Confirm you are on the feature branch:
 
 ```bash
-clang-format -i firmware/field-device/<layer>/<module>/<module>.c
-clang-format -i firmware/field-device/<layer>/<module>/<module>.h
+git branch --show-current   # must print feature/phase-4-<module>
 ```
 
-Check the diff. Commit format changes as a separate commit from
-implementation changes.
+Commit in logical groups — one commit per logical change:
 
-### Step 11 — Write the integration test
+```bash
+# Header + implementation
+git add firmware/field-device/<layer>/<module>/
+git commit -m "feat: add <Module> — <one-line summary>"
+
+# Tests
+git add tests/field-device/<layer>/<module>/
+git add tests/support/<dep>_stub.h        # if new
+git add tests/project.yml
+git commit -m "test: add Unity unit tests for <Module>"
+
+# Integration test
+git add firmware/field-device/integration-tests/<module>/
+git commit -m "test: add integration test harness for <Module>"
+```
+
+Use `type:` prefix (feat, fix, test, docs, style, refactor).
+British spelling in commit messages. No `-m` for multi-line messages —
+use the editor.
+
+### Step 10 — Write the integration test
 
 Write `firmware/field-device/integration-tests/<module>/test_<module>_main.c`.
 Follow the pattern in `firmware/field-device/integration-tests/logger/test_logger_main.c`:
@@ -217,32 +244,37 @@ Follow the pattern in `firmware/field-device/integration-tests/logger/test_logge
 - Create a test task that exercises the module's behaviour.
 - Include a visual checklist in the file header comment.
 
-### Step 12 — Private-branch deliverables
+### Step 11 — Private-branch deliverables
 
 All post-session files go on the `dev-tools` branch, never on `main`.
 This branch is a permanent private accumulator — it never merges into
 `main`. One subdirectory per module.
 
-**First, ensure the branch exists and is up to date:**
+**Switch to dev-tools:**
 
 ```bash
 git fetch origin
 git switch dev-tools 2>/dev/null || git switch -c dev-tools origin/main
 ```
 
-Create the module subdirectory:
+Create the module subdirectory and write the three files described below:
 
 ```bash
 mkdir -p docs/dev-tools/<module>
 ```
 
-Write the three files described below, then commit and push:
+Then commit and push:
 
 ```bash
 git add docs/dev-tools/<module>/
-git commit -m "chore: add <module> dev-tools (bug log, exercise, session report)"
+git commit -m "chore: add <module> dev-tools (session report, bug log, exercise)"
 git push origin dev-tools
-git switch feature/phase-4-<module>   # return to the working branch
+```
+
+Return to the feature branch:
+
+```bash
+git switch feature/phase-4-<module> || { echo "ERROR: feature branch not found — aborting"; exit 1; }
 ```
 
 ---
@@ -284,86 +316,63 @@ any other file. Structure:
 **Total:** N pass, N ignored.
 
 Ignored tests (with reason):
-- TC-XXX-NNN: <reason — e.g. "requires hardware peripheral not available on host">
+- TC-XXX-NNN: <reason>
 
 ---
 
 ## Integration test — expected behaviour
 
-What to observe on the terminal and on the board when
-`test_<module>_main.c` is flashed. Be specific — exact LED states,
-exact UART output lines, exact timing. This is the pass/fail checklist
-for the hardware validation step.
-
 | # | What to observe | Verifies |
 |---|-----------------|----------|
 | 1 | <exact observation> | <what it proves> |
 | 2 | | |
-| ... | | |
 
 ---
 
 ## Deviations from companion
 
-List any place the implementation differs from the companion document.
-Format: companion says X, implementation does Y, reason Z.
-If none: write "None."
+None. / <list deviations>
 
 ---
 
 ## Open items
 
-List anything that needs a decision in the next chat session before
-the PR can be raised, or that is deferred to a future module.
-If none: write "None."
+None. / <list open items>
 
 ---
 
-## Commit messages
+## PR title
 
-One block per commit, in order. Paste each into the editor when
-running `git commit` (no `-m` flag).
-
-### Commit 1
-\`\`\`
-<type>: <subject line>
-
-<body>
-\`\`\`
-
-### Commit 2
-\`\`\`
-...
-\`\`\`
+`<type>: <Module> — <one-line summary>`
 
 ---
 
 ## PR description
 
-Title: `<type>: <module> — <one-line summary>`
+```markdown
+## What this PR contains
 
-Body:
-\`\`\`markdown
-## Summary
-...
+- `firmware/field-device/<layer>/<module>/<module>.h` — <summary>
+- `firmware/field-device/<layer>/<module>/<module>.c` — <summary>
+- `tests/field-device/<layer>/<module>/test_<module>.c` — N unit tests
+- `firmware/field-device/integration-tests/<module>/test_<module>_main.c` — integration test
+- `docs/lld/companions/<module>.md` — companion updated to v1.0
 
-## What is in this PR
-| Commit | Files | Description |
-...
+## Design decisions
 
-## Architecture decisions
-...
+- <decision 1 with rationale>
+- <decision 2 with rationale>
 
 ## Test evidence
-...
 
-## Open items
-...
+All 6 CI checks green.
+Unity host tests: N pass, 0 fail, N ignore.
+Integration test validated on F469 hardware.
 
-## Requirement traceability
-| Requirement | Satisfied by |
-...
-\`\`\`
+## Open items carried forward
+
+- <item>
+```
 ```
 
 ---
@@ -387,16 +396,15 @@ Body:
 <one sentence>
 
 **Correct fix:**
-\`\`\`c
+```c
 /* before */
 <buggy line>
 /* after */
 <corrected line>
-\`\`\`
+```
 
 **How to find it with a debugger:**
-<step-by-step: what to observe on hardware, which variable or register
-to watch, at what point in execution the symptom becomes visible>
+<step-by-step>
 
 **Why it passes CI:**
 <one sentence>
@@ -411,8 +419,7 @@ to watch, at what point in execution the symptom becomes visible>
 
 ## Brief (3 minutes)
 
-<Two paragraphs. First: what the module does and why it exists.
-Second: what to implement and what constraints apply. ≤ 150 words.>
+<Two paragraphs. ≤ 150 words.>
 
 ## Given files
 
@@ -420,7 +427,7 @@ Second: what to implement and what constraints apply. ≤ 150 words.>
 <header with function signature(s), types, constants, Doxygen spec>
 
 ### `<module>_exercise.c` (partial)
-<scaffolding: includes, helpers already written, function stub with TODO>
+<scaffolding with TODO>
 
 ## Questions
 
@@ -435,9 +442,9 @@ Second: what to implement and what constraints apply. ≤ 150 words.>
 
 ## Model solution
 
-\`\`\`c
-<complete correct implementation with inline comments>
-\`\`\`
+```c
+<complete correct implementation>
+```
 
 ## Marking guide
 
@@ -453,195 +460,32 @@ Second: what to implement and what constraints apply. ≤ 150 words.>
 
 ---
 
-### Step 13 — Verify private branch state
+### Step 12 — Verify branch state
 
-After committing to `dev-tools`, confirm the files are there and
-`main` is clean:
+Confirm the feature branch is clean and dev-tools has no leakage into main:
 
 ```bash
-git switch dev-tools
-ls docs/dev-tools/<module>/
 git switch feature/phase-4-<module>
-git log --oneline main -- docs/dev-tools/   # must return nothing
+git status                                      # must be clean
+git log --oneline main -- docs/dev-tools/       # must return nothing
 ```
 
-If the last command returns any commits, the dev-tools files were
-accidentally committed to a branch that will merge to `main`. Remove
-them before raising the PR:
+If the last command returns any commits, remove the dev-tools files
+from the feature branch before raising the PR:
 
 ```bash
 git rm -r docs/dev-tools/
-git commit -m "chore: remove dev-tools files from feature branch (belong on dev-tools branch)"
+git commit -m "chore: remove dev-tools files from feature branch"
 ```
 
----
+Push the feature branch:
 
-## Intentional bug (mandatory)
-
-Every module implementation MUST contain exactly one intentional bug.
-This is a deliberate part of the project — it gives the developer a
-realistic debugging exercise on real hardware.
-
-### Rules for the bug
-
-1. **One bug, one module.** No more, no less.
-2. **Realistic category.** Choose from:
-   - Off-by-one in a buffer size, index, or loop bound.
-   - Wrong timeout, retry count, or threshold constant (e.g. 3 instead
-     of 4, or 200 instead of 2000).
-   - Missing state-clear before returning from an error path (e.g.
-     flag left set, counter not reset).
-   - Incorrect register bit mask or shift — off by one bit, wrong
-     field width, or wrong register entirely (driver-layer only).
-   - Race condition in shared-state access across tasks — wrong
-     critical-section boundary, or critical section omitted entirely
-     for a variable that needs it.
-   - Wrong return value on a specific error branch (returns OK when it
-     should return an error, or vice versa).
-3. **Must pass CI.** The bug must NOT be caught by the unit tests or
-   cppcheck. Either it lives in a path the test mocks hide, or it only
-   manifests on real hardware under specific timing or data conditions.
-   If your chosen bug would be caught by the unit tests, pick a
-   different one.
-4. **Must be findable** with a debugger + the companion document +
-   the board datasheet, without external hints. It must be diagnosable
-   in a single debug session (30–60 minutes for someone who knows the
-   module).
-5. **Do NOT announce it.** Do not put a comment near the bug, do not
-   name the variable in a way that hints, do not mention it in the
-   Step 12 report. The bug is hidden. The only record is in the
-   `bug-log.md` file described below.
-
-### Bug log
-
-After writing all code, append an entry to
-`docs/dev-tools/bug-log.md` (create the file if it does not exist).
-The log is the answer key — it must NOT be committed until after the
-developer has found and fixed the bug.
-
-Entry format:
-
-```markdown
-## <module> — <bug category in one line>
-
-**File:** `firmware/field-device/<layer>/<module>/<module>.c`
-**Line:** <line number in the file as written>
-**Category:** <off-by-one | wrong constant | missing state-clear |
-               wrong bit mask | race condition | wrong return value>
-
-**What the code does:**
-<one sentence describing what the buggy line actually does>
-
-**What it should do:**
-<one sentence describing the correct behaviour>
-
-**Correct fix:**
-```c
-/* before */
-<buggy line>
-/* after */
-<corrected line>
+```bash
+git push -u origin feature/phase-4-<module>
 ```
 
-**How to find it with a debugger:**
-<step-by-step: what to observe on hardware, which variable or register
-to watch, at what point in execution the symptom becomes visible>
-
-**Why it passes CI:**
-<one sentence explaining why the unit tests and cppcheck do not catch it>
-```
-
----
-
-## Interview test (mandatory)
-
-Every module session MUST produce a self-contained interview test.
-This is used as a technical screening exercise for mid-senior embedded
-C roles — the kind handed to a candidate during a 40–50 minute
-interview (presentation + introductions + questions + coding = 40–50
-minutes total, so the coding portion is 20–25 minutes).
-
-### Rules for the test
-
-1. **One function to implement.** Give the candidate a `.h` file with
-   the function signature, a partial `.c` file with the scaffolding
-   and any helper stubs they need, and a short problem statement.
-   The function must be representative of the module — not a toy
-   example, not trivial string manipulation.
-2. **Solvable in 20–25 minutes** by a mid-senior embedded engineer
-   who has just read a 3-minute brief. No deep algorithm knowledge
-   required. The difficulty comes from correctness under constraints
-   (edge cases, error handling, bit-level correctness), not from
-   algorithmic complexity.
-3. **Three targeted follow-up questions.** These are asked verbally
-   after the candidate submits their code. They probe understanding
-   of the design choice, not just the implementation. Each has a
-   model answer.
-4. **A model solution.** The complete correct implementation, with
-   commentary explaining each non-obvious decision.
-5. **A marking guide.** What to look for (must-haves, nice-to-haves,
-   red flags).
-
-### Output format
-
-Write the interview test to
-`docs/dev-tools/interview-tests/<module>-test.md`.
-
-Structure:
-
-```markdown
-# Interview Test — <Module> (<estimated time> minutes)
-
-## Brief (read this first — 3 minutes)
-
-<Two short paragraphs. First: what the module does and why it exists
-in the system. Second: what the candidate must implement and what
-constraints apply. No more than 150 words total.>
-
-## Files given to the candidate
-
-### `<module>_exercise.h`
-<The header with the function signature(s) to implement, types, and
-any constants they need. Doxygen comment on each function — this is
-the spec the candidate codes against.>
-
-### `<module>_exercise.c` (partial)
-<The scaffolding: includes, any helper functions already written,
-the function stub with a TODO comment. The candidate fills in the
-body. Do not give away the algorithm — give only what they cannot
-reasonably be expected to produce from scratch in the time.>
-
-## Follow-up questions
-
-**Q1:** <question>
-*Model answer:* <answer — 2–4 sentences>
-
-**Q2:** <question>
-*Model answer:* <answer — 2–4 sentences>
-
-**Q3:** <question>
-*Model answer:* <answer — 2–4 sentences>
-
-## Model solution
-
-```c
-<complete correct implementation with inline comments>
-```
-
-## Marking guide
-
-**Must have (pass/fail):**
-- <criterion>
-- <criterion>
-
-**Nice to have (differentiates mid from senior):**
-- <criterion>
-- <criterion>
-
-**Red flags (automatic fail or strong negative signal):**
-- <criterion>
-- <criterion>
-```
+Then open the PR on GitHub using the title and description from the
+session report.
 
 ---
 
@@ -651,10 +495,11 @@ reasonably be expected to produce from scratch in the time.>
 - Do not add dependencies the companion does not list.
 - Do not use STM32 HAL — CMSIS register access only.
 - Do not use dynamic memory allocation.
-- Do not use varargs (`...`) in any firmware function (use the
-  `LOG_*` macro pattern if logging with format strings is needed).
+- Do not use varargs (`...`) in any firmware function.
 - Do not suppress cppcheck or clang-format findings silently.
-- Do not skip the build-and-fix loop and claim tests will pass.
+- Do not skip the test script and claim tests will pass.
+- Do not commit anything to `main` directly.
+- Do not commit dev-tools files to the feature branch.
 
 ---
 
