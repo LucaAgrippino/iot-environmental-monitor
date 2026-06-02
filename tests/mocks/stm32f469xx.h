@@ -330,7 +330,7 @@ extern QUADSPI_TypeDef g_mock_quadspi;
 /* Byte-sequence FIFO for multi-byte indirect-read simulation in tests.
  * The driver uses QSPI_READ_DR_BYTE() which reads from this buffer in TEST
  * builds so each byte in a multi-byte read can return a distinct value. */
-#define QUADSPI_MOCK_FIFO_DEPTH (16U)
+#define QUADSPI_MOCK_FIFO_DEPTH (256U)
 extern uint8_t  g_mock_quadspi_rx_fifo[QUADSPI_MOCK_FIFO_DEPTH];
 extern uint32_t g_mock_quadspi_rx_fifo_idx;
 
