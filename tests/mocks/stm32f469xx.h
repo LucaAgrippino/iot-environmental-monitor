@@ -36,11 +36,13 @@
 
 /* Fields accumulate as drivers need them. Current owners:                */
 /*   AHB1ENR  — GpioDriver                                                */
+/*   AHB3ENR  — QspiFlashDriver (QSPIEN)                                  */
 /*   APB1ENR  — DebugUartDriver (USART3EN), RtcDriver (PWREN)             */
 /*   BDCR     — RtcDriver (LSE, RTCSEL, RTCEN)                            */
 typedef struct
 {
     volatile uint32_t AHB1ENR;
+    volatile uint32_t AHB3ENR;
     volatile uint32_t APB1ENR;
     volatile uint32_t BDCR;
 } RCC_TypeDef;
@@ -301,6 +303,75 @@ extern I2C_TypeDef g_mock_i2c1;
 #define I2C_CCR_FS       (1UL << I2C_CCR_FS_Pos)
 #define I2C_CCR_DUTY_Pos (14U)
 #define I2C_CCR_DUTY     (1UL << I2C_CCR_DUTY_Pos)
+
+/* ====================================================================== */
+/* §QUADSPI (QspiFlashDriver)                                             */
+/* ====================================================================== */
+
+/* Register layout per RM0386. Fields listed in order; ABR is not used by */
+/* QspiFlashDriver but is included to preserve the real hardware layout.  */
+typedef struct
+{
+    volatile uint32_t CR;  /**< Control register,          offset 0x00. */
+    volatile uint32_t DCR; /**< Device configuration,      offset 0x04. */
+    volatile uint32_t SR;  /**< Status register,           offset 0x08. */
+    volatile uint32_t FCR; /**< Flag clear register,       offset 0x0C. */
+    volatile uint32_t DLR; /**< Data length register,      offset 0x10. */
+    volatile uint32_t CCR; /**< Communication config,      offset 0x14. */
+    volatile uint32_t AR;  /**< Address register,          offset 0x18. */
+    volatile uint32_t ABR; /**< Alternate bytes register,  offset 0x1C. */
+    volatile uint32_t DR;  /**< Data register,             offset 0x20. */
+} QUADSPI_TypeDef;
+
+extern QUADSPI_TypeDef g_mock_quadspi;
+
+#define QUADSPI (&g_mock_quadspi)
+
+/* Byte-sequence FIFO for multi-byte indirect-read simulation in tests.
+ * The driver uses QSPI_READ_DR_BYTE() which reads from this buffer in TEST
+ * builds so each byte in a multi-byte read can return a distinct value. */
+#define QUADSPI_MOCK_FIFO_DEPTH (16U)
+extern uint8_t  g_mock_quadspi_rx_fifo[QUADSPI_MOCK_FIFO_DEPTH];
+extern uint32_t g_mock_quadspi_rx_fifo_idx;
+
+/* --- RCC_AHB3ENR bit — QUADSPI clock enable (bit 1, per RM0386) ------- */
+#define RCC_AHB3ENR_QSPIEN_Pos (1U)
+#define RCC_AHB3ENR_QSPIEN     (1UL << RCC_AHB3ENR_QSPIEN_Pos)
+
+/* --- QUADSPI_CR bits -------------------------------------------------- */
+#define QUADSPI_CR_EN_Pos   (0U)
+#define QUADSPI_CR_EN       (1UL << QUADSPI_CR_EN_Pos)
+
+/* --- QUADSPI_DCR bits ------------------------------------------------- */
+#define QUADSPI_DCR_CKMODE_Pos (0U)
+#define QUADSPI_DCR_CSHT_Pos   (8U)
+#define QUADSPI_DCR_FSIZE_Pos  (16U)
+
+/* --- QUADSPI_SR bits -------------------------------------------------- */
+#define QUADSPI_SR_TCF_Pos  (1U)
+#define QUADSPI_SR_TCF      (1UL << QUADSPI_SR_TCF_Pos)
+#define QUADSPI_SR_FTF_Pos  (2U)
+#define QUADSPI_SR_FTF      (1UL << QUADSPI_SR_FTF_Pos)
+#define QUADSPI_SR_BUSY_Pos (5U)
+#define QUADSPI_SR_BUSY     (1UL << QUADSPI_SR_BUSY_Pos)
+
+/* --- QUADSPI_FCR bits ------------------------------------------------- */
+#define QUADSPI_FCR_CTCF_Pos (1U)
+#define QUADSPI_FCR_CTCF     (1UL << QUADSPI_FCR_CTCF_Pos)
+
+/* --- QUADSPI_CCR bit fields ------------------------------------------- */
+/* Instruction [7:0] */
+#define QUADSPI_CCR_INSTRUCTION_Pos  (0U)
+/* IMODE [9:8]: instruction mode (01 = single line) */
+#define QUADSPI_CCR_IMODE_Pos        (8U)
+/* ADMODE [11:10]: address mode (01 = single line) */
+#define QUADSPI_CCR_ADMODE_Pos       (10U)
+/* ADSIZE [13:12]: address size (10 = 24-bit) */
+#define QUADSPI_CCR_ADSIZE_Pos       (12U)
+/* DMODE [25:24]: data mode (01 = single line) */
+#define QUADSPI_CCR_DMODE_Pos        (24U)
+/* FMODE [27:26]: functional mode (00 = indirect write, 01 = indirect read) */
+#define QUADSPI_CCR_FMODE_Pos        (26U)
 
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */

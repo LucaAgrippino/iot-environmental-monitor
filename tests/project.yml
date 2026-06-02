@@ -65,6 +65,10 @@
   :test_alarm_service:
     - STM32F469xx
     - TEST
+  :test_qspi_flash_driver:
+    - STM32F469xx
+    - BOARD_FIELD_DEVICE
+    - TEST
 
 :cmock:
   :mock_prefix: mock_

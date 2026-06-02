@@ -33,12 +33,16 @@
 #include "task.h"
 #include "timers.h"
 
-#include "Inc/system_clock.h"
+#include "system_clock.h"
 #include "logger/logger.h"
 #include "health_monitor/health_monitor.h"
 #include "time_provider/time_provider.h"
 #include "sensor_service/sensor_service.h"
 #include "alarm_service/alarm_service.h"
+#include "led/led_driver.h"
+#include "rtc/rtc_driver.h"
+#include "gpio/gpio_driver.h"
+#include "debug-uart/debug_uart_driver.h"
 
 /* ======================================================================= */
 /* Constants                                                                */
@@ -46,7 +50,7 @@
 
 #define IT_TAG "IT"
 
-#define SENSOR_TASK_STACK_WORDS (256U)
+#define SENSOR_TASK_STACK_WORDS (512U)
 #define SENSOR_TASK_PRIORITY (2U)
 
 /* ======================================================================= */
@@ -55,6 +59,15 @@
 
 static StaticTask_t s_sensor_task_tcb;
 static StackType_t s_sensor_task_stack[SENSOR_TASK_STACK_WORDS];
+
+/* ===================================================================== */
+/* Board pin table (Field Device — STM32F469I-DISCO)                    */
+/* ===================================================================== */
+
+static const led_pin_t k_fd_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = GPIO_PORT_G, .pin =  6U, .active_high = false, .fitted = true},
+    [LED_RED]   = {.port = GPIO_PORT_D, .pin =  5U, .active_high = false, .fitted = true},
+};
 
 /* ======================================================================= */
 /* Alarm subscriber                                                         */
@@ -91,7 +104,14 @@ static void vSensorTask(void *pvParameters)
 {
     (void) pvParameters;
 
+    UBaseType_t uxHighWaterMark0 = uxTaskGetStackHighWaterMark(NULL);
+    LOG_INFO(IT_TAG, "SensorTask HighWaterMark 0 %lu", uxHighWaterMark0);
+
     sensor_service_init();
+
+    UBaseType_t uxHighWaterMark1 = uxTaskGetStackHighWaterMark(NULL);
+    LOG_INFO(IT_TAG, "SensorTask HighWaterMark 1 %lu", uxHighWaterMark1);
+
     alarm_service_init();
     alarm_service_subscribe(alarm_event_cb);
 
@@ -111,7 +131,7 @@ static void vSensorTask(void *pvParameters)
             int32_t t = snap.readings[SENSOR_ID_TEMPERATURE].value;
             int32_t h = snap.readings[SENSOR_ID_HUMIDITY].value;
             int32_t p = snap.readings[SENSOR_ID_PRESSURE].value;
-            LOG_INFO(IT_TAG, "Cycle %lu  T=%ld.%02ld C  H=%ld.%02ld%%  P=%ld.%01ld hPa  rdy=%d",
+            LOG_INFO(IT_TAG, "Cyc %lu T=%ld.%02ld H=%ld.%02ld P=%ld.%01ld rdy=%d",
                      (unsigned long) snap.cycle_count, (long) (t / 100L),
                      (long) (t < 0 ? -(t % 100L) : t % 100L), (long) (h / 100L), (long) (h % 100L),
                      (long) (p / 10L), (long) (p < 0 ? -(p % 10L) : p % 10L),
@@ -127,6 +147,12 @@ static void vSensorTask(void *pvParameters)
 int main(void)
 {
     system_clock_init();
+
+    (void)gpio_init();
+    (void)led_init(k_fd_led_pins, LED_COUNT);
+    (void)rtc_init();
+    (void)debug_uart_init();
+
     logger_init(LOG_LEVEL_DEBUG);
     health_monitor_init();
     time_provider_init(health_report);
