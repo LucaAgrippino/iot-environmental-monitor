@@ -1,7 +1,7 @@
 # Session Report — QspiFlashDriver
 
 **Date:** 2026-06-02
-**Branch:** `feature/phase-4-sensor-alarm-service`
+**Branch:** `feature/phase-4-qspi-flash-driver`
 **Companion:** `docs/lld/drivers/qspi-flash-driver.md`
 
 ---
