@@ -19,7 +19,7 @@
 | PROVIDES (upward) | `IQspiFlash` | `IQspiFlash` |
 | USES (downward) | CMSIS | CMSIS |
 | Root requirements | REQ-NF-405, REQ-DM-074 | REQ-NF-402, REQ-DM-074 |
-| Flash device | MX25L51245G or equivalent, 16 MB | MX25R6435F, 8 MB |
+| Flash device | MT25QL128ABA, 16 MB | MX25R6435F, 8 MB |
 | Sector size | 4 KB | 4 KB |
 | Page size | 256 B | 256 B |
 | Memory-mapped base | `0x9000_0000` | `0x9000_0000` |
@@ -67,7 +67,7 @@ NOR flash page programming (Page Program command, 0x02) can only write within a 
  * Naming follows the cross-cutting convention in lld.md §3.2.
  */
 typedef enum {
-    QSPI_FLASH_ERR_OK      = 0, /**< Operation succeeded. */
+    QSPI_FLASH_OK      = 0, /**< Operation succeeded. */
     QSPI_FLASH_ERR_BUSY    = 1, /**< QUADSPI peripheral busy or flash WIP set. */
     QSPI_FLASH_ERR_TIMEOUT = 2, /**< WIP polling exceeded timeout (erase/write). */
     QSPI_FLASH_ERR_ADDR    = 3, /**< Address exceeds device capacity. */
@@ -91,7 +91,7 @@ typedef enum {
  * Must be called once from main() before the FreeRTOS scheduler starts.
  * Operates in indirect mode (1-1-1 SPI). Does not activate quad mode.
  *
- * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_DEVICE on ID
+ * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_DEVICE on ID
  *         mismatch; QSPI_FLASH_ERR_TIMEOUT if the peripheral does not
  *         respond.
  * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
@@ -110,7 +110,7 @@ qspi_flash_err_t qspi_flash_init(void);
  * @param addr  Byte address within the flash (0 .. device_size - 1).
  * @param buf   Destination buffer (must not be NULL; must be ≥ len bytes).
  * @param len   Number of bytes to read (must be ≥ 1).
- * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_ADDR or
+ * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_ADDR or
  *         QSPI_FLASH_ERR_LEN on constraint violation;
  *         QSPI_FLASH_ERR_BUSY or QSPI_FLASH_ERR_TIMEOUT on hardware error.
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
@@ -139,7 +139,7 @@ qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
  * @param addr  Byte address of the first byte to program.
  * @param data  Pointer to data to write (must not be NULL).
  * @param len   Number of bytes to program (1 .. 256, page-aligned).
- * @return QSPI_FLASH_ERR_OK on success; error code on failure.
+ * @return QSPI_FLASH_OK on success; error code on failure.
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_write_page(uint32_t addr,
@@ -157,7 +157,7 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr,
  * boundary internally.
  *
  * @param addr  Any byte address within the target 4 KB sector.
- * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_TIMEOUT if WIP
+ * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_TIMEOUT if WIP
  *         does not clear within 500 ms; QSPI_FLASH_ERR_ADDR if addr
  *         exceeds device capacity.
  * @note Threading: task-context only, may block. Not ISR-safe.
@@ -256,14 +256,14 @@ All commands use single-wire instruction, single-wire address, and single-wire d
 
 ```c
 /* Per-board compile-time constants */
-#if defined(BOARD_FIELD_DEVICE)
+#if defined(STM32F469xx)
   #define QSPI_DEVICE_SIZE_BYTES  (16UL * 1024UL * 1024UL)   /* 16 MB */
   #define QSPI_DCR_FSIZE          (23U)                        /* 2^24 bytes */
-  #define QSPI_EXPECTED_RDID      (0xC22018U)                  /* MX25L example */
-#elif defined(BOARD_GATEWAY)
+  #define QSPI_EXPECTED_RDID      (0x20BA18U)                  /* MT25QL128ABA — QSPID-O3 */
+#elif defined(STM32L475xx)
   #define QSPI_DEVICE_SIZE_BYTES  (8UL * 1024UL * 1024UL)    /* 8 MB */
   #define QSPI_DCR_FSIZE          (22U)                        /* 2^23 bytes */
-  #define QSPI_EXPECTED_RDID      (0xC22817U)                  /* MX25R6435F */
+  #define QSPI_EXPECTED_RDID      (0xC22817U)                  /* MX25R6435F — QSPID-O3 */
 #endif
 ```
 
@@ -311,11 +311,11 @@ Both STM32F469 and STM32L475 include the same QUADSPI peripheral IP. Register la
 
 ### 4.2 Clock prescaler (open item — QSPID-O2)
 
-The QUADSPI clock = `HCLK / (prescaler + 1)`. The maximum QSPI clock for the MX25R6435F is 80 MHz (SDR mode). The prescaler value depends on HCLK, which is unresolved pending `clock-config.md`. Tracked as **QSPID-O2**.
+The QUADSPI clock = `HCLK / (prescaler + 1)`. Maximum QSPI clock: 133 MHz for MT25QL128ABA (FD, SDR mode); 80 MHz for MX25R6435F (GW, SDR mode). The prescaler value depends on HCLK, which is unresolved pending `clock-config.md`. Tracked as **QSPID-O2**.
 
 ### 4.3 CS high time (CSHT in DCR)
 
-Between consecutive commands, the NCS pin must remain high for a minimum time. For MX25R6435F: t_SHSL2 ≥ 10 ns. At any practical QSPI clock ≥ 8 MHz, one clock cycle exceeds this. `CSHT = 0` (1 clock cycle) is safe. Verify against the FD device datasheet at implementation.
+Between consecutive commands, the NCS pin must remain high for a minimum time. For MX25R6435F (GW): t_SHSL2 ≥ 10 ns. For MT25QL128ABA (FD): t_SHSL ≥ 10 ns. At any practical QSPI clock ≥ 8 MHz, one clock cycle exceeds this. `CSHT = 0` (1 clock cycle) is safe for both devices. Verify at implementation.
 
 ### 4.4 Pin assignment (open item — QSPID-O5)
 
@@ -386,7 +386,7 @@ Test file: `tests/drivers/test_qspi_flash_driver.c` (one file; board-specific co
 |---|---|---|---|
 | QSPID-O1 | **Peripheral-level concurrency gap (Gateway).** Three middleware consumers (`ConfigStore`, `CircularFlashLog`, `FirmwareStore`) access `QspiFlashDriver` from different tasks under independent mutexes. A shared `qspi_flash_mutex` must be acquired by all callers before calling any driver function. This mutex is a cross-cutting resource (not owned by any single middleware component). Resolution: add `qspi_flash_mutex` to the shared-resource locking table in `task-breakdown.md` §7 and initialise it in `main()`. All three consumers must acquire it before calling the driver. This is an HLD escalation — update `task-breakdown.md` and `lld.md` §5 (cross-cutting) accordingly. | Luca | Update `task-breakdown.md` §7 before implementing any of the three GW consumers |
 | QSPID-O2 | QUADSPI clock prescaler. Depends on HCLK, unresolved pending `clock-config.md`. Max QSPI clock: 80 MHz (MX25R6435F). | Luca | Resolve when `clock-config.md` lands |
-| QSPID-O3 | Verify `QSPI_EXPECTED_RDID` values against actual device datasheets. Manufacturer ID 0xC2 (Macronix) is confirmed; device type and capacity bytes must be verified. | Luca | Check MX25R6435F datasheet (GW) and FD device datasheet at implementation |
+| QSPID-O3 | Verify `QSPI_EXPECTED_RDID` values against actual device datasheets. FD: MT25QL128ABA expected RDID = 0x20BA18 (Micron 0x20, type 0xBA, 128 Mbit 0x18) — confirm against physical device. GW: MX25R6435F RDID = 0xC22817 (Macronix 0xC2, confirmed). | Luca | Check MT25QL128ABA datasheet (FD) and MX25R6435F datasheet (GW) at implementation |
 | QSPID-O4 | WIP polling busy-waits up to 500 ms during erase. If integration profiling reveals this degrades system responsiveness, replace with `vTaskDelay(1)` loop — but note this imports FreeRTOS into the driver, violating the driver convention. Evaluate trade-off at integration. | Luca | Defer until integration measurements |
 | QSPID-O5 | QUADSPI pin assignments (CLK, NCS, IO0–IO3). Verify against UM1932 and UM2153 schematics. | Luca | Check at implementation |
 | QSPID-O6 | **SD-06c/06d sequence diagram inconsistency.** The SDs show `FirmwareStore → QspiFlashDriver` writing the boot indicator and rollback flag, but these fields are in the on-chip metadata partition (`0x0800_4000`) per `flash-partition-layout.md` §5.1. `QspiFlashDriver` cannot write to on-chip flash. The SDs must be corrected and a separate on-chip flash write mechanism (Bootloader scope, or a `FlashDriver` for internal flash) identified. Escalate to HLD before `FirmwareStore` LLD companion is drafted. | Luca | Raise HLD gap; correct SD-06c and SD-06d; decide ownership of on-chip metadata writes |

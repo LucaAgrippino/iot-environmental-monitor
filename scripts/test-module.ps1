@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Runs all quality checks for a single firmware module.
 
@@ -58,9 +58,9 @@ function Write-Fail {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1 — Ceedling
+# Step 1 - Ceedling
 # ---------------------------------------------------------------------------
-Write-Header "Ceedling — test:test_$Module"
+Write-Header "Ceedling - test:test_$Module"
 
 Push-Location tests
 ceedling test:test_$Module
@@ -74,16 +74,16 @@ if ($CeedlingExit -ne 0) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 2 — Locate module source directory
+# Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
 $ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
-    Where-Object { $_.Name -eq $Module } |
+    Where-Object { $_.Name -eq $Module -and $_.FullName -notmatch '\\Debug\\' } |
     Select-Object -First 1
 
 if ($null -eq $ModuleDir) {
     Write-Fail "Module directory '$Module' not found under firmware/"
     Write-Host ""
-    Write-Host "RESULT: FAILED — module directory not found." -ForegroundColor Red
+    Write-Host "RESULT: FAILED - module directory not found." -ForegroundColor Red
     exit 1
 }
 
@@ -91,9 +91,9 @@ $ModulePath = $ModuleDir.FullName
 Write-Host "Module path: $ModulePath" -ForegroundColor DarkGray
 
 # ---------------------------------------------------------------------------
-# Step 3 — cppcheck
+# Step 3 - cppcheck
 # ---------------------------------------------------------------------------
-Write-Header "cppcheck — $Module"
+Write-Header "cppcheck - $Module"
 
 $SuppressionsFile = Join-Path $RepoRoot "cppcheck-suppressions.txt"
 
@@ -104,7 +104,7 @@ if (Test-Path $SuppressionsFile) {
         --error-exitcode=1 `
         "$ModulePath"
 } else {
-    Write-Host "No suppressions file found — running without it." -ForegroundColor Yellow
+    Write-Host "No suppressions file found - running without it." -ForegroundColor Yellow
     cppcheck --enable=style,warning,performance `
         --suppress=missingIncludeSystem `
         --error-exitcode=1 `
@@ -118,11 +118,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 — clang-format
+# Step 4 - clang-format
 # ---------------------------------------------------------------------------
-Write-Header "clang-format — $Module"
+Write-Header "clang-format - $Module"
 
-$SourceFiles = Get-ChildItem -Path $ModulePath -Recurse -Include "*.c", "*.h"
+$SourceFiles = @(Get-ChildItem -Path $ModulePath -Recurse -Include "*.c", "*.h")
 
 if ($SourceFiles.Count -eq 0) {
     Write-Host "No .c or .h files found in $ModulePath" -ForegroundColor Yellow
@@ -155,9 +155,10 @@ Write-Host ""
 Write-Host "================================================================" -ForegroundColor DarkCyan
 
 if ($Failed) {
-    Write-Host "  RESULT: FAILED — fix the issues above before committing." -ForegroundColor Red
+    Write-Host "  RESULT: FAILED - fix the issues above before committing." -ForegroundColor Red
     exit 1
 } else {
     Write-Host "  RESULT: ALL CHECKS PASSED" -ForegroundColor Green
     exit 0
 }
+

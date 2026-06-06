@@ -7,9 +7,6 @@
 //   - which BARR-C rule or project constraint justifies the suppression, and
 //   - why the flag is a false positive or an accepted deviation.
 
-// missingIncludeSystem: cppcheck doesn't ship system headers; not a real defect.
-missingIncludeSystem
-
 // missingInclude: vendored CMSIS not on cppcheck's include path; not a real defect.
 // (CMSIS *is* reachable by the actual compiler — see firmware/<board>/.cproject.)
 missingInclude
