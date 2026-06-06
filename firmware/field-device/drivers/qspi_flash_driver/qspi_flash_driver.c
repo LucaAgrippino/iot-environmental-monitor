@@ -449,8 +449,8 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint1
 
     for (i = 0U; i < len; i++)
     {
-        /* Wait if FIFO is full before writing the next byte */
-        while (((QUADSPI->SR >> QSPI_SR_FLEVEL_Pos) & QSPI_SR_FLEVEL_MASK) >= QSPI_FIFO_DEPTH)
+        /* Wait while FIFO is full (31 = max encodable value; 32 wraps to 0) */
+        while (((QUADSPI->SR >> QSPI_SR_FLEVEL_Pos) & QSPI_SR_FLEVEL_MASK) == QSPI_SR_FLEVEL_MASK)
         {
             ;
         }

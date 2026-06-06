@@ -88,9 +88,8 @@ static bool verify_buffer(const uint8_t *expected, const uint8_t *actual,
     {
         if (expected[i] != actual[i])
         {
-            LOG_ERROR("QSPI-TEST", "verify_buffer mismatch at byte %lu: "
-                      "expected 0x%02X got 0x%02X",
-                      (unsigned long)i, expected[i], actual[i]);
+        	LOG_ERROR("QSPI", "mismatch@%lu exp=0x%02X got=0x%02X",
+        	          (unsigned long)i, expected[i], actual[i]);
             return false;
         }
     }
