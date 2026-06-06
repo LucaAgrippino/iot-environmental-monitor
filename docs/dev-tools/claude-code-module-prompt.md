@@ -141,6 +141,11 @@ code. Confirm you understand:
 - The open items (§8) — note which are pre-code decisions vs
   post-code validations.
 
+**Before proceeding, verify §7 is a complete TC table** (not prose bullets
+or placeholders). Every row must have an ID, a stimulus, and an expected
+result. If §7 is incomplete, stop and tell the developer — do not proceed
+until §7 is complete. Pass H is done in chat before this session starts.
+
 ### Step 2 — Check existing files
 
 ```bash

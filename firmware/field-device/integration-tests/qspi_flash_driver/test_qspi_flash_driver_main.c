@@ -2,7 +2,7 @@
  * @file test_qspi_flash_driver_main.c
  * @brief QspiFlashDriver integration test on STM32F469I-DISCO hardware.
  *
- * Exercises the driver against the real MX25L51245G (or equivalent) NOR
+ * Exercises the driver against the real MT25QL128ABA (Micron, 16 MB) NOR
  * flash device over the QUADSPI peripheral. Validates the full read /
  * page-program / sector-erase sequence on a live device.
  *
@@ -14,7 +14,7 @@
  * Visual checklist — expected serial output:
  *
  * [ INFO] ===== QspiFlashDriver integration test =====
- * [ INFO] qspi_flash_init() ... OK  (RDID = 0xC22018, device = 16 MB)
+ * [ INFO] qspi_flash_init() ... OK  (RDID = 0x20BA18, device = 16 MB)
  * [ INFO] Sector erase at 0x00000000 ... OK
  * [ INFO] Page write  64 bytes at 0x00000000 ... OK
  * [ INFO] Read back   64 bytes at 0x00000000 ... OK  (data verified)
@@ -26,17 +26,13 @@
  * [ INFO] ===== ALL CHECKS PASSED =====
  *
  * Integration checklist:
- *   [ ] RDID matches 0xC22018 (Macronix MX25L — verify against actual device)
- *   [ ] Sector erase completes without TIMEOUT (WIP clears within ~300 ms)
+ *   [ ] RDID matches 0x20BA18 (Micron MT25QL128ABA — verify against actual device)
+ *   [ ] Sector erase completes without TIMEOUT (WIP clears within ~800 ms worst case)
  *   [ ] Written data reads back identically
  *   [ ] Bounds and page-boundary checks return expected error codes
  *   [ ] No QSPI_FLASH_ERR_DEVICE at init (correct device fitted)
  *   [ ] No QSPI_FLASH_ERR_TIMEOUT during write or erase
  *
- * Open items carried forward:
- *   QSPID-O2: QUADSPI clock prescaler — verify HCLK/prescaler <= 80 MHz.
- *   QSPID-O3: Confirm QSPI_EXPECTED_RDID against actual MX25L datasheet.
- *   QSPID-O5: Verify QUADSPI GPIO pin mapping against UM1932 schematic.
  */
 
 #include "stm32f469xx.h"
@@ -45,9 +41,11 @@
 #include "task.h"
 
 #include "system_clock.h"
+#include "rtc/rtc_driver.h"
 #include "debug-uart/debug_uart_driver.h"
 #include "logger/logger.h"
 #include "qspi_flash_driver/qspi_flash_driver.h"
+#include "gpio/gpio_driver.h"
 
 /* ====================================================================== */
 /* Configuration                                                          */
@@ -118,146 +116,148 @@ static void qspi_test_task(void *arg)
     /* -- Init ---------------------------------------------------------- */
     {
         qspi_flash_err_t err = qspi_flash_init();
-        log_result("qspi_flash_init()", err, QSPI_FLASH_ERR_OK);
-        if (err != QSPI_FLASH_ERR_OK)
+        log_result("qspi_flash_init()", err, QSPI_FLASH_OK);
+        if (err != QSPI_FLASH_OK)
         {
             LOG_ERROR("QSPI-TEST", "init failed — aborting");
-            goto done;
-        }
-    }
-
-    /* -- Sector erase -------------------------------------------------- */
-    {
-        qspi_flash_err_t err = qspi_flash_erase_sector(TEST_SECTOR_ADDR);
-        log_result("Sector erase at 0x00000000", err, QSPI_FLASH_ERR_OK);
-        if (err != QSPI_FLASH_ERR_OK)
-        {
             passed = false;
         }
     }
 
-    /* -- Page write A (64 bytes) --------------------------------------- */
-    for (uint8_t i = 0U; i < TEST_PAGE_A_LEN; i++)
+    if (passed)
     {
-        write_a[i] = (uint8_t)(0xA0U + i);
-    }
-    {
-        qspi_flash_err_t err =
-            qspi_flash_write_page(TEST_PAGE_A_ADDR, write_a, TEST_PAGE_A_LEN);
-        log_result("Page write 64 bytes at 0x00000000", err, QSPI_FLASH_ERR_OK);
-        if (err != QSPI_FLASH_ERR_OK)
+        /* -- Sector erase ---------------------------------------------- */
         {
-            passed = false;
-        }
-    }
-
-    /* -- Read back A --------------------------------------------------- */
-    {
-        qspi_flash_err_t err =
-            qspi_flash_read(TEST_PAGE_A_ADDR, read_a, TEST_PAGE_A_LEN);
-        log_result("Read back 64 bytes at 0x00000000", err, QSPI_FLASH_ERR_OK);
-        if (err == QSPI_FLASH_ERR_OK)
-        {
-            if (!verify_buffer(write_a, read_a, TEST_PAGE_A_LEN))
+            qspi_flash_err_t err = qspi_flash_erase_sector(TEST_SECTOR_ADDR);
+            log_result("Sector erase at 0x00000000", err, QSPI_FLASH_OK);
+            if (err != QSPI_FLASH_OK)
             {
                 passed = false;
-                LOG_ERROR("QSPI-TEST", "Read-back verify FAILED");
+            }
+        }
+
+        /* -- Page write A (64 bytes) ----------------------------------- */
+        for (uint8_t i = 0U; i < TEST_PAGE_A_LEN; i++)
+        {
+            write_a[i] = (uint8_t)(0xA0U + i);
+        }
+        {
+            qspi_flash_err_t err =
+                qspi_flash_write_page(TEST_PAGE_A_ADDR, write_a, TEST_PAGE_A_LEN);
+            log_result("Page write 64 bytes at 0x00000000", err, QSPI_FLASH_OK);
+            if (err != QSPI_FLASH_OK)
+            {
+                passed = false;
+            }
+        }
+
+        /* -- Read back A ----------------------------------------------- */
+        {
+            qspi_flash_err_t err =
+                qspi_flash_read(TEST_PAGE_A_ADDR, read_a, TEST_PAGE_A_LEN);
+            log_result("Read back 64 bytes at 0x00000000", err, QSPI_FLASH_OK);
+            if (err == QSPI_FLASH_OK)
+            {
+                if (!verify_buffer(write_a, read_a, TEST_PAGE_A_LEN))
+                {
+                    passed = false;
+                    LOG_ERROR("QSPI-TEST", "Read-back verify FAILED");
+                }
+                else
+                {
+                    LOG_INFO("QSPI-TEST", "  data verified OK");
+                }
             }
             else
             {
-                LOG_INFO("QSPI-TEST", "  data verified OK");
+                passed = false;
             }
         }
-        else
-        {
-            passed = false;
-        }
-    }
 
-    /* -- Page write B (128 bytes) -------------------------------------- */
-    for (uint8_t i = 0U; i < TEST_PAGE_B_LEN; i++)
-    {
-        write_b[i] = (uint8_t)(0xB0U + i);
-    }
-    {
-        qspi_flash_err_t err =
-            qspi_flash_write_page(TEST_PAGE_B_ADDR, write_b, TEST_PAGE_B_LEN);
-        log_result("Page write 128 bytes at 0x00000040", err, QSPI_FLASH_ERR_OK);
-        if (err != QSPI_FLASH_ERR_OK)
+        /* -- Page write B (128 bytes) ---------------------------------- */
+        for (uint8_t i = 0U; i < TEST_PAGE_B_LEN; i++)
         {
-            passed = false;
+            write_b[i] = (uint8_t)(0xB0U + i);
         }
-    }
-
-    /* -- Read back B --------------------------------------------------- */
-    {
-        qspi_flash_err_t err =
-            qspi_flash_read(TEST_PAGE_B_ADDR, read_b, TEST_PAGE_B_LEN);
-        log_result("Read back 128 bytes at 0x00000040", err, QSPI_FLASH_ERR_OK);
-        if (err == QSPI_FLASH_ERR_OK)
         {
-            if (!verify_buffer(write_b, read_b, TEST_PAGE_B_LEN))
+            qspi_flash_err_t err =
+                qspi_flash_write_page(TEST_PAGE_B_ADDR, write_b, TEST_PAGE_B_LEN);
+            log_result("Page write 128 bytes at 0x00000040", err, QSPI_FLASH_OK);
+            if (err != QSPI_FLASH_OK)
             {
                 passed = false;
-                LOG_ERROR("QSPI-TEST", "Read-back verify FAILED");
+            }
+        }
+
+        /* -- Read back B ----------------------------------------------- */
+        {
+            qspi_flash_err_t err =
+                qspi_flash_read(TEST_PAGE_B_ADDR, read_b, TEST_PAGE_B_LEN);
+            log_result("Read back 128 bytes at 0x00000040", err, QSPI_FLASH_OK);
+            if (err == QSPI_FLASH_OK)
+            {
+                if (!verify_buffer(write_b, read_b, TEST_PAGE_B_LEN))
+                {
+                    passed = false;
+                    LOG_ERROR("QSPI-TEST", "Read-back verify FAILED");
+                }
+                else
+                {
+                    LOG_INFO("QSPI-TEST", "  data verified OK");
+                }
             }
             else
             {
-                LOG_INFO("QSPI-TEST", "  data verified OK");
+                passed = false;
             }
         }
-        else
+
+        /* -- Bounds checks (error-path validation) --------------------- */
         {
-            passed = false;
+            qspi_flash_err_t err = qspi_flash_erase_sector(0xFFFFFFFFUL);
+            if (err == QSPI_FLASH_ERR_ADDR)
+            {
+                LOG_INFO("QSPI-TEST",
+                         "addr=0xFFFFFFFF erase bounds check ... QSPI_FLASH_ERR_ADDR  OK");
+            }
+            else
+            {
+                LOG_ERROR("QSPI-TEST", "erase bounds check FAILED (err=%d)", (int)err);
+                passed = false;
+            }
+        }
+        {
+            uint8_t          tmp[1];
+            qspi_flash_err_t err = qspi_flash_read(0U, tmp, 0U);
+            if (err == QSPI_FLASH_ERR_LEN)
+            {
+                LOG_INFO("QSPI-TEST",
+                         "len=0 read bounds check ... QSPI_FLASH_ERR_LEN  OK");
+            }
+            else
+            {
+                LOG_ERROR("QSPI-TEST", "read len=0 check FAILED (err=%d)", (int)err);
+                passed = false;
+            }
+        }
+        {
+            /* addr=0xF8, len=16: last byte at 0x107 — crosses 0x100 boundary */
+            uint8_t          tmp[16];
+            qspi_flash_err_t err = qspi_flash_write_page(0x00F8U, tmp, 16U);
+            if (err == QSPI_FLASH_ERR_LEN)
+            {
+                LOG_INFO("QSPI-TEST",
+                         "page-boundary write check ... QSPI_FLASH_ERR_LEN  OK");
+            }
+            else
+            {
+                LOG_ERROR("QSPI-TEST",
+                          "page-boundary check FAILED (err=%d)", (int)err);
+                passed = false;
+            }
         }
     }
 
-    /* -- Bounds checks (error-path validation) ------------------------- */
-    {
-        qspi_flash_err_t err = qspi_flash_erase_sector(0xFFFFFFFFUL);
-        if (err == QSPI_FLASH_ERR_ADDR)
-        {
-            LOG_INFO("QSPI-TEST",
-                     "addr=0xFFFFFFFF erase bounds check ... QSPI_FLASH_ERR_ADDR  OK");
-        }
-        else
-        {
-            LOG_ERROR("QSPI-TEST", "erase bounds check FAILED (err=%d)", (int)err);
-            passed = false;
-        }
-    }
-    {
-        uint8_t          tmp[1];
-        qspi_flash_err_t err = qspi_flash_read(0U, tmp, 0U);
-        if (err == QSPI_FLASH_ERR_LEN)
-        {
-            LOG_INFO("QSPI-TEST",
-                     "len=0 read bounds check ... QSPI_FLASH_ERR_LEN  OK");
-        }
-        else
-        {
-            LOG_ERROR("QSPI-TEST", "read len=0 check FAILED (err=%d)", (int)err);
-            passed = false;
-        }
-    }
-    {
-        /* addr=0xF8, len=16: last byte at 0x107 — crosses 0x100 boundary */
-        uint8_t          tmp[16];
-        qspi_flash_err_t err = qspi_flash_write_page(0x00F8U, tmp, 16U);
-        if (err == QSPI_FLASH_ERR_LEN)
-        {
-            LOG_INFO("QSPI-TEST",
-                     "page-boundary write check ... QSPI_FLASH_ERR_LEN  OK");
-        }
-        else
-        {
-            LOG_ERROR("QSPI-TEST",
-                      "page-boundary check FAILED (err=%d)", (int)err);
-            passed = false;
-        }
-    }
-
-done:
     if (passed)
     {
         LOG_INFO("QSPI-TEST", "===== ALL CHECKS PASSED =====");
@@ -280,8 +280,12 @@ done:
 int main(void)
 {
     system_clock_init();
+
+
+    gpio_init();
+    rtc_init();
     debug_uart_init();
-    logger_init();
+    logger_init(LOG_LEVEL_DEBUG);
 
     LOG_INFO("QSPI-TEST", "system up — starting scheduler");
 

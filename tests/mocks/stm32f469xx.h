@@ -373,6 +373,14 @@ extern uint32_t g_mock_quadspi_rx_fifo_idx;
 /* FMODE [27:26]: functional mode (00 = indirect write, 01 = indirect read) */
 #define QUADSPI_CCR_FMODE_Pos        (26U)
 
+/* Byte-width DR read/write intercepts for test builds.
+ * These definitions shadow the driver's own QUADSPI_READ_BYTE / QUADSPI_WRITE_BYTE
+ * (which use hardware QUADSPI_BASE), making byte-width DR accesses use the
+ * mock rx-fifo (reads) and g_mock_quadspi.DR (writes) instead. */
+#define QUADSPI_READ_BYTE     (g_mock_quadspi_rx_fifo[g_mock_quadspi_rx_fifo_idx++])
+#define QUADSPI_WRITE_BYTE(b) (g_mock_quadspi.DR = (uint32_t)(uint8_t)(b))
+
+#define __NOP(void) void
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */

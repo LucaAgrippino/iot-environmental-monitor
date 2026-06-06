@@ -6,8 +6,8 @@
  * in indirect mode (1-1-1 SPI) only. No memory-mapped mode; no quad mode.
  * No internal synchronisation — callers serialise concurrent access.
  *
- * Board scope: Field Device (STM32F469, MX25L51245G 16 MB) and
- *              Gateway      (STM32L475, MX25R6435F  8 MB).
+ * Board scope: Field Device (STM32F469, MT25QL128ABA 16 MB) and
+ *              Gateway      (STM32L475, MX25R6435F   8 MB).
  *
  * @note See docs/lld/drivers/qspi-flash-driver.md for the full design.
  */
@@ -29,12 +29,13 @@
  */
 typedef enum
 {
-    QSPI_FLASH_ERR_OK = 0,      /**< Operation succeeded. */
+    QSPI_FLASH_OK = 0,          /**< Operation succeeded. */
     QSPI_FLASH_ERR_BUSY = 1,    /**< QUADSPI peripheral busy or flash WIP set. */
     QSPI_FLASH_ERR_TIMEOUT = 2, /**< WIP polling exceeded timeout (erase/write). */
     QSPI_FLASH_ERR_ADDR = 3,    /**< Address exceeds device capacity. */
     QSPI_FLASH_ERR_LEN = 4,     /**< len == 0, or write crosses a page boundary. */
     QSPI_FLASH_ERR_DEVICE = 5,  /**< RDID response does not match expected ID. */
+    QSPI_FLASH_ERR_NOT_INIT = 6 /**< Driver not initialised — call qspi_flash_init() first. */
 } qspi_flash_err_t;
 
 /* ------------------------------------------------------------------ */
@@ -53,7 +54,7 @@ typedef enum
  * Must be called once from main() before the FreeRTOS scheduler starts.
  * Operates in indirect mode (1-1-1 SPI). Does not activate quad mode.
  *
- * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_DEVICE on ID
+ * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_DEVICE on ID
  *         mismatch; QSPI_FLASH_ERR_TIMEOUT if the peripheral does not
  *         respond.
  * @note Threading: task-context only, non-blocking. Must be called before
@@ -73,7 +74,7 @@ qspi_flash_err_t qspi_flash_init(void);
  * @param addr  Byte address within the flash (0 .. device_size - 1).
  * @param buf   Destination buffer (must not be NULL; must be >= len bytes).
  * @param len   Number of bytes to read (must be >= 1).
- * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_ADDR or
+ * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_ADDR or
  *         QSPI_FLASH_ERR_LEN on constraint violation;
  *         QSPI_FLASH_ERR_BUSY or QSPI_FLASH_ERR_TIMEOUT on hardware error.
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
@@ -102,7 +103,7 @@ qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
  * @param addr  Byte address of the first byte to program.
  * @param data  Pointer to data to write (must not be NULL).
  * @param len   Number of bytes to program (1 .. 256, page-aligned).
- * @return QSPI_FLASH_ERR_OK on success; error code on failure.
+ * @return QSPI_FLASH_OK on success; error code on failure.
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint16_t len);
@@ -118,7 +119,7 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint1
  * boundary internally.
  *
  * @param addr  Any byte address within the target 4 KB sector.
- * @return QSPI_FLASH_ERR_OK on success; QSPI_FLASH_ERR_TIMEOUT if WIP
+ * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_TIMEOUT if WIP
  *         does not clear within 500 ms; QSPI_FLASH_ERR_ADDR if addr
  *         exceeds device capacity.
  * @note Threading: task-context only, may block. Not ISR-safe.

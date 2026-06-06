@@ -7,7 +7,7 @@
  * Timeout tests leave SR.TCF clear so poll_tcf() exhausts its loop.
  *
  * RDID byte order: fifo[0]=manufacturer, fifo[1]=memory-type, fifo[2]=capacity.
- * For BOARD_FIELD_DEVICE: expected RDID = 0xC22018 (0xC2, 0x20, 0x18).
+ * For BOARD_FIELD_DEVICE: expected RDID = 0x20BA18 (0x20, 0xBA, 0x18) — Micron MT25QL128ABA.
  *
  * Build: STM32F469xx, BOARD_FIELD_DEVICE, and TEST must be defined
  *        (project.yml :test_qspi_flash_driver:).
@@ -15,6 +15,7 @@
 
 #include "unity.h"
 #include "stm32_cmsis_mock.h"
+#include "mock_gpio_driver.h"
 #include "qspi_flash_driver.h"
 #include <string.h>
 #include <stdint.h>
@@ -27,11 +28,9 @@
  *  state. s_device_size and s_initialised are preserved in the SUT. */
 static void helper_init_driver(void)
 {
-    g_mock_quadspi.SR         = QUADSPI_SR_TCF;
-    g_mock_quadspi_rx_fifo[0] = 0xC2U;
-    g_mock_quadspi_rx_fifo[1] = 0x20U;
-    g_mock_quadspi_rx_fifo[2] = 0x18U;
-    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_OK, qspi_flash_init());
+    g_mock_quadspi.SR = QUADSPI_SR_TCF;
+    g_mock_quadspi.DR = 0x0018BA20U; /* RDID: b0=0x20(mfr), b1=0xBA(type), b2=0x18(cap) */
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, qspi_flash_init());
     stm32_cmsis_mock_reset(); /* clear fifo_idx; SUT static state untouched */
 }
 
@@ -43,6 +42,7 @@ void setUp(void)
 {
     stm32_cmsis_mock_reset();
     qspi_flash_reset_for_test();
+    gpio_configure_pin_IgnoreAndReturn(GPIO_OK);
 }
 
 void tearDown(void) {}
@@ -53,14 +53,12 @@ void tearDown(void) {}
 
 void test_T_QSPI_01_init_happy_path(void)
 {
-    g_mock_quadspi.SR         = QUADSPI_SR_TCF;
-    g_mock_quadspi_rx_fifo[0] = 0xC2U;
-    g_mock_quadspi_rx_fifo[1] = 0x20U;
-    g_mock_quadspi_rx_fifo[2] = 0x18U;
+    g_mock_quadspi.SR = QUADSPI_SR_TCF;
+    g_mock_quadspi.DR = 0x0018BA20U; /* RDID: b0=0x20(mfr), b1=0xBA(type), b2=0x18(cap) */
 
     qspi_flash_err_t err = qspi_flash_init();
 
-    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_OK, err);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, err);
 
     /* AHB3ENR QSPIEN set */
     TEST_ASSERT_TRUE((RCC->AHB3ENR & RCC_AHB3ENR_QSPIEN) != 0U);
@@ -79,10 +77,8 @@ void test_T_QSPI_01_init_happy_path(void)
 
 void test_T_QSPI_02_init_wrong_rdid(void)
 {
-    g_mock_quadspi.SR         = QUADSPI_SR_TCF;
-    g_mock_quadspi_rx_fifo[0] = 0xEFU; /* wrong manufacturer */
-    g_mock_quadspi_rx_fifo[1] = 0x40U;
-    g_mock_quadspi_rx_fifo[2] = 0x18U;
+    g_mock_quadspi.SR = QUADSPI_SR_TCF;
+    g_mock_quadspi.DR = 0x001840EFU; /* wrong RDID: b0=0xEF, b1=0x40, b2=0x18 */
 
     qspi_flash_err_t err = qspi_flash_init();
 
@@ -105,11 +101,11 @@ void test_T_QSPI_03_read_256_bytes_at_addr_0(void)
     {
         g_mock_quadspi_rx_fifo[i] = (uint8_t)i;
     }
-    g_mock_quadspi.SR = QUADSPI_SR_TCF;
+    g_mock_quadspi.SR = QUADSPI_SR_TCF | QUADSPI_SR_FTF;
 
     qspi_flash_err_t err = qspi_flash_read(0U, buf, 256U);
 
-    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_OK, err);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, err);
 
     /* CCR carries READ opcode (0x03) */
     uint32_t instr = (QUADSPI->CCR >> QUADSPI_CCR_INSTRUCTION_Pos) & 0xFFU;
@@ -176,7 +172,7 @@ void test_T_QSPI_06_write_page_128_bytes_aligned(void)
 
     qspi_flash_err_t err = qspi_flash_write_page(0x0000U, data, 128U);
 
-    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_OK, err);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, err);
 
     /* AR holds the Page Program address (not overwritten by RDSR) */
     TEST_ASSERT_EQUAL_UINT32(0x0000U, QUADSPI->AR);
@@ -236,7 +232,7 @@ void test_T_QSPI_09_erase_sector_aligned_addr(void)
 
     qspi_flash_err_t err = qspi_flash_erase_sector(0x1000U);
 
-    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_OK, err);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, err);
 
     /* AR holds the sector-aligned address (preserved through RDSR) */
     TEST_ASSERT_EQUAL_UINT32(0x1000U, QUADSPI->AR);
@@ -256,7 +252,7 @@ void test_T_QSPI_10_erase_sector_auto_aligns(void)
     /* addr=0x1234 → sector base = 0x1000 */
     qspi_flash_err_t err = qspi_flash_erase_sector(0x1234U);
 
-    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_OK, err);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, err);
     TEST_ASSERT_EQUAL_UINT32(0x1000U, QUADSPI->AR);
 }
 
