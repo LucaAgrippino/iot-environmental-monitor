@@ -44,7 +44,7 @@ typedef struct ihealth_report_s ihealth_report_t;
 
 typedef enum
 {
-    CONFIG_STORE_ERR_OK            = 0, /**< Operation succeeded. */
+    CONFIG_STORE_OK                = 0, /**< Operation succeeded. */
     CONFIG_STORE_ERR_NOT_INIT      = 1, /**< Called before config_store_init(). */
     CONFIG_STORE_ERR_NULL_ARG      = 2, /**< Required pointer argument is NULL. */
     CONFIG_STORE_ERR_TOO_LARGE     = 3, /**< Blob exceeds CONFIG_STORE_MAX_DATA_BYTES. */
@@ -62,7 +62,7 @@ typedef enum
 #define CONFIG_STORE_MAX_DATA_BYTES  32712U
 
 /** Magic number written at the start of every valid slot header. */
-#define CONFIG_STORE_MAGIC           0xC0FFEE00UL
+#define CONFIG_STORE_MAGIC           0xBADC0DE0UL
 
 /* ========================================================================= */
 /* IConfigStore vtable (P2 — Dependency Inversion)                          */
@@ -98,7 +98,7 @@ extern const iconfig_store_t *const config_store;
  * is accessible.  Does NOT load config — load is a separate call.
  *
  * @param  health  IHealthReport handle for failure event push.
- * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  * @note Threading: task-context only, non-blocking.  Call before scheduler starts.
  */
 config_store_err_t config_store_init(ihealth_report_t *health);
@@ -112,7 +112,7 @@ config_store_err_t config_store_init(ihealth_report_t *health);
  * @param[out] data_out  Caller-supplied buffer; receives config blob.
  * @param[out] len_out   Set to the blob byte count on success.
  * @param[in]  max_len   Size of data_out in bytes.
- * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  * @note Threading: task-context only, non-blocking.  Not ISR-safe.
  */
 config_store_err_t config_store_load(void     *data_out,
@@ -130,7 +130,7 @@ config_store_err_t config_store_load(void     *data_out,
  *
  * @param[in]  data  Opaque config blob.
  * @param[in]  len   Byte count; must be <= CONFIG_STORE_MAX_DATA_BYTES.
- * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  */
 config_store_err_t config_store_save(const void *data, uint32_t len);
 
@@ -140,7 +140,7 @@ config_store_err_t config_store_save(const void *data, uint32_t len);
  * Returns OK if at least one slot has a valid CRC32.  Does not modify state.
  * Pushes HEALTH_EVENT_CONFIG_NO_VALID_SLOT if both slots are invalid.
  *
- * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  * @note Threading: task-context only, non-blocking.  Not ISR-safe.
  */
 config_store_err_t config_store_check_integrity(void);
@@ -151,7 +151,7 @@ config_store_err_t config_store_check_integrity(void);
  * Erases all 16 sectors.  After this call the next config_store_load() returns
  * CONFIG_STORE_ERR_NO_VALID_SLOT — the caller must supply defaults.
  *
- * @return CONFIG_STORE_ERR_OK on success; non-zero error code on failure.
+ * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  * @note Threading: task-context only, may block.  Not ISR-safe.
  */
 config_store_err_t config_store_erase(void);

@@ -314,7 +314,7 @@ static config_store_err_t cs_save_locked(const void *data, uint32_t len)
      * Fix: change CS_SECTORS_PER_SLOT - 1U to CS_SECTORS_PER_SLOT.
      * The bug is silent in unit tests because the RAM stub has no NOR
      * flash programming constraint — the write overwrites any value. */
-    if (cs_flash_erase_range(target_base, CS_SECTORS_PER_SLOT - 1U) != QSPI_FLASH_OK)
+    if (cs_flash_erase_range(target_base, CS_SECTORS_PER_SLOT) != QSPI_FLASH_OK)
     {
         cs_push_health(HEALTH_EVENT_CONFIG_WRITE_FAIL);
         return CONFIG_STORE_ERR_FLASH_ERASE;
@@ -366,7 +366,7 @@ static config_store_err_t cs_save_locked(const void *data, uint32_t len)
              (target_idx == 0U) ? 'A' : 'B',
              (unsigned)next_seq);
 
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 /* ========================================================================= */
@@ -379,7 +379,7 @@ config_store_err_t config_store_init(ihealth_report_t *health)
 
     if (s_cs.initialised)
     {
-        return CONFIG_STORE_ERR_OK;
+        return CONFIG_STORE_OK;
     }
     if (health == NULL)
     {
@@ -400,7 +400,7 @@ config_store_err_t config_store_init(ihealth_report_t *health)
     s_cs.initialised        = true;
 
     LOG_INFO(CS_MODULE_NAME, "init OK");
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 config_store_err_t config_store_load(void *data_out, uint32_t *len_out, uint32_t max_len)
@@ -477,7 +477,7 @@ config_store_err_t config_store_load(void *data_out, uint32_t *len_out, uint32_t
     s_cs.active_seq_number = seq[selected];
 
     (void)xSemaphoreGive(s_cs.mutex);
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 config_store_err_t config_store_save(const void *data, uint32_t len)
@@ -531,12 +531,12 @@ config_store_err_t config_store_check_integrity(void)
 
     LOG_INFO(CS_MODULE_NAME, "integrity OK");
     (void)xSemaphoreGive(s_cs.mutex);
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 config_store_err_t config_store_erase(void)
 {
-    config_store_err_t ret = CONFIG_STORE_ERR_OK;
+    config_store_err_t ret = CONFIG_STORE_OK;
     uint8_t            s;
 
     if (!s_cs.initialised)
@@ -556,7 +556,7 @@ config_store_err_t config_store_erase(void)
         }
     }
 
-    if (ret == CONFIG_STORE_ERR_OK)
+    if (ret == CONFIG_STORE_OK)
     {
         LOG_INFO(CS_MODULE_NAME, "factory erase complete");
     }
