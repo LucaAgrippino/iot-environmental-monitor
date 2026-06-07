@@ -176,7 +176,7 @@ void tearDown(void) {}
 
 static void do_init(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_init((ihealth_report_t *)&s_stub_health));
 }
 
@@ -210,9 +210,9 @@ void test_TC_CS_002_save_load_roundtrip(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_save(payload, sizeof(payload)));
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_load(buf, &len, sizeof(buf)));
     TEST_ASSERT_EQUAL(sizeof(payload), len);
     TEST_ASSERT_EQUAL_MEMORY(payload, buf, sizeof(payload));
@@ -232,9 +232,9 @@ void test_TC_CS_003_dual_save_slot_selection(void)
     do_init();
 
     /* save #1 → slot B (seq=1); save #2 → slot A (seq=2) */
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob1, sizeof(blob1)));
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob2, sizeof(blob2)));
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob1, sizeof(blob1)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob2, sizeof(blob2)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_load(buf, &len, sizeof(buf)));
     TEST_ASSERT_EQUAL_MEMORY(blob2, buf, sizeof(blob2));
 }
@@ -253,8 +253,8 @@ void test_TC_CS_004_single_crc_corrupt_selects_valid_slot(void)
     do_init();
 
     /* save #1 → slot B (seq=1); save #2 → slot A (seq=2) */
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob1, sizeof(blob1)));
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob2, sizeof(blob2)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob1, sizeof(blob1)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob2, sizeof(blob2)));
 
     /* Corrupt slot B CRC (lower seq slot) by flipping bytes */
     g_config_store_flash_sim[CONFIG_STORE_SLOT_SIZE + 0x7FF8U] ^= 0xFFU;
@@ -262,7 +262,7 @@ void test_TC_CS_004_single_crc_corrupt_selects_valid_slot(void)
     health_mock_reset();
 
     /* Load should select slot A (higher seq, valid CRC) and return blob2 */
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_load(buf, &len, sizeof(buf)));
     TEST_ASSERT_EQUAL_MEMORY(blob2, buf, sizeof(blob2));
 }
@@ -279,8 +279,8 @@ void test_TC_CS_005_both_crc_corrupt_no_valid_slot(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob, sizeof(blob)));
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob, sizeof(blob)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob, sizeof(blob)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob, sizeof(blob)));
 
     /* Corrupt both slots' CRCs */
     g_config_store_flash_sim[0x7FF8U] ^= 0xFFU;                           /* slot A */
@@ -306,7 +306,7 @@ void test_TC_CS_006_erase_failure_active_slot_intact(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob1, sizeof(blob1)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob1, sizeof(blob1)));
 
     /* Fail on the next erase call (second save) */
     g_stub_erase_call_count = 0;
@@ -318,7 +318,7 @@ void test_TC_CS_006_erase_failure_active_slot_intact(void)
 
     /* Slot B (first save) must still be loadable */
     g_stub_erase_fail_at = 0;
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_load(buf, &len, sizeof(buf)));
     TEST_ASSERT_EQUAL_MEMORY(blob1, buf, sizeof(blob1));
 }
@@ -336,7 +336,7 @@ void test_TC_CS_007_crc_write_failure_active_slot_intact(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob1, sizeof(blob1)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob1, sizeof(blob1)));
 
     /* Fail on 3rd write call of next save: (1) header, (2) data, (3) CRC */
     g_stub_write_call_count = 0;
@@ -348,7 +348,7 @@ void test_TC_CS_007_crc_write_failure_active_slot_intact(void)
 
     /* Slot B (first save) must still be valid — CRC commit of target slot failed */
     g_stub_write_fail_at = 0;
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK,
                       config_store_load(buf, &len, sizeof(buf)));
     TEST_ASSERT_EQUAL_MEMORY(blob1, buf, sizeof(blob1));
 }
@@ -366,8 +366,8 @@ void test_TC_CS_008_factory_erase_clears_both_slots(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob, sizeof(blob)));
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_erase());
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob, sizeof(blob)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_erase());
 
     health_mock_reset();
 
@@ -388,7 +388,7 @@ void test_TC_CS_009_load_too_large_returns_error(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(big, sizeof(big)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(big, sizeof(big)));
     TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_TOO_LARGE,
                       config_store_load(small_buf, &len, sizeof(small_buf)));
 }
@@ -463,10 +463,10 @@ void test_TC_CS_013_check_integrity_after_save(void)
 
     do_init();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_save(blob, sizeof(blob)));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_save(blob, sizeof(blob)));
 
     health_mock_reset();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_check_integrity());
+    TEST_ASSERT_EQUAL(CONFIG_STORE_OK, config_store_check_integrity());
     TEST_ASSERT_EQUAL(0U, g_health_push_calls);
 }
