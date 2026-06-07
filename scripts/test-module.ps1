@@ -77,7 +77,9 @@ if ($CeedlingExit -ne 0) {
 # Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
 $ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
-    Where-Object { $_.Name -eq $Module -and $_.FullName -notmatch '\\Debug\\' } |
+    Where-Object { $_.Name -eq $Module -and 
+                   $_.FullName -notmatch '\\Debug\\' -and
+                   $_.FullName -notmatch '\\integration-tests\\' } |
     Select-Object -First 1
 
 if ($null -eq $ModuleDir) {
