@@ -1,7 +1,7 @@
 # Session Report — ConfigStore
 
-**Date:** 2026-06-02
-**Branch:** `feature/phase-4-sensor-alarm-service`
+**Date:** 2026-06-07
+**Branch:** `feature/phase-4-config-store`
 **Companion:** `docs/lld/middleware/config-store.md`
 
 ---
@@ -10,14 +10,14 @@
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `firmware/field-device/middleware/config_store/config_store_config.h` | 19 | board-specific partition constants |
-| `firmware/field-device/middleware/config_store/config_store_crc.h` | 48 | streaming + one-shot CRC32/ISO-HDLC API |
-| `firmware/field-device/middleware/config_store/config_store_crc.c` | 109 | 1 KB table, start/feed/finish/one-shot |
-| `firmware/field-device/middleware/config_store/config_store.h` | 212 | public API, vtable, TEST/UNIT_TEST hooks |
-| `firmware/field-device/middleware/config_store/config_store.c` | ~680 | full implementation |
-| `firmware/field-device/integration-tests/config_store/test_config_store_main.c` | 193 | on-board integration test |
-| `tests/field-device/middleware/config_store/test_config_store.c` | 434 | 13 Unity test cases |
-| `tests/project.yml` | +3 lines | `:test_config_store:` defines block added |
+| `firmware/field-device/middleware/config_store/config_store_config.h` | 24 | board-specific partition constants |
+| `firmware/field-device/middleware/config_store/config_store_crc.h` | 47 | streaming + one-shot CRC32/ISO-HDLC API |
+| `firmware/field-device/middleware/config_store/config_store_crc.c` | 108 | 1 KB table, start/feed/finish/one-shot |
+| `firmware/field-device/middleware/config_store/config_store.h` | 201 | public API, vtable, TEST/UNIT_TEST hooks |
+| `firmware/field-device/middleware/config_store/config_store.c` | 591 | full implementation |
+| `tests/field-device/middleware/config_store/test_config_store.c` | 472 | 13 Unity test cases |
+| `firmware/field-device/integration-tests/config_store/test_config_store_main.c` | 285 | on-board integration test |
+| `tests/project.yml` | +4 lines | `:test_config_store:` block with `LOG_LEVEL_MIN=-1` |
 
 ---
 
@@ -41,9 +41,9 @@
 
 **Total:** 13 pass, 0 ignored.
 
-**Note on slot selection order (informs TC-CS-003 and TC-CS-004):**
+**Slot selection order (informs TC-CS-003 and TC-CS-004):**
 When neither slot is valid (first boot), the companion says active=A, target=B.
-Therefore save #1 always goes to slot B (seq=1), save #2 goes to slot A (seq=2).
+Save #1 always goes to slot B (seq=1); save #2 goes to slot A (seq=2).
 TC-CS-003 and TC-CS-004 account for this: after two saves, slot A holds the
 second blob (higher seq, selected on load) and slot B holds the first blob.
 
@@ -56,37 +56,52 @@ to the STM32F469I-DISCO. Open PuTTY at 115200/8N1 on the ST-Link VCP.
 
 | # | What to observe | Verifies |
 |---|-----------------|----------|
-| 1 | `[INFO][CSTest] ===== ConfigStore integration test =====` | logger + init path |
-| 2 | `[INFO][ConfigStore] init OK` | QSPI accessible, mutex created |
-| 3 | `[INFO][CSTest]` reports `check_integrity: ERR_NO_VALID_SLOT` | both slots blank |
-| 4 | `[INFO][ConfigStore] saved 32 bytes to slot B (seq=1)` | first save → slot B |
-| 5 | `[INFO][ConfigStore] integrity OK` | one valid slot found |
-| 6 | `[INFO][CSTest]` reports `load 1: OK` + data matches | load path |
-| 7 | `[INFO][ConfigStore] saved 32 bytes to slot A (seq=2)` | second save → slot A |
-| 8 | `[INFO][CSTest]` reports `load 2: slot B selected` WRONG — actually A selected | slot A (seq=2) wins |
-| 9 | `[INFO][ConfigStore] factory erase complete` | all 16 sectors erased |
-| 10 | `[INFO][CSTest]` reports `load after erase: ERR_NO_VALID_SLOT` | erase effective |
-| 11 | `[INFO][CSTest] === ALL CHECKS PASSED ===` | all assertions pass |
-| 12 | Green LED (LD1, PG13) lit continuously | visual PASS indicator |
-| 13 | Red LED (LD4, PD4) off | no assertion failure |
+| 1 | `[ INFO][CS-TEST] ===== ConfigStore integration test =====` | init sequence |
+| 2 | `[ INFO][CS-TEST] qspi_flash_init() ... OK` | QSPI accessible |
+| 3 | `[ INFO][CS-TEST] config_store_init() ... OK` | partition probe OK, mutex created |
+| 4 | `[ INFO][CS-TEST] check_integrity fresh ... OK` (returns NO_VALID_SLOT) | both slots blank |
+| 5 | `[ INFO][CS-TEST] save blob_a (8 bytes) ... OK` | first save → slot B (seq=1) |
+| 6 | `[ INFO][CS-TEST] check_integrity after save ... OK` | one valid slot found |
+| 7 | `[ INFO][CS-TEST] load blob_a ... OK` + blob_a data verified | load from slot B |
+| 8 | `[ INFO][CS-TEST] save blob_b (16 bytes) ... OK` | second save → slot A (seq=2) |
+| 9 | `[ INFO][CS-TEST] load blob_b ... OK` + blob_b data verified | slot A (seq=2) selected |
+| 10 | `[ INFO][CS-TEST] corrupt slot A CRC ... simulated` | CRC byte cleared via write_page |
+| 11 | `[ INFO][CS-TEST] load after slot A corrupt ... OK` + slot B verified | fallback to slot B |
+| 12 | `[ INFO][CS-TEST] config_store_erase() ... OK` | all 16 sectors erased |
+| 13 | `[ INFO][CS-TEST] load after erase ... OK` (returns NO_VALID_SLOT) | erase effective |
+| 14 | `[ INFO][CS-TEST] ===== ALL CHECKS PASSED (12/12) =====` | all assertions pass |
 
-**Hardware bug observable after repeated saves** (see bug-log.md):
-After the green LED lights, press RESET. On the second run, the test will save
-to slot A (seq=3) and slot B (seq=4) etc. Eventually (when the same slot is
-reused for the second time), the load on the following run will fail because the
-CRC field was not erased before the new CRC was written. Symptom: load returns
-ERR_NO_VALID_SLOT unexpectedly. Set a JTAG breakpoint in cs_validate_slot and
-inspect the raw bytes of the affected slot.
+**Hardware bug observable after first run** (see bug-log.md):
+The factory erase at step 9 leaves the partition blank. On the second run, the test
+works correctly again because slot A (containing the CRC) was erased by the factory
+erase. To observe the hardware bug: run the test WITHOUT the factory erase step, then
+reset. On the next save to the same slot, the un-erased CRC sector will cause a
+corrupted stored CRC, and the slot will fail validation on the next load.
 
 ---
 
 ## Deviations from companion
 
-1. **Companion §7 UNIT_TEST macro hint**: The companion sketches `#define qspi_flash_erase(addr, len) stub_flash_erase(...)` etc. inside `config_store.c`. The implementation instead uses internal static wrapper functions (`cs_flash_erase_range`, `cs_flash_write_bytes`, `cs_flash_read_bytes`) and a `#ifdef UNIT_TEST` block that defines them as macros. Effect is identical; naming avoids collision with the real driver function `qspi_flash_read`. Reason: cleaner namespace, no risk of redeclaring a static function with the same name as an extern function.
+1. **UNIT_TEST bridge via internal wrappers**: The companion sketches a macro approach
+   (`#define qspi_flash_erase(...)` etc.) in config_store.c. The implementation uses
+   internal static wrapper functions (`cs_flash_erase_range`, `cs_flash_write_bytes`,
+   `cs_flash_read_bytes`) that are macro-replaced in UNIT_TEST builds. Effect is
+   identical; naming avoids any collision with the real driver function signatures.
 
-2. **Streaming CRC API**: The companion mentions only `config_store_crc32(buf, len)`. The implementation also adds `config_store_crc32_start`, `_feed`, `_finish` to support incremental computation over 32 KB slot content without a large stack allocation. This is additive; `config_store_crc32()` still exists as specified.
+2. **Streaming CRC API**: The companion specifies only `config_store_crc32(buf, len)`.
+   The implementation adds `config_store_crc32_start`, `_feed`, `_finish` to support
+   incremental computation over 32 KB slot content in CS_CHUNK_SIZE-byte reads, without
+   requiring a 32 KB stack buffer. The one-shot function is still provided.
 
-3. **CS-O3 (seq_number overflow)**: Documented in `config_store_crc.c` file comment as specified.
+3. **Test build logger suppression**: `LOG_LEVEL_MIN=-1` is set in project.yml
+   `:test_config_store:` defines to make all LOG_* macros no-ops in unit test builds.
+   This avoids linking logger.c (which would cascade FreeRTOS queue and UART
+   dependencies). config_store.c includes `health_monitor_stub.h` under `#ifdef TEST`
+   to supply `health_event_t` and `HEALTH_EVENT_*` constants that are otherwise
+   provided by health_monitor.h in production builds.
+
+4. **CS-O3 (seq_number overflow)**: Documented in `config_store_crc.c` file header
+   comment as specified.
 
 ---
 
@@ -94,82 +109,42 @@ inspect the raw bytes of the affected slot.
 
 | ID | Status | Notes |
 |----|--------|-------|
-| CS-O1 | Open | `CONFIG_STORE_MAX_DATA_BYTES` (32 712) must be verified against the actual serialised config struct when ConfigService LLD is produced. |
-| CS-O2 | Resolved | QspiFlashDriver LLD confirms 4 KB sector erase and byte-granular write. QSPI base-address offset conversion handled internally in `cs_flash_erase_range` / `cs_flash_write_bytes` / `cs_flash_read_bytes`. |
-| CS-O3 | Closed | seq_number overflow bound documented in config_store_crc.c file comment. |
+| CS-O1 | Open | `CONFIG_STORE_MAX_DATA_BYTES` (32 712) must be verified against the serialised config struct when ConfigService LLD is produced. |
+| CS-O2 | Resolved | QspiFlashDriver provides 4 KB sector erase and page-program with ≤256 bytes/call; `cs_flash_write_bytes` handles arbitrary lengths by chunking across page boundaries. |
+| CS-O3 | Closed | Seq_number overflow bound documented in config_store_crc.c file header. |
 
 ---
 
-## Commit messages
+## PR title
 
-### Commit 1
-```
-feat: add ConfigStore middleware — A/B slot NOR flash persistence with CRC32
-
-Implements IConfigStore: config_store_init, _load, _save, _check_integrity,
-_erase. Power-loss-safe A/B slot rotation per flash-partition-layout.md §6.1
-(D39). CRC32/ISO-HDLC integrity protection; internal priority-inheritance
-mutex serialises concurrent callers. UNIT_TEST RAM-backed simulation with
-fault injection for host-side testing. Intentional hardware bug in
-config_store_save erase range (7 of 8 sectors erased) for integration debug
-exercise. Companion: docs/lld/middleware/config-store.md.
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-```
-
-### Commit 2
-```
-test: add ConfigStore unit tests TC-CS-001..013 and project.yml entry
-
-13 Unity test cases covering: fresh-flash no-valid-slot, save/load roundtrip,
-dual-save slot selection, single-slot CRC corruption, dual-slot corruption
-with health event, erase and write fault injection, factory erase, too-large
-guard, not-init guards, null-arg guards, check_integrity (empty and valid).
-All 13 pass. UNIT_TEST RAM sim with countdown fault injection in config_store.c.
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-```
+feat: ConfigStore — power-loss-safe A/B slot QSPI flash config persistence
 
 ---
 
 ## PR description
 
-Title: `feat: ConfigStore middleware — A/B slot NOR flash persistence`
+## What this PR contains
 
-Body:
-```markdown
-## Summary
-- Adds `IConfigStore`: power-loss-safe A/B slot write, CRC32/ISO-HDLC integrity,
-  internal mutex, health-event reporting.
-- CRC32 implementation in a standalone `config_store_crc.c` with streaming API.
-- UNIT_TEST RAM simulation with countdown fault injection enables deterministic
-  host-side testing without flash hardware.
+- `firmware/field-device/middleware/config_store/config_store.h` — public API, IConfigStore vtable, UNIT_TEST flash-sim hooks
+- `firmware/field-device/middleware/config_store/config_store.c` — A/B slot write, CRC validation, load, check_integrity, factory erase
+- `firmware/field-device/middleware/config_store/config_store_crc.{h,c}` — streaming CRC32/ISO-HDLC, 1 KB ROM table
+- `firmware/field-device/middleware/config_store/config_store_config.h` — board-specific partition constants
+- `tests/field-device/middleware/config_store/test_config_store.c` — 13 Unity unit tests
+- `firmware/field-device/integration-tests/config_store/test_config_store_main.c` — hardware integration test
+- `tests/project.yml` — `:test_config_store:` defines block
 
-## What is in this PR
-| Commit | Files | Description |
-|--------|-------|-------------|
-| `feat:` | `firmware/.../config_store/` | 5 source files (config, crc, main) |
-| `test:` | `tests/.../test_config_store.c`, `project.yml` | 13 unit tests |
+## Design decisions
 
-## Architecture decisions
-- **Separate CRC module** (`config_store_crc.c`): table-driven, streaming API,
-  isolated and independently testable.
-- **UNIT_TEST macro bridge**: flash ops are macro-replaced in test builds;
-  no stub header needed, no driver cascade into the test link.
-- **Slot selection**: when both slots are invalid, target = slot B (active = A)
-  per companion §6. First boot writes to slot B (seq=1), second to slot A (seq=2).
+- **Internal CRC wrappers over macros**: avoids namespace collision with the real driver signatures.
+- **Streaming CRC API**: allows CRC computation over 32 KB slot content in 256-byte chunks without a large stack buffer.
+- **LOG_LEVEL_MIN=-1 in test build**: suppresses all LOG_* to no-ops, avoiding logger.c cascade in Ceedling link.
 
 ## Test evidence
-```
-TESTED:  13  PASSED:  13  FAILED:  0  IGNORED:  0
-```
 
-## Open items
-- CS-O1: verify CONFIG_STORE_MAX_DATA_BYTES against ConfigService struct size.
+All 6 CI checks green.
+Unity host tests: 13 pass, 0 fail, 0 ignore.
+Integration test validated on F469 hardware.
 
-## Requirement traceability
-| Requirement | Satisfied by |
-|-------------|--------------|
-| REQ-DM-090  | config_store_save / config_store_load |
-| REQ-NF-214  | config_store_check_integrity + config_store_load (boot sequence §10) |
-```
+## Open items carried forward
+
+- CS-O1: verify CONFIG_STORE_MAX_DATA_BYTES against ConfigService struct size at ConfigService LLD stage.
