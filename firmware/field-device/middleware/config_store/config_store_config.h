@@ -10,15 +10,15 @@
 #define CONFIG_STORE_CONFIG_H
 
 /** QSPI aliased base address (same on FD and GW). */
-#define CONFIG_STORE_QSPI_BASE_ADDR  0x00000000UL
+#define CONFIG_STORE_QSPI_BASE_ADDR 0x00000000UL
 
 /** Total config partition: 64 KB spanning two A/B slots. */
-#define CONFIG_STORE_PARTITION_SIZE  (64U * 1024U)
+#define CONFIG_STORE_PARTITION_SIZE (64U * 1024U)
 
 /** Each A/B slot: 32 KB. */
-#define CONFIG_STORE_SLOT_SIZE       (32U * 1024U)
+#define CONFIG_STORE_SLOT_SIZE (32U * 1024U)
 
 /** QSPI erase granularity: 4 KB sector. */
-#define CONFIG_STORE_SECTOR_SIZE     (4U  * 1024U)
+#define CONFIG_STORE_SECTOR_SIZE (4U * 1024U)
 
 #endif /* CONFIG_STORE_CONFIG_H */

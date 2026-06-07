@@ -92,7 +92,7 @@ uint32_t config_store_crc32_feed(uint32_t crc, const uint8_t *buf, uint32_t len)
     uint32_t i;
     for (i = 0U; i < len; i++)
     {
-        crc = (crc >> 8U) ^ s_crc_table[(crc ^ (uint32_t)buf[i]) & 0xFFU];
+        crc = (crc >> 8U) ^ s_crc_table[(crc ^ (uint32_t) buf[i]) & 0xFFU];
     }
     return crc;
 }

@@ -29,13 +29,13 @@
  * before instantiating any ihealth_report_t.  This keeps health_monitor.c
  * and its LED/driver dependencies out of the test link unit. */
 #ifndef TEST
-#  include "health_monitor/health_monitor.h"
+#include "health_monitor/health_monitor.h"
 #else
-#  ifndef IHEALTH_REPORT_T_DEFINED
-#  define IHEALTH_REPORT_T_DEFINED
+#ifndef IHEALTH_REPORT_T_DEFINED
+#define IHEALTH_REPORT_T_DEFINED
 struct ihealth_report_s;
 typedef struct ihealth_report_s ihealth_report_t;
-#  endif /* IHEALTH_REPORT_T_DEFINED */
+#endif /* IHEALTH_REPORT_T_DEFINED */
 #endif /* TEST */
 
 /* ========================================================================= */
@@ -44,14 +44,14 @@ typedef struct ihealth_report_s ihealth_report_t;
 
 typedef enum
 {
-    CONFIG_STORE_OK                = 0, /**< Operation succeeded. */
-    CONFIG_STORE_ERR_NOT_INIT      = 1, /**< Called before config_store_init(). */
-    CONFIG_STORE_ERR_NULL_ARG      = 2, /**< Required pointer argument is NULL. */
-    CONFIG_STORE_ERR_TOO_LARGE     = 3, /**< Blob exceeds CONFIG_STORE_MAX_DATA_BYTES. */
+    CONFIG_STORE_OK = 0,                /**< Operation succeeded. */
+    CONFIG_STORE_ERR_NOT_INIT = 1,      /**< Called before config_store_init(). */
+    CONFIG_STORE_ERR_NULL_ARG = 2,      /**< Required pointer argument is NULL. */
+    CONFIG_STORE_ERR_TOO_LARGE = 3,     /**< Blob exceeds CONFIG_STORE_MAX_DATA_BYTES. */
     CONFIG_STORE_ERR_NO_VALID_SLOT = 4, /**< Both flash slots have invalid CRC. */
-    CONFIG_STORE_ERR_FLASH_ERASE   = 5, /**< Erase failure from QspiFlashDriver. */
-    CONFIG_STORE_ERR_FLASH_WRITE   = 6, /**< Program failure from QspiFlashDriver. */
-    CONFIG_STORE_ERR_FLASH_READ    = 7, /**< Read failure from QspiFlashDriver. */
+    CONFIG_STORE_ERR_FLASH_ERASE = 5,   /**< Erase failure from QspiFlashDriver. */
+    CONFIG_STORE_ERR_FLASH_WRITE = 6,   /**< Program failure from QspiFlashDriver. */
+    CONFIG_STORE_ERR_FLASH_READ = 7,    /**< Read failure from QspiFlashDriver. */
 } config_store_err_t;
 
 /* ========================================================================= */
@@ -59,10 +59,10 @@ typedef enum
 /* ========================================================================= */
 
 /** Maximum config blob in bytes (32 KB slot − 16-byte header − 4-byte CRC − margin). */
-#define CONFIG_STORE_MAX_DATA_BYTES  32712U
+#define CONFIG_STORE_MAX_DATA_BYTES 32712U
 
 /** Magic number written at the start of every valid slot header. */
-#define CONFIG_STORE_MAGIC           0xBADC0DE0UL
+#define CONFIG_STORE_MAGIC 0xBADC0DE0UL
 
 /* ========================================================================= */
 /* IConfigStore vtable (P2 — Dependency Inversion)                          */
@@ -115,9 +115,7 @@ config_store_err_t config_store_init(ihealth_report_t *health);
  * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  * @note Threading: task-context only, non-blocking.  Not ISR-safe.
  */
-config_store_err_t config_store_load(void     *data_out,
-                                     uint32_t *len_out,
-                                     uint32_t  max_len);
+config_store_err_t config_store_load(void *data_out, uint32_t *len_out, uint32_t max_len);
 
 /**
  * @brief Persist a new config blob.
@@ -171,17 +169,16 @@ extern uint8_t g_config_store_flash_sim[];
 
 /* Stub function declarations — definitions provided by the test TU. */
 qspi_flash_err_t stub_cs_flash_erase_range(uint8_t *flash, uint32_t base, uint32_t sectors);
-qspi_flash_err_t stub_cs_flash_write(uint8_t *flash, uint32_t addr,
-                                     const uint8_t *buf, uint32_t len);
-qspi_flash_err_t stub_cs_flash_read(uint8_t *flash, uint32_t addr,
-                                    uint8_t *buf, uint32_t len);
+qspi_flash_err_t stub_cs_flash_write(uint8_t *flash, uint32_t addr, const uint8_t *buf,
+                                     uint32_t len);
+qspi_flash_err_t stub_cs_flash_read(uint8_t *flash, uint32_t addr, uint8_t *buf, uint32_t len);
 
 /* Redirect internal wrapper names to RAM-backed stubs. */
-#define cs_flash_erase_range(base, sectors)  \
+#define cs_flash_erase_range(base, sectors)                                                        \
     stub_cs_flash_erase_range(g_config_store_flash_sim, (base), (sectors))
-#define cs_flash_write_bytes(addr, buf, len) \
+#define cs_flash_write_bytes(addr, buf, len)                                                       \
     stub_cs_flash_write(g_config_store_flash_sim, (addr), (buf), (len))
-#define cs_flash_read_bytes(addr, buf, len)  \
+#define cs_flash_read_bytes(addr, buf, len)                                                        \
     stub_cs_flash_read(g_config_store_flash_sim, (addr), (buf), (len))
 
 #endif /* UNIT_TEST */
