@@ -31,7 +31,7 @@
 
 typedef enum
 {
-    CONFIG_STORE_ERR_OK           = 0,
+    CONFIG_STORE_OK               = 0,
     CONFIG_STORE_ERR_NOT_INIT     = 1,
     CONFIG_STORE_ERR_NULL_ARG     = 2,
     CONFIG_STORE_ERR_TOO_LARGE    = 3,

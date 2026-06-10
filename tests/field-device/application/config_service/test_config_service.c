@@ -10,6 +10,12 @@
  *   - FreeRTOS     → freertos_mock.h (auto-links freertos_mock.c)
  *   - Logger macros → no-ops via #ifdef TEST in config_service.c
  *
+ * Fixed-point scales (config_params.h):
+ *   Temperature : int16_t ×100 centi-°C  (e.g. 4000 = 40.0 °C, -4000 = -40.0 °C)
+ *   Humidity    : uint16_t ×100 centi-%RH (e.g. 8000 = 80.0 %RH)
+ *   Pressure    : uint16_t ×10  deci-hPa  (e.g. 10500 = 1050.0 hPa)
+ *   filter_alpha: uint16_t ×1000 per-mille (e.g. 100 = 0.100)
+ *
  * Build defines required: STM32F469xx, TEST, UNIT_TEST (project.yml
  * :test_config_service:).
  */
@@ -34,20 +40,20 @@
 /* ========================================================================= */
 
 static config_store_err_t g_load_ret  = CONFIG_STORE_ERR_NO_VALID_SLOT;
-static config_store_err_t g_save_ret  = CONFIG_STORE_ERR_OK;
+static config_store_err_t g_save_ret  = CONFIG_STORE_OK;
 static uint32_t           g_save_call_count;
 static config_blob_t      g_saved_blob;
 
 static config_store_err_t stub_init(const void *health)
 {
     (void) health;
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 static config_store_err_t stub_load(void *data_out, uint32_t *len_out, uint32_t max_len)
 {
     (void) max_len;
-    if (g_load_ret == CONFIG_STORE_ERR_OK)
+    if (g_load_ret == CONFIG_STORE_OK)
     {
         (void) memcpy(data_out, &g_saved_blob, sizeof(config_blob_t));
         *len_out = (uint32_t) sizeof(config_blob_t);
@@ -67,12 +73,12 @@ static config_store_err_t stub_save(const void *data, uint32_t len)
 
 static config_store_err_t stub_check_integrity(void)
 {
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 static config_store_err_t stub_erase(void)
 {
-    return CONFIG_STORE_ERR_OK;
+    return CONFIG_STORE_OK;
 }
 
 static const iconfig_store_t s_stub_store = {
@@ -109,8 +115,8 @@ void setUp(void)
 
     config_service_reset_for_test();
 
-    g_load_ret       = CONFIG_STORE_ERR_NO_VALID_SLOT;
-    g_save_ret       = CONFIG_STORE_ERR_OK;
+    g_load_ret        = CONFIG_STORE_ERR_NO_VALID_SLOT;
+    g_save_ret        = CONFIG_STORE_OK;
     g_save_call_count = 0U;
     (void) memset(&g_saved_blob, 0, sizeof(g_saved_blob));
 
@@ -127,18 +133,23 @@ void tearDown(void) {}
 void test_TC_CSVC_001_init_no_stored_data_applies_defaults(void)
 {
     config_service_err_t err = config_service_init(&s_stub_store);
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, err);
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
 
     const config_params_t *p = config_service_get_params();
     TEST_ASSERT_NOT_NULL(p);
 
     /* Verify representative default values are within their valid ranges. */
-    TEST_ASSERT_GREATER_OR_EQUAL(100U,  p->polling_interval_ms);
-    TEST_ASSERT_LESS_OR_EQUAL(60000U,   p->polling_interval_ms);
-    TEST_ASSERT_TRUE(p->filter_alpha > 0.0f);
-    TEST_ASSERT_TRUE(p->filter_alpha < 1.0f);
-    TEST_ASSERT_EQUAL_UINT8(1U,         p->modbus_slave_addr);
-    TEST_ASSERT_TRUE(p->temp_range_min + 1.0f < p->temp_range_max);
+    TEST_ASSERT_GREATER_OR_EQUAL(100U,   p->polling_interval_ms);
+    TEST_ASSERT_LESS_OR_EQUAL(60000U,    p->polling_interval_ms);
+
+    /* filter_alpha: per-mille, must be in (0, 1000) exclusive. */
+    TEST_ASSERT_TRUE(p->filter_alpha > 0U);
+    TEST_ASSERT_TRUE(p->filter_alpha < 1000U);
+
+    TEST_ASSERT_EQUAL_UINT8(1U, p->modbus_slave_addr);
+
+    /* temp range: min must be at least 1°C (100 centi-°C) below max. */
+    TEST_ASSERT_TRUE((int32_t) p->temp_range_min + 100 <= (int32_t) p->temp_range_max);
 }
 
 /* ========================================================================= */
@@ -157,38 +168,41 @@ void test_TC_CSVC_002_init_null_store_returns_null_arg_error(void)
 
 void test_TC_CSVC_003_apply_loaded_valid_blob_restores_params(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
     config_blob_t blob;
     blob.schema_version              = CONFIG_SCHEMA_VERSION;
     blob.params.polling_interval_ms  = 5000U;
-    blob.params.filter_alpha         = 0.3f;
-    blob.params.temp_range_min       = -40.0f;
-    blob.params.temp_range_max       = 85.0f;
-    blob.params.humidity_range_min   = 0.0f;
-    blob.params.humidity_range_max   = 100.0f;
-    blob.params.pressure_range_min   = 300.0f;
-    blob.params.pressure_range_max   = 1100.0f;
-    blob.params.temp_alarm_high      = 40.0f;
-    blob.params.temp_alarm_low       = 0.0f;
-    blob.params.temp_hysteresis      = 1.0f;
-    blob.params.humidity_alarm_high  = 80.0f;
-    blob.params.humidity_alarm_low   = 20.0f;
-    blob.params.humidity_hysteresis  = 2.0f;
-    blob.params.pressure_alarm_high  = 1050.0f;
-    blob.params.pressure_alarm_low   = 950.0f;
-    blob.params.pressure_hysteresis  = 5.0f;
+    blob.params.filter_alpha         = 300U;  /* 0.300 × 1000 */
+    blob.params.temp_range_min       = -4000; /* -40.0 °C × 100 */
+    blob.params.temp_range_max       = 8500;  /*  85.0 °C × 100 */
+    blob.params.humidity_range_min   = 0U;
+    blob.params.humidity_range_max   = 10000U; /* 100.0 %RH × 100 */
+    blob.params.pressure_range_min   = 3000U;  /*  300.0 hPa × 10 */
+    blob.params.pressure_range_max   = 11000U; /* 1100.0 hPa × 10 */
+    blob.params.temp_alarm_high      = 4000;   /*  40.0 °C × 100 */
+    blob.params.temp_alarm_low       = 0;      /*   0.0 °C × 100 */
+    blob.params.temp_hysteresis      = 100;    /*   1.0 °C × 100 */
+    blob.params.humidity_alarm_high  = 8000U;  /*  80.0 %RH × 100 */
+    blob.params.humidity_alarm_low   = 2000U;  /*  20.0 %RH × 100 */
+    blob.params.humidity_hysteresis  = 200U;   /*   2.0 %RH × 100 */
+    blob.params.pressure_alarm_high  = 10500U; /* 1050.0 hPa × 10 */
+    blob.params.pressure_alarm_low   = 9500U;  /*  950.0 hPa × 10 */
+    blob.params.pressure_hysteresis  = 50U;    /*    5.0 hPa × 10 */
     blob.params.modbus_slave_addr    = 5U;
     blob.params.modbus_poll_period_ms = 2000U;
 
     config_service_err_t err = config_service_apply_loaded(&blob, sizeof(blob));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, err);
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
 
     const config_params_t *p = config_service_get_params();
     TEST_ASSERT_EQUAL_UINT32(5000U,  p->polling_interval_ms);
-    TEST_ASSERT_EQUAL_FLOAT(0.3f,    p->filter_alpha);
+    TEST_ASSERT_EQUAL_UINT16(300U,   p->filter_alpha);
     TEST_ASSERT_EQUAL_UINT8(5U,      p->modbus_slave_addr);
     TEST_ASSERT_EQUAL_UINT32(2000U,  p->modbus_poll_period_ms);
+    TEST_ASSERT_EQUAL_INT16(-4000,   p->temp_range_min);
+    TEST_ASSERT_EQUAL_INT16(4000,    p->temp_alarm_high);
+    TEST_ASSERT_EQUAL_UINT16(10500U, p->pressure_alarm_high);
 }
 
 /* ========================================================================= */
@@ -197,7 +211,7 @@ void test_TC_CSVC_003_apply_loaded_valid_blob_restores_params(void)
 
 void test_TC_CSVC_004_apply_loaded_wrong_schema_version_uses_defaults(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
     config_blob_t blob;
     (void) memset(&blob, 0, sizeof(blob));
@@ -205,7 +219,7 @@ void test_TC_CSVC_004_apply_loaded_wrong_schema_version_uses_defaults(void)
     blob.params.polling_interval_ms = 9999U;  /* would violate range if applied */
 
     config_service_err_t err = config_service_apply_loaded(&blob, sizeof(blob));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, err);
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
 
     const config_params_t *p = config_service_get_params();
     /* Polling interval must be the default, not the bogus stored value. */
@@ -220,12 +234,11 @@ void test_TC_CSVC_004_apply_loaded_wrong_schema_version_uses_defaults(void)
 
 void test_TC_CSVC_005_set_param_valid_updates_param_and_persists(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
     uint32_t interval = 500U;
-    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL,
-                                                         &interval);
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, err);
+    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &interval);
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
 
     const config_params_t *p = config_service_get_params();
     TEST_ASSERT_EQUAL_UINT32(500U, p->polling_interval_ms);
@@ -239,7 +252,7 @@ void test_TC_CSVC_005_set_param_valid_updates_param_and_persists(void)
 
 void test_TC_CSVC_006_set_param_invalid_returns_error_param_unchanged(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
     const config_params_t *p = config_service_get_params();
     uint32_t original = p->polling_interval_ms;
@@ -248,13 +261,11 @@ void test_TC_CSVC_006_set_param_invalid_returns_error_param_unchanged(void)
     /* Note: due to intentional bug in set_param, after this call the mutex
      * is not released on hardware.  Unit tests are unaffected because the
      * FreeRTOS mock does not enforce mutex balance. */
-    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL,
-                                                         &bad_interval);
+    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &bad_interval);
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, err);
 
     p = config_service_get_params();
     TEST_ASSERT_EQUAL_UINT32(original, p->polling_interval_ms);
-
     TEST_ASSERT_EQUAL_UINT32(0U, g_save_call_count);
 }
 
@@ -264,17 +275,18 @@ void test_TC_CSVC_006_set_param_invalid_returns_error_param_unchanged(void)
 
 void test_TC_CSVC_007_cross_param_alarm_high_below_low_plus_hyst_invalid(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
-    /* Default: temp_alarm_low=0, temp_hysteresis=1 → alarm_high must be > 1.
-     * Set alarm_high to 0.5 which is below alarm_low (0) + hysteresis (1) = 1. */
-    float bad_high = 0.5f;
-    config_service_err_t err = config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH,
-                                                         &bad_high);
+    /* Default: temp_alarm_low=0, temp_hysteresis=100 (1.0 °C) →
+     * alarm_high must be > 0 + 100 = 100.
+     * Set alarm_high to 50 (= 0.5 °C at ×100), which is below alarm_low(0)
+     * + hysteresis(100) = 100. */
+    int16_t bad_high = 50;
+    config_service_err_t err = config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH, &bad_high);
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, err);
 
     const config_params_t *p = config_service_get_params();
-    TEST_ASSERT_EQUAL_FLOAT(40.0f, p->temp_alarm_high);  /* default unchanged */
+    TEST_ASSERT_EQUAL_INT16(4000, p->temp_alarm_high);  /* default 40.0 °C unchanged */
 }
 
 /* ========================================================================= */
@@ -284,24 +296,24 @@ void test_TC_CSVC_007_cross_param_alarm_high_below_low_plus_hyst_invalid(void)
 
 void test_TC_CSVC_008_snapshot_change_restore_reverts_and_persists(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
     /* Save snapshot of defaults. */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_snapshot());
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_snapshot());
 
     const config_params_t *p = config_service_get_params();
     uint32_t original_interval = p->polling_interval_ms;
 
     /* Change a parameter. */
     uint32_t new_interval = 3000U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
                       config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &new_interval));
     TEST_ASSERT_EQUAL_UINT32(3000U, config_service_get_params()->polling_interval_ms);
 
     uint32_t save_count_before_restore = g_save_call_count;
 
     /* Restore. */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_restore_snapshot());
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_restore_snapshot());
 
     p = config_service_get_params();
     TEST_ASSERT_EQUAL_UINT32(original_interval, p->polling_interval_ms);
@@ -315,22 +327,22 @@ void test_TC_CSVC_008_snapshot_change_restore_reverts_and_persists(void)
 
 void test_TC_CSVC_009_validate_param_does_not_modify_state(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
-    const config_params_t *p   = config_service_get_params();
-    uint32_t original_interval = p->polling_interval_ms;
+    const config_params_t *p    = config_service_get_params();
+    uint32_t original_interval  = p->polling_interval_ms;
 
     uint32_t valid_val = 2000U;
     config_service_err_t err = config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL,
                                                               &valid_val);
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, err);
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
 
     /* State must be unchanged — no write to ConfigStore either. */
     TEST_ASSERT_EQUAL_UINT32(original_interval,
                              config_service_get_params()->polling_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(0U, g_save_call_count);
 
-    /* Validate invalid value — also must not modify state. */
+    /* Validate invalid value — must also not modify state. */
     uint32_t bad_val = 50U;
     err = config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, &bad_val);
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, err);
@@ -344,8 +356,8 @@ void test_TC_CSVC_009_validate_param_does_not_modify_state(void)
 
 void test_TC_CSVC_010_callback_fires_on_success_not_on_failure(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
                       config_service_register_change_callback(stub_change_cb));
 
     /* Trigger a validation failure — callback must NOT fire. */
@@ -360,14 +372,13 @@ void test_TC_CSVC_010_callback_fires_on_success_not_on_failure(void)
     /* Trigger a valid change — callback MUST fire. */
     config_service_reset_for_test();
     g_save_call_count = 0U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK,
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
                       config_service_register_change_callback(stub_change_cb));
 
     uint32_t good_val = 2000U;
-    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL,
-                                                         &good_val);
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, err);
+    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &good_val);
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
     TEST_ASSERT_EQUAL_UINT32(1U, g_cb_call_count);
     TEST_ASSERT_EQUAL(CONFIG_PARAM_POLL_INTERVAL, g_cb_last_param);
 }
@@ -379,13 +390,12 @@ void test_TC_CSVC_010_callback_fires_on_success_not_on_failure(void)
 
 void test_TC_CSVC_011_configstore_fail_returns_persist_error_param_updated(void)
 {
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_OK, config_service_init(&s_stub_store));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(&s_stub_store));
 
     g_save_ret = CONFIG_STORE_ERR_FLASH_WRITE;
 
     uint32_t new_val = 4000U;
-    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL,
-                                                         &new_val);
+    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &new_val);
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_PERSIST, err);
 
     /* In-memory value must already reflect the new value. */
