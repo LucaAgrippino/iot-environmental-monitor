@@ -20,7 +20,10 @@
 /* --- Idle-task static memory ------------------------------------------- */
 
 static StaticTask_t s_idle_tcb;
-static StackType_t s_idle_stack[configMINIMAL_STACK_SIZE];
+static StackType_t s_idle_stack[configMINIMAL_STACK_SIZE] __attribute__((aligned(8)));
+
+static StaticTask_t xTimerTaskTCB;
+static StackType_t  uxTimerTaskStack[configTIMER_TASK_STACK_DEPTH] __attribute__((aligned(8)));
 
 void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
                                    StackType_t **ppxIdleTaskStackBuffer,
@@ -50,9 +53,6 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
                                      StackType_t  **ppxTimerTaskStackBuffer,
                                      uint32_t *pulTimerTaskStackSize)
 {
-    static StaticTask_t xTimerTaskTCB;
-    static StackType_t  uxTimerTaskStack[configTIMER_TASK_STACK_DEPTH];
-
     *ppxTimerTaskTCBBuffer   = &xTimerTaskTCB;
     *ppxTimerTaskStackBuffer = uxTimerTaskStack;
     *pulTimerTaskStackSize   = configTIMER_TASK_STACK_DEPTH;

@@ -104,7 +104,7 @@ static uint8_t s_queue_storage[LOGGER_QUEUE_DEPTH * sizeof(log_entry_t)];
 static QueueHandle_t s_queue;
 
 static StaticTask_t s_drain_tcb;
-static StackType_t s_drain_stack[LOGGER_DRAIN_STACK_WORDS];
+static StackType_t s_drain_stack[LOGGER_DRAIN_STACK_WORDS] __attribute__((aligned(8)));
 static TaskHandle_t s_drain_task;
 
 /* ===================================================================== */

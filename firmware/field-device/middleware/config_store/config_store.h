@@ -77,7 +77,7 @@ typedef enum
  */
 typedef struct
 {
-    config_store_err_t (*init)(ihealth_report_t *health);
+    config_store_err_t (*init)(const ihealth_report_t *health);
     config_store_err_t (*load)(void *data_out, uint32_t *len_out, uint32_t max_len);
     config_store_err_t (*save)(const void *data, uint32_t len);
     config_store_err_t (*check_integrity)(void);
@@ -101,7 +101,7 @@ extern const iconfig_store_t *const config_store;
  * @return CONFIG_STORE_OK on success; non-zero error code on failure.
  * @note Threading: task-context only, non-blocking.  Call before scheduler starts.
  */
-config_store_err_t config_store_init(ihealth_report_t *health);
+config_store_err_t config_store_init(const ihealth_report_t *health);
 
 /**
  * @brief Load the most recent valid config blob from flash.

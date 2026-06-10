@@ -21,7 +21,7 @@
 
 #define configCPU_CLOCK_HZ (180000000UL)
 #define configTICK_RATE_HZ ((TickType_t) 1000)
-#define configMINIMAL_STACK_SIZE ((unsigned short) 128)
+#define configMINIMAL_STACK_SIZE ((unsigned short) 256)
 #define configMAX_PRIORITIES (7)
 #define configMAX_TASK_NAME_LEN (16)
 #define configUSE_16_BIT_TICKS 0
@@ -37,6 +37,10 @@
 #define configSUPPORT_STATIC_ALLOCATION 1
 #define configSUPPORT_DYNAMIC_ALLOCATION 0 /* P5: no heap */
 #define configTOTAL_HEAP_SIZE 0
+
+/* Officially override the task return address to standard ARM Thread Root (0)
+   to natively terminate GDB unwinding without modifying vendor source files. */
+#define configTASK_RETURN_ADDRESS    0
 
 /* --- Kernel features --------------------------------------------------- */
 
