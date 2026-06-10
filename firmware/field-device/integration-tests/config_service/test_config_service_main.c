@@ -10,6 +10,12 @@
  *   - Add integration-tests/config_service/ to project source paths.
  *   - Build, flash, open PuTTY at 115200/8N1 on the ST-Link VCP.
  *
+ * Fixed-point scales:
+ *   Temperature : int16_t ×100 centi-°C
+ *   Humidity    : uint16_t ×100 centi-%RH
+ *   Pressure    : uint16_t ×10  deci-hPa
+ *   filter_alpha: uint16_t ×1000 per-mille (100 = 0.100)
+ *
  * ==========================================================================
  * Expected output checklist — tick each item as it appears on the terminal:
  * ==========================================================================
@@ -18,7 +24,7 @@
  * |---|-----------------------------------------------------------------|----------------------------------------|
  * | 1 | "===== ConfigService integration test =====" (INFO)             | Test task started                      |
  * | 2 | "ConfigService initialised (defaults applied)" (INFO)           | config_service_init() succeeded        |
- * | 3 | "poll_interval=1000 filter_alpha=0.10" (INFO)                   | Defaults applied correctly             |
+ * | 3 | "poll_interval=1000 filter_alpha=100" (INFO)                    | Defaults applied correctly             |
  * | 4 | "set poll_interval=3000: OK" (INFO)                             | set_param() valid path works           |
  * | 5 | "set poll_interval=50: ERR_INVALID" (INFO)                      | Validation rejects out-of-range value  |
  * | 6 | "poll_interval still=3000" (INFO)                               | Param unchanged after invalid set      |
@@ -38,7 +44,10 @@
 #include "task.h"
 
 #include "system_clock.h"
+#include "gpio/gpio_driver.h"
 #include "qspi_flash_driver/qspi_flash_driver.h"
+#include "debug-uart/debug_uart_driver.h"
+#include "rtc/rtc_driver.h"
 #include "health_monitor/health_monitor.h"
 #include "logger/logger.h"
 #include "config_store/config_store.h"
@@ -59,10 +68,10 @@ static void led_green_off(void) { GPIOG->BSRR = (LED_GREEN_PIN << 16U); }
 /* Test task configuration                                                   */
 /* ========================================================================= */
 
-#define TEST_STACK_WORDS  512U
+#define TEST_STACK_WORDS  1024U
 #define TEST_TASK_TAG     "IT"
 
-static StackType_t  s_test_stack[TEST_STACK_WORDS];
+static StackType_t  s_test_stack[TEST_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_test_tcb;
 
 /* ========================================================================= */
@@ -99,14 +108,16 @@ static void test_task(void *arg)
         fail("get_params returned NULL after init");
     }
 
-    LOG_INFO(TEST_TASK_TAG, "poll_interval=%lu filter_alpha=%.2f",
-             (unsigned long) p->polling_interval_ms, (double) p->filter_alpha);
+    /* filter_alpha displayed as per-mille integer (100 = 0.100). */
+    LOG_INFO(TEST_TASK_TAG, "poll_interval=%lu filter_alpha=%u",
+             (unsigned long) p->polling_interval_ms, (unsigned) p->filter_alpha);
 
     if (p->polling_interval_ms < 100U || p->polling_interval_ms > 60000U)
     {
         fail("default polling_interval_ms out of valid range");
     }
-    if (p->filter_alpha <= 0.0f || p->filter_alpha >= 1.0f)
+    /* filter_alpha valid range: (0, 1000) exclusive in per-mille units. */
+    if (p->filter_alpha == 0U || p->filter_alpha >= 1000U)
     {
         fail("default filter_alpha out of valid range");
     }
@@ -117,7 +128,7 @@ static void test_task(void *arg)
     uint32_t new_interval = 3000U;
     config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL,
                                                          &new_interval);
-    if (err != CONFIG_SERVICE_ERR_OK)
+    if (err != CONFIG_SERVICE_OK)
     {
         fail("set_param(3000) failed");
     }
@@ -145,7 +156,7 @@ static void test_task(void *arg)
     /* Step 4: Flush                                                       */
     /* ------------------------------------------------------------------ */
     err = config_service_flush();
-    if (err != CONFIG_SERVICE_ERR_OK)
+    if (err != CONFIG_SERVICE_OK)
     {
         fail("flush failed");
     }
@@ -155,7 +166,7 @@ static void test_task(void *arg)
     /* Step 5: Snapshot + change + restore                                 */
     /* ------------------------------------------------------------------ */
     err = config_service_snapshot();
-    if (err != CONFIG_SERVICE_ERR_OK)
+    if (err != CONFIG_SERVICE_OK)
     {
         fail("snapshot failed");
     }
@@ -163,14 +174,14 @@ static void test_task(void *arg)
 
     uint32_t changed_interval = 5000U;
     err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &changed_interval);
-    if (err != CONFIG_SERVICE_ERR_OK)
+    if (err != CONFIG_SERVICE_OK)
     {
         fail("set_param(5000) failed");
     }
     LOG_INFO(TEST_TASK_TAG, "set poll_interval=5000: OK");
 
     err = config_service_restore_snapshot();
-    if (err != CONFIG_SERVICE_ERR_OK)
+    if (err != CONFIG_SERVICE_OK)
     {
         fail("restore_snapshot failed");
     }
@@ -204,10 +215,12 @@ int main(void)
 {
     system_clock_init();
 
-    /* Init peripherals required by the stack. */
+    (void) gpio_init();
+    (void) debug_uart_init();
+    (void) rtc_init();
     (void) qspi_flash_init();
     (void) health_monitor_init();
-    (void) logger_init(LOG_LEVEL_INFO);
+    (void) logger_init(LOG_LEVEL_DEBUG);
     (void) config_store_init(health_report);
 
     /* Init ConfigService with defaults; apply any stored config. */
@@ -216,9 +229,9 @@ int main(void)
     /* Attempt to load stored config (may return ERR_NO_VALID_SLOT on blank flash). */
     {
         config_blob_t blob;
-        uint32_t      len  = 0U;
+        uint32_t      len   = 0U;
         config_store_err_t cs_err = config_store->load(&blob, &len, sizeof(blob));
-        if (cs_err == CONFIG_STORE_ERR_OK)
+        if (cs_err == CONFIG_STORE_OK)
         {
             (void) config_service_apply_loaded(&blob, len);
         }
