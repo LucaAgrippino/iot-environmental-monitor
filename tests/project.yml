@@ -84,7 +84,7 @@
   :test_modbus_uart_driver_gw:
     - STM32L475xx
     - TEST
-  :test_modbus_register_map:
+  :test_modbus_slave:
     - STM32F469xx
     - TEST
     - LOG_LEVEL_MIN=-1

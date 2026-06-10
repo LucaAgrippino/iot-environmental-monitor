@@ -54,6 +54,10 @@ TaskHandle_t  g_mock_xTaskGetCurrentTaskHandle_return;
 uint32_t      g_mock_xTaskNotifyGive_call_count;
 uint32_t      g_mock_ulTaskNotifyTake_return;
 
+uint32_t      g_mock_xTaskNotifyFromISR_call_count;
+TaskHandle_t  g_mock_xTaskNotifyFromISR_last_handle;
+uint32_t      g_mock_xTaskNotifyFromISR_last_value;
+
 /* A canned non-NULL handle used as the default return value of the
  * static-create functions. Tests don't dereference it. */
 static int g_dummy_handle_sentinel;
@@ -107,6 +111,10 @@ void mock_freertos_reset(void)
     g_mock_xTaskGetCurrentTaskHandle_return   = DUMMY_HANDLE;
     g_mock_xTaskNotifyGive_call_count         = 0U;
     g_mock_ulTaskNotifyTake_return            = 1U;
+
+    g_mock_xTaskNotifyFromISR_call_count      = 0U;
+    g_mock_xTaskNotifyFromISR_last_handle     = NULL;
+    g_mock_xTaskNotifyFromISR_last_value      = 0U;
 }
 
 /* --------------------------------------------------------------------- */
@@ -264,4 +272,18 @@ uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t wait)
     (void)clear;
     (void)wait;
     return g_mock_ulTaskNotifyTake_return;
+}
+
+BaseType_t xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
+                               eNotifyAction action, BaseType_t *woken)
+{
+    (void)action;
+    g_mock_xTaskNotifyFromISR_call_count++;
+    g_mock_xTaskNotifyFromISR_last_handle = task;
+    g_mock_xTaskNotifyFromISR_last_value  = value;
+    if (woken != NULL)
+    {
+        *woken = pdFALSE;
+    }
+    return pdTRUE;
 }
