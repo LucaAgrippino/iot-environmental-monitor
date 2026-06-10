@@ -70,7 +70,7 @@ typedef struct
 typedef struct
 {
     bool initialised;
-    ihealth_report_t *health;
+    const ihealth_report_t *health;
     StaticSemaphore_t mutex_buf;
     SemaphoreHandle_t mutex;
     uint8_t active_slot_index;
@@ -358,7 +358,7 @@ static config_store_err_t cs_save_locked(const void *data, uint32_t len)
 /* Public API                                                                */
 /* ========================================================================= */
 
-config_store_err_t config_store_init(ihealth_report_t *health)
+config_store_err_t config_store_init(const ihealth_report_t *health)
 {
     uint32_t probe;
 
