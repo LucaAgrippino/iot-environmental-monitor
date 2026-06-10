@@ -78,6 +78,12 @@
     - STM32F469xx
     - TEST
     - UNIT_TEST
+  :test_modbus_uart_driver_fd:
+    - STM32F469xx
+    - TEST
+  :test_modbus_uart_driver_gw:
+    - STM32L475xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
