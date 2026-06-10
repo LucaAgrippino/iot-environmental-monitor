@@ -30,7 +30,8 @@ RCC_TypeDef g_mock_rcc;
 /* §USART storage                                                         */
 /* ====================================================================== */
 
-USART_TypeDef g_mock_usart3;
+USART_TypeDef g_mock_usart3; /* DebugUartDriver (USART3) */
+USART_TypeDef g_mock_usart6; /* ModbusUartDriver FD (USART6) */
 
 
 /* ====================================================================== */
@@ -99,9 +100,10 @@ void stm32_cmsis_mock_reset(void)
     g_mock_rcc.AHB1ENR = 0;
     g_mock_rcc.AHB3ENR = 0;
     g_mock_rcc.APB1ENR = 0;
+    g_mock_rcc.APB2ENR = 0;
     g_mock_rcc.BDCR    = 0;
 
-    /* §USART */
+    /* §USART3 (DebugUartDriver) */
     g_mock_usart3.SR   = 0;
     g_mock_usart3.DR   = 0;
     g_mock_usart3.BRR  = 0;
@@ -109,6 +111,15 @@ void stm32_cmsis_mock_reset(void)
     g_mock_usart3.CR2  = 0;
     g_mock_usart3.CR3  = 0;
     g_mock_usart3.GTPR = 0;
+
+    /* §USART6 (ModbusUartDriver FD) */
+    g_mock_usart6.SR   = 0;
+    g_mock_usart6.DR   = 0;
+    g_mock_usart6.BRR  = 0;
+    g_mock_usart6.CR1  = 0;
+    g_mock_usart6.CR2  = 0;
+    g_mock_usart6.CR3  = 0;
+    g_mock_usart6.GTPR = 0;
 
     /* §PWR */
     g_mock_pwr.CR = 0;

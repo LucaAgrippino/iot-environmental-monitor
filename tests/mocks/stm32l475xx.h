@@ -42,9 +42,12 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_AHB2ENR_GPIOBEN_Pos (1U)
 #define RCC_AHB2ENR_GPIOBEN     (1UL << RCC_AHB2ENR_GPIOBEN_Pos)
 
-/* --- APB1ENR1 bits (I2cDriver) ---------------------------------------- */
-#define RCC_APB1ENR1_I2C2EN_Pos (22U)
-#define RCC_APB1ENR1_I2C2EN     (1UL << RCC_APB1ENR1_I2C2EN_Pos)
+/* --- APB1ENR1 bits (I2cDriver, ModbusUartDriver) ---------------------- */
+#define RCC_APB1ENR1_I2C2EN_Pos  (22U)
+#define RCC_APB1ENR1_I2C2EN      (1UL << RCC_APB1ENR1_I2C2EN_Pos)
+
+#define RCC_APB1ENR1_UART4EN_Pos (19U)
+#define RCC_APB1ENR1_UART4EN     (1UL << RCC_APB1ENR1_UART4EN_Pos)
 
 /* ====================================================================== */
 /* §GPIO (L4)                                                              */
@@ -75,6 +78,69 @@ extern GPIO_TypeDef g_mock_gpio_l4[MOCK_GPIO_PORT_COUNT_L4];
 #define GPIOF (&g_mock_gpio_l4[5])
 #define GPIOG (&g_mock_gpio_l4[6])
 #define GPIOH (&g_mock_gpio_l4[7])
+
+/* ====================================================================== */
+/* §USART — L4 family (ModbusUartDriver GW, peripheral UART4)             */
+/* ====================================================================== */
+
+/* L4 USART register layout per RM0351. Only fields the driver accesses.  */
+typedef struct
+{
+    volatile uint32_t CR1; /**< Control register 1,              offset 0x00. */
+    volatile uint32_t CR2; /**< Control register 2,              offset 0x04. */
+    volatile uint32_t CR3; /**< Control register 3,              offset 0x08. */
+    volatile uint32_t BRR; /**< Baud rate register,              offset 0x0C. */
+    volatile uint32_t ISR; /**< Interrupt and status register,   offset 0x1C. */
+    volatile uint32_t ICR; /**< Interrupt clear register,        offset 0x20. */
+    volatile uint32_t RDR; /**< Receive data register,           offset 0x24. */
+    volatile uint32_t TDR; /**< Transmit data register,          offset 0x28. */
+} USART_L4_TypeDef;
+
+extern USART_L4_TypeDef g_mock_uart4;
+
+#define UART4 (&g_mock_uart4)
+
+/* --- USART_CR1 bits (L4) — note UE at bit 0, differs from F4 bit 13 -- */
+#define USART_CR1_UE_Pos     (0U)
+#define USART_CR1_UE         (1UL << USART_CR1_UE_Pos)
+#define USART_CR1_RE_Pos     (2U)
+#define USART_CR1_RE         (1UL << USART_CR1_RE_Pos)
+#define USART_CR1_TE_Pos     (3U)
+#define USART_CR1_TE         (1UL << USART_CR1_TE_Pos)
+#define USART_CR1_IDLEIE_Pos (4U)
+#define USART_CR1_IDLEIE     (1UL << USART_CR1_IDLEIE_Pos)
+#define USART_CR1_RXNEIE_Pos (5U)
+#define USART_CR1_RXNEIE     (1UL << USART_CR1_RXNEIE_Pos)
+
+/* --- USART_CR3 bits (L4, same bit position as F4) --------------------- */
+#define USART_CR3_DEM_Pos (14U)
+#define USART_CR3_DEM     (1UL << USART_CR3_DEM_Pos)
+
+/* --- USART_ISR bits (L4 status register — replaces F4 SR) ------------- */
+#define USART_ISR_FE_Pos   (1U)
+#define USART_ISR_FE       (1UL << USART_ISR_FE_Pos)
+#define USART_ISR_NE_Pos   (2U)
+#define USART_ISR_NE       (1UL << USART_ISR_NE_Pos)
+#define USART_ISR_ORE_Pos  (3U)
+#define USART_ISR_ORE      (1UL << USART_ISR_ORE_Pos)
+#define USART_ISR_IDLE_Pos (4U)
+#define USART_ISR_IDLE     (1UL << USART_ISR_IDLE_Pos)
+#define USART_ISR_RXNE_Pos (5U)
+#define USART_ISR_RXNE     (1UL << USART_ISR_RXNE_Pos)
+#define USART_ISR_TC_Pos   (6U)
+#define USART_ISR_TC       (1UL << USART_ISR_TC_Pos)
+#define USART_ISR_TXE_Pos  (7U)
+#define USART_ISR_TXE      (1UL << USART_ISR_TXE_Pos)
+
+/* --- USART_ICR bits (L4 clear register) ------------------------------- */
+#define USART_ICR_FECF_Pos   (1U)
+#define USART_ICR_FECF       (1UL << USART_ICR_FECF_Pos)
+#define USART_ICR_NECF_Pos   (2U)
+#define USART_ICR_NECF       (1UL << USART_ICR_NECF_Pos)
+#define USART_ICR_ORECF_Pos  (3U)
+#define USART_ICR_ORECF      (1UL << USART_ICR_ORECF_Pos)
+#define USART_ICR_IDLECF_Pos (4U)
+#define USART_ICR_IDLECF     (1UL << USART_ICR_IDLECF_Pos)
 
 /* ====================================================================== */
 /* §I2C (I2cDriver — L475 I2C v2, peripheral I2C2)                        */
@@ -141,5 +207,22 @@ extern I2C_TypeDef g_mock_i2c2;
 #define I2C_ICR_NACKCF     (1UL << I2C_ICR_NACKCF_Pos)
 #define I2C_ICR_STOPCF_Pos (5U)
 #define I2C_ICR_STOPCF     (1UL << I2C_ICR_STOPCF_Pos)
+
+/* ====================================================================== */
+/* §NVIC — must stay last; extended per driver                            */
+/* ====================================================================== */
+
+typedef enum
+{
+    UART4_IRQn = 52 /* Per stm32l475xx.h CMSIS canonical value. */
+} IRQn_Type;
+
+#define NVIC_IRQ_COUNT_MAX (128U)
+
+extern uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
+extern uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+
+void NVIC_EnableIRQ(IRQn_Type irqn);
+void NVIC_DisableIRQ(IRQn_Type irqn);
 
 #endif /* STM32L475XX_H */

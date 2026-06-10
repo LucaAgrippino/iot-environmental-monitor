@@ -44,6 +44,7 @@ typedef struct
     volatile uint32_t AHB1ENR;
     volatile uint32_t AHB3ENR;
     volatile uint32_t APB1ENR;
+    volatile uint32_t APB2ENR;
     volatile uint32_t BDCR;
 } RCC_TypeDef;
 
@@ -82,6 +83,10 @@ extern RCC_TypeDef g_mock_rcc;
 
 #define RCC_APB1ENR_PWREN_Pos (28U)
 #define RCC_APB1ENR_PWREN (1UL << RCC_APB1ENR_PWREN_Pos)
+
+/* --- APB2ENR bits (ModbusUartDriver — USART6) ------------------------- */
+#define RCC_APB2ENR_USART6EN_Pos (5U)
+#define RCC_APB2ENR_USART6EN (1UL << RCC_APB2ENR_USART6EN_Pos)
 
 /* --- BDCR bits (RtcDriver) -------------------------------------------- */
 #define RCC_BDCR_LSEON_Pos (0U)
@@ -150,14 +155,20 @@ typedef struct
 } USART_TypeDef;
 
 extern USART_TypeDef g_mock_usart3;
+extern USART_TypeDef g_mock_usart6;
 
 #define USART3 (&g_mock_usart3)
+#define USART6 (&g_mock_usart6)
 
 /* --- USART_SR bits (status, used by ISR and send) --------------------- */
 #define USART_SR_TXE_Pos (7U)
 #define USART_SR_TXE (1UL << USART_SR_TXE_Pos)
+#define USART_SR_TC_Pos (6U)
+#define USART_SR_TC (1UL << USART_SR_TC_Pos)
 #define USART_SR_RXNE_Pos (5U)
 #define USART_SR_RXNE (1UL << USART_SR_RXNE_Pos)
+#define USART_SR_IDLE_Pos (4U)
+#define USART_SR_IDLE (1UL << USART_SR_IDLE_Pos)
 #define USART_SR_ORE_Pos (3U)
 #define USART_SR_ORE (1UL << USART_SR_ORE_Pos)
 #define USART_SR_NE_Pos (2U)
@@ -176,8 +187,14 @@ extern USART_TypeDef g_mock_usart3;
 #define USART_CR1_TE (1UL << USART_CR1_TE_Pos)
 #define USART_CR1_RE_Pos (2U)
 #define USART_CR1_RE (1UL << USART_CR1_RE_Pos)
+#define USART_CR1_IDLEIE_Pos (4U)
+#define USART_CR1_IDLEIE (1UL << USART_CR1_IDLEIE_Pos)
 #define USART_CR1_RXNEIE_Pos (5U)
 #define USART_CR1_RXNEIE (1UL << USART_CR1_RXNEIE_Pos)
+
+/* --- USART_CR3 bits --------------------------------------------------- */
+#define USART_CR3_DEM_Pos (14U)
+#define USART_CR3_DEM (1UL << USART_CR3_DEM_Pos)
 
 /* --- Debug-UART line endings (consumed by DebugUartDriver) ------------ */
 #define DEBUG_UART_CR ((uint8_t) '\r')
@@ -387,8 +404,8 @@ extern uint32_t g_mock_quadspi_rx_fifo_idx;
 
 typedef enum
 {
-    USART3_IRQn = 39 /* Per stm32f469xx.h CMSIS canonical value. */
-    /* Add more IRQn values as future drivers need them. */
+    USART3_IRQn = 39, /* Per stm32f469xx.h CMSIS canonical value. */
+    USART6_IRQn = 71  /* Per stm32f469xx.h CMSIS canonical value. */
 } IRQn_Type;
 
 /* Mock NVIC tracks call counts per IRQn. Tests inspect counters directly;
