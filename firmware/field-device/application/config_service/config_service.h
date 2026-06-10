@@ -25,7 +25,7 @@
 #include "config_service/config_params.h"
 
 #ifndef TEST
-#include "middleware/config_store/config_store.h"
+#include "config_store/config_store.h"
 #else
 #include "config_store_stub.h"
 #endif /* TEST */
@@ -43,7 +43,7 @@
 
 typedef enum
 {
-    CONFIG_SERVICE_ERR_OK = 0,
+    CONFIG_SERVICE_OK = 0,
     CONFIG_SERVICE_ERR_NOT_INIT = 1,
     CONFIG_SERVICE_ERR_NULL_ARG = 2,
     CONFIG_SERVICE_ERR_INVALID = 3, /**< Validation failed (REQ-DM-001). */
@@ -142,7 +142,7 @@ const config_params_t *config_service_get_params(void);
  * LifecycleController once the stored blob has been read from ConfigStore.
  *
  * @param  store  IConfigStore handle; must not be NULL.
- * @return CONFIG_SERVICE_ERR_OK on success; CONFIG_SERVICE_ERR_NULL_ARG if
+ * @return CONFIG_SERVICE_OK on success; CONFIG_SERVICE_ERR_NULL_ARG if
  *         store is NULL.
  * @note   Threading: task-context only, non-blocking.  Call before scheduler.
  */
@@ -157,7 +157,7 @@ config_service_err_t config_service_init(const iconfig_store_t *store);
  *
  * @param  blob  Raw bytes from config_store_load().
  * @param  len   Blob byte count; must equal sizeof(config_blob_t).
- * @return CONFIG_SERVICE_ERR_OK on success; CONFIG_SERVICE_ERR_INVALID if
+ * @return CONFIG_SERVICE_OK on success; CONFIG_SERVICE_ERR_INVALID if
  *         len is wrong; CONFIG_SERVICE_ERR_NULL_ARG if blob is NULL.
  * @note   Threading: task-context only, may block (acquires mutex).
  */
@@ -175,7 +175,7 @@ config_service_err_t config_service_apply_loaded(const void *blob, uint32_t len)
  *
  * @param  id     Parameter identifier.
  * @param  value  Pointer to new value; type must match the param's declared type.
- * @return CONFIG_SERVICE_ERR_OK on success; non-zero on failure.
+ * @return CONFIG_SERVICE_OK on success; non-zero on failure.
  */
 config_service_err_t config_service_set_param(config_param_id_t id, const void *value);
 
@@ -187,7 +187,7 @@ config_service_err_t config_service_set_param(config_param_id_t id, const void *
  *
  * @param  id     Parameter identifier.
  * @param  value  Pointer to value to validate.
- * @return CONFIG_SERVICE_ERR_OK if valid; CONFIG_SERVICE_ERR_INVALID otherwise.
+ * @return CONFIG_SERVICE_OK if valid; CONFIG_SERVICE_ERR_INVALID otherwise.
  * @note   Threading: task-context only, non-blocking.  Not ISR-safe.
  */
 config_service_err_t config_service_validate_param(config_param_id_t id, const void *value);
@@ -198,7 +198,7 @@ config_service_err_t config_service_validate_param(config_param_id_t id, const v
  * Called by LifecycleController on entering EditingConfig.  Stores a copy of
  * config_params_t in the snapshot slot.
  *
- * @return CONFIG_SERVICE_ERR_OK on success; CONFIG_SERVICE_ERR_NOT_INIT if not
+ * @return CONFIG_SERVICE_OK on success; CONFIG_SERVICE_ERR_NOT_INIT if not
  *         initialised.
  * @note   Threading: task-context only, non-blocking.  Not ISR-safe.
  */
@@ -210,7 +210,7 @@ config_service_err_t config_service_snapshot(void);
  * Called by LifecycleController on EditingConfig cancel or timeout.  Overwrites
  * in-memory config with snapshot; persists the restored config via ConfigStore.
  *
- * @return CONFIG_SERVICE_ERR_OK on success; CONFIG_SERVICE_ERR_INVALID if no
+ * @return CONFIG_SERVICE_OK on success; CONFIG_SERVICE_ERR_INVALID if no
  *         snapshot is available; CONFIG_SERVICE_ERR_PERSIST on ConfigStore fail.
  * @note   Threading: task-context only, non-blocking.  Not ISR-safe.
  */
@@ -222,7 +222,7 @@ config_service_err_t config_service_restore_snapshot(void);
  * Explicit flush — used by LifecycleController in the Restarting state to
  * ensure config is persisted before a soft reset.
  *
- * @return CONFIG_SERVICE_ERR_OK on success; CONFIG_SERVICE_ERR_PERSIST on failure.
+ * @return CONFIG_SERVICE_OK on success; CONFIG_SERVICE_ERR_PERSIST on failure.
  * @note   Threading: task-context only, may block.  Not ISR-safe.
  */
 config_service_err_t config_service_flush(void);
@@ -235,7 +235,7 @@ config_service_err_t config_service_flush(void);
  * calls config_service_get_params().
  *
  * @param  cb  Callback; must remain valid for the system lifetime.
- * @return CONFIG_SERVICE_ERR_OK on success; CONFIG_SERVICE_ERR_INVALID if
+ * @return CONFIG_SERVICE_OK on success; CONFIG_SERVICE_ERR_INVALID if
  *         the table is full (> CONFIG_SERVICE_MAX_CALLBACKS).
  */
 config_service_err_t config_service_register_change_callback(config_change_cb_t cb);
