@@ -88,6 +88,9 @@
     - STM32F469xx
     - TEST
     - LOG_LEVEL_MIN=-1
+  :test_sdram_driver:
+    - STM32F469xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
