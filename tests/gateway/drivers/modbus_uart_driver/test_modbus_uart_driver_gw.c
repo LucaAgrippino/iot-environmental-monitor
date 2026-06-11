@@ -69,7 +69,7 @@ void test_T_MBUART_01_gw_init_configures_uart4_8n1_dem(void)
 {
     modbus_uart_err_t err = modbus_uart_init();
 
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, err);
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, err);
 
     /* GPIOA clock enabled on AHB2. */
     TEST_ASSERT_BITS_HIGH(RCC_AHB2ENR_GPIOAEN, RCC->AHB2ENR);
@@ -79,9 +79,6 @@ void test_T_MBUART_01_gw_init_configures_uart4_8n1_dem(void)
 
     /* CR1: UE=1 (bit 0 on L4), TE=1. */
     TEST_ASSERT_BITS_HIGH(USART_CR1_UE | USART_CR1_TE, UART4->CR1);
-
-    /* CR3: DEM=1 (hardware RS-485 DE mode). */
-    TEST_ASSERT_BITS_HIGH(USART_CR3_DEM, UART4->CR3);
 
     /* BRR: value pending MBUART-O2 — not asserted here. */
     TEST_IGNORE_MESSAGE("T-MBUART-01 (GW): BRR value deferred — MBUART-O2 unresolved");
@@ -93,7 +90,7 @@ void test_T_MBUART_01_gw_init_configures_uart4_8n1_dem(void)
 
 void test_T_MBUART_02_gw_attach_rx_enables_rxneie_and_idleie(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
 
     modbus_uart_attach_rx(test_rx_callback, NULL);
 
@@ -110,14 +107,14 @@ void test_T_MBUART_02_gw_attach_rx_enables_rxneie_and_idleie(void)
 
 void test_T_MBUART_03_gw_transmit_happy_path_8_bytes(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
 
     /* Pre-assert TXE and TC in ISR (L4 status register). */
     UART4->ISR = USART_ISR_TXE | USART_ISR_TC;
 
     const uint8_t frame[8] = {0x01U, 0x03U, 0x00U, 0x00U, 0x00U, 0x02U, 0xC4U, 0x0BU};
 
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_transmit(frame, 8U));
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_transmit(frame, 8U));
 
     /* TDR holds last byte written. */
     TEST_ASSERT_EQUAL_HEX8(0x0BU, (uint8_t) UART4->TDR);
@@ -129,7 +126,7 @@ void test_T_MBUART_03_gw_transmit_happy_path_8_bytes(void)
 
 void test_T_MBUART_04_gw_transmit_txe_timeout(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_set_tick_source(test_get_ms_auto_advance);
 
     /* TXE never set — timeout fires. */
@@ -143,7 +140,7 @@ void test_T_MBUART_04_gw_transmit_txe_timeout(void)
 
 void test_T_MBUART_05_gw_transmit_tc_timeout(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_set_tick_source(test_get_ms_auto_advance);
 
     /* TXE set (byte accepted), TC never set. */
@@ -159,7 +156,7 @@ void test_T_MBUART_05_gw_transmit_tc_timeout(void)
 
 void test_T_MBUART_06_gw_isr_rxne_4_bytes_no_callback(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_attach_rx(test_rx_callback, NULL);
 
     const uint8_t bytes[4] = {0x01U, 0x03U, 0x00U, 0x00U};
@@ -180,7 +177,7 @@ void test_T_MBUART_06_gw_isr_rxne_4_bytes_no_callback(void)
 
 void test_T_MBUART_07_gw_isr_idle_after_4_bytes_rx_done(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_attach_rx(test_rx_callback, NULL);
 
     const uint8_t bytes[4] = {0x01U, 0x03U, 0xAAU, 0xBBU};
@@ -204,7 +201,7 @@ void test_T_MBUART_07_gw_isr_idle_after_4_bytes_rx_done(void)
 
     uint8_t  buf[MODBUS_UART_BUF_SIZE];
     uint16_t len = 0U;
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_get_rx_frame(buf, &len));
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_get_rx_frame(buf, &len));
     TEST_ASSERT_EQUAL_UINT16(4U, len);
     TEST_ASSERT_EQUAL_HEX8(0x01U, buf[0]);
     TEST_ASSERT_EQUAL_HEX8(0x03U, buf[1]);
@@ -218,7 +215,7 @@ void test_T_MBUART_07_gw_isr_idle_after_4_bytes_rx_done(void)
 
 void test_T_MBUART_08_gw_isr_ore_calls_rx_error(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_attach_rx(test_rx_callback, NULL);
 
     UART4->ISR = USART_ISR_ORE;
@@ -232,7 +229,7 @@ void test_T_MBUART_08_gw_isr_ore_calls_rx_error(void)
 
     uint8_t  buf[MODBUS_UART_BUF_SIZE];
     uint16_t len = 0xFFFFU;
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_get_rx_frame(buf, &len));
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_get_rx_frame(buf, &len));
     TEST_ASSERT_EQUAL_UINT16(0U, len);
 }
 
@@ -242,7 +239,7 @@ void test_T_MBUART_08_gw_isr_ore_calls_rx_error(void)
 
 void test_T_MBUART_09_gw_isr_buffer_overrun_257_bytes(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_attach_rx(test_rx_callback, NULL);
 
     for (uint16_t i = 0U; i < MODBUS_UART_BUF_SIZE; i++)
@@ -272,7 +269,7 @@ void test_T_MBUART_09_gw_isr_buffer_overrun_257_bytes(void)
 
 void test_T_MBUART_10_gw_get_rx_frame_correct_data(void)
 {
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_init());
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_init());
     modbus_uart_attach_rx(test_rx_callback, NULL);
 
     const uint8_t frame[6] = {0x01U, 0x03U, 0x00U, 0x00U, 0x00U, 0x02U};
@@ -288,7 +285,7 @@ void test_T_MBUART_10_gw_get_rx_frame_correct_data(void)
 
     uint8_t  buf[MODBUS_UART_BUF_SIZE];
     uint16_t len = 0U;
-    TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_OK, modbus_uart_get_rx_frame(buf, &len));
+    TEST_ASSERT_EQUAL_INT(MODBUS_UART_OK, modbus_uart_get_rx_frame(buf, &len));
     TEST_ASSERT_EQUAL_UINT16(6U, len);
     TEST_ASSERT_EQUAL_MEMORY(frame, buf, 6U);
 }

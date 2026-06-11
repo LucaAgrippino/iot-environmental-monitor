@@ -80,9 +80,6 @@ void test_T_MBUART_01_init_configures_usart6_8n1_dem(void)
     /* CR1: UE=1, TE=1, 8-bit (M=0 default). */
     TEST_ASSERT_BITS_HIGH(USART_CR1_UE | USART_CR1_TE, USART6->CR1);
 
-    /* CR3: DEM=1 (hardware RS-485 DE mode). */
-//    TEST_ASSERT_BITS_HIGH(USART_CR3_DEM, USART6->CR3);
-
     /* BRR: value pending MBUART-O2 — not asserted here. */
     TEST_IGNORE_MESSAGE("T-MBUART-01: BRR value deferred — MBUART-O2 unresolved");
 }
