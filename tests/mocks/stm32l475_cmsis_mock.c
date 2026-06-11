@@ -31,6 +31,21 @@ I2C_TypeDef g_mock_i2c2;
 
 
 /* ====================================================================== */
+/* §UART4 storage (ModbusUartDriver GW)                                  */
+/* ====================================================================== */
+
+USART_L4_TypeDef g_mock_uart4;
+
+
+/* ====================================================================== */
+/* §NVIC storage (L475)                                                   */
+/* ====================================================================== */
+
+uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
+uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+
+
+/* ====================================================================== */
 /* Reset routine — clears all L475 mock peripheral state.                 */
 /* ====================================================================== */
 
@@ -67,4 +82,42 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_i2c2.PECR     = 0;
     g_mock_i2c2.RXDR     = 0;
     g_mock_i2c2.TXDR     = 0;
+
+    /* §UART4 */
+    g_mock_uart4.CR1 = 0;
+    g_mock_uart4.CR2 = 0;
+    g_mock_uart4.CR3 = 0;
+    g_mock_uart4.BRR = 0;
+    g_mock_uart4.ISR = 0;
+    g_mock_uart4.ICR = 0;
+    g_mock_uart4.RDR = 0;
+    g_mock_uart4.TDR = 0;
+
+    /* §NVIC */
+    for (uint32_t i = 0; i < NVIC_IRQ_COUNT_MAX; ++i)
+    {
+        g_mock_nvic_enable_count[i]  = 0;
+        g_mock_nvic_disable_count[i] = 0;
+    }
+}
+
+
+/* ====================================================================== */
+/* §NVIC implementations (L475)                                           */
+/* ====================================================================== */
+
+void NVIC_EnableIRQ(IRQn_Type irqn)
+{
+    if ((uint32_t) irqn < NVIC_IRQ_COUNT_MAX)
+    {
+        g_mock_nvic_enable_count[irqn]++;
+    }
+}
+
+void NVIC_DisableIRQ(IRQn_Type irqn)
+{
+    if ((uint32_t) irqn < NVIC_IRQ_COUNT_MAX)
+    {
+        g_mock_nvic_disable_count[irqn]++;
+    }
 }
