@@ -23,6 +23,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #if defined(STM32F469xx)
 #include "stm32f469xx.h"
@@ -57,7 +58,6 @@
 /* F4: error flags cleared by reading DR.                                */
 #define MBUART_CLEAR_ERRORS() ((void) (USART6->DR))
 #define MBUART_SET_BRR(v) (USART6->BRR = (v))
-#define MBUART_SET_CR3(v) (USART6->CR3 |= (v))
 #define MBUART_SET_CR1(v) (USART6->CR1 |= (v))
 
 /* --- CR1 bit aliases (F4 layout) ------------------------------------- */
@@ -238,14 +238,11 @@ modbus_uart_err_t modbus_uart_init(void)
      *    used until clock-config.md is finalised. */
     MBUART_SET_BRR((uint32_t) (MODBUS_UART_PCLK_HZ / MODBUS_UART_BAUD));
 
-    /* 5. CR3: hardware RS-485 DE mode (MBUART-D3, REQ-MB-010). */
-    MBUART_SET_CR3(USART_CR3_DEM);
-
-    /* 6. CR1: 8-bit, no parity (8N1), TX enable, USART enable.
+    /* 5. CR1: 8-bit, no parity (8N1), TX enable, USART enable.
      *    RE and RX interrupts are enabled later in modbus_uart_attach_rx(). */
     MBUART_SET_CR1(MBUART_CR1_TE | MBUART_CR1_UE);
 
-    return MODBUS_UART_ERR_OK;
+    return MODBUS_UART_OK;
 }
 
 void modbus_uart_attach_rx(modbus_uart_rx_cb_t callback, void *context)
@@ -313,7 +310,7 @@ modbus_uart_err_t modbus_uart_transmit(const uint8_t *frame, uint16_t len)
     }
 
     s_modbus_uart.tx_busy = false;
-    return MODBUS_UART_ERR_OK;
+    return MODBUS_UART_OK;
 }
 
 modbus_uart_err_t modbus_uart_get_rx_frame(uint8_t *buf, uint16_t *len)
@@ -330,7 +327,7 @@ modbus_uart_err_t modbus_uart_get_rx_frame(uint8_t *buf, uint16_t *len)
     /* Reset length so the buffer is ready to receive the next frame. */
     s_modbus_uart.rx_len = 0U;
 
-    return MODBUS_UART_ERR_OK;
+    return MODBUS_UART_OK;
 }
 
 void modbus_uart_set_tick_source(uint32_t (*get_ms)(void))

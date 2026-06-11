@@ -48,7 +48,7 @@
 
 /** Per-byte TXE polling timeout in ms. Allows 5× one character time at
  *  9600 baud (≈ 1.04 ms) to tolerate clock inaccuracies. */
-#define MODBUS_UART_TXE_TIMEOUT_MS (5U)
+#define MODBUS_UART_TXE_TIMEOUT_MS (10U)
 
 /** TC polling timeout in ms, applied after the last byte is written.
  *  One character time ≈ 1.04 ms; 10 ms gives comfortable margin. */
@@ -65,7 +65,7 @@
  */
 typedef enum
 {
-    MODBUS_UART_ERR_OK = 0,      /**< Operation succeeded. */
+    MODBUS_UART_OK = 0,          /**< Operation succeeded. */
     MODBUS_UART_ERR_TIMEOUT = 1, /**< TXE or TC flag did not assert within timeout. */
     MODBUS_UART_ERR_BUSY = 2,    /**< Transmit called while a TX is already in progress. */
 } modbus_uart_err_t;
