@@ -2,23 +2,22 @@
  * @file test_modbus_uart_driver_main.c
  * @brief Integration test for ModbusUartDriver on STM32F469I-DISCO hardware.
  *
- * Exercises the ModbusUartDriver in loopback mode: TX pin (PG14) must be
- * physically wired to RX pin (PG9) via a 120-Ω termination resistor and
- * RS-485 transceiver (or a simple wire for bench test). The driver sends a
- * known frame; the ISR receives it and signals the test task.
+ * Loopback wiring (no RS-485 transceiver — direct TTL loopback):
+ *   PG14 (TX, USART6_TX, AF8) ── jumper wire ── PG9 (RX, USART6_RX, AF8)
+ *   DE GPIO is toggled by the driver but left floating; RS-485
+ *   transceiver timing is validated in two-board integration only.
  *
  * Activation in CubeIDE:
  *   1. Exclude Src/main.c from build (Resource Config -> Exclude from Build).
  *   2. Add integration-tests/modbus_uart_driver/ to project source paths.
- *   3. Wire PG14 → RS-485 transceiver DE/RE → PG9 (or direct PG14 → PG9
- *      for basic UART loopback without RS-485 physical layer).
+ *   3. Wire a single jumper between PG14 (Arduino D1) and PG9 (Arduino D0).
  *   4. Build, flash, open PuTTY on ST-Link VCP at 115200 / 8N1.
  *
  * Init ordering (modbus-uart-driver.md §2.3):
  *   system_clock_init() -> debug_uart_init() -> rtc_init() -> logger_init()
- *   -> modbus_uart_init()   [phase 1, pre-scheduler]
+ *   -> modbus_uart_init()        [phase 1, pre-scheduler]
  *   -> vTaskStartScheduler()
- *   -> modbus_uart_attach_rx() [phase 2, in test task]
+ *   -> modbus_uart_attach_rx()   [phase 2, in test task]
  *
  * ---
  * Visual checklist — tick each item before declaring the build good:
@@ -109,7 +108,7 @@ static void test_task(void *arg)
     /* ------------------------------------------------------------------ */
     {
         modbus_uart_err_t err = modbus_uart_transmit(k_test_frame, TEST_FRAME_LEN);
-        if (err == MODBUS_UART_ERR_OK)
+        if (err == MODBUS_UART_OK)
         {
             LOG_INFO(LOG_MODULE, "Phase 1: transmit OK (%u bytes)", (unsigned) TEST_FRAME_LEN);
         }
@@ -177,8 +176,10 @@ static void test_task(void *arg)
     /* Note: triggering a real framing error requires a break condition on
      * the RS-485 bus. This phase logs a reminder only; hardware injection
      * is required for full validation.                                    */
-    LOG_INFO(LOG_MODULE, "Phase 2: RX_ERROR injection requires hardware break "
-             "condition on RS-485 bus — manual step");
+    LOG_INFO(LOG_MODULE, "Phase 2: RX_ERROR injection");
+    LOG_INFO(LOG_MODULE, "> requires hardware break condition");
+    LOG_INFO(LOG_MODULE, "> on RS-485 bus — manual step");
+
 
     /* ------------------------------------------------------------------ */
     /* Periodic tick                                                       */
@@ -211,7 +212,8 @@ int main(void)
     /* 4. Pre-scheduler diagnostics. */
     LOG_INFO(LOG_MODULE, "===== ModbusUartDriver integration test =====");
     LOG_INFO(LOG_MODULE, "modbus_uart_init OK");
-    LOG_INFO(LOG_MODULE, "Wiring: PG14 (TX) <--> PG9 (RX) via RS-485 transceiver or direct wire");
+    LOG_INFO(LOG_MODULE, "Wiring: PG14 (TX) <--> PG9 (RX)");
+    LOG_INFO(LOG_MODULE, "> via RS-485 transceiver or direct wire");
     LOG_INFO(LOG_MODULE, "starting scheduler...");
 
     /* 5. Create test task. */
