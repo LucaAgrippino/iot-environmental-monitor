@@ -176,15 +176,16 @@ static void stats_task(void *arg)
         modbus_slave_stats_t stats;
         (void) modbus_slave_get_stats(&stats);
 
-        LOG_INFO(LOG_MODULE,
-                 "[MSLAVE-task] tick %lu  valid=%lu crc_err=%lu mismatch=%lu exc=%lu unsup=%lu ok=%lu",
-                 (unsigned long) tick,
-                 (unsigned long) stats.valid_frames,
-                 (unsigned long) stats.crc_errors,
-                 (unsigned long) stats.address_mismatches,
-                 (unsigned long) stats.exception_responses,
-                 (unsigned long) stats.unsupported_fc,
-                 (unsigned long) stats.successful_responses);
+        LOG_INFO(LOG_MODULE, "[MSLAVE-task] tick %lu  valid=%lu crc_err=%lu",
+        					(unsigned long) tick,
+        	                (unsigned long) stats.valid_frames,
+        	                (unsigned long) stats.crc_errors);
+
+        LOG_INFO(LOG_MODULE, "[MSLAVE-task] mismatch=%lu exc=%lu unsup=%lu ok=%lu",
+        					 (unsigned long) stats.address_mismatches,
+							 (unsigned long) stats.exception_responses,
+							 (unsigned long) stats.unsupported_fc,
+							 (unsigned long) stats.successful_responses);
 
         vTaskDelay(pdMS_TO_TICKS(1000U));
     }

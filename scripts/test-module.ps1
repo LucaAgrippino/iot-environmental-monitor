@@ -76,27 +76,26 @@ if ($CeedlingExit -ne 0) {
 # ---------------------------------------------------------------------------
 # Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
-
 if ( ($Module.EndsWith( "_fd" ) ) -or ($Module.EndsWith( "_gw" ) )  ) {
 
     $Module = $Module -replace '_fd$|_gw$', ''
-
-    $ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
-    Where-Object { $_.Name -eq $Module -and 
-                   $_.FullName -notmatch '\\Debug\\' -and
-                   $_.FullName -notmatch '\\integration-tests\\' } |
-    Select-Object -First 1
-
-    if ($null -eq $ModuleDir) {
-        Write-Fail "Module directory '$Module' not found under firmware/"
-        Write-Host ""
-        Write-Host "RESULT: FAILED - module directory not found." -ForegroundColor Red
-        exit 1
-    }
-
-    $ModulePath = $ModuleDir.FullName
-    Write-Host "Module path: $ModulePath" -ForegroundColor DarkGray
 }
+
+$ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
+Where-Object { $_.Name -eq $Module -and 
+                $_.FullName -notmatch '\\Debug\\' -and
+                $_.FullName -notmatch '\\integration-tests\\' } |
+Select-Object -First 1
+
+if ($null -eq $ModuleDir) {
+    Write-Fail "Module directory '$Module' not found under firmware/"
+    Write-Host ""
+    Write-Host "RESULT: FAILED - module directory not found." -ForegroundColor Red
+    exit 1
+}
+
+$ModulePath = $ModuleDir.FullName
+Write-Host "Module path: $ModulePath" -ForegroundColor DarkGray
 
 # ---------------------------------------------------------------------------
 # Step 3 - cppcheck

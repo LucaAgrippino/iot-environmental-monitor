@@ -356,7 +356,9 @@ modbus_slave_err_t modbus_slave_set_address(uint8_t new_addr)
      * around this write. Concurrent ModbusTask read of slave_addr is not
      * protected. Invisible to unit tests because taskENTER/EXIT_CRITICAL()
      * are no-ops in the host build and tests are single-threaded. */
+    taskENTER_CRITICAL();
     s_slave.slave_addr = new_addr;
+    taskEXIT_CRITICAL();
 
     return MODBUS_SLAVE_ERR_OK;
 }

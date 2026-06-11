@@ -24,6 +24,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "FreeRtos.h"
 #include "task.h"
 
 /* ===================================================================== */
