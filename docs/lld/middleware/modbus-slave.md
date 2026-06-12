@@ -1,14 +1,14 @@
 # LLD Companion — ModbusSlave
 
-**Layer:** Middleware  
-**Board:** Field Device (FD) only  
-**Provides:** `IModbusSlave`, `IModbusSlaveStats`  
-**Consumes:** `IModbusUart` (ModbusUartDriver), `IModbusRegisterMap` *(DIP — see §3)*, `ILogger`  
-**SRS traces:** REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1  
+**Layer:** Middleware
+**Board:** Field Device (FD) only
+**Provides:** `IModbusSlave`, `IModbusSlaveStats`
+**Consumes:** `IModbusUart` (ModbusUartDriver), `IModbusRegisterMap` *(DIP — see §3)*, `ILogger`
+**SRS traces:** REQ-MB-000, MB-010, MB-020, MB-030, MB-040, MB-080, MB-090, MB-100, MB-0E1
 **HLD ref:** `components.md` §Middleware — ModbusSlave; `state-machines.md` Machine 6; `hld.md` §7.7; `modbus-register-map.md` §2–§7
-**Version:** 0.1
-**Date:** May 2026
-**Status:** Draft
+**Version:** 1.0
+**Date:** June 2026
+**Status:** Pass H — Implementation ready
 
 **HLD anchor:** ModbusSlave in `components.md` (FD middleware layer)
 
@@ -65,14 +65,14 @@ typedef modbus_slave_err_t (*fn_write_holding_reg_t)(uint16_t addr,
                                                       uint16_t value);
 
 typedef struct {
-    fn_read_input_reg_t   read_input;    /* FC04 dispatch */
-    fn_write_holding_reg_t write_holding; /* FC06 / FC16 dispatch */
-    fn_read_holding_reg_t  read_holding;  /* FC03 dispatch */
+    fn_read_input_reg_t    read_input;     /* FC04 dispatch */
+    fn_read_holding_reg_t  read_holding;   /* FC03 dispatch */
+    fn_write_holding_reg_t write_holding;  /* FC06 / FC16 dispatch */
 } IModbusRegisterMap;
 ```
 
 ModbusSlave stores the injected pointer in its static state and calls
-through it during `ProcessingRequest`. The concrete binding
+through it during request processing. The concrete binding
 (`modbus_register_map_read_input`, etc.) is set up in `LifecycleController`
 during Init.
 
@@ -104,7 +104,7 @@ typedef struct {
 
 ---
 
-## 2. Public API
+## 5. Public API
 
 ### 5.1 `IModbusSlave`
 
@@ -120,7 +120,8 @@ typedef struct {
  * @param  slave_addr  Initial slave address (1..247, REQ-MB-100).
  * @param  task_handle FreeRTOS task handle for direct-to-task notification.
  * @return MODBUS_SLAVE_ERR_OK or MODBUS_SLAVE_ERR_NULL_ARG.
- * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ * @note   Threading: task-context only, non-blocking. Must be called
+ *         before the scheduler starts.
  */
 modbus_slave_err_t modbus_slave_init(const IModbusRegisterMap *reg_map,
                                      uint8_t                   slave_addr,
@@ -136,7 +137,7 @@ modbus_slave_err_t modbus_slave_init(const IModbusRegisterMap *reg_map,
  * Blocking: waits for tx_complete notification before returning.
  *
  * @return MODBUS_SLAVE_ERR_OK (silent drop is not an error at this level).
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ * @note   Threading: task-context only. Not ISR-safe.
  */
 modbus_slave_err_t modbus_slave_process(void);
 
@@ -145,7 +146,7 @@ modbus_slave_err_t modbus_slave_process(void);
  *
  * Called when the Modbus address is changed via ConfigService
  * (cross-machine event `modbus_address_changed` — state-machines.md I2).
- * Thread-safe.
+ * Thread-safe under critical section.
  *
  * @param  new_addr  New slave address (1..247).
  * @return MODBUS_SLAVE_ERR_OK or MODBUS_SLAVE_ERR_INVALID_ADDR.
@@ -172,37 +173,37 @@ modbus_slave_err_t modbus_slave_get_stats(modbus_slave_stats_t *stats_out);
  * @brief  Reset all counters to zero.
  *
  * Triggered by CMD_RESET_METRICS register write (REQ-LD-070).
- * @return MODBUS_SLAVE_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ * @return MODBUS_SLAVE_ERR_OK on success.
+ * @note   Threading: task-context only, non-blocking. Not ISR-safe.
  */
 modbus_slave_err_t modbus_slave_reset_stats(void);
 ```
 
 ---
 
-## 6. Frame buffers and memory
+## 6. Internal state
 
-No dynamic allocation. Both buffers are static module-level arrays, sized
-to the Modbus RTU maximum.
+No dynamic allocation. Single static module-level struct, sized to the
+Modbus RTU maximum.
 
 ```c
 /* modbus_slave.c — static module state */
 
-#define MODBUS_MAX_FRAME_BYTES  256U
+#define MODBUS_MAX_FRAME_BYTES  (256U)
 
 typedef struct {
-    bool                  initialised;
-    uint8_t               slave_addr;
-    uint8_t               rx_buf[MODBUS_MAX_FRAME_BYTES];
-    uint16_t              rx_len;
-    uint8_t               tx_buf[MODBUS_MAX_FRAME_BYTES];
-    uint16_t              tx_len;
+    bool                      initialised;
+    uint8_t                   slave_addr;
+    uint8_t                   rx_buf[MODBUS_MAX_FRAME_BYTES];
+    uint16_t                  rx_len;
+    uint8_t                   tx_buf[MODBUS_MAX_FRAME_BYTES];
+    uint16_t                  tx_len;
     const IModbusRegisterMap *reg_map;
-    TaskHandle_t          task_handle;
-    modbus_slave_stats_t  stats;
-} ModbusSlaveState;
+    TaskHandle_t              task_handle;
+    modbus_slave_stats_t      stats;
+} modbus_slave_t;
 
-static ModbusSlaveState s_slave;
+static modbus_slave_t s_slave;
 ```
 
 ---
@@ -227,7 +228,8 @@ static const uint16_t s_crc_table[256] = { /* 256 × uint16_t = 512 B flash */ }
 uint16_t modbus_crc16(const uint8_t *buf, uint16_t len)
 {
     uint16_t crc = 0xFFFFU;
-    while (len--) {
+    while (len--)
+    {
         crc = (crc >> 8U) ^ s_crc_table[(crc ^ *buf++) & 0xFFU];
     }
     return crc;
@@ -238,29 +240,14 @@ CRC bytes are appended **low byte first** per Modbus RTU convention.
 
 ---
 
-## 3. Internal design — FC dispatch logic
-
-### 3.0 Private struct
-
-```c
-typedef struct {
-    uint8_t               slave_addr; /**< Configured Modbus RTU slave address (1..247). */
-    uint8_t               rx_buf[256]; /**< Current received ADU frame. */
-    uint16_t              rx_len;      /**< Valid byte count in rx_buf. */
-    uint8_t               tx_buf[256]; /**< Response frame assembled by FC handlers. */
-    uint16_t              tx_len;      /**< Response length (0 = silent drop). */
-    modbus_slave_stats_t  stats;       /**< Cumulative protocol counters. */
-} modbus_slave_t;
-
-static modbus_slave_t s_slave;
-```
-
+## 8. Internal design — FC dispatch logic
 
 The dispatch sequence inside `modbus_slave_process()` follows the
 processing order specified in `state-machines.md` Machine 6:
 
 ```
-1. Address filter: frame[0] == slave_addr? No → silent drop (stats.address_mismatches++).
+1. Address filter: rx_buf[0] == slave_addr?
+   No → silent drop (stats.address_mismatches++).
 2. CRC check: modbus_crc16(rx_buf, rx_len - 2) == rx_buf[rx_len-2 .. rx_len-1]?
    No → silent drop (stats.crc_errors++).
 3. stats.valid_frames++.
@@ -270,8 +257,8 @@ processing order specified in `state-machines.md` Machine 6:
    FC 0x06 → build_write_single_response()
    FC 0x10 → build_write_multiple_response()
    other   → build_exception_response(0x01)  (stats.unsupported_fc++)
-5. If response built → transmit (Responding state) → stats.successful_responses++
-                        or stats.exception_responses++.
+5. If response built → transmit → stats.successful_responses++
+                                  or stats.exception_responses++.
    If silent drop   → return without transmitting.
 ```
 
@@ -282,45 +269,76 @@ equals `register_count × 2`. Mismatch → exception 0x03.
 0x0202) requires write value `0xA5A5`; any other value → exception 0x03
 (`modbus-register-map.md` §6).
 
-All calls into `IModbusRegisterMap` that return `MODBUS_SLAVE_ERR_INVALID_ADDR`
-map to exception 0x02; `MODBUS_SLAVE_ERR_INVALID_VALUE` maps to exception 0x03;
-`MODBUS_SLAVE_ERR_DEVICE_FAIL` maps to exception 0x04.
-
----
-
+All calls into `IModbusRegisterMap` that return:
+- `MODBUS_SLAVE_ERR_INVALID_ADDR` → map to exception 0x02
+- `MODBUS_SLAVE_ERR_INVALID_VALUE` → map to exception 0x03
+- `MODBUS_SLAVE_ERR_DEVICE_FAIL` → map to exception 0x04
 
 ### Synchronisation
 
-Caller serialises. This component holds no internal FreeRTOS synchronisation primitives. It is accessed exclusively from the owning task; no additional locking is required provided the component is not shared across task boundaries.
+Caller serialises. `modbus_slave_process()` and `modbus_slave_set_address()`
+run in `ModbusTask` context — no concurrent access.
 
-### modbus_slave_process
+`modbus_slave_get_stats()` and `modbus_slave_reset_stats()` may be called
+from `SensorTask` (via ModbusRegisterMap) while `ModbusTask` is updating
+the counters. Guard stats reads and resets with `taskENTER_CRITICAL()` /
+`taskEXIT_CRITICAL()` — the critical section is short (a `memcpy` or a
+counter reset), so the overhead is acceptable.
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+`modbus_slave_set_address()` writes `s_slave.slave_addr` under the same
+critical section to guarantee an atomic update visible to the next frame.
 
-### modbus_slave_set_address
+### Per-function behaviour
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+**modbus_slave_init.** Validates `reg_map`, `task_handle`, and
+`slave_addr ∈ [1, 247]`. Stores them in `s_slave`. Registers the
+frame-complete callback with `ModbusUartDriver`. Sets `initialised = true`.
 
-### modbus_slave_get_stats
+**modbus_slave_process.** Reads `rx_buf` via
+`modbus_uart_get_rx_frame()`. Runs steps 1–5 above. Returns
+`MODBUS_SLAVE_ERR_OK` whether the frame was processed or silently dropped
+(silent drop is normal protocol behaviour, not an error).
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+**modbus_slave_set_address.** Validates `new_addr ∈ [1, 247]`. Updates
+`s_slave.slave_addr` under critical section. Returns
+`MODBUS_SLAVE_ERR_INVALID_ADDR` on out-of-range input.
 
-### modbus_slave_reset_stats
+**modbus_slave_get_stats.** Validates `stats_out != NULL`. Copies
+`s_slave.stats` under critical section.
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+**modbus_slave_reset_stats.** Zeros `s_slave.stats` under critical
+section.
 
 ### Principles applied
 
-- **P1 (Strict directional layering).** Depends on IModbusUart (driver layer) and IModbusRegisterMap (DIP — interface injected at init); Logger is a cross-cutting exception (P4).
-- **P2 (Dependency Inversion).** Exposes `imodbus_slave_t` vtable; consumes IModbusRegisterMap via P2 inversion — the interface is owned by the application layer and injected into this middleware component at init, so no application header is included.
-- **P3 (Interface Segregation).** `IModbusSlave` (protocol execution) and `IModbusSlaveStats` (statistics read-back) are separate interfaces because LifecycleController manages the slave lifecycle while HealthMonitor reads stats — distinct, non-overlapping consumer sets.
-- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Static Modbus ADU buffer; stats counter struct statically allocated; no heap.
-- **P6 (Responsibility traces to requirements).** FC01/02/03/04/05/06/15/16 dispatch traces to REQ-MB-000-040/080-100 slave function-code requirements.
-- **P8 (Total error propagation, no silent failures).** All public functions return `modbus_slave_err_t`; invalid FC generates exception response 01; I/O errors propagated.
-- **P9 (BARR-C coding standard).** Modbus addresses `uint16_t`; exception codes `uint8_t`; no floating-point.
-- **P10 (Naming conventions).** Prefix `modbus_slave_`; interfaces `IModbusSlave` -> `imodbus_slave_t`, `IModbusSlaveStats` -> `imodbus_slave_stats_t`; errors `MODBUS_SLAVE_ERR_*`.
+- **P1 (Strict directional layering).** Depends on `IModbusUart`
+  (driver) and `IModbusRegisterMap` (DIP — interface injected at init).
+  Logger is a cross-cutting exception (P4).
+- **P2 (Dependency Inversion).** Exposes `imodbus_slave_t` vtable;
+  consumes `IModbusRegisterMap` via P2 inversion — the interface is
+  owned by the application layer and injected into this middleware
+  component at init.
+- **P3 (Interface Segregation).** `IModbusSlave` (protocol execution)
+  and `IModbusSlaveStats` (statistics read-back) are separate
+  interfaces because LifecycleController manages the slave lifecycle
+  while HealthMonitor and ModbusRegisterMap read stats — distinct,
+  non-overlapping consumer sets.
+- **P4 (Cross-cutting concern exception).** Logger referenced
+  concretely.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Static
+  ADU buffers and stats struct; no heap.
+- **P6 (Responsibility traces to requirements).** FC03/04/06/16
+  dispatch traces to REQ-MB-000, MB-040, MB-080, MB-090, MB-100.
+- **P8 (Total error propagation, no silent failures).** All public
+  functions return `modbus_slave_err_t`; invalid FC generates exception
+  response 0x01; I/O errors propagated.
+- **P9 (BARR-C coding standard).** Modbus addresses `uint16_t`;
+  exception codes `uint8_t`; no floating-point.
+- **P10 (Naming conventions).** Prefix `modbus_slave_`; interfaces
+  `IModbusSlave` → `imodbus_slave_t`, `IModbusSlaveStats` →
+  `imodbus_slave_stats_t`; errors `MODBUS_SLAVE_ERR_*`.
 
+---
 
 ## 9. RS-485 direction control
 
@@ -328,7 +346,7 @@ Direction control (RE/DE pin) is owned by `ModbusUartDriver`, not
 ModbusSlave. The slave calls:
 
 ```c
-modbus_uart_transmit(tx_buf, tx_len); /* enables TX driver, transmits, disables TX driver */
+modbus_uart_transmit(tx_buf, tx_len);
 ```
 
 `modbus_uart_transmit()` is responsible for:
@@ -373,80 +391,70 @@ only ordering constraint is that `ModbusTask` exists before
 
 ---
 
-## 12. Thread safety
-
-`modbus_slave_process()` and `modbus_slave_set_address()` both run in
-`ModbusTask` context — no concurrent access between them.
-
-`modbus_slave_get_stats()` and `modbus_slave_reset_stats()` may be called
-from `SensorTask` (via ModbusRegisterMap) while `ModbusTask` is updating
-the counters. Guard with `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()`
-around the counter increments and the stats copy — the critical section is
-short (a handful of counter reads or a `memcpy`), so the overhead is
-acceptable.
-
----
-
-## 5. Sequence integration
-
-See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
-
-### SD trace
+## 12. Sequence integration
 
 | SD | Component role | Key function |
 |---|---|---|
-| SD-00 | SD-00a: `LifecycleController` calls `modbus_slave_init()` to enable the RS-485 receive path on the Field Device before transitioning to Operational | `modbus_slave_init()` |
-| SD-02 | `ModbusSlave` receives the polling request frame via ISR callback (`modbus_uart_get_rx_frame()`), processes it, dispatches to `IModbusRegisterMap`, and calls `modbus_uart_transmit()` for the response | `modbus_slave_process_frame()`, `modbus_slave_get_rx_frame()` |
-| SD-09 | `ModbusSlave` receives the FC06/16 time-write frame and dispatches to `IModbusRegisterMap.write_holding_register()` | `modbus_slave_process_frame()` |
+| SD-00a | `LifecycleController` calls `modbus_slave_init()` to enable the RS-485 receive path on the Field Device before transitioning to Operational | `modbus_slave_init()` |
+| SD-02 | `ModbusSlave` is notified of a polling request frame, processes it, dispatches to `IModbusRegisterMap`, and calls `modbus_uart_transmit()` for the response | `modbus_slave_process()` |
+| SD-09 | `ModbusSlave` receives the FC06/16 time-write frame and dispatches to `IModbusRegisterMap.write_holding` | `modbus_slave_process()` |
 
 ---
 
-## 6. Error and fault behaviour
+## 13. Error and fault behaviour
 
 All public functions return `modbus_slave_err_t`; callers must not ignore
-non-OK returns.  Internal Modbus protocol errors (address violations, value
-range checks) are mapped to standard Modbus exception codes returned in the
-response PDU rather than surfaced as `_err_t` values.
+non-OK returns. Internal Modbus protocol errors (address violations, value
+range checks) are mapped to standard Modbus exception codes returned in
+the response PDU rather than surfaced as `_err_t` values.
 
 | Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
 |---|---|---|---|---|---|
 | `MODBUS_SLAVE_ERR_NOT_INIT` | Function called before `modbus_slave_init()` | Return error; no UART interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
 | `MODBUS_SLAVE_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
-| `MODBUS_SLAVE_ERR_INVALID_ADDR` | Register address out of range for the configured map | Respond with Modbus exception 0x02 (ILLEGAL_DATA_ADDRESS); return error to internal caller | Non-OK return from `modbus_slave_process_frame()` | No retry — master will log the exception response | Logged at WARN via ILogger (unexpected address from master) |
+| `MODBUS_SLAVE_ERR_INVALID_ADDR` | Register address out of range for the configured map | Respond with Modbus exception 0x02 (ILLEGAL_DATA_ADDRESS); return error to internal caller | Non-OK return from `modbus_slave_process()` | No retry — master will log the exception response | Logged at WARN via ILogger (unexpected address from master) |
 | `MODBUS_SLAVE_ERR_INVALID_VALUE` | Register write value out of valid range; maps to Modbus exception 0x03 | Respond with Modbus exception 0x03 (ILLEGAL_DATA_VALUE) | Non-OK return | No retry — master must send a corrected write | Logged at WARN via ILogger |
-| `MODBUS_SLAVE_ERR_DEVICE_FAIL` | IModbusRegisterMap handler returned a device failure; maps to Modbus exception 0x04 | Respond with Modbus exception 0x04 (SERVER_DEVICE_FAILURE) | Non-OK return | No retry — master receives the exception; internal retry policy driven by master application | Logged at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed if the register map signals a sensor fault |
-
-
-## 7. Unit-test plan
-
-```c
-#ifdef UNIT_TEST
-
-/* Replace ModbusUartDriver with a loopback stub */
-#define modbus_uart_transmit(buf, len)  stub_uart_tx(buf, len)
-#define modbus_uart_receive(buf, len)   stub_uart_rx(buf, len)
-
-#endif
-```
-
-Minimum test cases:
-- Address mismatch → silent drop, `address_mismatches` incremented.
-- CRC error → silent drop, `crc_errors` incremented.
-- FC04 read valid address → correct response frame built.
-- FC04 read reserved address → exception 0x02 response.
-- FC06 write valid address + valid value → register write called, ACK response.
-- FC06 write valid address + invalid value → exception 0x03.
-- FC06 write `CMD_SOFT_RESTART` with `0xA5A5` → accepted.
-- FC06 write `CMD_SOFT_RESTART` with wrong value → exception 0x03.
-- Unsupported FC (e.g. 0x01) → exception 0x01, `unsupported_fc` incremented.
-- `modbus_slave_reset_stats()` → all counters zero.
-- CRC bytes appended low-byte-first in response frame.
+| `MODBUS_SLAVE_ERR_DEVICE_FAIL` | `IModbusRegisterMap` handler returned a device failure; maps to Modbus exception 0x04 | Respond with Modbus exception 0x04 (SERVER_DEVICE_FAILURE) | Non-OK return | No retry — master receives the exception | Logged at WARN via ILogger; `HEALTH_EVENT_SENSOR_FAIL` pushed if the register map signals a sensor fault |
 
 ---
 
-## 8. Open items
+## 14. Unit-test plan
+
+Tests run on host via Ceedling. The `IModbusRegisterMap` vtable is
+populated with stub functions in the test TU. `modbus_uart_*` functions
+are replaced with loopback stubs that capture `tx_buf` for assertion.
+
+| Test ID | Description | Verifies |
+|---|---|---|
+| TC-MBS-001 | `modbus_slave_init()` with NULL `reg_map` returns `ERR_NULL_ARG` | Argument validation |
+| TC-MBS-002 | `modbus_slave_init()` with `slave_addr == 0` returns `ERR_INVALID_ADDR` | Address range validation |
+| TC-MBS-003 | `modbus_slave_init()` with `slave_addr == 248` returns `ERR_INVALID_ADDR` | Address range validation |
+| TC-MBS-004 | Address mismatch frame → silent drop; `stats.address_mismatches == 1`, `tx_len == 0` | Address filter |
+| TC-MBS-005 | Valid frame with wrong CRC → silent drop; `stats.crc_errors == 1`, `tx_len == 0` | CRC check |
+| TC-MBS-006 | FC04 read valid input register → correct response frame; `stats.successful_responses == 1` | FC04 happy path |
+| TC-MBS-007 | FC04 read reserved address → exception 0x02 in response; `stats.exception_responses == 1` | FC04 invalid addr |
+| TC-MBS-008 | FC03 read valid holding register → correct response frame | FC03 happy path |
+| TC-MBS-009 | FC06 write valid address + valid value → register map write_holding called; ACK response | FC06 happy path |
+| TC-MBS-010 | FC06 write valid address + out-of-range value → exception 0x03 | FC06 value validation |
+| TC-MBS-011 | FC06 write `CMD_SOFT_RESTART` (0x0202) with `0xA5A5` → accepted, ACK | FC06 magic value |
+| TC-MBS-012 | FC06 write `CMD_SOFT_RESTART` with any value ≠ `0xA5A5` → exception 0x03 | FC06 magic value rejection |
+| TC-MBS-013 | FC16 write multiple with byte count ≠ `2 × register_count` → exception 0x03 | FC16 byte-count check |
+| TC-MBS-014 | FC16 write multiple happy path → all writes called in order; ACK response | FC16 happy path |
+| TC-MBS-015 | Unsupported FC (e.g. 0x01) → exception 0x01; `stats.unsupported_fc == 1` | Unsupported FC |
+| TC-MBS-016 | Response CRC bytes appended low-byte-first | CRC byte order |
+| TC-MBS-017 | `modbus_slave_get_stats()` with NULL → `ERR_NULL_ARG` | Argument validation |
+| TC-MBS-018 | `modbus_slave_get_stats()` after several frames → snapshot matches internal counters | Stats read-back |
+| TC-MBS-019 | `modbus_slave_reset_stats()` → all counters zero | Stats reset |
+| TC-MBS-020 | `modbus_slave_set_address()` with `new_addr == 0` → `ERR_INVALID_ADDR`, address unchanged | Address validation |
+| TC-MBS-021 | `modbus_slave_set_address(7)` then frame addressed to 7 → processed; frame addressed to old → dropped | Address update visible |
+| TC-MBS-022 | `IModbusRegisterMap.read_input` returning `ERR_DEVICE_FAIL` → exception 0x04 in response | Device fail mapping |
+| TC-MBS-023 | All public functions called before `init` → `ERR_NOT_INIT` | Init guard |
+
+---
+
+## 15. Open items
 
 | ID | Item | Resolution path | Status |
-|--------|------|-----------------|--------|
-| MBS-O1  | FC16 spanning address boundaries — confirm behaviour when the requested register range crosses a category boundary (e.g. 0x01FE–0x0201 spanning config into commands). Current decision: return exception 0x02 if any address in the range is invalid. Validate against `modbus-register-map.md` §4 during implementation. | Validate boundary behaviour against modbus-register-map.md §4 at implementation | Open |
-| MBS-O2  | `modbus_uart_transmit()` TC-flag wait strategy — confirm whether `ModbusUartDriver` uses DMA + TC interrupt or polling. Affects whether `tx_complete` notification comes from an ISR or inline. Resolved at `ModbusUartDriver` LLD companion. | Resolve at ModbusUartDriver LLD companion — DMA vs polling TC-flag strategy | Open |
+|---|---|---|---|
+| MBS-O1 | FC16 spanning address-category boundaries (e.g. 0x01FE–0x0201 crossing config into commands) — confirmed behaviour: return exception 0x02 if any address in the range is invalid. | Implementation must follow this rule; TC-MBS-013 covers the byte-count case but a dedicated test for boundary span will be added at integration time. | Resolved (rule fixed; integration-test coverage deferred) |
+| MBS-O2 | `modbus_uart_transmit()` TC-flag wait strategy — DMA + TC interrupt vs polling. Affects whether `tx_complete` notification comes from an ISR or inline. | Resolved in `ModbusUartDriver` LLD companion; ModbusSlave depends only on the abstract `IModbusUart` interface, so either strategy works without changes here. | Resolved (driver-side decision) |
