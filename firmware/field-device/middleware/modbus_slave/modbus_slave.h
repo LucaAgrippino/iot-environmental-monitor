@@ -25,10 +25,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#ifndef TEST
-#include "FreeRtos.h"
+#include "FreeRTOS.h"
 #include "task.h"
-#endif
 /* ===================================================================== */
 /* Test-visibility macro                                                  */
 /* ===================================================================== */
