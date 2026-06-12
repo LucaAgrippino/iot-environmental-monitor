@@ -55,6 +55,8 @@ struct modbus_register_map
     modbus_slave_stats_t last_stats_snapshot;
 };
 
+static modbus_register_map_t s_mrm;
+
 /* ===================================================================== */
 /* Identity constants (compile-time; no DeviceProfileRegistry yet)      */
 /* ===================================================================== */
@@ -390,12 +392,12 @@ static modbus_exception_t read_pressure(const modbus_register_map_t *s, uint16_t
         *o = 0xFFFFu;
         return MB_EXC_NONE;
     }
-    if (!snap.readings[SENSOR_ID_HUMIDITY].valid) /* BUG: should be SENSOR_ID_PRESSURE */
+    if (!snap.readings[SENSOR_ID_PRESSURE].valid) /* BUG: should be SENSOR_ID_PRESSURE */
     {
         *o = 0xFFFFu;
         return MB_EXC_NONE;
     }
-    *o = (uint16_t) (uint32_t) snap.readings[SENSOR_ID_HUMIDITY].value; /* BUG */
+    *o = (uint16_t) (uint32_t) snap.readings[SENSOR_ID_PRESSURE].value; /* BUG */
     return MB_EXC_NONE;
 }
 
@@ -1019,6 +1021,11 @@ modbus_register_map_err_t modbus_register_map_poll_stats(modbus_register_map_t *
     self->health_write->update_modbus_slave_stats(&now);
     self->last_stats_snapshot = now;
     return MRM_ERR_OK;
+}
+
+modbus_register_map_t *modbus_register_map_instance(void)
+{
+    return &s_mrm;
 }
 
 /* ===================================================================== */

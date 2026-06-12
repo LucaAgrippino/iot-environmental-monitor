@@ -143,7 +143,7 @@ static alarm_service_err_t it_alarm_get_all_states(alarm_state_t states[SENSOR_I
     memcpy(states, s_alarm_states, SENSOR_ID_COUNT * sizeof(alarm_state_t));
     return ALARM_SERVICE_ERR_OK;
 }
-static alarm_service_err_t it_alarm_subscribe(void (*cb)(sensor_id_t, int,
+static alarm_service_err_t it_alarm_subscribe(void (*cb)(sensor_id_t, alarm_event_t,
                                                          const sensor_reading_t *))
 {
     (void) cb;
@@ -185,7 +185,7 @@ static config_service_err_t it_cfg_set_param(config_param_id_t id, const void *v
     }
     return CONFIG_SERVICE_OK;
 }
-static config_service_err_t it_cfg_init(const void *store)
+static config_service_err_t it_cfg_init(const iconfig_store_t *store)
 {
     (void) store;
     return CONFIG_SERVICE_OK;
@@ -344,7 +344,7 @@ static ilifecycle_controller_t s_lifecycle_vtable = {
 static StaticTask_t s_test_tcb;
 static StackType_t s_test_stack[TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
 
-static modbus_register_map_t s_mrm;
+static modbus_register_map_t *s_mrm;
 static imodbus_register_map_t s_iface;
 
 static void test_task(void *arg)
@@ -427,7 +427,8 @@ static void test_task(void *arg)
         modbus_exception_t exc = s_iface.write_single_reg(s_iface.ctx, 0x0150u, 5u);
         if (exc == MB_EXC_NONE && s_slave_addr_set_called && s_slave_addr_set == 5u)
         {
-            LOG_INFO(LOG_MODULE, "Phase 4: slave addr write OK, set_address called with %u [PASS]",
+            LOG_INFO(LOG_MODULE, "Phase 4: slave addr write OK");
+            LOG_INFO(LOG_MODULE, "set_address called with %u [PASS]",
                      (unsigned) s_slave_addr_set);
         }
         else
@@ -444,7 +445,7 @@ static void test_task(void *arg)
         s_mb_stats_live.valid_frames = 42u;
         s_health_update_called = false;
 
-        modbus_register_map_err_t rc = modbus_register_map_poll_stats(&s_mrm);
+        modbus_register_map_err_t rc = modbus_register_map_poll_stats(s_mrm);
         if (rc == MRM_ERR_OK && s_health_update_called && s_mb_stats.valid_frames == 42u)
         {
             LOG_INFO(LOG_MODULE, "Phase 5: poll_stats OK, valid_frames=%lu [PASS]",
@@ -463,7 +464,7 @@ static void test_task(void *arg)
     /* ------------------------------------------------------------------ */
     for (;;)
     {
-        vTaskDelay(pdMS_TO_TICKS(1000U));
+        vTaskDelay(pdMS_TO_TICKS(10000U));
         tick++;
         LOG_INFO(LOG_MODULE, "tick %lu", (unsigned long) tick);
     }
@@ -477,8 +478,8 @@ int main(void)
 {
     system_clock_init();
     debug_uart_init();
-    rtc_driver_init();
-    logger_init();
+    rtc_init();
+    logger_init(LOG_LEVEL_DEBUG);
 
     LOG_INFO(LOG_MODULE, "===== ModbusRegisterMap integration test =====");
 
@@ -507,8 +508,10 @@ int main(void)
     s_health_snap.lifecycle_state = LIFECYCLE_STATE_OPERATIONAL;
     memset(&s_mb_stats_live, 0, sizeof s_mb_stats_live);
 
+    s_mrm = modbus_register_map_instance();
+
     modbus_register_map_err_t rc = modbus_register_map_init(
-        &s_mrm, &s_sensor_vtable, &s_alarm_vtable, &s_cfg_read_vtable, &s_cfg_write_vtable,
+        s_mrm, &s_sensor_vtable, &s_alarm_vtable, &s_cfg_read_vtable, &s_cfg_write_vtable,
         &s_health_read_vtable, &s_health_report_vtable, &s_time_vtable, &s_mb_stats_vtable,
         &s_mb_slave_vtable, &s_lifecycle_vtable);
     if (rc != MRM_ERR_OK)
@@ -520,7 +523,7 @@ int main(void)
     }
     LOG_INFO(LOG_MODULE, "modbus_register_map_init OK");
 
-    modbus_register_map_get_iface(&s_mrm, &s_iface);
+    modbus_register_map_get_iface(s_mrm, &s_iface);
 
     LOG_INFO(LOG_MODULE, "starting scheduler...");
 

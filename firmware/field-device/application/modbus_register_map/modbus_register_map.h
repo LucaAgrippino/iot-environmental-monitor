@@ -198,6 +198,17 @@ void modbus_register_map_get_iface(modbus_register_map_t *self, imodbus_register
  */
 modbus_register_map_err_t modbus_register_map_poll_stats(modbus_register_map_t *self);
 
+/**
+ * @brief  Return the singleton ModbusRegisterMap instance.
+ *
+ * The struct is opaque to consumers; this accessor returns a pointer
+ * for use as the first argument to modbus_register_map_init() and
+ * the IModbusRegisterMap vtable handlers.
+ *
+ * @return Non-NULL pointer to the static singleton.
+ */
+modbus_register_map_t *modbus_register_map_instance(void);
+
 /* ===================================================================== */
 /* Test-only hooks                                                       */
 /* ===================================================================== */
