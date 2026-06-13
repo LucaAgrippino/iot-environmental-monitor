@@ -20,7 +20,7 @@ int main(void)
     lv_obj_t * label = lv_label_create(scr);
     char buf[64];
     snprintf(buf, sizeof(buf), "LVGL %d.%d.%d — simulator OK",
-             LV_VERSION_MAJOR, LV_VERSION_MINOR, LV_VERSION_PATCH);
+             LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     lv_label_set_text(label, buf);
     lv_obj_set_style_text_color(label, lv_color_hex(0xE6E6E6), LV_PART_MAIN);
     lv_obj_center(label);
