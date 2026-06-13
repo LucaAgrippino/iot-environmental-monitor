@@ -26,6 +26,7 @@ Thumbs.db
 
 # Temporary working files
 temp/
+tmp/
 
 .claude/
 
