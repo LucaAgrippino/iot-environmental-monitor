@@ -45,6 +45,8 @@ jobs:
             project_target: gateway/Debug
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build with STM32CubeIDE
         uses: xanderhendriks/action-build-stm32cubeide@v15.0
@@ -109,3 +111,21 @@ jobs:
           globs: |
             docs/**/*.md
             README.md
+
+  simulator-build:
+    name: Simulator build (host)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build Docker image
+        run: docker build -t lcd-sim-builder:ci simulator/lcd-ui
+      - name: Build simulator inside container
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/work/repo" \
+            -w /work/repo/simulator/lcd-ui \
+            lcd-sim-builder:ci \
+            bash -c "cmake -S . -B build -G Ninja && cmake --build build"
+      - name: Confirm binary
+        run: test -x simulator/lcd-ui/build/lcd_sim
