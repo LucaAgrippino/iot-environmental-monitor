@@ -34,5 +34,10 @@
 			<type>2</type>
 			<location>D:/iot-environmental-monitor/vendor/freertos-kernel</location>
 		</link>
+		<link>
+			<name>lvgl-src</name>
+			<type>2</type>
+			<locationURI>PROJECT_LOC/../../vendor/lvgl/src</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>
