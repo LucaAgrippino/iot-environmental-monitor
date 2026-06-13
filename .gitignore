@@ -2,8 +2,9 @@
 .vscode/
 .settings/
 *.launch
-# Note: .cproject and .project are intentionally tracked — CubeIDE headless
-# builds and CI require them for reproducible compilation.
+# CubeIDE per-machine project files (paths and exclusions are machine-specific)
+.cproject
+.project
 
 # Build artifacts
 build/
