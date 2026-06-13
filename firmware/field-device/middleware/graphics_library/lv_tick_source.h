@@ -13,10 +13,11 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-uint32_t lv_tick_source_get_ms(void);
+    uint32_t lv_tick_source_get_ms(void);
 
 #ifdef __cplusplus
 }
