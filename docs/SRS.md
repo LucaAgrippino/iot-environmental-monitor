@@ -1,7 +1,7 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.1
-**Date:** April 2026
+**Version:** 1.2
+**Date:** June 2026
 **Status:** Approved — baselined for HLD
 
 **Revision History:**
@@ -11,7 +11,7 @@
 | 0.1     | April 2026 | Initial draft        |
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
-
+| 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
 ---
 
 ## 1. Introduction
@@ -114,6 +114,14 @@ polling interval
 <!-- 3. System returns result -->
 <!-- E1 (step 1): if the gateway is disconnected, show an command is not delivered to the gateway -->
 <!-- E2 (step 3): if the gateway is disconnected, system cannot deliver result to AWS IoT Core; result is buffered -->
+<!-- Sensor history buffer — traces to UC-01 -->
+- [REQ-SA-180] The system shall maintain a rolling in-memory history of validated sensor readings for each environmental channel (temperature, humidity, pressure)
+- [REQ-SA-190] The history shall span a window of 5 minutes
+- [REQ-SA-200] The history shall be sampled at a fixed interval of 5 seconds, independent of the configured polling rate
+- [REQ-SA-210] The history shall retain 60 entries per channel
+- [REQ-SA-220] Each history entry shall include the measurement value, its validity flag, and its acquisition timestamp
+- [REQ-SA-230] The history shall be stored in volatile memory only and shall be cleared on every reset
+- [REQ-SA-240] When the latest validated reading for a channel is older than the history sampling interval, the system shall record the entry as invalid
 
 ### 2.2 Alarm Management [AM] — 6 requirements
 
@@ -132,7 +140,7 @@ polling interval
 
 <!-- Traces to: UC-01, UC-02, UC-03 -->
 <!-- Traces to: UC-01 -->
-- [REQ-LD-000] The system shall provide navigation between sensor readings, system status, system configuration, and alarm screens on the LCD
+- [REQ-LD-000] The system shall provide navigation between sensor readings, sensor trend, system status, system configuration, and alarm screens on the LCD
 - [REQ-LD-010] The system shall display the most recent temperature, humidity, and pressure readings on the LCD
 <!-- Traces to: HLD §5.2 (FD data flow — LcdUi consumes ISensorService) -->
 - [REQ-LD-020] The system shall display the timestamp of the most recent reading on the LCD
@@ -166,6 +174,12 @@ polling interval
 - [REQ-LD-250] The system shall discard all the input parameters if no confirmation is received.
 - [REQ-LD-150] The system shall save the parameters to persistent memory when they are successfully applied.
 <!-- Traces to: HLD §5.6 (FD config/persistence — ConfigStore persistence), §13.3 (FD flash layout — ConfigStore partition) -->
+<!-- Sensor trend screen — traces to UC-01 -->
+- [REQ-LD-160] The system shall provide a sensor trend screen on the LCD displaying the rolling history for temperature, humidity, and pressure
+- [REQ-LD-170] The trend screen shall span the full 5-minute history window on its time axis
+- [REQ-LD-180] The trend screen shall refresh when a new history sample becomes available
+- [REQ-LD-190] The trend screen shall indicate invalid history entries as gaps in the plotted series
+- [REQ-LD-195] The trend screen shall display a "history accumulating" indicator until the buffer holds at least one valid entry per channel
 
 - [REQ-LD-200] The system shall display a splash screen on the LCD during the boot phase, from the moment the LCD is initialised until the system reaches the operational state.
 - [REQ-LD-210] The system shall include a progress bar on the splash screen indicating boot progression.
@@ -518,6 +532,13 @@ polling interval
 | REQ-SA-180 | UC-07 | §5.1 |
 | REQ-SA-160 | UC-07, UC-10 | §5.4 |
 | REQ-SA-170 | UC-14 | §5.7 |
+| REQ-SA-180 | UC-01 | §5.5 |
+| REQ-SA-190 | UC-01 | §5.5 |
+| REQ-SA-200 | UC-01 | §5.5 |
+| REQ-SA-210 | UC-01 | §5.5 |
+| REQ-SA-220 | UC-01 | §5.5 |
+| REQ-SA-230 | UC-01 | §5.5 |
+| REQ-SA-240 | UC-01 | §5.5 |
 | REQ-AM-000 | UC-08 | §5.2 |
 | REQ-AM-010 | UC-08 | §5.2 |
 | REQ-AM-011 | UC-08 | §5.2 |
@@ -540,6 +561,11 @@ polling interval
 | REQ-LD-130 | UC-15 | §5.5 |
 | REQ-LD-140 | UC-15 | §5.5 |
 | REQ-LD-150 | UC-15 | §5.5, §5.9 |
+| REQ-LD-160 | UC-01 | §5.5 |
+| REQ-LD-170 | UC-01 | §5.5 |
+| REQ-LD-180 | UC-01 | §5.5 |
+| REQ-LD-190 | UC-01 | §5.5 |
+| REQ-LD-195 | UC-01 | §5.5 |
 | REQ-LD-200 | UC-01 | §5.5 |
 | REQ-LD-210 | UC-01 | §5.5 |
 | REQ-LD-220 | UC-01 | §5.5 |
