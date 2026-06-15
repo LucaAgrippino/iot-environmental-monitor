@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Configuration — Field Device LCD</title>
+<style>
+:root{
+  --bg:#0D1117;--surf:#161B22;--surf2:#1B2129;--border:#2A2E34;
+  --ink:#E8F2FA;--muted:#A0A8B0;--dim:#6B7280;
+  --ok:#6FBF8E;--warn:#D4A84C;--err:#CC6666;--accent:#7BAFD4;
+  --hdr:#0A0E14;--accent-tint:#13202B;--ok-tint:#152019;--err-tint:#21171A;
+  --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,'Cascadia Code','Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#06080B;padding:24px;font-family:var(--sans);color:var(--ink)}
+.page-heading{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--muted);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:32px}
+.state-section{margin-bottom:48px}
+.state-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);padding-bottom:8px;margin-bottom:8px}
+.req-ids{font-family:var(--mono);font-size:10px;color:var(--dim);margin-bottom:12px}
+
+/* ── 800×480 frame ── */
+.frame{width:800px;height:480px;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);position:relative;overflow:hidden;outline:1px solid var(--border)}
+
+/* ── Tab bar ── */
+.tab-bar{position:absolute;top:0;left:0;right:0;height:64px;
+  background:var(--hdr);border-bottom:1px solid var(--border);
+  display:grid;grid-template-columns:repeat(5,1fr)}
+.tab{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;font-size:11px;font-weight:600;letter-spacing:.14em;color:#888;
+  border-right:1px solid var(--border);position:relative}
+.tab:last-child{border-right:none}
+.tab.active{color:var(--ink);background:var(--accent-tint)}
+.tab.active::before{content:'';position:absolute;top:0;left:0;right:0;
+  height:3px;background:var(--accent)}
+.tab svg{width:18px;height:18px}
+.tab.active svg{color:var(--accent)}
+
+/* ── Header bar ── */
+.hdr{position:absolute;top:64px;left:0;right:0;height:40px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+.hdr-title{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
+.hdr-right{display:flex;align-items:center;gap:14px;
+  font-family:var(--mono);font-size:12px;color:var(--muted)}
+.pill{padding:3px 10px;font-family:var(--mono);font-size:10px;font-weight:700;
+  letter-spacing:.16em;border:1px solid}
+.pill-ok{color:var(--ok);border-color:var(--ok);background:var(--ok-tint)}
+
+/* ── Content ── */
+.content{position:absolute;top:104px;left:0;right:0;bottom:36px;padding:20px 22px 0}
+
+/* ── Config layout: left fields + right numeric keyboard ── */
+.cfg-layout{display:grid;grid-template-columns:1fr 280px;gap:22px;height:100%}
+
+/* ── Field list (left) ── */
+.field-list{display:flex;flex-direction:column;gap:12px;overflow:hidden}
+
+/* ── Config field ── */
+.cfg-field{display:flex;flex-direction:column;gap:4px}
+.cf-label{font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--muted)}
+.cf-input{background:var(--surf2);border:1px solid var(--border);
+  padding:9px 12px;font-family:var(--mono);font-size:14px;font-weight:500;
+  color:var(--ink);position:relative;display:flex;align-items:center;
+  justify-content:space-between}
+.cf-input.focused{border-color:var(--accent)}
+.cf-input.error{border-color:var(--err)}
+.cf-input.saved{color:var(--muted)}
+.cf-unit{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.cf-error{font-family:var(--mono);font-size:10px;color:var(--err);margin-top:2px}
+.caret{display:inline-block;width:1px;height:16px;background:var(--ink);
+  margin-left:2px;animation:blink 1s steps(2,jump-none) infinite;vertical-align:middle}
+
+/* ── Numeric keyboard (right) ── */
+.numpad{display:flex;flex-direction:column;gap:6px}
+.numpad-display{background:var(--surf2);border:1px solid var(--border);
+  padding:8px 12px;font-family:var(--mono);font-size:18px;font-weight:600;
+  color:var(--accent);min-height:42px;display:flex;align-items:center}
+.numpad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:1}
+.numkey{background:var(--surf);border:1px solid var(--border);
+  padding:10px 0;font-family:var(--mono);font-size:16px;font-weight:500;
+  color:var(--ink);text-align:center;cursor:pointer}
+.numkey.wide{grid-column:span 2}
+.numkey.accent-key{background:var(--accent-tint);border-color:var(--accent);
+  color:var(--accent)}
+.numkey.err-key{background:var(--err-tint);border-color:var(--err);color:var(--err)}
+
+/* ── Config footer (CANCEL / APPLY) ── */
+.cfg-footer-bar{position:absolute;bottom:36px;left:0;right:0;height:36px;
+  background:var(--hdr);border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:0}
+.cfg-btn{flex:1;height:100%;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.18em;
+  border-right:1px solid var(--border)}
+.cfg-btn:last-child{border-right:none}
+.cfg-btn.cancel{color:var(--muted)}
+.cfg-btn.apply{color:var(--accent);background:var(--accent-tint)}
+.cfg-btn.apply.disabled{color:var(--dim);background:transparent;cursor:default}
+
+/* ── Page footer ── */
+.footer{position:absolute;bottom:0;left:0;right:0;height:36px;
+  background:var(--hdr);border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;padding:0 22px;
+  font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+/* ── Modal overlay ── */
+.modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.60);
+  display:flex;align-items:center;justify-content:center;z-index:10}
+.modal{width:380px;background:var(--surf);border:1px solid var(--border);padding:24px}
+.modal-title{font-size:16px;font-weight:600;margin-bottom:12px}
+.modal-body{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:20px}
+.modal-body strong{color:var(--ink);font-family:var(--mono);font-size:12px}
+.modal-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.modal-btn{padding:10px 0;font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:.16em;text-align:center;border:1px solid}
+.modal-btn.cancel{color:var(--muted);border-color:var(--border);background:transparent}
+.modal-btn.confirm{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
+
+@keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div class="page-heading">06 · Configuration — REQ-LD-100 … REQ-LD-150</div>
+
+<!-- Tab bar snippet (reused across all three states) ─────────────── -->
+<!-- Defined as a template to avoid repetition in the notes -->
+
+<!-- ═══════════════════════════════════════════
+     STATE 1 — Idle · no pending changes
+     ═══════════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">State 1 — Idle · values saved, numeric keyboard visible, no pending changes</div>
+  <div class="req-ids">
+    REQ-LD-100 (config fields displayed) · REQ-LD-110 (current value shown) ·
+    REQ-LD-120 (on-screen numeric keyboard) · REQ-LD-130 (field focused on tap)
+  </div>
+  <div class="frame">
+
+    <!-- Tab bar: CONFIG (index 4) active -->
+    <div class="tab-bar">
+      <div class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>
+        SENSORS
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,17 8,11 12,14 17,7 21,4"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        TREND
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+        STATUS
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L1.5 22h21z"/><path d="M12 9v6M12 18.5h0"/></svg>
+        ALARMS
+      </div>
+      <div class="tab active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 12c0 .4-.1.8-.1 1.2l2 1.5-2 3.5-2.4-.9c-.6.5-1.4.9-2.1 1.2l-.4 2.5h-4l-.4-2.5c-.7-.3-1.5-.7-2.1-1.2l-2.4.9-2-3.5 2-1.5c-.1-.4-.1-.8-.1-1.2s0-.8.1-1.2l-2-1.5 2-3.5 2.4.9c.6-.5 1.4-.9 2.1-1.2l.4-2.5h4l.4 2.5c.7.3 1.5.7 2.1 1.2l2.4-.9 2 3.5-2 1.5c.1.4.1.8.1 1.2z"/></svg>
+        CONFIG
+      </div>
+    </div>
+
+    <!-- Header bar -->
+    <div class="hdr">
+      <span class="hdr-title">Configuration</span>
+      <div class="hdr-right">
+        <span>12:34:56</span>
+        <span class="pill pill-ok">● RUNNING</span>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <div class="cfg-layout">
+
+        <!-- Left: field list -->
+        <div class="field-list">
+
+          <!-- Field 1: T High Alarm — FOCUSED (has caret, accent border) -->
+          <div class="cfg-field">
+            <div class="cf-label">Temperature · High Alarm</div>
+            <div class="cf-input focused">
+              <span>30.0<span class="caret"></span></span>
+              <span class="cf-unit">°C</span>
+            </div>
+          </div>
+
+          <!-- Field 2: T Low Alarm -->
+          <div class="cfg-field">
+            <div class="cf-label">Temperature · Low Alarm</div>
+            <div class="cf-input saved">
+              <span>10.0</span>
+              <span class="cf-unit">°C</span>
+            </div>
+          </div>
+
+          <!-- Field 3: H High Alarm -->
+          <div class="cfg-field">
+            <div class="cf-label">Humidity · High Alarm</div>
+            <div class="cf-input saved">
+              <span>80.0</span>
+              <span class="cf-unit">%RH</span>
+            </div>
+          </div>
+
+          <!-- Field 4: Poll interval -->
+          <div class="cfg-field">
+            <div class="cf-label">Poll Interval</div>
+            <div class="cf-input saved">
+              <span>5</span>
+              <span class="cf-unit">s</span>
+            </div>
+          </div>
+
+        </div><!-- /field-list -->
+
+        <!-- Right: numeric keyboard -->
+        <div class="numpad">
+          <div class="numpad-display">30.0</div>
+          <div class="numpad-grid">
+            <div class="numkey">7</div>
+            <div class="numkey">8</div>
+            <div class="numkey">9</div>
+            <div class="numkey">4</div>
+            <div class="numkey">5</div>
+            <div class="numkey">6</div>
+            <div class="numkey">1</div>
+            <div class="numkey">2</div>
+            <div class="numkey">3</div>
+            <div class="numkey">.</div>
+            <div class="numkey">0</div>
+            <div class="numkey err-key">⌫</div>
+          </div>
+        </div>
+
+      </div><!-- /cfg-layout -->
+    </div><!-- /content -->
+
+    <!-- Config footer: CANCEL (dim) / APPLY (dim, no pending changes) -->
+    <div class="cfg-footer-bar">
+      <div class="cfg-btn cancel">CANCEL</div>
+      <div class="cfg-btn apply disabled">APPLY</div>
+    </div>
+
+    <div class="footer">
+      <span>CONFIG · SAVED</span>
+      <span>STM32F469 · LVGL v8.3.11 · 800×480</span>
+    </div>
+  </div><!-- /frame -->
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     STATE 2 — Validation error · value out of range
+     ═══════════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">State 2 — Validation error · T High Alarm value below T Low Alarm</div>
+  <div class="req-ids">REQ-LD-140 (validation error shown inline, APPLY blocked)</div>
+  <div class="frame">
+
+    <div class="tab-bar">
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>SENSORS</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,17 8,11 12,14 17,7 21,4"/><line x1="2" y1="20" x2="22" y2="20"/></svg>TREND</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>STATUS</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L1.5 22h21z"/><path d="M12 9v6M12 18.5h0"/></svg>ALARMS</div>
+      <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 12c0 .4-.1.8-.1 1.2l2 1.5-2 3.5-2.4-.9c-.6.5-1.4.9-2.1 1.2l-.4 2.5h-4l-.4-2.5c-.7-.3-1.5-.7-2.1-1.2l-2.4.9-2-3.5 2-1.5c-.1-.4-.1-.8-.1-1.2s0-.8.1-1.2l-2-1.5 2-3.5 2.4.9c.6-.5 1.4-.9 2.1-1.2l.4-2.5h4l.4 2.5c.7.3 1.5.7 2.1 1.2l2.4-.9 2 3.5-2 1.5c.1.4.1.8.1 1.2z"/></svg>CONFIG</div>
+    </div>
+
+    <div class="hdr">
+      <span class="hdr-title">Configuration</span>
+      <div class="hdr-right">
+        <span>12:34:56</span>
+        <span class="pill pill-ok">● RUNNING</span>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="cfg-layout">
+        <div class="field-list">
+
+          <!-- Field 1: T High Alarm — ERROR (value 8.0 < low alarm 10.0) -->
+          <div class="cfg-field">
+            <div class="cf-label">Temperature · High Alarm</div>
+            <div class="cf-input error focused">
+              <span>8.0<span class="caret"></span></span>
+              <span class="cf-unit">°C</span>
+            </div>
+            <div class="cf-error">✕ Must be greater than Low Alarm (10.0 °C)</div>
+          </div>
+
+          <!-- Field 2: T Low Alarm — valid -->
+          <div class="cfg-field">
+            <div class="cf-label">Temperature · Low Alarm</div>
+            <div class="cf-input saved">
+              <span>10.0</span>
+              <span class="cf-unit">°C</span>
+            </div>
+          </div>
+
+          <!-- Field 3: H High Alarm -->
+          <div class="cfg-field">
+            <div class="cf-label">Humidity · High Alarm</div>
+            <div class="cf-input saved">
+              <span>80.0</span>
+              <span class="cf-unit">%RH</span>
+            </div>
+          </div>
+
+          <!-- Field 4: Poll interval -->
+          <div class="cfg-field">
+            <div class="cf-label">Poll Interval</div>
+            <div class="cf-input saved">
+              <span>5</span>
+              <span class="cf-unit">s</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="numpad">
+          <div class="numpad-display" style="color:var(--err)">8.0</div>
+          <div class="numpad-grid">
+            <div class="numkey">7</div><div class="numkey">8</div><div class="numkey">9</div>
+            <div class="numkey">4</div><div class="numkey">5</div><div class="numkey">6</div>
+            <div class="numkey">1</div><div class="numkey">2</div><div class="numkey">3</div>
+            <div class="numkey">.</div><div class="numkey">0</div>
+            <div class="numkey err-key">⌫</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- APPLY blocked (red to indicate error) -->
+    <div class="cfg-footer-bar">
+      <div class="cfg-btn cancel">CANCEL</div>
+      <div class="cfg-btn apply disabled" style="color:var(--err)">APPLY ✕</div>
+    </div>
+
+    <div class="footer">
+      <span>CONFIG · UNSAVED · VALIDATION ERROR</span>
+      <span>STM32F469 · LVGL v8.3.11 · 800×480</span>
+    </div>
+  </div><!-- /frame -->
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     STATE 3 — Confirm modal · APPLY tapped
+     ═══════════════════════════════════════════ -->
+<div class="state-section">
+  <div class="state-label">State 3 — Confirm modal · user tapped APPLY, modal requests confirmation</div>
+  <div class="req-ids">REQ-LD-150 (confirm before writing to non-volatile storage)</div>
+  <div class="frame">
+
+    <div class="tab-bar">
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>SENSORS</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,17 8,11 12,14 17,7 21,4"/><line x1="2" y1="20" x2="22" y2="20"/></svg>TREND</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>STATUS</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L1.5 22h21z"/><path d="M12 9v6M12 18.5h0"/></svg>ALARMS</div>
+      <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 12c0 .4-.1.8-.1 1.2l2 1.5-2 3.5-2.4-.9c-.6.5-1.4.9-2.1 1.2l-.4 2.5h-4l-.4-2.5c-.7-.3-1.5-.7-2.1-1.2l-2.4.9-2-3.5 2-1.5c-.1-.4-.1-.8-.1-1.2s0-.8.1-1.2l-2-1.5 2-3.5 2.4.9c.6-.5 1.4-.9 2.1-1.2l.4-2.5h4l.4 2.5c.7.3 1.5.7 2.1 1.2l2.4-.9 2 3.5-2 1.5c.1.4.1.8.1 1.2z"/></svg>CONFIG</div>
+    </div>
+
+    <div class="hdr">
+      <span class="hdr-title">Configuration</span>
+      <div class="hdr-right">
+        <span>12:34:56</span>
+        <span class="pill pill-ok">● RUNNING</span>
+      </div>
+    </div>
+
+    <!-- Background content (dimmed by backdrop) -->
+    <div class="content" style="opacity:.35;pointer-events:none">
+      <div class="cfg-layout">
+        <div class="field-list">
+          <div class="cfg-field">
+            <div class="cf-label">Temperature · High Alarm</div>
+            <div class="cf-input saved"><span>35.0</span><span class="cf-unit">°C</span></div>
+          </div>
+          <div class="cfg-field">
+            <div class="cf-label">Temperature · Low Alarm</div>
+            <div class="cf-input saved"><span>10.0</span><span class="cf-unit">°C</span></div>
+          </div>
+          <div class="cfg-field">
+            <div class="cf-label">Humidity · High Alarm</div>
+            <div class="cf-input saved"><span>80.0</span><span class="cf-unit">%RH</span></div>
+          </div>
+          <div class="cfg-field">
+            <div class="cf-label">Poll Interval</div>
+            <div class="cf-input saved"><span>5</span><span class="cf-unit">s</span></div>
+          </div>
+        </div>
+        <div class="numpad">
+          <div class="numpad-display">35.0</div>
+          <div class="numpad-grid">
+            <div class="numkey">7</div><div class="numkey">8</div><div class="numkey">9</div>
+            <div class="numkey">4</div><div class="numkey">5</div><div class="numkey">6</div>
+            <div class="numkey">1</div><div class="numkey">2</div><div class="numkey">3</div>
+            <div class="numkey">.</div><div class="numkey">0</div>
+            <div class="numkey err-key">⌫</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal overlay -->
+    <div class="modal-backdrop">
+      <div class="modal">
+        <div class="modal-title">Apply Configuration?</div>
+        <div class="modal-body">
+          The following changes will be written to non-volatile storage and take effect immediately:<br><br>
+          <strong>Temperature · High Alarm:  30.0 → 35.0 °C</strong>
+        </div>
+        <div class="modal-btns">
+          <div class="modal-btn cancel">CANCEL</div>
+          <div class="modal-btn confirm">CONFIRM</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>CONFIG · UNSAVED · PENDING CONFIRM</span>
+      <span>STM32F469 · LVGL v8.3.11 · 800×480</span>
+    </div>
+  </div><!-- /frame -->
+</div>
+
+
+<!-- Design notes -->
+<div style="margin-top:16px;padding:14px 18px;background:#161B22;border:1px solid #2A2E34;
+            max-width:800px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#A0A8B0;line-height:1.7">
+  <strong style="color:#E8F2FA;letter-spacing:.08em">DESIGN NOTES</strong><br>
+  • Fields map to <code>lv_textarea</code> (<code>LV_USE_TEXTAREA=1</code>); on tap, focus is set via
+    <code>lv_group_focus_obj()</code> and the on-screen keyboard becomes visible.<br>
+  • The numeric keyboard is a custom <code>lv_btnmatrix</code> (<code>LV_USE_BTNMATRIX=1</code>) rather than
+    <code>lv_keyboard</code>; this gives full control over key labels and layout. Alternatively, the
+    LVGL built-in <code>lv_keyboard</code> can be used with <code>LV_KEYBOARD_MODE_NUMBER</code>.<br>
+  • APPLY button: implemented as <code>lv_btn</code>; disabled (COL_DIM) while any field is in error
+    state; re-enabled once all validations pass (REQ-LD-140).<br>
+  • Confirm modal (REQ-LD-150): full-screen backdrop at 60 % opacity (pre-blended on RGB565),
+    modal 380 × auto, touch outside is blocked (no dismiss on backdrop tap).<br>
+  • Config layout uses LVGL GRID: <code>LV_GRID_FR(1)</code> left + 280 px fixed right, gap 22 px.<br>
+  • Validation rules checked inline (on each keypress): High &gt; Low alarm, value within sensor
+    physical range, poll interval 1–60 s. Error message displayed beneath the offending field.
+</div>
+</body>
+</html>
