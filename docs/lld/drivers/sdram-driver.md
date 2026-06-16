@@ -1,11 +1,11 @@
 # SdramDriver — LLD Companion
 
-**Document:** `docs/lld/drivers/sdram-driver.md`
-**Version:** 0.1 (draft — pending Luca review)
+**Document:** `docs/lld/companions/sdram-driver.md`
+**Version:** 1.0
 **Board scope:** Field Device (STM32F469) only
 **Layer:** Driver
-**Status:** Draft
-**Date:** May 2026
+**Status:** Pass H — Implementation ready
+**Date:** June 2026
 
 **HLD anchor:** SdramDriver in `components.md` (FD driver layer)
 
@@ -19,11 +19,13 @@
 | PROVIDES (upward) | `ISdram` | `components.md` |
 | USES (downward) | CMSIS | `components.md` |
 | Root requirement | REQ-LD-010 | `components.md` |
-| Hardware | FMC peripheral + 128 Mbit (16 MB) external SDRAM | UM1932 |
+| Hardware | FMC peripheral + 128 Mbit (16 MB) external SDRAM (ISSI IS42S32400F-6BL) | UM1932 §4.9 |
 
-**Consumer:** `LcdDriver` only. Called once at boot (BringingUpLCD Init sub-step) to obtain the framebuffer base address.
+**Consumer:** `LcdDriver` only. Called once at boot (BringingUpLCD Init
+sub-step) to obtain the framebuffer base address.
 
-**No sequence diagram surface.** SdramDriver is infrastructure for LcdDriver; it has no HLD-level lifeline.
+**No sequence diagram surface.** SdramDriver is infrastructure for
+LcdDriver; it has no HLD-level lifeline.
 
 ---
 
@@ -31,7 +33,8 @@
 
 ### 2.1 Dependency-conformance check
 
-`sdram_driver.h` includes only `stm32f469xx.h` and `stdint.h`. No FreeRTOS. Confirmed clean.
+`sdram_driver.h` includes only `stm32f469xx.h` and `stdint.h`. No
+FreeRTOS. Confirmed clean.
 
 ### 2.2 Data types
 
@@ -48,33 +51,34 @@ typedef enum {
 /**
  * @brief Initialise the FMC controller for SDRAM.
  *
- * Configures FMC bank 5 or 6 (board-specific — SDRD-O1), sets SDCR and
- * SDTR timing registers, issues the initialisation command sequence
- * (clock enable, precharge all, two auto-refresh cycles, mode register
- * set), and configures the auto-refresh timer (SDRTR).
+ * Configures FMC SDRAM Bank 1 (SDNE0), sets SDCR and SDTR timing
+ * registers, issues the initialisation command sequence (clock enable,
+ * precharge all, two auto-refresh cycles, mode register set), and
+ * configures the auto-refresh timer (SDRTR).
  *
- * After this call, the SDRAM address space is accessible as memory-mapped
- * RAM. The caller (LcdDriver) may then obtain the framebuffer base address
- * via sdram_get_base_addr().
+ * After this call, the SDRAM address space at 0xC000_0000 is accessible
+ * as memory-mapped RAM. The caller (LcdDriver) may then obtain the
+ * framebuffer base address via sdram_get_base_addr().
  *
  * Must be called once from main() before lcd_init(). No FreeRTOS.
  *
  * @return SDRAM_ERR_OK on success; SDRAM_ERR_TIMEOUT if the FMC
  *         status register BUSY flag does not clear.
- * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ * @note   Threading: task-context only, non-blocking. Must be called
+ *         before the scheduler starts.
  */
 sdram_err_t sdram_init(void);
 
 /**
  * @brief Return the memory-mapped base address of the SDRAM.
  *
- * Returns the constant base address of the FMC bank mapped to the
- * SDRAM device. LcdDriver uses this to locate the framebuffer.
+ * Returns the constant base address 0xC000_0000 (FMC SDRAM Bank 1,
+ * selected by SDNE0). LcdDriver uses this to locate the framebuffer.
  *
  * Must only be called after a successful sdram_init().
  *
- * @return Base address of the SDRAM (e.g. 0xC000_0000 for FMC bank 6).
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ * @return 0xC000_0000.
+ * @note   Threading: task-context only, non-blocking. Not ISR-safe.
  */
 uint32_t sdram_get_base_addr(void);
 ```
@@ -83,115 +87,173 @@ uint32_t sdram_get_base_addr(void);
 
 ## 3. Internal design
 
-### 3.0 Private struct
-
-```c
-typedef struct {
-    bool initialised; /**< Set by sdram_init(); confirms FMC sequence completed. */
-} sdram_driver_t;
-
-static sdram_driver_t s_sdram;
-```
-
-
 ### 3.1 Module-level state
 
 ```c
 static bool s_initialised = false;
 ```
 
-No dynamic allocation. The SDRAM base address is a compile-time constant derived from the FMC bank assignment (SDRD-O1).
+No dynamic allocation. The SDRAM base address is a compile-time constant.
 
 ### 3.2 FMC SDRAM init sequence
 
-The STM32F469 FMC SDRAM initialisation follows a mandatory hardware sequence (RM0386 §37.7.3):
+The STM32F469 FMC SDRAM initialisation follows a mandatory hardware
+sequence (RM0386 §37.7.3):
 
 ```
-1. Program SDCR (column/row bits, bus width, CAS latency, internal banks,
-   SDCLK period, read-pipe delay, burst read).
-2. Program SDTR (TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD timing values).
-3. Issue CLK_ENABLE command via FMC_SDCMR.
-4. Wait ≥ 100 µs (SDRAM power-on delay).
-5. Issue PALL (Precharge All) command.
-6. Issue two AUTO_REFRESH commands.
-7. Issue LOAD_MODE_REGISTER command (CAS latency, burst length).
-8. Program FMC_SDRTR auto-refresh period.
+1. Enable FMC clock:  RCC->AHB3ENR |= RCC_AHB3ENR_FMCEN.
+2. Program SDCR1 (column/row bits, bus width, CAS latency, internal
+   banks, SDCLK period, read-pipe delay, burst read).
+3. Program SDTR1 (TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD timing values).
+4. Issue CLK_ENABLE command via FMC_SDCMR. Wait BUSY clear.
+5. Wait ≥ 100 µs (SDRAM power-on delay).
+6. Issue PALL (Precharge All) command. Wait BUSY clear.
+7. Issue two AUTO_REFRESH commands. Wait BUSY clear between each.
+8. Issue LOAD_MODE_REGISTER command (CAS latency = 3, burst length = 1,
+   burst type = sequential, write-burst mode = single). Wait BUSY clear.
+9. Program FMC_SDRTR auto-refresh period (COUNT field).
 ```
 
-Timing values depend on the SDRAM device (IS42S16400J or equivalent) and the FMC clock. Tracked as **SDRD-O1** and **SDRD-O2** (§8).
+### 3.3 Register values (HCLK = 180 MHz, SDCLK = HCLK/2 = 90 MHz)
 
-### 3.3 No ISR, no DMA
+Derived from ST's reference BSP for the F469 Discovery
+(`stm32469i_discovery_sdram.c`). Timing values are valid for the
+IS42S32400F-6BL at 90 MHz SDCLK; validated on hardware at integration.
 
-SdramDriver is purely a hardware initialisation driver. Once init is complete, the SDRAM appears as memory-mapped RAM — no driver involvement in reads or writes.
+**SDCR1:**
 
----
+| Field | Value | Meaning |
+|---|---|---|
+| `NC` (column bits)  | `0b00` | 8 columns *(IS42S32400F has 256 = 8 bit columns)* |
+| `NR` (row bits)     | `0b01` | 12 rows |
+| `MWID` (data width) | `0b10` | 32-bit |
+| `NB` (banks)        | `1`    | 4 internal banks |
+| `CAS` (CAS latency) | `0b11` | 3 cycles |
+| `WP` (write prot.)  | `0`    | disabled |
+| `SDCLK`             | `0b10` | HCLK / 2 = 90 MHz |
+| `RBURST`            | `1`    | burst read enabled |
+| `RPIPE`             | `0b00` | no read pipe delay |
 
-### 3.4 Principles applied
+**SDTR1 (timing — 90 MHz, t<sub>CK</sub> ≈ 11.1 ns):**
 
-- **P1 (Strict directional layering).** Depends only on CMSIS FMC peripheral headers; no RTOS, no middleware.
-- **P5 (Bounded resources, no dynamic allocation post-init).** After `sdram_init()`, the SDRAM region is available as flat memory; no internal state struct is maintained post-init.
-- **P6 (Responsibility traces to requirements).** `sdram_init()` traces to REQ-NF-202 (memory initialisation before application start).
-- **P8 (Total error propagation, no silent failures).** Returns `sdram_err_t`; initialisation timeout triggers an error return.
-- **P9 (BARR-C coding standard).** Register values expressed as `uint32_t` constants; no floating-point.
+| Field | Value (cycles - 1) | Spec |
+|---|---|---|
+| `TMRD` | `1` | 2 cycles |
+| `TXSR` | `6` | 7 cycles (≥ 67 ns) |
+| `TRAS` | `3` | 4 cycles (≥ 42 ns) |
+| `TRC`  | `5` | 6 cycles (≥ 60 ns) |
+| `TWR`  | `1` | 2 cycles |
+| `TRP`  | `1` | 2 cycles (≥ 18 ns) |
+| `TRCD` | `1` | 2 cycles (≥ 18 ns) |
+
+**SDRTR (refresh rate):**
+`COUNT = (SDRAM refresh period × SDCLK) / rows - 20`
+= `(64 ms × 90 MHz) / 4096 - 20`
+≈ `1386`
+
+Concrete values are declared as `#define`s in `sdram_driver.c` so they
+can be reviewed without reading the SDCR/SDTR bit layouts.
+
+### 3.4 No ISR, no DMA
+
+SdramDriver is purely a hardware initialisation driver. Once init is
+complete, the SDRAM appears as memory-mapped RAM — no driver
+involvement in reads or writes.
+
+### 3.5 Principles applied
+
+- **P1 (Strict directional layering).** Depends only on CMSIS FMC
+  peripheral headers; no RTOS, no middleware.
+- **P5 (Bounded resources, no dynamic allocation post-init).** After
+  `sdram_init()`, the SDRAM region is available as flat memory; no
+  internal state struct is maintained post-init.
+- **P6 (Responsibility traces to requirements).** `sdram_init()` traces
+  to REQ-LD-010 (provide framebuffer storage for the LCD).
+- **P8 (Total error propagation, no silent failures).** Returns
+  `sdram_err_t`; initialisation timeout triggers an error return.
+- **P9 (BARR-C coding standard).** Register values expressed as
+  `uint32_t` constants; no floating-point.
 - **P10 (Naming conventions).** Prefix `sdram_`; errors `SDRAM_ERR_*`.
 
+### 3.6 Synchronisation
 
-### Synchronisation
+Caller serialises. The driver holds no FreeRTOS synchronisation
+primitives. Called from `main()` before the scheduler starts.
 
-Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
+### 3.7 Per-function notes
 
-### sdram_init
+**`sdram_init`**
+Pre-condition: not previously called. Configures FMC, runs the init
+sequence in §3.2, sets `s_initialised = true` on success. Each FMC
+command waits the BUSY flag clear with a bounded loop; if the loop
+exhausts its iteration count, the function returns `SDRAM_ERR_TIMEOUT`
+and leaves `s_initialised` false. The FMC peripheral may be left in an
+indeterminate state on timeout — the caller treats this as a
+non-recoverable boot fault.
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+**`sdram_get_base_addr`**
+Returns the constant `0xC000_0000UL`. No state read, no error path.
 
-### sdram_get_base_addr
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
+---
 
 ## 4. Hardware contract
 
 ### 4.1 SDRAM device
 
-128 Mbit = 16 MB external SDRAM (UM1932 hardware sweep). Device likely IS42S16400J or equivalent (verify against the UM1932 BOM). Key parameters needed for FMC timing: CAS latency, row/column address bits, tRCD, tRP, tRC, tRAS, tXSR, tMRD, tWR.
+128 Mbit = 16 MB external SDRAM, **ISSI IS42S32400F-6BL** (confirmed via
+UM1932 §4.9 and BOM). Organisation: 4 banks × 4096 rows × 256 columns ×
+32 bits. CAS latency 3 at 90 MHz SDCLK. 32-bit data bus.
 
-### 4.2 FMC bank assignment (open item — SDRD-O1)
+### 4.2 FMC bank assignment
 
-The FMC on STM32F469 maps SDRAM to bank 5 (`0xC000_0000`) or bank 6 (`0xD000_0000`). Verify against UM1932 schematic which bank the SDRAM is connected to.
+FMC SDRAM **Bank 1** (SDNE0). Base address `0xC000_0000`, size 16 MB
+(`0xC000_0000`–`0xC0FF_FFFF`). Confirmed via UM1932 §4.9.
 
-### 4.3 Timing parameters (open item — SDRD-O2)
+### 4.3 Timing parameters
 
-SDCR and SDTR register values are derived from the SDRAM device datasheet timing parameters and the FMC clock (`HCLK / 2` or `HCLK / 3` as configured in SDCR.SDCLK). Cannot be finalised until the system clock tree is fixed. Shares the same root dependency as DUART-O2.
+Derived from ST's reference BSP for the F469 Discovery and the
+IS42S32400F datasheet at HCLK = 180 MHz, SDCLK = HCLK/2 = 90 MHz.
+Concrete SDCR1 / SDTR1 / SDRTR values listed in §3.3 above. Validated
+at integration on hardware (TC-SDRAM-005).
 
 ### 4.4 Framebuffer size check
 
-At 800×480 pixels with RGB565 (2 bytes/pixel), the framebuffer is 800 × 480 × 2 = 768,000 bytes = 750 KB. The 16 MB SDRAM has ample headroom. Double-buffering (two framebuffers for tear-free display) would require 1.5 MB — still well within 16 MB. This decision is deferred to LcdDriver.
+At 800 × 480 pixels (F469 Discovery LCD) with RGB565 (2 B/px):
+800 × 480 × 2 = 768 000 B ≈ 750 KB. The 16 MB SDRAM has ample
+headroom. Double-buffering (two framebuffers for tear-free display)
+needs 1.5 MB — still well within 16 MB. This decision belongs to
+LcdDriver.
 
----
-
-### Registers
+### 4.5 Registers
 
 | Peripheral | Key registers | Purpose |
 |---|---|---|
-| `FMC` (AHB3) | `FMC_SDCR1` / `FMC_SDCR2` | SDRAM control: column/row bits, bus width, CAS latency, clock period. |
-| `FMC` | `FMC_SDTR1` / `FMC_SDTR2` | SDRAM timing: TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD. |
+| `FMC` (AHB3) | `FMC_SDCR1` | SDRAM control: column/row bits, bus width, CAS latency, clock period. |
+| `FMC` | `FMC_SDTR1` | SDRAM timing: TMRD, TXSR, TRAS, TRC, TWR, TRP, TRCD. |
 | `FMC` | `FMC_SDCMR` | Command mode register — issues CLK_ENABLE, PALL, AUTO_REFRESH, LOAD_MODE. |
+| `FMC` | `FMC_SDSR` | Status register — BUSY flag polled during init. |
 | `FMC` | `FMC_SDRTR` | Auto-refresh timer period. |
 
-Timing values are board-specific and tracked as SDRD-O1 and SDRD-O2 (§8).
+### 4.6 Pins
 
-### Pins
+N/A — FMC SDRAM pins (address, data, control lines) are
+alternate-function pins across multiple GPIO ports configured by the
+board support initialisation before `main()`. SdramDriver does not call
+GpioDriver; these are system-level pins outside the firmware driver
+scope.
 
-N/A — FMC SDRAM pins (address, data, control lines) are alternate-function pins across multiple GPIO ports and are configured by the board support initialisation before `main()`. SdramDriver does not call GpioDriver; these are system-level pins outside the firmware driver scope.
+### 4.7 Clocks
 
-### Clocks
+`FMC` clock: `RCC->AHB3ENR |= RCC_AHB3ENR_FMCEN`. Enabled in
+`sdram_init()`. FMC runs on AHB3 (same as core HCLK at 180 MHz on
+F469). SDCLK = HCLK/2 = 90 MHz per SDCR1.SDCLK = 0b10.
 
-`FMC` clock: `RCC->AHB3ENR |= RCC_AHB3ENR_FMCEN`. Enabled in `sdram_init()`. FMC runs on the AHB3 bus (same frequency as the system core clock on F469).
+### 4.8 NVIC
 
-### NVIC
+N/A — the FMC SDRAM interrupt (`FMC_IRQn`) is not enabled. SDRAM
+appears as flat memory after init.
 
-N/A — the FMC SDRAM interrupt (`FMC_IRQn`) is not enabled. SDRAM appears as flat memory after init; no interrupt-driven access is required.
-
+---
 
 ## 5. Sequence integration
 
@@ -201,37 +263,48 @@ None. SdramDriver is not a sequence diagram participant.
 
 ## 6. Error and fault behaviour
 
-All public functions return `sdram_err_t`; callers must not ignore non-OK returns.
-No retry is performed by the driver — `LifecycleController` treats SDRAM init
-failure as a non-recoverable boot fault.
+All public functions return `sdram_err_t`; callers must not ignore
+non-OK returns. No retry is performed — `LifecycleController` treats
+SDRAM init failure as a non-recoverable boot fault.
 
 | Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
 |---|---|---|---|---|---|
-| `SDRAM_ERR_TIMEOUT` | FMC BUSY flag did not clear within the expected initialisation window | Return error; FMC peripheral left in an indeterminate state | Non-OK return | No retry — BringingUpLCD Init sub-state fails and the device enters Faulted (REQ-LD-000; LCD and SDRAM are essential) | LifecycleController logs at ERROR via ILogger; system cannot reach Operational |
+| `SDRAM_ERR_TIMEOUT` | FMC BUSY flag did not clear within the bounded wait | Return error; FMC peripheral left in an indeterminate state | Non-OK return | No retry — BringingUpLCD Init sub-state fails and the device enters Faulted (LCD and SDRAM are essential per REQ-LD-000) | LifecycleController logs at ERROR via ILogger; system cannot reach Operational |
 
+---
 
 ## 7. Unit-test plan
 
-Host-platform testing is limited — the FMC peripheral cannot be realistically mocked for a full timing sequence. The primary test strategy is integration testing on hardware.
+Host-platform testing is limited — the FMC peripheral cannot be
+realistically mocked for a full timing sequence. Primary verification
+is integration on hardware.
 
-| ID | Test case | Expected result |
+Test file: `tests/field-device/drivers/sdram_driver/test_sdram_driver.c`.
+
+| Test ID | Description | Verifies |
 |---|---|---|
-| T-SDRAM-01 | `sdram_init` with mocked FMC BUSY clearing normally | Returns SDRAM_ERR_OK; s_initialised = true |
-| T-SDRAM-02 | `sdram_init` with BUSY stuck | Returns SDRAM_ERR_TIMEOUT |
-| T-SDRAM-03 | `sdram_get_base_addr` returns expected constant | Returns the correct FMC bank base address (SDRD-O1) |
-| T-SDRAM-04 | Integration: write pattern to SDRAM, read back | Data integrity verified on hardware |
+| TC-SDRAM-001 | `sdram_init()` with FMC BUSY clearing immediately (mocked) → `SDRAM_ERR_OK`; `s_initialised == true` | Init happy path |
+| TC-SDRAM-002 | `sdram_init()` with FMC BUSY stuck high → `SDRAM_ERR_TIMEOUT`; `s_initialised == false` | Timeout path |
+| TC-SDRAM-003 | `sdram_get_base_addr()` returns `0xC000_0000` | Constant return |
+| TC-SDRAM-004 | `sdram_init()` called twice in a row → second call still returns `SDRAM_ERR_OK` (idempotent re-init) **or** `SDRAM_ERR_OK` and skips re-init (implementer's choice — document the chosen behaviour) | Re-init semantics |
 
-Test file: `tests/drivers/test_sdram_driver.c`.
+### 7.1 Integration tests — on target
+
+| Test ID | Description | Verification |
+|---|---|---|
+| TC-SDRAM-005 | March test: write `i ^ 0xA5A5A5A5` to every 4-byte word in the 16 MB region, then read back. Repeat with `i ^ 0x5A5A5A5A`. | Full address-line and data-line coverage; passes only if FMC timing and bank selection are correct |
+| TC-SDRAM-006 | Aged-data test: write fixed pattern across 1 MB, sleep 200 ms, read back. | Verifies auto-refresh is running (SDRTR programmed correctly) |
+| TC-SDRAM-007 | Random spot-check at 1024 random addresses, write-read-verify with varying bit patterns. | Detects stuck-at faults and addressing aliases |
 
 ---
 
 ## 8. Open items
 
-| ID | Item | Owner | Resolution path |
+| ID | Item | Resolution | Status |
 |---|---|---|---|
-| SDRD-O1 | FMC bank assignment (bank 5 or 6). Verify UM1932 schematic — which SDRAM signals connect to which FMC bank pins. | Luca | Check UM1932 schematic at implementation |
-| SDRD-O2 | SDCR and SDTR timing register values. Derive from SDRAM device datasheet × FMC clock frequency. Depends on clock-config.md. | Luca | Resolve when `clock-config.md` lands |
-| SDRD-O3 | SDRAM device identity. Confirm part number from UM1932 BOM; download datasheet for timing parameters. | Luca | Check UM1932 BOM |
+| SDRD-O1 | FMC bank assignment. | FMC SDRAM Bank 1 (SDNE0), base `0xC000_0000`, size 16 MB. Confirmed via UM1932 §4.9. | Resolved |
+| SDRD-O2 | SDCR / SDTR / SDRTR register values. | Derived from ST F469 Discovery BSP at HCLK 180 MHz / SDCLK 90 MHz. Concrete values in §3.3. Validated at integration via TC-SDRAM-005..007. | Resolved (post-code validation via integration tests) |
+| SDRD-O3 | SDRAM device identity. | ISSI IS42S32400F-6BL (UM1932 §4.9 and BOM). | Resolved |
 
 ---
 
@@ -239,6 +312,7 @@ Test file: `tests/drivers/test_sdram_driver.c`.
 
 | ID | Decision | Rationale |
 |---|---|---|
-| SDRD-D1 | `sdram_get_base_addr()` returns a constant, not a pointer to allocated memory | The SDRAM is memory-mapped hardware; there is nothing to allocate. LcdDriver uses the base address to place its framebuffer |
-| SDRD-D2 | Singleton — no handle | One FMC, one SDRAM bank; consistent with all prior companions |
-| SDRD-D3 | Driver exposes only init + base address | P1: the driver's job is hardware initialisation. Framebuffer management (offset, size, double-buffering) belongs in LcdDriver |
+| SDRD-D1 | `sdram_get_base_addr()` returns a constant, not a pointer to allocated memory | The SDRAM is memory-mapped hardware; there is nothing to allocate. LcdDriver uses the base address to place its framebuffer. |
+| SDRD-D2 | Singleton — no handle | One FMC, one SDRAM bank; consistent with all prior driver companions. |
+| SDRD-D3 | Driver exposes only init + base address | P1: the driver's job is hardware initialisation. Framebuffer management (offset, size, double-buffering) belongs in LcdDriver. |
+| SDRD-D4 | Use ST BSP reference timing values rather than compute from datasheet | The BSP is field-proven on this exact board and SDRAM device. Recomputing from the datasheet adds risk for no gain at this clock. If the system clock changes, recompute. |

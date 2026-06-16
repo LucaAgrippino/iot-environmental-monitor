@@ -397,7 +397,31 @@ extern uint32_t g_mock_quadspi_rx_fifo_idx;
 #define QUADSPI_READ_BYTE     (g_mock_quadspi_rx_fifo[g_mock_quadspi_rx_fifo_idx++])
 #define QUADSPI_WRITE_BYTE(b) (g_mock_quadspi.DR = (uint32_t)(uint8_t)(b))
 
-#define __NOP(void) void
+#define __NOP() ((void)0)
+
+/* ====================================================================== */
+/* §FMC Bank5_6 (SdramDriver)                                            */
+/* ====================================================================== */
+
+/* Register layout per RM0386 §37. Only the fields SdramDriver touches.  */
+typedef struct
+{
+    volatile uint32_t SDCR[2]; /**< SDRAM Control registers,     offsets 0x140, 0x144. */
+    volatile uint32_t SDTR[2]; /**< SDRAM Timing registers,      offsets 0x148, 0x14C. */
+    volatile uint32_t SDCMR;   /**< SDRAM Command Mode register,  offset 0x150.         */
+    volatile uint32_t SDRTR;   /**< SDRAM Refresh Timer register, offset 0x154.         */
+    volatile uint32_t SDSR;    /**< SDRAM Status register,        offset 0x158.         */
+} FMC_Bank5_6_TypeDef;
+
+extern FMC_Bank5_6_TypeDef g_mock_fmc_bank5_6;
+
+#define FMC_Bank5_6 (&g_mock_fmc_bank5_6)
+
+/* --- RCC_AHB3ENR bit — FMC clock enable (bit 0, per RM0386 §6.3.14) -- */
+#define RCC_AHB3ENR_FMCEN_Pos (0U)
+#define RCC_AHB3ENR_FMCEN     (1UL << RCC_AHB3ENR_FMCEN_Pos)
+
+#define FMC_SDSR_BUSY (0x20UL)
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
