@@ -9,6 +9,104 @@
 
 #include "sdram_driver.h"
 
+#include <stddef.h>
+/* ===================================================================== */
+/* Pins definition                                                   */
+/* ===================================================================== */
+
+typedef struct
+{
+    GPIO_TypeDef *port;
+    uint8_t pin;
+} fmc_pin_t;
+
+static const fmc_pin_t s_fmc_pins[] = {
+    /* Control */
+    {GPIOC, 0},  /* SDNWE   */
+    {GPIOG, 15}, /* SDNCAS  */
+    {GPIOF, 11}, /* SDNRAS  */
+    {GPIOH, 3},  /* SDNE0   */
+    {GPIOH, 2},  /* SDCKE0  */
+    {GPIOG, 8},  /* SDCLK   */
+    /* Byte-enable lanes (32-bit bus → 4 lanes) */
+    {GPIOE, 0}, /* NBL0 */
+    {GPIOE, 1}, /* NBL1 */
+    {GPIOI, 4}, /* NBL2 */
+    {GPIOI, 5}, /* NBL3 */
+    /* Address A0..A11 */
+    {GPIOF, 0},
+    {GPIOF, 1},
+    {GPIOF, 2},
+    {GPIOF, 3},
+    {GPIOF, 4},
+    {GPIOF, 5},
+    {GPIOF, 12},
+    {GPIOF, 13},
+    {GPIOF, 14},
+    {GPIOF, 15},
+    {GPIOG, 0},
+    {GPIOG, 1},
+    /* Bank BA0, BA1 */
+    {GPIOG, 4},
+    {GPIOG, 5},
+    /* Data D0..D31 */
+    {GPIOD, 14},
+    {GPIOD, 15},
+    {GPIOD, 0},
+    {GPIOD, 1},
+    {GPIOE, 7},
+    {GPIOE, 8},
+    {GPIOE, 9},
+    {GPIOE, 10},
+    {GPIOE, 11},
+    {GPIOE, 12},
+    {GPIOE, 13},
+    {GPIOE, 14},
+    {GPIOE, 15},
+    {GPIOD, 8},
+    {GPIOD, 9},
+    {GPIOD, 10},
+    {GPIOH, 8},
+    {GPIOH, 9},
+    {GPIOH, 10},
+    {GPIOH, 11},
+    {GPIOH, 12},
+    {GPIOH, 13},
+    {GPIOH, 14},
+    {GPIOH, 15},
+    {GPIOI, 0},
+    {GPIOI, 1},
+    {GPIOI, 2},
+    {GPIOI, 3},
+    {GPIOI, 6},
+    {GPIOI, 7},
+    {GPIOI, 9},
+    {GPIOI, 10},
+};
+
+static void fmc_pins_configure(void)
+{
+    for (size_t i = 0U; i < sizeof(s_fmc_pins) / sizeof(s_fmc_pins[0]); i++)
+    {
+        GPIO_TypeDef *p = s_fmc_pins[i].port;
+        uint8_t n = s_fmc_pins[i].pin;
+        uint32_t m2 = (uint32_t) n * 2U;
+        uint32_t m4 = (uint32_t) (n & 0x07U) * 4U;
+        volatile uint32_t *afr = (n < 8U) ? &p->AFR[0] : &p->AFR[1];
+
+        /* Mode = AF (10) */
+        p->MODER = (p->MODER & ~(0x3UL << m2)) | (0x2UL << m2);
+        /* Output type = push-pull (0) */
+        p->OTYPER &= ~(0x1UL << n);
+        /* Speed = very high (11) */
+        p->OSPEEDR = (p->OSPEEDR & ~(0x3UL << m2)) | (0x3UL << m2);
+        /* Pull = none (00) */
+        p->PUPDR &= ~(0x3UL << m2);
+        /* Alternate function = AF12 */
+        *afr = (*afr & ~(0xFUL << m4)) | (12UL << m4);
+    }
+}
+
 /* ===================================================================== */
 /* SDCR1 field values                                                   */
 /* ===================================================================== */
@@ -107,8 +205,6 @@
 /* FMC SDSR busy flag                                                   */
 /* ===================================================================== */
 
-#define FMC_SDSR_BUSY (0x20UL)
-
 /* Bounded-wait iteration limit for BUSY flag polling */
 #define SDRAM_BUSY_TIMEOUT_ITERS (0xFFFFUL)
 
@@ -156,8 +252,16 @@ sdram_err_t sdram_init(void)
 {
     sdram_err_t err;
 
-    /* Step 1: Enable FMC clock. */
+    /* Step 0: Enable FMC and GPIO clock. */
     RCC->AHB3ENR |= RCC_AHB3ENR_FMCEN;
+
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIODEN | RCC_AHB1ENR_GPIOEEN |
+                    RCC_AHB1ENR_GPIOFEN | RCC_AHB1ENR_GPIOGEN | RCC_AHB1ENR_GPIOHEN |
+                    RCC_AHB1ENR_GPIOIEN;
+    (void) RCC->AHB1ENR; /* read-back to ensure clock is stable */
+
+    /* Step 1: FMC pin AF mapping */
+    fmc_pins_configure();
 
     /* Step 2: Program SDCR1 — geometry, bus width, CAS, clock. */
     FMC_Bank5_6->SDCR[0] = SDCR1_VALUE;

@@ -421,6 +421,7 @@ extern FMC_Bank5_6_TypeDef g_mock_fmc_bank5_6;
 #define RCC_AHB3ENR_FMCEN_Pos (0U)
 #define RCC_AHB3ENR_FMCEN     (1UL << RCC_AHB3ENR_FMCEN_Pos)
 
+#define FMC_SDSR_BUSY (0x20UL)
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */

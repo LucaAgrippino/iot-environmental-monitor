@@ -68,7 +68,7 @@
 
 #define LOG_MODULE                  ("SDRAM")
 
-#define SDRAM_TEST_TASK_STACK_WORDS (512U)
+#define SDRAM_TEST_TASK_STACK_WORDS (1024U)
 #define SDRAM_TEST_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
 
 #define SDRAM_SIZE_BYTES            (16UL * 1024UL * 1024UL) /* 16 MB    */
@@ -92,7 +92,7 @@
 
 static uint32_t lcg_next(uint32_t *state)
 {
-    *state = (*state * LCG_A) + LCG_C;
+    *state = (uint32_t)(*state * LCG_A) + LCG_C;
     return *state;
 }
 
@@ -174,14 +174,16 @@ static uint32_t run_spot_check(volatile uint32_t *base, uint32_t words)
 {
     uint32_t errors = 0U;
     uint32_t lcg    = LCG_SEED;
-    uint32_t addrs[SPOT_CHECK_COUNT];
-    uint32_t patterns[SPOT_CHECK_COUNT];
+    static uint32_t addrs[SPOT_CHECK_COUNT];
+    static uint32_t patterns[SPOT_CHECK_COUNT];
 
     /* Generate random addresses and patterns, then write. */
     for (uint32_t i = 0U; i < SPOT_CHECK_COUNT; i++)
     {
-        addrs[i]    = lcg_next(&lcg) % words;
-        patterns[i] = lcg_next(&lcg);
+    	uint32_t addr = lcg_next(&lcg) % words;
+        addrs[i]    = addr;
+        uint32_t patt = lcg_next(&lcg);
+        patterns[i] = patt;
         base[addrs[i]] = patterns[i];
     }
 
@@ -266,9 +268,10 @@ static StackType_t  s_sdram_test_stack[SDRAM_TEST_TASK_STACK_WORDS] __attribute_
 int main(void)
 {
     system_clock_init();
-    (void) debug_uart_driver_init();
+
+    (void) debug_uart_init();
     (void) rtc_init();
-    (void) logger_init();
+    (void) logger_init(LOG_LEVEL_DEBUG);
 
     LOG_INFO(LOG_MODULE, "===== SdramDriver integration test =====");
 
