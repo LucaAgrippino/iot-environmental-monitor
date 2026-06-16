@@ -134,6 +134,20 @@ extern TaskHandle_t  g_mock_xTaskGetCurrentTaskHandle_return;
 extern uint32_t      g_mock_xTaskNotifyGive_call_count;
 extern uint32_t      g_mock_ulTaskNotifyTake_return;
 
+/* xTaskNotifyFromISR mock */
+typedef enum
+{
+    eNoAction               = 0,
+    eSetBits                = 1,
+    eIncrement              = 2,
+    eSetValueWithOverwrite  = 3,
+    eSetValueWithoutOverwrite = 4,
+} eNotifyAction;
+
+extern uint32_t      g_mock_xTaskNotifyFromISR_call_count;
+extern TaskHandle_t  g_mock_xTaskNotifyFromISR_last_handle;
+extern uint32_t      g_mock_xTaskNotifyFromISR_last_value;
+
 /* Reset all g_mock_* state to defaults. Call from setUp(). */
 void mock_freertos_reset(void);
 
@@ -171,5 +185,8 @@ BaseType_t    xTimerStart(TimerHandle_t timer, TickType_t wait);
 TaskHandle_t  xTaskGetCurrentTaskHandle(void);
 void          xTaskNotifyGive(TaskHandle_t task);
 uint32_t      ulTaskNotifyTake(BaseType_t clear, TickType_t wait);
+
+BaseType_t    xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
+                                 eNotifyAction action, BaseType_t *woken);
 
 #endif /* FREERTOS_H */

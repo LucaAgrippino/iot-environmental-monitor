@@ -76,7 +76,6 @@ if ($CeedlingExit -ne 0) {
 # ---------------------------------------------------------------------------
 # Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
-
 if ( ($Module.EndsWith( "_fd" ) ) -or ($Module.EndsWith( "_gw" ) )  ) {
 
     $Module = $Module -replace '_fd$|_gw$', ''
