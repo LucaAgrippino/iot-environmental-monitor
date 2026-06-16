@@ -48,6 +48,13 @@ PWR_TypeDef g_mock_pwr;
 I2C_TypeDef g_mock_i2c1;
 
 /* ====================================================================== */
+/* §FMC Bank5_6 storage (SdramDriver)                                    */
+/* ====================================================================== */
+
+FMC_Bank5_6_TypeDef g_mock_fmc_bank5_6;
+
+
+/* ====================================================================== */
 /* §QUADSPI storage (QspiFlashDriver)                                    */
 /* ====================================================================== */
 
@@ -134,6 +141,15 @@ void stm32_cmsis_mock_reset(void)
     g_mock_i2c1.SR2   = 0;
     g_mock_i2c1.CCR   = 0;
     g_mock_i2c1.TRISE = 0;
+
+    /* §FMC Bank5_6 */
+    g_mock_fmc_bank5_6.SDCR[0] = 0;
+    g_mock_fmc_bank5_6.SDCR[1] = 0;
+    g_mock_fmc_bank5_6.SDTR[0] = 0;
+    g_mock_fmc_bank5_6.SDTR[1] = 0;
+    g_mock_fmc_bank5_6.SDCMR   = 0;
+    g_mock_fmc_bank5_6.SDRTR   = 0;
+    g_mock_fmc_bank5_6.SDSR    = 0;
 
     /* §QUADSPI */
     g_mock_quadspi.CR  = 0;
