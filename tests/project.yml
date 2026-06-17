@@ -14,7 +14,6 @@
   :test:
     - field-device/**
     - gateway/**
-    - example/**
   :source:
     - mocks/**
     - ../firmware/**
@@ -93,6 +92,9 @@
     - TEST
     - LOG_LEVEL_MIN=-1
   :test_sdram_driver:
+    - STM32F469xx
+    - TEST
+  :test_touchscreen_driver:
     - STM32F469xx
     - TEST
 
