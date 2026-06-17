@@ -63,9 +63,7 @@ Then proceed with Step 3 onwards as if the module never existed.
 - `const` correctness: pointers to data that must not change are `const`.
 - No magic numbers — every numeric literal gets a named `#define`.
 - No dynamic memory allocation — no `malloc`, `calloc`, `free`.
-- All FreeRTOS task stack arrays (`StackType_t`) must carry
-  `__attribute__((aligned(8)))` to satisfy the AAPCS 8-byte alignment
-  requirement on Cortex-M.
+- `StackType_t` arrays used as FreeRTOS task stacks must always carry `__attribute__((aligned(8)))` (AAPCS 8-byte SP alignment requirement).
 - No `printf`/`scanf` in firmware code. Debug output via Logger macros.
 - Doxygen-style comments on all public API functions.
 - Header guards: `#ifndef MODULE_NAME_H` / `#define` / `#endif`.

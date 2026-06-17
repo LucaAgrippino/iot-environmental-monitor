@@ -36,12 +36,15 @@
 
 /* Fields accumulate as drivers need them. Current owners:                */
 /*   AHB1ENR  — GpioDriver                                                */
+/*   AHB2ENR  — TouchscreenDriver (GPIOJ sentinel via gpio_configure_pin) */
 /*   AHB3ENR  — QspiFlashDriver (QSPIEN)                                  */
 /*   APB1ENR  — DebugUartDriver (USART3EN), RtcDriver (PWREN)             */
+/*   APB2ENR  — TouchscreenDriver (SYSCFGEN, bit 14)                      */
 /*   BDCR     — RtcDriver (LSE, RTCSEL, RTCEN)                            */
 typedef struct
 {
     volatile uint32_t AHB1ENR;
+    volatile uint32_t AHB2ENR;
     volatile uint32_t AHB3ENR;
     volatile uint32_t APB1ENR;
     volatile uint32_t APB2ENR;
@@ -422,14 +425,54 @@ extern FMC_Bank5_6_TypeDef g_mock_fmc_bank5_6;
 #define RCC_AHB3ENR_FMCEN     (1UL << RCC_AHB3ENR_FMCEN_Pos)
 
 #define FMC_SDSR_BUSY (0x20UL)
+
+/* ====================================================================== */
+/* §SYSCFG (TouchscreenDriver)                                            */
+/* ====================================================================== */
+
+/* Fields: MEMRMP, PMC, EXTICR[4] (only EXTICR[1] used for EXTI5/PJ). */
+typedef struct
+{
+    volatile uint32_t MEMRMP;
+    volatile uint32_t PMC;
+    volatile uint32_t EXTICR[4U];
+} SYSCFG_TypeDef;
+
+extern SYSCFG_TypeDef g_mock_syscfg;
+
+#define SYSCFG (&g_mock_syscfg)
+
+/* --- RCC_APB2ENR bit — SYSCFG clock enable (bit 14) ------------------- */
+#define RCC_APB2ENR_SYSCFGEN_Pos (14U)
+#define RCC_APB2ENR_SYSCFGEN     (1UL << RCC_APB2ENR_SYSCFGEN_Pos)
+
+/* ====================================================================== */
+/* §EXTI (TouchscreenDriver — F4 single-bank field names)                 */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t IMR;
+    volatile uint32_t EMR;
+    volatile uint32_t RTSR;
+    volatile uint32_t FTSR;
+    volatile uint32_t SWIER;
+    volatile uint32_t PR;
+} EXTI_TypeDef;
+
+extern EXTI_TypeDef g_mock_exti;
+
+#define EXTI (&g_mock_exti)
+
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
 
 typedef enum
 {
-    USART3_IRQn = 39, /* Per stm32f469xx.h CMSIS canonical value. */
-    USART6_IRQn = 71  /* Per stm32f469xx.h CMSIS canonical value. */
+    EXTI9_5_IRQn = 23, /* EXTI lines 5..9 shared vector (TouchscreenDriver PJ5). */
+    USART3_IRQn  = 39, /* Per stm32f469xx.h CMSIS canonical value. */
+    USART6_IRQn  = 71  /* Per stm32f469xx.h CMSIS canonical value. */
 } IRQn_Type;
 
 /* Mock NVIC tracks call counts per IRQn. Tests inspect counters directly;
@@ -438,8 +481,10 @@ typedef enum
 
 extern uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
 extern uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+extern uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 
 void NVIC_EnableIRQ(IRQn_Type irqn);
 void NVIC_DisableIRQ(IRQn_Type irqn);
+void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority);
 
 #endif /* STM32F469XX_H */

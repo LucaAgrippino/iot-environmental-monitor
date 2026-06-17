@@ -95,6 +95,9 @@
   :test_sdram_driver:
     - STM32F469xx
     - TEST
+  :test_touchscreen_driver:
+    - STM32F469xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
