@@ -533,7 +533,6 @@ i2c_err_t i2c_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_l
          * The unit tests do not catch this because setUp() zeroes CR1
          * between tests, restoring ACK state. Visible on hardware when a
          * single-byte i2c_write_read is followed by any i2c_read call. */
-        I2C1->CR1 |= I2C_CR1_ACK;
     }
     else
     {
