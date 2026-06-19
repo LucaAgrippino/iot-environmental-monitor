@@ -15,10 +15,18 @@
 #ifndef SDRAM_DRIVER_H
 #define SDRAM_DRIVER_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "stm32f469xx.h"
+
+/* ===================================================================== */
+/* Address constant                                                      */
+/* ===================================================================== */
+
+/** Base address of FMC SDRAM Bank 1 (SDNE0).
+ *  Single source of truth — used by LcdDriver and the SDRAM BSP shim. */
+#define SDRAM_BASE_ADDR ((uint32_t)0xC0000000U)
 
 /* ===================================================================== */
 /* Test visibility macro                                                 */
@@ -77,6 +85,18 @@ sdram_err_t sdram_init(void);
  * @note   Threading: task-context only, non-blocking. Not ISR-safe.
  */
 uint32_t sdram_get_base_addr(void);
+
+/**
+ * @brief Report whether sdram_init() has completed successfully.
+ *
+ * Used by the SDRAM BSP shim (bsp_shims/stm32469i_discovery_sdram.c) so
+ * BSP_SDRAM_Init() can confirm the controller is ready without repeating
+ * the FMC command sequence.
+ *
+ * @return true if sdram_init() returned SDRAM_ERR_OK; false otherwise.
+ * @note   Threading: task-context only, non-blocking.
+ */
+bool sdram_is_ready(void);
 
 /* ===================================================================== */
 /* Test-only API                                                         */
