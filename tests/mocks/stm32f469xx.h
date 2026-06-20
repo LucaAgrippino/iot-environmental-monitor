@@ -487,6 +487,8 @@ typedef struct
     volatile uint32_t IER; /**< Interrupt Enable Register  (LTDC_IER). */
     volatile uint32_t ISR; /**< Interrupt Status Register  (LTDC_ISR). */
     volatile uint32_t ICR; /**< Interrupt Clear Register   (LTDC_ICR). */
+    volatile uint32_t SRCR; /**< Shadow Reload Configuration Register (LTDC_SRCR). */ 
+    volatile uint32_t LIPCR; /**< Line Interrupt Position Configuration Register */
 } LTDC_TypeDef;
 
 extern LTDC_TypeDef g_mock_ltdc;
@@ -503,6 +505,7 @@ extern LTDC_TypeDef g_mock_ltdc;
 #define LTDC_ICR_CLIF_Pos (0U)
 #define LTDC_ICR_CLIF     (1UL << LTDC_ICR_CLIF_Pos)
 
+#define LTDC_SRCR_VBR    (1UL << 1)    /* Vertical blanking reload bit */
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
@@ -512,6 +515,7 @@ typedef enum
     EXTI9_5_IRQn = 23, /* EXTI lines 5..9 shared vector (TouchscreenDriver PJ5). */
     USART3_IRQn  = 39, /* Per stm32f469xx.h CMSIS canonical value. */
     USART6_IRQn  = 71, /* Per stm32f469xx.h CMSIS canonical value. */
+    DSI_IRQn     = 86, /* DSI global interrupt (LcdDriver). */
     LTDC_IRQn    = 88, /* LTDC global interrupt (LcdDriver). */
     LTDC_ER_IRQn = 89  /* LTDC error interrupt  (LcdDriver). */
 } IRQn_Type;
@@ -527,5 +531,6 @@ extern uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 void NVIC_EnableIRQ(IRQn_Type irqn);
 void NVIC_DisableIRQ(IRQn_Type irqn);
 void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority);
+void NVIC_ClearPendingIRQ(IRQn_Type irqn);
 
 #endif /* STM32F469XX_H */
