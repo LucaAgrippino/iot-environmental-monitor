@@ -13,7 +13,6 @@
 :paths:
   :test:
     - field-device/**
-    - gateway/**
   :source:
     - mocks/**
     - ../firmware/field-device/application/**
