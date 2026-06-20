@@ -20,10 +20,6 @@
 
 #include "sdram_driver/sdram_driver.h"
 
-/* The BSP uses this as the framebuffer base. Resolves to the same macro
- * defined in sdram_driver.h — single source of truth at compile time. */
-#define LCD_FB_START_ADDRESS SDRAM_BASE_ADDR
-
 /* Status codes matching ST BSP convention. */
 #define SDRAM_OK ((uint8_t) 0x00U)
 #define SDRAM_ERROR ((uint8_t) 0x01U)
