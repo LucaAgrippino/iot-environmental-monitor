@@ -91,7 +91,7 @@
 
 /* Enable DMA2D blending. STM32F469 supports DMA2D natively. Benchmark
  * lv_task_handler() time with and without to confirm the gain. */
-#define LV_USE_GPU_STM32_DMA2D 1
+#define LV_USE_GPU_STM32_DMA2D 0
 
 /* ===================================================================== */
 /* Feature guards — widgets used by LcdUi                               */
