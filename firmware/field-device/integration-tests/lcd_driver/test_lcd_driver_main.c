@@ -124,8 +124,6 @@ static void fill_framebuffer(uint32_t *fb, uint32_t colour)
 /* Test task                                                             */
 /* ===================================================================== */
 
-
-
 static void lcd_test_task(void *arg)
 {
     (void)arg;
