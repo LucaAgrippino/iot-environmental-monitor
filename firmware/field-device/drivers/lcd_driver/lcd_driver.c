@@ -25,32 +25,15 @@
 #include <stdint.h>
 
 /* ===================================================================== */
-/* Clock-enable constants (RCC register bits)                           */
-/* ===================================================================== */
-
-#define RCC_APB2ENR_LTDCEN_Pos (26U)
-#define RCC_APB2ENR_LTDCEN (1UL << RCC_APB2ENR_LTDCEN_Pos)
-
-#define RCC_APB2ENR_DSIEN_Pos (27U)
-#define RCC_APB2ENR_DSIEN (1UL << RCC_APB2ENR_DSIEN_Pos)
-
-#define RCC_AHB1ENR_DMA2DEN_Pos (23U)
-#define RCC_AHB1ENR_DMA2DEN (1UL << RCC_AHB1ENR_DMA2DEN_Pos)
-
-/* ===================================================================== */
 /* LTDC interrupt constants                                             */
 /* ===================================================================== */
 
-#define LTDC_IER_LIE_Pos (0U)
-#define LTDC_IER_LIE (1UL << LTDC_IER_LIE_Pos)
-
-#define LTDC_ISR_LIF_Pos (0U)
-#define LTDC_ISR_LIF (1UL << LTDC_ISR_LIF_Pos)
-
-#define LTDC_ICR_CLIF_Pos (0U)
-#define LTDC_ICR_CLIF (1UL << LTDC_ICR_CLIF_Pos)
-
 #define LCD_IRQ_PRIORITY (6U)
+
+/* ===================================================================== */
+/* LCD constants                                             */
+/* ===================================================================== */
+#define LCD_HEIGHT (480U)
 
 /* ===================================================================== */
 /* Stage markers (private in production; exposed in test via .h)        */
@@ -75,7 +58,7 @@ typedef enum
 
 typedef struct
 {
-    uint16_t *framebuffer;
+    uint32_t *framebuffer;
     lcd_frame_done_cb_t frame_done_cb;
     void *frame_done_ctx;
     bool initialised;
@@ -99,18 +82,32 @@ lcd_err_t lcd_init(void)
 
     /* Stage 2: hand off DSI/LTDC/OTM8009A initialisation to the BSP. */
     s_lcd_init_stage = LCD_STAGE_BSP_INIT;
-    if (BSP_LCD_Init(LCD_ORIENTATION_LANDSCAPE) != 0U)
+#ifndef TEST
+    if (BSP_LCD_Init() != 0U)
     {
         s_lcd_init_stage = LCD_STAGE_FAIL_BSP;
         return LCD_ERR_INIT;
     }
+#endif
     s_lcd_init_stage = LCD_STAGE_BSP_DONE;
 
+#ifndef TEST
+    DSI->WIER = 0U;           /* wrapper interrupt enable register — disable all sources */
+    DSI->WIFCR = 0xFFFFFFFFU; /* wrapper interrupt flag clear register — write-1-to-clear */
+    NVIC_DisableIRQ(DSI_IRQn);
+    NVIC_ClearPendingIRQ(DSI_IRQn);
+#endif
+
     /* Stage 4: capture framebuffer base from the SDRAM driver. */
-    s_lcd.framebuffer = (uint16_t *) (uintptr_t) sdram_get_base_addr();
+    s_lcd.framebuffer = (uint32_t *) (uintptr_t) sdram_get_base_addr();
     s_lcd_init_stage = LCD_STAGE_FB_CAPTURED;
 
-    /* Stage 5: mark driver ready. */
+#ifndef TEST
+    /* Stage 5 — explicitly configure layer 0 */
+    BSP_LCD_LayerDefaultInit(0, (uint32_t) sdram_get_base_addr());
+    BSP_LCD_SelectLayer(0);
+#endif
+    /* Stage 6: mark driver ready. */
     s_lcd.initialised = true;
     s_lcd_init_stage = LCD_STAGE_SUCCESS;
 
@@ -130,6 +127,8 @@ lcd_err_t lcd_attach_frame_done(lcd_frame_done_cb_t cb, void *ctx)
 
     s_lcd.frame_done_cb = cb;
     s_lcd.frame_done_ctx = ctx;
+#ifndef TEST
+    LTDC->LIPCR = LCD_HEIGHT - 1U; /* fire at last active line */
 
     /* Enable LTDC line interrupt. */
     LTDC->IER |= LTDC_IER_LIE;
@@ -137,13 +136,12 @@ lcd_err_t lcd_attach_frame_done(lcd_frame_done_cb_t cb, void *ctx)
     /* Configure NVIC for LTDC line interrupt and LTDC error interrupt. */
     NVIC_SetPriority(LTDC_IRQn, LCD_IRQ_PRIORITY);
     NVIC_EnableIRQ(LTDC_IRQn);
-    NVIC_SetPriority(LTDC_ER_IRQn, LCD_IRQ_PRIORITY + 1U);
-    NVIC_EnableIRQ(LTDC_ER_IRQn);
+#endif
 
     return LCD_ERR_OK;
 }
 
-uint16_t *lcd_get_framebuffer(void)
+uint32_t *lcd_get_framebuffer(void)
 {
     if (!s_lcd.initialised)
     {
@@ -158,15 +156,20 @@ lcd_err_t lcd_flush(void)
     {
         return LCD_ERR_STATE;
     }
-    (void) BSP_LCD_Reload(LCD_RELOAD_VERTICAL_BLANKING);
+
+#ifndef TEST
+    /* LTDC->SRCR.VBR = 1 → shadow reload on next vertical blanking.
+     * Self-clearing bit. RM0386 §16.7.2. */
+    LTDC->SRCR = LTDC_SRCR_VBR;
+#endif
+
     return LCD_ERR_OK;
 }
 
 /* ===================================================================== */
 /* ISR                                                                  */
 /* ===================================================================== */
-
-void LTDC_IRQHandler(void)
+void LCD_TFT_IRQHandler(void)
 {
     if (LTDC->ISR & LTDC_ISR_LIF)
     {

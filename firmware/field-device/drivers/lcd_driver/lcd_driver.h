@@ -78,18 +78,19 @@ lcd_err_t lcd_attach_frame_done(lcd_frame_done_cb_t cb, void *ctx);
 /**
  * @brief Return the framebuffer base address captured at lcd_init().
  *
- * @return Pointer to the start of the single 800×480 RGB565 framebuffer
+ * @return Pointer to the start of the single 800×480 ARGB8888 framebuffer
  *         in SDRAM (0xC000_0000). Returns NULL if lcd_init() has not
  *         succeeded.
  */
-uint16_t *lcd_get_framebuffer(void);
+uint32_t *lcd_get_framebuffer(void);
 
 /**
- * @brief Request a shadow-register reload on the next vertical blanking.
+ * @brief Request an LTDC shadow-register reload on the next vertical blanking.
  *
- * Calls BSP_LCD_Reload(LCD_RELOAD_VERTICAL_BLANKING). Non-blocking; the
- * LTDC ISR fires the frame-done callback when the panel has consumed the
- * frame.
+ * Triggers LTDC->SRCR.VBR. Used after writing to the framebuffer to
+ * guarantee tear-free presentation. Non-blocking; the LTDC line
+ * interrupt fires when the reload completes, invoking the callback
+ * registered via lcd_attach_frame_done().
  *
  * @return LCD_ERR_OK on success; LCD_ERR_STATE if called before lcd_init().
  */
@@ -102,7 +103,7 @@ lcd_err_t lcd_flush(void);
  * exercise the ISR path without a real interrupt (following the pattern
  * established by TouchscreenDriver).
  */
-void LTDC_IRQHandler(void);
+void LCD_TFT_IRQHandler(void);
 
 /* ===================================================================== */
 /* Test-only API                                                         */

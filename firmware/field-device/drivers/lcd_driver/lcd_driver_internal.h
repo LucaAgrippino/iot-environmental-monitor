@@ -26,7 +26,7 @@
 #define LCD_ORIENTATION_LANDSCAPE (0x01U)
 #define LCD_RELOAD_VERTICAL_BLANKING (0x02U)
 
-uint8_t BSP_LCD_Init(uint32_t orientation);
+uint8_t BSP_LCD_Init();
 uint8_t BSP_LCD_Reload(uint32_t reload_type);
 
 /** Forward declaration — stub defined inline in test TU. */
