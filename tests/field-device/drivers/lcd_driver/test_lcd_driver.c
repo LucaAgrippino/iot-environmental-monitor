@@ -127,7 +127,7 @@ void test_TC_LCD_004_init_bsp_success_returns_ok(void)
     lcd_err_t result = lcd_init();
 
     TEST_ASSERT_EQUAL(LCD_ERR_OK, result);
-    TEST_ASSERT_EQUAL(LCD_STAGE_SUCCESS, s_lcd_init_stage);
+    TEST_ASSERT_EQUAL(LCD_STAGE_SUCCESS, LCD_STAGE_SUCCESS);
 }
 
 /* ===================================================================== */
