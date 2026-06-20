@@ -100,6 +100,9 @@
   :test_lcd_driver:
     - STM32F469xx
     - TEST
+  :test_graphics_library:
+    - STM32F469xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
