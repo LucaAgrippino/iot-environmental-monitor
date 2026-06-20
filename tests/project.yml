@@ -16,7 +16,11 @@
     - gateway/**
   :source:
     - mocks/**
-    - ../firmware/**
+    - ../firmware/field-device/application/**
+    - ../firmware/field-device/drivers/**
+    - ../firmware/field-device/middleware/**
+    - -:../firmware/**/lcd_driver/bsp_shims/**
+    - -:../firmware/**/Debug/**
   :support:
     - support
 
