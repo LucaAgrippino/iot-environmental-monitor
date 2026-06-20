@@ -80,3 +80,13 @@ void system_clock_init(void)
      * system_clock.h for their baud-rate / timing maths — not the CMSIS
      * SystemCoreClock global, which is informational only here. */
 }
+
+void system_clock_enable_dwt(void)
+{
+    /* Enable trace subsystem — gates clock to DWT. */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+
+    /* Reset and enable the cycle counter. */
+    DWT->CYCCNT = 0U;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+}
