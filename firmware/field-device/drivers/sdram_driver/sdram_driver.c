@@ -208,9 +208,6 @@ static void fmc_pins_configure(void)
 /* Bounded-wait iteration limit for BUSY flag polling */
 #define SDRAM_BUSY_TIMEOUT_ITERS (0xFFFFUL)
 
-/* SDRAM base address — FMC SDRAM Bank 1 (SDNE0) */
-#define SDRAM_BASE_ADDR (0xC0000000UL)
-
 /* ===================================================================== */
 /* Module state                                                          */
 /* ===================================================================== */
@@ -315,6 +312,11 @@ sdram_err_t sdram_init(void)
 uint32_t sdram_get_base_addr(void)
 {
     return SDRAM_BASE_ADDR;
+}
+
+bool sdram_is_ready(void)
+{
+    return s_initialised;
 }
 
 /* ===================================================================== */

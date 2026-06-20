@@ -78,6 +78,13 @@ SYSCFG_TypeDef g_mock_syscfg;
 
 
 /* ====================================================================== */
+/* §LTDC storage (LcdDriver)                                             */
+/* ====================================================================== */
+
+LTDC_TypeDef g_mock_ltdc;
+
+
+/* ====================================================================== */
 /* §EXTI storage (TouchscreenDriver)                                      */
 /* ====================================================================== */
 
@@ -197,6 +204,11 @@ void stm32_cmsis_mock_reset(void)
     {
         g_mock_rtc.BKP1R_to_BKP19R[i] = 0;
     }
+
+    /* §LTDC */
+    g_mock_ltdc.IER = 0;
+    g_mock_ltdc.ISR = 0;
+    g_mock_ltdc.ICR = 0;
 
     /* §SYSCFG */
     g_mock_syscfg.MEMRMP = 0;

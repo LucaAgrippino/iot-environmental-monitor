@@ -41,5 +41,6 @@
  * the corresponding poll, so a debugger session shows where it hung.
  */
 void system_clock_init(void);
+void system_clock_enable_dwt(void);
 
 #endif /* SYSTEM_CLOCK_H */

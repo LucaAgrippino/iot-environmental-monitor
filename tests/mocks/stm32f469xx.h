@@ -35,11 +35,12 @@
 /* ====================================================================== */
 
 /* Fields accumulate as drivers need them. Current owners:                */
-/*   AHB1ENR  — GpioDriver                                                */
+/*   AHB1ENR  — GpioDriver, LcdDriver (DMA2DEN, bit 23)                  */
 /*   AHB2ENR  — TouchscreenDriver (GPIOJ sentinel via gpio_configure_pin) */
 /*   AHB3ENR  — QspiFlashDriver (QSPIEN)                                  */
 /*   APB1ENR  — DebugUartDriver (USART3EN), RtcDriver (PWREN)             */
-/*   APB2ENR  — TouchscreenDriver (SYSCFGEN, bit 14)                      */
+/*   APB2ENR  — TouchscreenDriver (SYSCFGEN, bit 14),                     */
+/*              LcdDriver (LTDCEN bit 26, DSIEN bit 27)                   */
 /*   BDCR     — RtcDriver (LSE, RTCSEL, RTCEN)                            */
 typedef struct
 {
@@ -80,6 +81,10 @@ extern RCC_TypeDef g_mock_rcc;
 #define RCC_AHB1ENR_GPIOJEN (1UL << RCC_AHB1ENR_GPIOJEN_Pos)
 #define RCC_AHB1ENR_GPIOKEN (1UL << RCC_AHB1ENR_GPIOKEN_Pos)
 
+/* --- AHB1ENR bits (LcdDriver — DMA2D) --------------------------------- */
+#define RCC_AHB1ENR_DMA2DEN_Pos (23U)
+#define RCC_AHB1ENR_DMA2DEN     (1UL << RCC_AHB1ENR_DMA2DEN_Pos)
+
 /* --- APB1ENR bits (DebugUartDriver, RtcDriver) ------------------------ */
 #define RCC_APB1ENR_USART3EN_Pos (18U)
 #define RCC_APB1ENR_USART3EN (1UL << RCC_APB1ENR_USART3EN_Pos)
@@ -90,6 +95,13 @@ extern RCC_TypeDef g_mock_rcc;
 /* --- APB2ENR bits (ModbusUartDriver — USART6) ------------------------- */
 #define RCC_APB2ENR_USART6EN_Pos (5U)
 #define RCC_APB2ENR_USART6EN (1UL << RCC_APB2ENR_USART6EN_Pos)
+
+/* --- APB2ENR bits (LcdDriver — LTDC bit 26, DSI bit 27) -------------- */
+#define RCC_APB2ENR_LTDCEN_Pos (26U)
+#define RCC_APB2ENR_LTDCEN     (1UL << RCC_APB2ENR_LTDCEN_Pos)
+
+#define RCC_APB2ENR_DSIEN_Pos (27U)
+#define RCC_APB2ENR_DSIEN     (1UL << RCC_APB2ENR_DSIEN_Pos)
 
 /* --- BDCR bits (RtcDriver) -------------------------------------------- */
 #define RCC_BDCR_LSEON_Pos (0U)
@@ -465,6 +477,36 @@ extern EXTI_TypeDef g_mock_exti;
 #define EXTI (&g_mock_exti)
 
 /* ====================================================================== */
+/* §LTDC (LcdDriver)                                                      */
+/* ====================================================================== */
+
+/* Only the registers LcdDriver actually touches: IER (interrupt enable), */
+/* ISR (interrupt status), ICR (interrupt clear).                         */
+typedef struct
+{
+    volatile uint32_t IER; /**< Interrupt Enable Register  (LTDC_IER). */
+    volatile uint32_t ISR; /**< Interrupt Status Register  (LTDC_ISR). */
+    volatile uint32_t ICR; /**< Interrupt Clear Register   (LTDC_ICR). */
+    volatile uint32_t SRCR; /**< Shadow Reload Configuration Register (LTDC_SRCR). */ 
+    volatile uint32_t LIPCR; /**< Line Interrupt Position Configuration Register */
+} LTDC_TypeDef;
+
+extern LTDC_TypeDef g_mock_ltdc;
+
+#define LTDC (&g_mock_ltdc)
+
+/* --- LTDC interrupt bit constants (RM0386 §28.6) ---------------------- */
+#define LTDC_IER_LIE_Pos  (0U)
+#define LTDC_IER_LIE      (1UL << LTDC_IER_LIE_Pos)
+
+#define LTDC_ISR_LIF_Pos  (0U)
+#define LTDC_ISR_LIF      (1UL << LTDC_ISR_LIF_Pos)
+
+#define LTDC_ICR_CLIF_Pos (0U)
+#define LTDC_ICR_CLIF     (1UL << LTDC_ICR_CLIF_Pos)
+
+#define LTDC_SRCR_VBR    (1UL << 1)    /* Vertical blanking reload bit */
+/* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
 
@@ -472,7 +514,10 @@ typedef enum
 {
     EXTI9_5_IRQn = 23, /* EXTI lines 5..9 shared vector (TouchscreenDriver PJ5). */
     USART3_IRQn  = 39, /* Per stm32f469xx.h CMSIS canonical value. */
-    USART6_IRQn  = 71  /* Per stm32f469xx.h CMSIS canonical value. */
+    USART6_IRQn  = 71, /* Per stm32f469xx.h CMSIS canonical value. */
+    DSI_IRQn     = 86, /* DSI global interrupt (LcdDriver). */
+    LTDC_IRQn    = 88, /* LTDC global interrupt (LcdDriver). */
+    LTDC_ER_IRQn = 89  /* LTDC error interrupt  (LcdDriver). */
 } IRQn_Type;
 
 /* Mock NVIC tracks call counts per IRQn. Tests inspect counters directly;
@@ -486,5 +531,6 @@ extern uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 void NVIC_EnableIRQ(IRQn_Type irqn);
 void NVIC_DisableIRQ(IRQn_Type irqn);
 void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority);
+void NVIC_ClearPendingIRQ(IRQn_Type irqn);
 
 #endif /* STM32F469XX_H */

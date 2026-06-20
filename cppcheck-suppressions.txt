@@ -21,3 +21,10 @@ unusedFunction
 // components not yet compiled in this CI invocation.
 // Same justification as unusedFunction above.
 unusedStructMember
+
+// redundantAssignment:lcd_driver.c — s_lcd_init_stage is a volatile debug
+// sentinel written progressively through lcd_init() to mark each stage for
+// observation via a hardware debugger live-watch. Writing without reading back
+// in code is intentional; the volatile qualifier already prevents the compiler
+// from eliding the writes. This is not a logic error.
+redundantAssignment:lcd_driver.c
