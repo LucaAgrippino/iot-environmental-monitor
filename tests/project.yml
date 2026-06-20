@@ -13,10 +13,13 @@
 :paths:
   :test:
     - field-device/**
-    - gateway/**
   :source:
     - mocks/**
-    - ../firmware/**
+    - ../firmware/field-device/application/**
+    - ../firmware/field-device/drivers/**
+    - ../firmware/field-device/middleware/**
+    - -:../firmware/**/lcd_driver/bsp_shims/**
+    - -:../firmware/**/Debug/**
   :support:
     - support
 
@@ -47,9 +50,6 @@
     - TEST
   :test_i2c_driver_f4:
     - STM32F469xx
-    - TEST
-  :test_i2c_driver_l4:
-    - STM32L475xx
     - TEST
   :test_barometer_driver:
     - STM32F469xx
@@ -98,6 +98,9 @@
     - STM32F469xx
     - TEST
   :test_lcd_driver:
+    - STM32F469xx
+    - TEST
+  :test_graphics_library:
     - STM32F469xx
     - TEST
 
