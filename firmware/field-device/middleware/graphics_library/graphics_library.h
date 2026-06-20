@@ -27,7 +27,7 @@
 #ifdef TEST
 #include "lvgl_stub.h"
 #else
-#include "lvgl/lvgl.h"
+#include "lvgl.h"
 #endif
 
 /* ===================================================================== */

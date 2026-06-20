@@ -43,17 +43,20 @@
 #include "logger/logger.h"
 #include "debug-uart/debug_uart_driver.h"
 #include "rtc/rtc_driver.h"
+#include "gpio/gpio_driver.h"
+
+#include <stdlib.h>
 
 /* In the real build, LcdUi calls the LVGL widget API directly. For this
  * integration test we include a minimal LVGL surface to create a background
  * object on the display returned by graphics_get_display(). */
-#include "lvgl/lvgl.h"
+#include "lvgl.h"
 
 /* ===================================================================== */
 /* Configuration                                                         */
 /* ===================================================================== */
 
-#define GFX_TASK_STACK_WORDS  (512U)
+#define GFX_TASK_STACK_WORDS  (2048U)
 #define GFX_TASK_PRIORITY     (tskIDLE_PRIORITY + 2U)
 #define GFX_PROCESS_PERIOD_MS (200U)
 
@@ -63,6 +66,17 @@
 
 static StaticTask_t s_gfx_task_tcb;
 static StackType_t  s_gfx_task_stack[GFX_TASK_STACK_WORDS];
+
+uint32_t get_random_color(void) {
+    // Generate random values between 0 and 255 for each channel
+    uint8_t r = rand() % 256;
+    uint8_t g = rand() % 256;
+    uint8_t b = rand() % 256;
+
+    // Combine them using bitwise left-shift (<<) and OR (|) operators
+    // Format: 0x00RRGGBB
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
 
 static void lcd_ui_task(void *arg)
 {
@@ -80,7 +94,7 @@ static void lcd_ui_task(void *arg)
         lv_obj_t *screen = lv_disp_get_scr_act(disp);
         if (screen != NULL)
         {
-            lv_obj_set_style_bg_color(screen, lv_color_hex(0x002244U), 0);
+            lv_obj_set_style_bg_color(screen, lv_color_hex(0x00E5FFU), 0);
             lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
         }
     }
@@ -89,10 +103,33 @@ static void lcd_ui_task(void *arg)
 
     for (;;)
     {
+    	static lv_indev_state_t prev_state = LV_INDEV_STATE_RELEASED;
+
+    	lv_indev_t *indev = graphics_get_indev();
+    	if (indev != NULL)
+    	{
+    	    lv_point_t point;
+    	    lv_indev_get_point(indev, &point);
+
+    	    if (indev->proc.state == LV_INDEV_STATE_PRESSED && prev_state == LV_INDEV_STATE_RELEASED)
+    	    {
+    	        LOG_INFO("GfxTask", "touch x=%d y=%d",
+    	                 (int)point.x, (int)point.y);
+    	    }
+			prev_state = indev->proc.state;
+    	}
+
         graphics_err_t err = graphics_process();
         if (err == GRAPHICS_ERR_OK)
         {
-            LOG_DEBUG("GfxTask", "process OK tick=%lu",
+            lv_obj_t *screen = lv_disp_get_scr_act(disp);
+            if (screen != NULL)
+            {
+                lv_obj_set_style_bg_color(screen, lv_color_hex(get_random_color()), 0);
+                lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+            }
+
+            LOG_INFO("GfxTask", "process OK tick=%lu",
                       (unsigned long)lv_tick_get());
         }
         else
@@ -111,8 +148,10 @@ int main(void)
 {
     /* 1. Clock tree → 180 MHz. */
     system_clock_init();
+    system_clock_enable_dwt();
 
     /* 2. Logger (pre-scheduler synchronous path). */
+    (void)gpio_init();
     (void)debug_uart_init();
     (void)rtc_init();
     (void)logger_init(LOG_LEVEL_DEBUG);
