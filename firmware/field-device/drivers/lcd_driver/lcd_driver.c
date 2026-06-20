@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* ===================================================================== */
 /* LTDC interrupt constants                                             */
@@ -35,6 +36,7 @@
 /* ===================================================================== */
 
 #define LCD_HEIGHT (480U)
+#define LCD_WIDTH  (800U)
 
 /* ===================================================================== */
 /* Stage markers (private in production; exposed in test via .h)        */
@@ -155,6 +157,31 @@ lcd_err_t lcd_flush(void)
     LTDC->SRCR = LTDC_SRCR_VBR;
 #endif
 
+    return LCD_ERR_OK;
+}
+
+lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                   const uint32_t *src)
+{
+    if (!s_lcd.initialised)
+    {
+        return LCD_ERR_STATE;
+    }
+    if (src == NULL)
+    {
+        return LCD_ERR_NULL;
+    }
+    if (((x + w) > LCD_WIDTH) || ((y + h) > LCD_HEIGHT))
+    {
+        return LCD_ERR_ARG;
+    }
+
+    uint32_t *fb = s_lcd.framebuffer;
+    for (uint32_t row = 0U; row < h; row++)
+    {
+        uint32_t *dst = fb + ((y + row) * LCD_WIDTH) + x;
+        (void)memcpy(dst, src + (row * w), w * sizeof(uint32_t));
+    }
     return LCD_ERR_OK;
 }
 
