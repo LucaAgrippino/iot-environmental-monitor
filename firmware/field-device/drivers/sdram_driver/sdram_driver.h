@@ -26,7 +26,7 @@
 
 /** Base address of FMC SDRAM Bank 1 (SDNE0).
  *  Single source of truth — used by LcdDriver and the SDRAM BSP shim. */
-#define SDRAM_BASE_ADDR ((uint32_t)0xC0000000U)
+#define SDRAM_BASE_ADDR ((uint32_t) 0xC0000000U)
 
 /* ===================================================================== */
 /* Test visibility macro                                                 */

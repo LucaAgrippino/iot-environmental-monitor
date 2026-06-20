@@ -65,7 +65,6 @@ typedef struct
 } lcd_driver_t;
 
 LCD_TEST_VISIBLE lcd_driver_t s_lcd;
-LCD_TEST_VISIBLE volatile lcd_init_stage_t s_lcd_init_stage;
 
 /* ===================================================================== */
 /* Public API                                                           */
@@ -73,23 +72,18 @@ LCD_TEST_VISIBLE volatile lcd_init_stage_t s_lcd_init_stage;
 
 lcd_err_t lcd_init(void)
 {
-    s_lcd_init_stage = LCD_STAGE_RESET;
 
     /* Stage 1: enable LTDC, DSI, DMA2D peripheral clocks. */
     RCC->APB2ENR |= RCC_APB2ENR_LTDCEN | RCC_APB2ENR_DSIEN;
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA2DEN;
-    s_lcd_init_stage = LCD_STAGE_PERIPH_CLOCKS;
 
     /* Stage 2: hand off DSI/LTDC/OTM8009A initialisation to the BSP. */
-    s_lcd_init_stage = LCD_STAGE_BSP_INIT;
 #ifndef TEST
     if (BSP_LCD_Init() != 0U)
     {
-        s_lcd_init_stage = LCD_STAGE_FAIL_BSP;
         return LCD_ERR_INIT;
     }
 #endif
-    s_lcd_init_stage = LCD_STAGE_BSP_DONE;
 
 #ifndef TEST
     DSI->WIER = 0U;           /* wrapper interrupt enable register — disable all sources */
@@ -100,7 +94,6 @@ lcd_err_t lcd_init(void)
 
     /* Stage 4: capture framebuffer base from the SDRAM driver. */
     s_lcd.framebuffer = (uint32_t *) (uintptr_t) sdram_get_base_addr();
-    s_lcd_init_stage = LCD_STAGE_FB_CAPTURED;
 
 #ifndef TEST
     /* Stage 5 — explicitly configure layer 0 */
@@ -109,7 +102,6 @@ lcd_err_t lcd_init(void)
 #endif
     /* Stage 6: mark driver ready. */
     s_lcd.initialised = true;
-    s_lcd_init_stage = LCD_STAGE_SUCCESS;
 
     return LCD_ERR_OK;
 }
@@ -192,6 +184,5 @@ void lcd_driver_reset(void)
     s_lcd.frame_done_cb = NULL;
     s_lcd.frame_done_ctx = NULL;
     s_lcd.initialised = false;
-    s_lcd_init_stage = LCD_STAGE_RESET;
 }
 #endif /* TEST */
