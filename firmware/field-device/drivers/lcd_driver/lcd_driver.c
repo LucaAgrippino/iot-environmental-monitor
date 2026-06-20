@@ -36,7 +36,7 @@
 /* ===================================================================== */
 
 #define LCD_HEIGHT (480U)
-#define LCD_WIDTH  (800U)
+#define LCD_WIDTH (800U)
 
 /* ===================================================================== */
 /* Stage markers (private in production; exposed in test via .h)        */
@@ -160,8 +160,7 @@ lcd_err_t lcd_flush(void)
     return LCD_ERR_OK;
 }
 
-lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                   const uint32_t *src)
+lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint32_t *src)
 {
     if (!s_lcd.initialised)
     {
@@ -180,7 +179,7 @@ lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
     for (uint32_t row = 0U; row < h; row++)
     {
         uint32_t *dst = fb + ((y + row) * LCD_WIDTH) + x;
-        (void)memcpy(dst, src + (row * w), w * sizeof(uint32_t));
+        (void) memcpy(dst, src + (row * w), w * sizeof(uint32_t));
     }
     return LCD_ERR_OK;
 }

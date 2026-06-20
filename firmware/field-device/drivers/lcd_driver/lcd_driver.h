@@ -30,7 +30,7 @@ typedef enum
     LCD_ERR_INIT = 1,  /**< BSP_LCD_Init returned non-zero. */
     LCD_ERR_NULL = 2,  /**< Null pointer argument. */
     LCD_ERR_STATE = 3, /**< API called before lcd_init() succeeded. */
-    LCD_ERR_ARG   = 4, /**< Region argument falls outside the framebuffer. */
+    LCD_ERR_ARG = 4,   /**< Region argument falls outside the framebuffer. */
 } lcd_err_t;
 
 /** Callback invoked from LTDC line-interrupt ISR when a frame flush completes. */
@@ -115,8 +115,7 @@ lcd_err_t lcd_flush(void);
  *         LCD_ERR_NULL  if src is NULL;
  *         LCD_ERR_ARG   if the region falls outside the framebuffer.
  */
-lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                   const uint32_t *src);
+lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint32_t *src);
 
 /**
  * @brief LTDC line-interrupt ISR — dispatches the frame-done callback.
