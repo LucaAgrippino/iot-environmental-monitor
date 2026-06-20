@@ -43,7 +43,7 @@
 /* Configuration                                                         */
 /* ===================================================================== */
 
-#define TEST_TASK_STACK_WORDS (512U)
+#define TEST_TASK_STACK_WORDS (2048U)
 #define MODULE_ID             "LCD"
 
 #define LCD_WIDTH  (800U)
@@ -51,10 +51,10 @@
 #define LCD_PIXELS (LCD_WIDTH * LCD_HEIGHT)
 
 /* RGB565 colour constants */
-#define RGB565_RED   (0xF800U)
-#define RGB565_GREEN (0x07E0U)
-#define RGB565_BLUE  (0x001FU)
-#define RGB565_WHITE (0xFFFFU)
+#define ARGB8888_RED   (0xFFFF0000U)
+#define ARGB8888_GREEN (0xFF00FF00U)
+#define ARGB8888_BLUE  (0xFF0000FFU)
+#define ARGB8888_WHITE (0xFFFFFFFFU)
 
 #define FLUSH_INTERVAL_MS  (200U)
 #define FLUSH_COUNT        (100U)
@@ -109,7 +109,7 @@ static void log_result(const char *name, bool passed)
     }
 }
 
-static void fill_framebuffer(uint16_t *fb, uint16_t colour)
+static void fill_framebuffer(uint32_t *fb, uint32_t colour)
 {
     for (uint32_t i = 0U; i < LCD_PIXELS; i++)
     {
@@ -121,6 +121,9 @@ static void fill_framebuffer(uint16_t *fb, uint16_t colour)
 /* Test task                                                             */
 /* ===================================================================== */
 
+#include "stm32469i_discovery_lcd.h"
+#define LAYER0_ADDRESS               (LCD_FB_START_ADDRESS)
+
 static void lcd_test_task(void *arg)
 {
     (void)arg;
@@ -129,21 +132,21 @@ static void lcd_test_task(void *arg)
 
     /* lcd_init() is called from main() before the scheduler starts.
      * Obtain the framebuffer pointer and confirm it. */
-    uint16_t *fb = lcd_get_framebuffer();
-    bool      fb_ok = (fb == (uint16_t *)SDRAM_BASE_ADDR);
+    uint32_t *fb = lcd_get_framebuffer();
+    bool      fb_ok = (fb == (uint32_t *)SDRAM_BASE_ADDR);
     log_result("TC-LCD-010 (framebuffer address after init)", fb_ok);
 
     /* --- TC-LCD-011 Solid colour fills -------------------------------- */
     LOG_INFO(MODULE_ID, "TC-LCD-011: solid colour fills");
-    fill_framebuffer(fb, RGB565_RED);
+    fill_framebuffer(fb, ARGB8888_RED);
     (void)lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(1000U));
 
-    fill_framebuffer(fb, RGB565_GREEN);
+    fill_framebuffer(fb, ARGB8888_GREEN);
     (void)lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(1000U));
 
-    fill_framebuffer(fb, RGB565_BLUE);
+    fill_framebuffer(fb, ARGB8888_BLUE);
     (void)lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(1000U));
 
@@ -155,10 +158,21 @@ static void lcd_test_task(void *arg)
     {
         for (uint32_t x = 0U; x < LCD_WIDTH; x++)
         {
-            /* Vertical bars: 8 colours cycling per 100 px column. */
-            uint16_t bar    = (uint16_t)((x / 100U) % 8U);
-            uint16_t grad_r = (uint16_t)((x >> 3U) & 0x1FU);
-            uint16_t colour = (uint16_t)(bar << 13U) | grad_r;
+            /* Vertical bars: 8 colours cycling, one per 100-px column. */
+            uint32_t bar = (x / 100U) % 8U;
+            uint8_t  r   = (bar & 0x1U) ? 0xFFU : 0x00U;
+            uint8_t  g   = (bar & 0x2U) ? 0xFFU : 0x00U;
+            uint8_t  b   = (bar & 0x4U) ? 0xFFU : 0x00U;
+
+//            /* Horizontal red gradient within each column (0..255). */
+//            uint8_t grad = (uint8_t)((x * 255U) / (LCD_WIDTH - 1U));
+//            r = (uint8_t)(r ^ grad);   /* XOR so the gradient is visible on all bars */
+
+            uint32_t colour = ((uint32_t)0xFFU << 24) |   /* alpha */
+                              ((uint32_t)r    << 16) |   /* red   */
+                              ((uint32_t)g    <<  8) |   /* green */
+                              ((uint32_t)b    <<  0);    /* blue  */
+
             fb[y * LCD_WIDTH + x] = colour;
         }
     }
@@ -172,7 +186,7 @@ static void lcd_test_task(void *arg)
     s_frame_done_count = 0U;
     (void)lcd_attach_frame_done(on_frame_done, s_test_task_handle);
 
-    fill_framebuffer(fb, RGB565_WHITE);
+    fill_framebuffer(fb, ARGB8888_WHITE);
 
     for (uint32_t i = 0U; i < FLUSH_COUNT; i++)
     {
@@ -220,14 +234,14 @@ static void lcd_test_task(void *arg)
 
 int main(void)
 {
-    system_clock_init_core();
+    system_clock_init();
     system_clock_enable_dwt();
 
-    (void)gpio_driver_init();
+    (void)gpio_init();
     (void)debug_uart_init();
     (void)rtc_init();
 
-    logger_init();
+    logger_init(LOG_LEVEL_DEBUG);
     LOG_INFO(MODULE_ID, "LcdDriver integration test firmware");
 
     /* SDRAM must be ready before lcd_init(). */
@@ -245,12 +259,20 @@ int main(void)
     if (lcd_err != LCD_ERR_OK)
     {
         LOG_ERROR(MODULE_ID, "lcd_init failed: %d (stage=0x%02X)",
-                  (int)lcd_err, (unsigned int)s_lcd_init_stage);
+                  (int)lcd_err, (unsigned int)/*s_lcd_init_stage*/0);
         for (;;)
         {
         }
     }
-    LOG_INFO(MODULE_ID, "lcd_init OK — stage %d", (int)s_lcd_init_stage);
+    LOG_INFO(MODULE_ID, "lcd_init OK — stage %d", (int)/*s_lcd_init_stage*/0);
+
+    uint32_t *fb = lcd_get_framebuffer();
+    if (fb != NULL) {
+        /* Fill entire framebuffer with red — RGB565 */
+        for (uint32_t i = 0; i < 800U * 480U; i++) {
+            fb[i] = 0xFFFFFFFFU;
+        }
+    }
 
     s_test_task_handle = xTaskCreateStatic(
         lcd_test_task, "LCD_TEST", TEST_TASK_STACK_WORDS, NULL,
