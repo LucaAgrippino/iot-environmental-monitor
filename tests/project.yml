@@ -52,9 +52,6 @@
   :test_i2c_driver_f4:
     - STM32F469xx
     - TEST
-  :test_i2c_driver_l4:
-    - STM32L475xx
-    - TEST
   :test_barometer_driver:
     - STM32F469xx
     - TEST
