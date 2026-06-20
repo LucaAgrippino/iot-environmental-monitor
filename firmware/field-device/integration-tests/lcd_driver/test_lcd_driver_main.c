@@ -35,6 +35,8 @@
 #include "sdram_driver/sdram_driver.h"
 #include "lcd_driver/lcd_driver.h"
 
+#include "stm32469i_discovery_lcd.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -60,6 +62,7 @@
 #define FLUSH_COUNT        (100U)
 #define FRAME_NOTIFY_TICKS (pdMS_TO_TICKS(500U))
 
+#define LAYER0_ADDRESS               (LCD_FB_START_ADDRESS)
 /* ===================================================================== */
 /* Test state                                                            */
 /* ===================================================================== */
@@ -121,8 +124,7 @@ static void fill_framebuffer(uint32_t *fb, uint32_t colour)
 /* Test task                                                             */
 /* ===================================================================== */
 
-#include "stm32469i_discovery_lcd.h"
-#define LAYER0_ADDRESS               (LCD_FB_START_ADDRESS)
+
 
 static void lcd_test_task(void *arg)
 {
