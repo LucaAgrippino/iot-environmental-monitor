@@ -73,7 +73,6 @@ LCD_TEST_VISIBLE lcd_driver_t s_lcd;
 
 lcd_err_t lcd_init(void)
 {
-
     /* Stage 1: enable LTDC, DSI, DMA2D peripheral clocks. */
     RCC->APB2ENR |= RCC_APB2ENR_LTDCEN | RCC_APB2ENR_DSIEN;
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA2DEN;
