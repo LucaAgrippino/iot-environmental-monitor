@@ -17,8 +17,8 @@
 
 #if defined(TEST) || defined(SIMULATOR)
 #define LOG_ERROR(m, f, ...) ((void) 0)
-#define LOG_WARN(m, f, ...)  ((void) 0)
-#define LOG_INFO(m, f, ...)  ((void) 0)
+#define LOG_WARN(m, f, ...) ((void) 0)
+#define LOG_INFO(m, f, ...) ((void) 0)
 #define LOG_DEBUG(m, f, ...) ((void) 0)
 #else
 #include "logger/logger.h"
@@ -42,7 +42,7 @@
 /* Timing constants                                                     */
 /* ===================================================================== */
 
-#define LCD_REFRESH_MS         (200U)   /* 03_SCREEN_SPECS.md §Refresh rate */
+#define LCD_REFRESH_MS (200U)           /* 03_SCREEN_SPECS.md §Refresh rate */
 #define LCD_CONFIRM_TIMEOUT_MS (30000U) /* §Config confirm auto-dismiss      */
 
 /* ===================================================================== */
@@ -50,8 +50,7 @@
 /* lcd_ui_editable_params_t member order)                               */
 /* ===================================================================== */
 
-static const int32_t k_field_min[N_EDITABLE_FIELDS] =
-{
+static const int32_t k_field_min[N_EDITABLE_FIELDS] = {
     100,   /* polling_interval_ms   — 100 ms minimum   */
     -4000, /* temp_alarm_hi_centi_c  — −40.0 °C       */
     -4000, /* temp_alarm_lo_centi_c  — −40.0 °C       */
@@ -61,8 +60,7 @@ static const int32_t k_field_min[N_EDITABLE_FIELDS] =
     3000,  /* pressure_alarm_lo_deci  — 300.0 hPa      */
 };
 
-static const int32_t k_field_max[N_EDITABLE_FIELDS] =
-{
+static const int32_t k_field_max[N_EDITABLE_FIELDS] = {
     60000, /* polling_interval_ms   — 60 s maximum     */
     8500,  /* temp_alarm_hi_centi_c  — 85.0 °C        */
     8500,  /* temp_alarm_lo_centi_c  — 85.0 °C        */
@@ -73,20 +71,18 @@ static const int32_t k_field_max[N_EDITABLE_FIELDS] =
 };
 
 /* Display sensor IDs — indices 0-2 into sensor_snapshot_t.readings[] */
-static const sensor_id_t k_display_sensor_ids[SENSOR_DISPLAY_COUNT] =
-{
+static const sensor_id_t k_display_sensor_ids[SENSOR_DISPLAY_COUNT] = {
     SENSOR_ID_TEMPERATURE,
     SENSOR_ID_HUMIDITY,
     SENSOR_ID_PRESSURE,
 };
 
 /* Header bar title for each screen — 03_SCREEN_SPECS.md §Header bar */
-static const char *const k_screen_titles[SCR_COUNT] =
-{
-    "SENSOR OVERVIEW",  /* SCR_SENSOR */
-    "SYSTEM STATUS",    /* SCR_STATUS */
-    "ACTIVE ALARMS",    /* SCR_ALARM  */
-    "CONFIGURATION",    /* SCR_CONFIG */
+static const char *const k_screen_titles[SCR_COUNT] = {
+    "SENSOR OVERVIEW", /* SCR_SENSOR */
+    "SYSTEM STATUS",   /* SCR_STATUS */
+    "ACTIVE ALARMS",   /* SCR_ALARM  */
+    "CONFIGURATION",   /* SCR_CONFIG */
 };
 
 /* ===================================================================== */
@@ -176,13 +172,13 @@ static void snapshot_config_to_committed(config_screen_t *scr)
     {
         return;
     }
-    scr->committed.polling_interval_ms    = p->polling_interval_ms;
-    scr->committed.temp_alarm_hi_centi_c  = p->temp_alarm_high;
-    scr->committed.temp_alarm_lo_centi_c  = p->temp_alarm_low;
+    scr->committed.polling_interval_ms = p->polling_interval_ms;
+    scr->committed.temp_alarm_hi_centi_c = p->temp_alarm_high;
+    scr->committed.temp_alarm_lo_centi_c = p->temp_alarm_low;
     scr->committed.humidity_alarm_hi_centi = p->humidity_alarm_high;
     scr->committed.humidity_alarm_lo_centi = p->humidity_alarm_low;
-    scr->committed.pressure_alarm_hi_deci  = p->pressure_alarm_high;
-    scr->committed.pressure_alarm_lo_deci  = p->pressure_alarm_low;
+    scr->committed.pressure_alarm_hi_deci = p->pressure_alarm_high;
+    scr->committed.pressure_alarm_lo_deci = p->pressure_alarm_low;
 }
 
 /** Populate spinboxes from committed values and disable them. */
@@ -215,7 +211,7 @@ static bool apply_block_to_config(config_screen_t *scr)
 {
     const iconfig_manager_t *cfg = scr->cfg_write;
     uint32_t v_u32;
-    int16_t  v_i16;
+    int16_t v_i16;
     uint16_t v_u16;
 
     v_u32 = scr->pending.polling_interval_ms;
@@ -284,7 +280,7 @@ LCD_UI_TEST_VISIBLE void lcd_ui_goto_tab(uint16_t idx)
     }
 
     s_ui.current->on_exit(s_ui.current);
-    s_ui.current         = new_scr;
+    s_ui.current = new_scr;
     s_ui.current_tab_idx = idx;
 
     /* Show only the newly-active content panel */
@@ -350,45 +346,35 @@ static void sensor_screen_on_refresh(screen_t *self)
     for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
     {
         sensor_id_t id = k_display_sensor_ids[i];
-        sensor_card_update(&scr->cards[i],
-                           snap.readings[id].value,
-                           snap.readings[id].valid);
+        sensor_card_update(&scr->cards[i], snap.readings[id].value, snap.readings[id].valid);
     }
 }
 
 static void build_sensor_screen(sensor_screen_t *scr, lv_obj_t *panel,
-                                 const isensor_service_t *sensors)
+                                const isensor_service_t *sensors)
 {
     /* Card x positions — centred within 800 px content area.
      * Total cards+gaps: 3×244 + 2×8 = 748; side margin = (800-748)/2 = 26 */
     static const lv_coord_t k_card_x[SENSOR_DISPLAY_COUNT] = {22, 281, 540};
 
-    static const char *const k_eyebrow[SENSOR_DISPLAY_COUNT] =
-    {
-        "TEMPERATURE", "HUMIDITY", "PRESSURE"
-    };
-    static const char *const k_unit[SENSOR_DISPLAY_COUNT] =
-    {
-        "C", "%", "hPa"
-    };
-    static const sensor_card_fmt_t k_fmts[SENSOR_DISPLAY_COUNT] =
-    {
+    static const char *const k_eyebrow[SENSOR_DISPLAY_COUNT] = {"TEMPERATURE", "HUMIDITY",
+                                                                "PRESSURE"};
+    static const char *const k_unit[SENSOR_DISPLAY_COUNT] = {"C", "%", "hPa"};
+    static const sensor_card_fmt_t k_fmts[SENSOR_DISPLAY_COUNT] = {
         SENSOR_CARD_FMT_CENTI, /* temperature  — 0.01 °C  */
         SENSOR_CARD_FMT_CENTI, /* humidity     — 0.01 %RH */
         SENSOR_CARD_FMT_DECI,  /* pressure     — 0.1 hPa  */
     };
 
-    scr->base.on_enter   = sensor_screen_on_enter;
-    scr->base.on_exit    = sensor_screen_on_exit;
+    scr->base.on_enter = sensor_screen_on_enter;
+    scr->base.on_exit = sensor_screen_on_exit;
     scr->base.on_refresh = sensor_screen_on_refresh;
-    scr->sensors         = sensors;
+    scr->sensors = sensors;
 
     for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
     {
-        sensor_card_create(&scr->cards[i], panel,
-                           k_card_x[i], THEME_CARD_Y_MARGIN,
-                           THEME_CARD_W, THEME_CARD_H,
-                           k_eyebrow[i], k_unit[i], k_fmts[i]);
+        sensor_card_create(&scr->cards[i], panel, k_card_x[i], THEME_CARD_Y_MARGIN, THEME_CARD_W,
+                           THEME_CARD_H, k_eyebrow[i], k_unit[i], k_fmts[i]);
     }
 
     /* Wire convenience alias pointers — preserve TC-011..TC-014 assertion surface */
@@ -396,8 +382,8 @@ static void build_sensor_screen(sensor_screen_t *scr, lv_obj_t *panel,
     for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
     {
         scr->value_label[i] = scr->cards[i].value_lbl;
-        scr->unit_label[i]  = scr->cards[i].unit_lbl;
-        scr->icon_label[i]  = scr->cards[i].status_lbl;
+        scr->unit_label[i] = scr->cards[i].unit_lbl;
+        scr->icon_label[i] = scr->cards[i].status_lbl;
     }
 }
 
@@ -425,21 +411,21 @@ static void status_screen_on_refresh(screen_t *self)
     (void) memset(&snap, 0, sizeof(snap));
     (void) scr->health->get_snapshot(&snap);
 
-#define FMT_METRIC(fmt, ...)                                              \
-    do                                                                    \
-    {                                                                     \
-        (void) snprintf(buf, sizeof(buf), (fmt), ##__VA_ARGS__);          \
-        lv_label_set_text(scr->metric_label[m], buf);                     \
-        m++;                                                              \
+#define FMT_METRIC(fmt, ...)                                                                       \
+    do                                                                                             \
+    {                                                                                              \
+        (void) snprintf(buf, sizeof(buf), (fmt), ##__VA_ARGS__);                                   \
+        lv_label_set_text(scr->metric_label[m], buf);                                              \
+        m++;                                                                                       \
     } while (0)
 
-    FMT_METRIC("Uptime: %lus",         (unsigned long) snap.uptime_s);
-    FMT_METRIC("Sensor fails: %lu",    (unsigned long) snap.sensor_fail_count);
-    FMT_METRIC("Alarm raises: %lu",    (unsigned long) snap.alarm_raise_count);
-    FMT_METRIC("Cfg fail: %s",         snap.config_write_failed ? "YES" : "NO");
-    FMT_METRIC("Modbus OK: %lu",       (unsigned long) snap.modbus_valid_frames);
-    FMT_METRIC("Modbus CRC err: %lu",  (unsigned long) snap.modbus_crc_errors);
-    FMT_METRIC("Modbus except: %lu",   (unsigned long) snap.modbus_exception_responses);
+    FMT_METRIC("Uptime: %lus", (unsigned long) snap.uptime_s);
+    FMT_METRIC("Sensor fails: %lu", (unsigned long) snap.sensor_fail_count);
+    FMT_METRIC("Alarm raises: %lu", (unsigned long) snap.alarm_raise_count);
+    FMT_METRIC("Cfg fail: %s", snap.config_write_failed ? "YES" : "NO");
+    FMT_METRIC("Modbus OK: %lu", (unsigned long) snap.modbus_valid_frames);
+    FMT_METRIC("Modbus CRC err: %lu", (unsigned long) snap.modbus_crc_errors);
+    FMT_METRIC("Modbus except: %lu", (unsigned long) snap.modbus_exception_responses);
 
     for (uint32_t i = 0U; i < LCD_UI_STATUS_STACK_LABELS; i++)
     {
@@ -450,19 +436,19 @@ static void status_screen_on_refresh(screen_t *self)
 }
 
 static void build_status_screen(status_screen_t *scr, lv_obj_t *panel,
-                                 const ihealth_snapshot_t *health)
+                                const ihealth_snapshot_t *health)
 {
-    scr->base.on_enter   = status_screen_on_enter;
-    scr->base.on_exit    = status_screen_on_exit;
+    scr->base.on_enter = status_screen_on_enter;
+    scr->base.on_exit = status_screen_on_exit;
     scr->base.on_refresh = status_screen_on_refresh;
-    scr->health          = health;
+    scr->health = health;
 
     for (uint32_t i = 0U; i < STATUS_METRIC_COUNT; i++)
     {
         scr->metric_label[i] = lv_label_create(panel);
         lv_obj_remove_style_all(scr->metric_label[i]);
         lv_obj_set_pos(scr->metric_label[i], THEME_SP_7,
-                       (lv_coord_t)(THEME_SP_7 + (lv_coord_t)(i * 20U)));
+                       (lv_coord_t) (THEME_SP_7 + (lv_coord_t) (i * 20U)));
         lv_obj_add_style(scr->metric_label[i], &theme_st_label_ink, LV_PART_MAIN);
         lv_label_set_text(scr->metric_label[i], "");
     }
@@ -515,7 +501,7 @@ static void alarm_screen_on_refresh(screen_t *self)
     lv_obj_clear_flag(scr->list_widget, LV_OBJ_FLAG_HIDDEN);
 
     static const char *const k_sensor_names[SENSOR_DISPLAY_COUNT] = {"Temp", "Hum", "Pres"};
-    static const char *const k_type_names[3]                       = {"CLEAR", "HIGH", "LOW"};
+    static const char *const k_type_names[3] = {"CLEAR", "HIGH", "LOW"};
 
     for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
     {
@@ -531,18 +517,16 @@ static void alarm_screen_on_refresh(screen_t *self)
     }
 }
 
-static void build_alarm_screen(alarm_screen_t *scr, lv_obj_t *panel,
-                                const ialarm_service_t *alarms)
+static void build_alarm_screen(alarm_screen_t *scr, lv_obj_t *panel, const ialarm_service_t *alarms)
 {
-    scr->base.on_enter   = alarm_screen_on_enter;
-    scr->base.on_exit    = alarm_screen_on_exit;
+    scr->base.on_enter = alarm_screen_on_enter;
+    scr->base.on_exit = alarm_screen_on_exit;
     scr->base.on_refresh = alarm_screen_on_refresh;
-    scr->alarms          = alarms;
+    scr->alarms = alarms;
 
     scr->list_widget = lv_list_create(panel);
     lv_obj_set_pos(scr->list_widget, THEME_SP_7, THEME_SP_7);
-    lv_obj_set_size(scr->list_widget,
-                    THEME_CANVAS_W - 2 * THEME_SP_7,
+    lv_obj_set_size(scr->list_widget, THEME_CANVAS_W - 2 * THEME_SP_7,
                     THEME_CONTENT_H - 2 * THEME_SP_7);
 
     scr->no_alarms_label = lv_label_create(panel);
@@ -593,28 +577,25 @@ static void config_screen_on_refresh(screen_t *self)
 }
 
 static void build_config_screen(config_screen_t *scr, lv_obj_t *panel,
-                                 const iconfig_provider_t *cfg_read,
-                                 const iconfig_manager_t *cfg_write,
-                                 const ihealth_report_t *report)
+                                const iconfig_provider_t *cfg_read,
+                                const iconfig_manager_t *cfg_write, const ihealth_report_t *report)
 {
-    static const char *const k_field_names[N_EDITABLE_FIELDS] =
-    {
-        "Poll interval (ms)", "Temp alarm hi (cc)",   "Temp alarm lo (cc)",
-        "Hum alarm hi (c%)",  "Hum alarm lo (c%)",    "Pres alarm hi (dhPa)",
-        "Pres alarm lo (dhPa)",
+    static const char *const k_field_names[N_EDITABLE_FIELDS] = {
+        "Poll interval (ms)", "Temp alarm hi (cc)",   "Temp alarm lo (cc)",   "Hum alarm hi (c%)",
+        "Hum alarm lo (c%)",  "Pres alarm hi (dhPa)", "Pres alarm lo (dhPa)",
     };
     static const int32_t k_spinbox_steps[N_EDITABLE_FIELDS] = {100, 50, 50, 100, 100, 10, 10};
 
-    scr->base.on_enter   = config_screen_on_enter;
-    scr->base.on_exit    = config_screen_on_exit;
+    scr->base.on_enter = config_screen_on_enter;
+    scr->base.on_exit = config_screen_on_exit;
     scr->base.on_refresh = config_screen_on_refresh;
-    scr->cfg_read        = cfg_read;
-    scr->cfg_write       = cfg_write;
-    scr->report          = report;
+    scr->cfg_read = cfg_read;
+    scr->cfg_write = cfg_write;
+    scr->report = report;
 
     for (uint32_t i = 0U; i < N_EDITABLE_FIELDS; i++)
     {
-        lv_coord_t y = (lv_coord_t)(THEME_SP_7 + (lv_coord_t)(i * 40U));
+        lv_coord_t y = (lv_coord_t) (THEME_SP_7 + (lv_coord_t) (i * 40U));
 
         scr->field_label[i] = lv_label_create(panel);
         lv_obj_remove_style_all(scr->field_label[i]);
@@ -638,7 +619,7 @@ static void build_config_screen(config_screen_t *scr, lv_obj_t *panel,
         lv_obj_add_flag(scr->err_label[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    lv_coord_t btn_y = (lv_coord_t)(THEME_SP_7 + (lv_coord_t)(N_EDITABLE_FIELDS * 40U));
+    lv_coord_t btn_y = (lv_coord_t) (THEME_SP_7 + (lv_coord_t) (N_EDITABLE_FIELDS * 40U));
 
     scr->cancel_btn = lv_btn_create(panel);
     lv_obj_set_pos(scr->cancel_btn, THEME_SP_7, btn_y);
@@ -656,8 +637,7 @@ static void build_config_screen(config_screen_t *scr, lv_obj_t *panel,
     lv_obj_add_flag(scr->confirm_dialog, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(scr->confirm_dialog, confirm_tapped_cb, LV_EVENT_CLICKED, NULL);
 
-    scr->confirm_timeout_timer =
-        lv_timer_create(confirm_timeout_cb, LCD_CONFIRM_TIMEOUT_MS, NULL);
+    scr->confirm_timeout_timer = lv_timer_create(confirm_timeout_cb, LCD_CONFIRM_TIMEOUT_MS, NULL);
     lv_timer_pause(scr->confirm_timeout_timer);
 }
 
@@ -690,8 +670,8 @@ LCD_UI_TEST_VISIBLE void config_field_tapped_cb(lv_event_t *e)
 
 LCD_UI_TEST_VISIBLE void config_field_changed_cb(lv_event_t *e)
 {
-    config_screen_t *scr    = &s_ui.config_screen;
-    lv_obj_t        *target = lv_event_get_target(e);
+    config_screen_t *scr = &s_ui.config_screen;
+    lv_obj_t *target = lv_event_get_target(e);
 
     uint32_t idx = N_EDITABLE_FIELDS;
     for (uint32_t i = 0U; i < N_EDITABLE_FIELDS; i++)
@@ -789,8 +769,8 @@ void lcd_ui_tick(void)
 }
 
 lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_t *alarms,
-                          const iconfig_provider_t *cfg_read, const iconfig_manager_t *cfg_write,
-                          const ihealth_snapshot_t *health, const ihealth_report_t *report)
+                         const iconfig_provider_t *cfg_read, const iconfig_manager_t *cfg_write,
+                         const ihealth_snapshot_t *health, const ihealth_report_t *report)
 {
     if ((sensors == NULL) || (alarms == NULL) || (cfg_read == NULL) || (cfg_write == NULL) ||
         (health == NULL) || (report == NULL))
@@ -812,12 +792,12 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
         return LCD_UI_ERR_GRAPHICS_INIT;
     }
 
-    s_ui.sensors   = sensors;
-    s_ui.alarms    = alarms;
-    s_ui.cfg_read  = cfg_read;
+    s_ui.sensors = sensors;
+    s_ui.alarms = alarms;
+    s_ui.cfg_read = cfg_read;
     s_ui.cfg_write = cfg_write;
-    s_ui.health    = health;
-    s_ui.report    = report;
+    s_ui.health = health;
+    s_ui.report = report;
 
     /* ── Root screen ─────────────────────────────────────────────────── */
     lv_obj_t *root = lv_scr_act();
@@ -851,9 +831,8 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
     /* ── Build screen widget trees ───────────────────────────────────── */
     build_sensor_screen(&s_ui.sensor_screen, s_ui.content[SCR_SENSOR], sensors);
     build_status_screen(&s_ui.status_screen, s_ui.content[SCR_STATUS], health);
-    build_alarm_screen (&s_ui.alarm_screen,  s_ui.content[SCR_ALARM],  alarms);
-    build_config_screen(&s_ui.config_screen, s_ui.content[SCR_CONFIG],
-                        cfg_read, cfg_write, report);
+    build_alarm_screen(&s_ui.alarm_screen, s_ui.content[SCR_ALARM], alarms);
+    build_config_screen(&s_ui.config_screen, s_ui.content[SCR_CONFIG], cfg_read, cfg_write, report);
 
     /* ── Toast label — above all content ────────────────────────────── */
     s_ui.toast_label = lv_label_create(root);
@@ -866,7 +845,7 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
     /* ── Screen dispatch table ───────────────────────────────────────── */
     s_ui.screens[SCR_SENSOR] = (screen_t *) &s_ui.sensor_screen;
     s_ui.screens[SCR_STATUS] = (screen_t *) &s_ui.status_screen;
-    s_ui.screens[SCR_ALARM]  = (screen_t *) &s_ui.alarm_screen;
+    s_ui.screens[SCR_ALARM] = (screen_t *) &s_ui.alarm_screen;
     s_ui.screens[SCR_CONFIG] = (screen_t *) &s_ui.config_screen;
 
     /* ── Hide non-sensor content panels ─────────────────────────────── */
@@ -876,7 +855,7 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
     }
 
     /* ── Enter sensor screen (§12 step 2: shows "Waiting for data…") ── */
-    s_ui.current         = s_ui.screens[SCR_SENSOR];
+    s_ui.current = s_ui.screens[SCR_SENSOR];
     s_ui.current_tab_idx = (uint16_t) SCR_SENSOR;
     s_ui.current->on_enter(s_ui.current);
 
@@ -931,7 +910,7 @@ void lcd_ui_test_fire_cfg_field_tapped(uint32_t field_idx)
     lv_event_t evt;
     (void) memset(&evt, 0, sizeof(evt));
     evt.target = scr->spinbox[field_idx];
-    evt.code   = LV_EVENT_CLICKED;
+    evt.code = LV_EVENT_CLICKED;
     config_field_tapped_cb(&evt);
 }
 
@@ -945,7 +924,7 @@ void lcd_ui_test_fire_cfg_field_changed(uint32_t field_idx)
     lv_event_t evt;
     (void) memset(&evt, 0, sizeof(evt));
     evt.target = scr->spinbox[field_idx];
-    evt.code   = LV_EVENT_VALUE_CHANGED;
+    evt.code = LV_EVENT_VALUE_CHANGED;
     config_field_changed_cb(&evt);
 }
 

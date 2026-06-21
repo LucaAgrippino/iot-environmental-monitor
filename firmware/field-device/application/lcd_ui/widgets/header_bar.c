@@ -13,8 +13,8 @@
  * child labels are positioned relative to the header bar container. */
 
 /* Internal child index conventions (not exposed) */
-#define HDR_CHILD_TITLE_IDX  0
-#define HDR_CHILD_TIME_IDX   1
+#define HDR_CHILD_TITLE_IDX 0
+#define HDR_CHILD_TIME_IDX 1
 
 /* ===================================================================== */
 /* File-scope state                                                     */
@@ -60,7 +60,7 @@ lv_obj_t *header_bar_create(lv_obj_t *parent, const char *title)
 
 void header_bar_set_title(lv_obj_t *header_obj, const char *title)
 {
-    (void)header_obj; /* title label accessed via s_title_lbl */
+    (void) header_obj; /* title label accessed via s_title_lbl */
     if (title != NULL)
     {
         lv_label_set_text(s_title_lbl, title);

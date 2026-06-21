@@ -11,7 +11,7 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>  /* abs() for int32_t */
+#include <stdlib.h> /* abs() for int32_t */
 
 #include "lcd_ui/widgets/sensor_card.h"
 #include "lcd_ui/theme.h"
@@ -21,18 +21,18 @@
 /* ===================================================================== */
 
 /* Horizontal offset for text content (right of the 4 px stripe) */
-#define CARD_TEXT_X     (THEME_CARD_STRIPE_W + THEME_SP_7)   /* = 20 */
-#define CARD_TEXT_W     (THEME_CARD_W - CARD_TEXT_X - THEME_SP_7)
+#define CARD_TEXT_X (THEME_CARD_STRIPE_W + THEME_SP_7) /* = 20 */
+#define CARD_TEXT_W (THEME_CARD_W - CARD_TEXT_X - THEME_SP_7)
 
 /* Vertical positions (03_SCREEN_SPECS.md §Sensor card) */
-#define CARD_EYEBROW_Y  THEME_SP_8    /* = 18 */
-#define CARD_VALUE_Y    52            /* hero number top edge       */
-#define CARD_UNIT_Y     (CARD_VALUE_Y + 18)  /* unit below value number */
-#define CARD_WAITING_Y  CARD_VALUE_Y  /* overlaps hero area         */
-#define CARD_SPARK_Y    (THEME_CARD_H - THEME_SP_8 - THEME_SPARKLINE_H - 20)
-#define CARD_STATUS_Y   (THEME_CARD_H - THEME_SP_8 - 14)
-#define CARD_DELTA_X    (THEME_CARD_W - THEME_SP_7 - 20)
-#define CARD_DELTA_Y    CARD_STATUS_Y
+#define CARD_EYEBROW_Y THEME_SP_8       /* = 18 */
+#define CARD_VALUE_Y 52                 /* hero number top edge       */
+#define CARD_UNIT_Y (CARD_VALUE_Y + 18) /* unit below value number */
+#define CARD_WAITING_Y CARD_VALUE_Y     /* overlaps hero area         */
+#define CARD_SPARK_Y (THEME_CARD_H - THEME_SP_8 - THEME_SPARKLINE_H - 20)
+#define CARD_STATUS_Y (THEME_CARD_H - THEME_SP_8 - 14)
+#define CARD_DELTA_X (THEME_CARD_W - THEME_SP_7 - 20)
+#define CARD_DELTA_Y CARD_STATUS_Y
 
 /* ===================================================================== */
 /* Internal formatting                                                  */
@@ -45,15 +45,15 @@ static void format_value(char *buf, int32_t value, sensor_card_fmt_t fmt)
     if (fmt == SENSOR_CARD_FMT_CENTI)
     {
         /* ×100 — one decimal place, e.g. 2340 → "23.4", -450 → "-4.5" */
-        int32_t int_part  = value / 100;
-        int32_t remainder = abs((int)(value % 100));
-        int32_t tenths    = remainder / 10;
-        (void)snprintf(buf, FMT_BUF_SIZE, "%d.%d", (int)int_part, (int)tenths);
+        int32_t int_part = value / 100;
+        int32_t remainder = abs((int) (value % 100));
+        int32_t tenths = remainder / 10;
+        (void) snprintf(buf, FMT_BUF_SIZE, "%d.%d", (int) int_part, (int) tenths);
     }
     else /* SENSOR_CARD_FMT_DECI */
     {
         /* ×10 — integer, e.g. 10132 → "1013" */
-        (void)snprintf(buf, FMT_BUF_SIZE, "%d", (int)(value / 10));
+        (void) snprintf(buf, FMT_BUF_SIZE, "%d", (int) (value / 10));
     }
 }
 
@@ -61,12 +61,9 @@ static void format_value(char *buf, int32_t value, sensor_card_fmt_t fmt)
 /* sensor_card_create                                                   */
 /* ===================================================================== */
 
-void sensor_card_create(sensor_card_t *card, lv_obj_t *parent,
-                         lv_coord_t x, lv_coord_t y,
-                         lv_coord_t w, lv_coord_t h,
-                         const char *eyebrow_text,
-                         const char *unit_text,
-                         sensor_card_fmt_t fmt)
+void sensor_card_create(sensor_card_t *card, lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
+                        lv_coord_t w, lv_coord_t h, const char *eyebrow_text, const char *unit_text,
+                        sensor_card_fmt_t fmt)
 {
     card->fmt = fmt;
 
@@ -97,7 +94,7 @@ void sensor_card_create(sensor_card_t *card, lv_obj_t *parent,
 
     /* ── Hero value label (large number) ─────────────────────────────── */
     card->value_lbl = lv_label_create(card->obj);
-    lv_obj_remove_style_all(card->value_lbl);   
+    lv_obj_remove_style_all(card->value_lbl);
     lv_obj_set_pos(card->value_lbl, CARD_TEXT_X, CARD_VALUE_Y);
     lv_obj_add_style(card->value_lbl, &theme_st_label_ink, LV_PART_MAIN);
     /* TODO(fonts): replace with FONT_HERO (48 px) */
@@ -160,11 +157,11 @@ void sensor_card_show_waiting(sensor_card_t *card)
 
     lv_obj_clear_flag(card->waiting_lbl, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_add_flag(card->value_lbl,   LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(card->unit_lbl,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(card->sparkline,   LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(card->status_lbl,  LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(card->delta_lbl,   LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->value_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->unit_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->sparkline, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->status_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card->delta_lbl, LV_OBJ_FLAG_HIDDEN);
 }
 
 /* ===================================================================== */
@@ -177,11 +174,11 @@ void sensor_card_update(sensor_card_t *card, int32_t value, bool valid)
     lv_obj_add_flag(card->waiting_lbl, LV_OBJ_FLAG_HIDDEN);
 
     /* Show persistent widgets */
-    lv_obj_clear_flag(card->value_lbl,  LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(card->unit_lbl,   LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(card->sparkline,  LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(card->value_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(card->unit_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(card->sparkline, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(card->status_lbl, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(card->delta_lbl,  LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(card->delta_lbl, LV_OBJ_FLAG_HIDDEN);
 
     if (valid)
     {

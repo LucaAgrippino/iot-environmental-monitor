@@ -33,8 +33,7 @@
  *                    Must not be NULL.
  * @return Pointer to the created tab bar lv_obj_t.
  */
-lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx,
-                          void (*on_change)(uint16_t idx));
+lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx, void (*on_change)(uint16_t idx));
 
 /**
  * @brief Update the visual highlight to reflect a new active tab.

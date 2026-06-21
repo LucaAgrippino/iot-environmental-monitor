@@ -17,7 +17,7 @@
 
 static lv_obj_t *s_tab_btns[THEME_TAB_COL_COUNT];
 static lv_obj_t *s_tab_accents[THEME_TAB_COL_COUNT];
-static void    (*s_on_change)(uint16_t idx);
+static void (*s_on_change)(uint16_t idx);
 
 /* ===================================================================== */
 /* Internal helpers                                                     */
@@ -25,9 +25,9 @@ static void    (*s_on_change)(uint16_t idx);
 
 static void tab_event_cb(lv_event_t *e)
 {
-    lv_obj_t *btn = lv_event_get_target(e);
+    const lv_obj_t *btn = lv_event_get_target(e);
 
-    for (uint16_t i = 0U; i < (uint16_t)THEME_TAB_COL_COUNT; i++)
+    for (uint16_t i = 0U; i < (uint16_t) THEME_TAB_COL_COUNT; i++)
     {
         if (s_tab_btns[i] == btn)
         {
@@ -41,8 +41,7 @@ static void tab_event_cb(lv_event_t *e)
 }
 
 /* Tab labels in declaration order — 03_SCREEN_SPECS.md §Tab bar */
-static const char *const k_tab_labels[THEME_TAB_COL_COUNT] =
-{
+static const char *const k_tab_labels[THEME_TAB_COL_COUNT] = {
     "SENSORS", /* TODO(icons): prepend icon glyph when icon font is available */
     "STATUS",
     "ALARMS",
@@ -53,8 +52,7 @@ static const char *const k_tab_labels[THEME_TAB_COL_COUNT] =
 /* tab_bar_create                                                        */
 /* ===================================================================== */
 
-lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx,
-                          void (*on_change)(uint16_t idx))
+lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx, void (*on_change)(uint16_t idx))
 {
     s_on_change = on_change;
 
@@ -66,9 +64,9 @@ lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx,
     lv_obj_add_style(bar, &theme_st_tab_bar, LV_PART_MAIN);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    for (uint16_t i = 0U; i < (uint16_t)THEME_TAB_COL_COUNT; i++)
+    for (uint16_t i = 0U; i < (uint16_t) THEME_TAB_COL_COUNT; i++)
     {
-        lv_coord_t x = (lv_coord_t)((lv_coord_t)i * THEME_TAB_COL_W);
+        lv_coord_t x = (lv_coord_t) ((lv_coord_t) i * THEME_TAB_COL_W);
 
         /* Button — covers the full column */
         lv_obj_t *btn = lv_btn_create(bar);
@@ -91,7 +89,7 @@ lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx,
         lv_obj_set_style_bg_opa(accent, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_radius(accent, THEME_RAD_NONE, LV_PART_MAIN);
 
-        s_tab_btns[i]    = btn;
+        s_tab_btns[i] = btn;
         s_tab_accents[i] = accent;
     }
 
@@ -105,9 +103,9 @@ lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx,
 
 void tab_bar_set_active(lv_obj_t *tab_bar_obj, uint16_t idx)
 {
-    (void)tab_bar_obj; /* accent array is indexed directly */
+    (void) tab_bar_obj; /* accent array is indexed directly */
 
-    for (uint16_t i = 0U; i < (uint16_t)THEME_TAB_COL_COUNT; i++)
+    for (uint16_t i = 0U; i < (uint16_t) THEME_TAB_COL_COUNT; i++)
     {
         bool is_active = (i == idx);
 

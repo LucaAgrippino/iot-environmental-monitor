@@ -27,10 +27,10 @@
 typedef enum
 {
     PILL_RUNNING = 0, /**< Normal operation — COL_OK   */
-    PILL_INIT    = 1, /**< Startup / not ready — COL_DIM */
-    PILL_ALARM   = 2, /**< Active alarm — COL_ERR, blinks */
-    PILL_UPDATE  = 3, /**< Firmware update — COL_WARN  */
-	PILL_STATE_MAX,
+    PILL_INIT = 1,    /**< Startup / not ready — COL_DIM */
+    PILL_ALARM = 2,   /**< Active alarm — COL_ERR, blinks */
+    PILL_UPDATE = 3,  /**< Firmware update — COL_WARN  */
+    PILL_STATE_MAX,
 } pill_state_t;
 
 /* ===================================================================== */

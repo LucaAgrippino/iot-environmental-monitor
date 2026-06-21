@@ -25,6 +25,13 @@
 
 #include "lcd_ui/lcd_ui.h"   /* brings in stubs + screen_internal.h (TEST) */
 
+TEST_FILE("theme.c")
+TEST_FILE("tab_bar.c")
+TEST_FILE("header_bar.c")
+TEST_FILE("footer_bar.c")
+TEST_FILE("sensor_card.c")
+TEST_FILE("status_pill.c")
+
 /* ===================================================================== */
 /* Graphics library stub implementations (declared in graphics_library_stub.h) */
 /* ===================================================================== */

@@ -45,7 +45,7 @@
 typedef enum
 {
     SENSOR_CARD_FMT_CENTI = 0, /**< ×100 — one decimal digit displayed */
-    SENSOR_CARD_FMT_DECI  = 1, /**< ×10  — integer displayed           */
+    SENSOR_CARD_FMT_DECI = 1,  /**< ×10  — integer displayed           */
 } sensor_card_fmt_t;
 
 /* ===================================================================== */
@@ -61,16 +61,16 @@ typedef enum
  */
 typedef struct
 {
-    lv_obj_t         *obj;          /**< Card container (244 × 280 px)     */
-    lv_obj_t         *stripe;       /**< 4 px left status stripe           */
-    lv_obj_t         *eyebrow_lbl;  /**< "TEMPERATURE" etc. (COL_MUTED)   */
-    lv_obj_t         *value_lbl;    /**< Hero numeric value, e.g. "23.4"   */
-    lv_obj_t         *unit_lbl;     /**< Unit string, e.g. "C"             */
-    lv_obj_t         *waiting_lbl;  /**< "Waiting for data..." overlay     */
-    lv_obj_t         *sparkline;    /**< 200 × 34 px placeholder box       */
-    lv_obj_t         *status_lbl;   /**< "OK" / "ERROR" / "WAITING"       */
-    lv_obj_t         *delta_lbl;    /**< "\xe2\x80\x94" em-dash placeholder */
-    sensor_card_fmt_t fmt;          /**< Stored at creation time           */
+    lv_obj_t *obj;         /**< Card container (244 × 280 px)     */
+    lv_obj_t *stripe;      /**< 4 px left status stripe           */
+    lv_obj_t *eyebrow_lbl; /**< "TEMPERATURE" etc. (COL_MUTED)   */
+    lv_obj_t *value_lbl;   /**< Hero numeric value, e.g. "23.4"   */
+    lv_obj_t *unit_lbl;    /**< Unit string, e.g. "C"             */
+    lv_obj_t *waiting_lbl; /**< "Waiting for data..." overlay     */
+    lv_obj_t *sparkline;   /**< 200 × 34 px placeholder box       */
+    lv_obj_t *status_lbl;  /**< "OK" / "ERROR" / "WAITING"       */
+    lv_obj_t *delta_lbl;   /**< "\xe2\x80\x94" em-dash placeholder */
+    sensor_card_fmt_t fmt; /**< Stored at creation time           */
 } sensor_card_t;
 
 /* ===================================================================== */
@@ -92,12 +92,9 @@ typedef struct
  * @param unit_text     Unit label ("C", "%", "hPa").
  * @param fmt           Fixed-point format.
  */
-void sensor_card_create(sensor_card_t *card, lv_obj_t *parent,
-                         lv_coord_t x, lv_coord_t y,
-                         lv_coord_t w, lv_coord_t h,
-                         const char *eyebrow_text,
-                         const char *unit_text,
-                         sensor_card_fmt_t fmt);
+void sensor_card_create(sensor_card_t *card, lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
+                        lv_coord_t w, lv_coord_t h, const char *eyebrow_text, const char *unit_text,
+                        sensor_card_fmt_t fmt);
 
 /**
  * @brief Reset card to "Waiting for data…" state.

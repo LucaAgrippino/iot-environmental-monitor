@@ -291,7 +291,7 @@ void     lv_spinbox_set_step(lv_obj_t *obj, uint32_t step);
 void     lv_spinbox_set_digit_format(lv_obj_t *obj, uint8_t digit_count,
                                      uint8_t separator_position);
 
-void     lv_list_clean(lv_obj_t *obj);
+void     lv_obj_clean(lv_obj_t *obj);
 void     lv_list_add_text(lv_obj_t *obj, const char *text);
 uint32_t lv_list_get_size(lv_obj_t *obj);
 

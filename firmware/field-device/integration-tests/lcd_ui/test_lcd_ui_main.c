@@ -210,7 +210,7 @@ static void it_task(void *arg)
     s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].timestamp.epoch = 1718000000UL;
 
     LOG_INFO(IT_TASK_TAG,
-             "Phase 2: sensor data injected — check values on panel (temp=23.5)");
+             "Phase 2: sensor data injected — check values on panel (T=23.5)");
     vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
 
     /* ------------------------------------------------------------------ */

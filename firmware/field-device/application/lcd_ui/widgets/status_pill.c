@@ -13,7 +13,7 @@
 /* ===================================================================== */
 
 /* Blink period for PILL_ALARM — visible for 500 ms, dark for 500 ms. */
-#define PILL_BLINK_ON_MS  500U
+#define PILL_BLINK_ON_MS 500U
 #define PILL_BLINK_OFF_MS 500U
 
 /* ===================================================================== */
@@ -22,8 +22,8 @@
 
 typedef struct
 {
-    lv_color_t   colour;
-    const char  *text;
+    lv_color_t colour;
+    const char *text;
 } pill_spec_t;
 
 /* Indexed by pill_state_t */
@@ -32,8 +32,8 @@ static pill_spec_t k_pill_specs[PILL_STATE_MAX];
 /* Animation exec callback — varies object opacity for step-blink */
 static void pill_blink_exec_cb(void *var, int32_t val)
 {
-    lv_obj_t *obj = (lv_obj_t *)var;
-    lv_obj_set_style_opa(obj, (lv_opa_t)val, LV_PART_MAIN);
+    lv_obj_t *obj = (lv_obj_t *) var;
+    lv_obj_set_style_opa(obj, (lv_opa_t) val, LV_PART_MAIN);
 }
 
 static lv_anim_t s_blink_anim; /* one active animation at a time */
@@ -44,16 +44,14 @@ static lv_anim_t s_blink_anim; /* one active animation at a time */
 
 lv_obj_t *status_pill_create(lv_obj_t *parent, pill_state_t state)
 {
-
-	k_pill_specs[PILL_RUNNING].colour = THEME_COL_OK;
-	k_pill_specs[PILL_RUNNING].text = "RUNNING";
-	k_pill_specs[PILL_INIT].colour = THEME_COL_DIM;
-	k_pill_specs[PILL_INIT].text = "INIT";
-	k_pill_specs[PILL_ALARM].colour = THEME_COL_ERR;
-	k_pill_specs[PILL_ALARM].text = "ALARM";
-	k_pill_specs[PILL_UPDATE].colour = THEME_COL_WARN;
-	k_pill_specs[PILL_UPDATE].text = "UPDATE";
-
+    k_pill_specs[PILL_RUNNING].colour = THEME_COL_OK;
+    k_pill_specs[PILL_RUNNING].text = "RUNNING";
+    k_pill_specs[PILL_INIT].colour = THEME_COL_DIM;
+    k_pill_specs[PILL_INIT].text = "INIT";
+    k_pill_specs[PILL_ALARM].colour = THEME_COL_ERR;
+    k_pill_specs[PILL_ALARM].text = "ALARM";
+    k_pill_specs[PILL_UPDATE].colour = THEME_COL_WARN;
+    k_pill_specs[PILL_UPDATE].text = "UPDATE";
 
     lv_obj_t *pill = lv_obj_create(parent);
     lv_obj_remove_style_all(pill);
@@ -85,8 +83,8 @@ void status_pill_set_state(lv_obj_t *pill_obj, pill_state_t state)
     /* Restore full opacity (in case a prior blink left it transparent) */
     lv_obj_set_style_opa(pill_obj, LV_OPA_COVER, LV_PART_MAIN);
 
-    uint8_t idx = (uint8_t)state;
-    if (idx >= (uint8_t)(sizeof(k_pill_specs) / sizeof(k_pill_specs[0])))
+    uint8_t idx = (uint8_t) state;
+    if (idx >= (uint8_t) (sizeof(k_pill_specs) / sizeof(k_pill_specs[0])))
     {
         return;
     }
@@ -95,7 +93,7 @@ void status_pill_set_state(lv_obj_t *pill_obj, pill_state_t state)
     lv_obj_set_style_bg_color(pill_obj, spec->colour, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(pill_obj, LV_OPA_COVER, LV_PART_MAIN);
 
-    lv_obj_t *lbl = (lv_obj_t *)lv_obj_get_user_data(pill_obj);
+    lv_obj_t *lbl = (lv_obj_t *) lv_obj_get_user_data(pill_obj);
     if (lbl != NULL)
     {
         lv_obj_set_style_text_color(lbl, THEME_COL_BG, LV_PART_MAIN);
@@ -108,7 +106,7 @@ void status_pill_set_state(lv_obj_t *pill_obj, pill_state_t state)
         lv_anim_init(&s_blink_anim);
         lv_anim_set_var(&s_blink_anim, pill_obj);
         lv_anim_set_exec_cb(&s_blink_anim, pill_blink_exec_cb);
-        lv_anim_set_values(&s_blink_anim, (int32_t)LV_OPA_COVER, (int32_t)LV_OPA_TRANSP);
+        lv_anim_set_values(&s_blink_anim, (int32_t) LV_OPA_COVER, (int32_t) LV_OPA_TRANSP);
         lv_anim_set_time(&s_blink_anim, PILL_BLINK_ON_MS);
         lv_anim_set_playback_time(&s_blink_anim, PILL_BLINK_OFF_MS);
         lv_anim_set_repeat_count(&s_blink_anim, LV_ANIM_REPEAT_INFINITE);

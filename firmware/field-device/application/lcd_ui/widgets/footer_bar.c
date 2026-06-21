@@ -49,7 +49,7 @@ lv_obj_t *footer_bar_create(lv_obj_t *parent, const char *left, const char *righ
 
 void footer_bar_set_text(lv_obj_t *footer_obj, const char *left, const char *right)
 {
-    (void)footer_obj;
+    (void) footer_obj;
     if (left != NULL)
     {
         lv_label_set_text(s_left_lbl, left);

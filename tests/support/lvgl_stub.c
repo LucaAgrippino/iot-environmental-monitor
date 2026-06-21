@@ -407,13 +407,9 @@ void lv_spinbox_set_digit_format(lv_obj_t *obj, uint8_t digit_count,
     (void)separator_position;
 }
 
-void lv_list_clean(lv_obj_t *obj)
+void lv_obj_clean(lv_obj_t *obj)
 {
-    if (obj != NULL)
-    {
-        obj->stub_list_count = 0U;
-        (void)memset(obj->stub_list_items, 0, sizeof(obj->stub_list_items));
-    }
+    (void)obj;
 }
 
 void lv_list_add_text(lv_obj_t *obj, const char *text)
