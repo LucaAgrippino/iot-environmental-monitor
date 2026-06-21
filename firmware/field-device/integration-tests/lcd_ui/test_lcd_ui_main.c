@@ -57,7 +57,7 @@
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
 
-#include "application/lcd_ui/lcd_ui.h"
+#include "lcd_ui/lcd_ui.h"
 
 /* ===================================================================== */
 /* Board-specific LED macros (F469-DISCO)                               */
@@ -96,7 +96,7 @@ static sensor_service_err_t it_get_sensor_snapshot(sensor_snapshot_t *snap)
     return SENSOR_SERVICE_ERR_OK;
 }
 
-static const isensor_service_t s_sensors = { it_get_sensor_snapshot };
+static const isensor_service_t s_sensors = { .get_snapshot = it_get_sensor_snapshot };
 
 /* ===================================================================== */
 /* IAlarmService implementation (synthetic)                             */
@@ -108,7 +108,7 @@ static alarm_service_err_t it_get_all_states(alarm_state_t states[SENSOR_ID_COUN
     return ALARM_SERVICE_ERR_OK;
 }
 
-static const ialarm_service_t s_alarms = { it_get_all_states };
+static const ialarm_service_t s_alarms = { .get_all_states = it_get_all_states };
 
 /* ===================================================================== */
 /* IConfigProvider / IConfigManager implementations                     */
@@ -124,8 +124,8 @@ static config_service_err_t it_set_param(config_param_id_t id, const void *value
     return config_service_set_param(id, value);
 }
 
-static const iconfig_provider_t s_cfg_read  = { it_get_params };
-static const iconfig_manager_t  s_cfg_write = { it_set_param };
+static const iconfig_provider_t s_cfg_read  = { .get_params = it_get_params };
+static const iconfig_manager_t  s_cfg_write = { .set_param  = it_set_param  };
 
 /* ===================================================================== */
 /* IHealthSnapshot / IHealthReport implementations                      */
@@ -137,7 +137,7 @@ static health_monitor_err_t it_get_health_snapshot(device_health_snapshot_t *sna
     return HEALTH_MONITOR_ERR_OK;
 }
 
-static const ihealth_snapshot_t s_health_snap_provider = { it_get_health_snapshot };
+static const ihealth_snapshot_t s_health_snap_provider = { .get_snapshot = it_get_health_snapshot };
 
 /* ===================================================================== */
 /* Task stacks (static allocation — FreeRTOS configSUPPORT_STATIC_ALLOCATION) */
@@ -202,15 +202,15 @@ static void it_task(void *arg)
     /* ------------------------------------------------------------------ */
     s_sensor_snap.cycle_count = 1U;
     s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = true;
-    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 23.5f;
+    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 2350;  /* 23.50 °C ×100  */
     s_sensor_snap.readings[SENSOR_ID_HUMIDITY].valid    = true;
-    s_sensor_snap.readings[SENSOR_ID_HUMIDITY].value    = 55.0f;
+    s_sensor_snap.readings[SENSOR_ID_HUMIDITY].value    = 5500;  /* 55.00 %RH ×100 */
     s_sensor_snap.readings[SENSOR_ID_PRESSURE].valid    = true;
-    s_sensor_snap.readings[SENSOR_ID_PRESSURE].value    = 1013.0f;
+    s_sensor_snap.readings[SENSOR_ID_PRESSURE].value    = 10130; /* 1013.0 hPa ×10 */
     s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].timestamp.epoch = 1718000000UL;
 
     LOG_INFO(IT_TASK_TAG,
-             "Phase 2: sensor data injected — check values on panel (temp=23)");
+             "Phase 2: sensor data injected — check values on panel (temp=23.5)");
     vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
 
     /* ------------------------------------------------------------------ */
@@ -272,6 +272,7 @@ static void it_task(void *arg)
 int main(void)
 {
     system_clock_init();
+    system_clock_enable_dwt();
 
     (void)gpio_init();
     (void)debug_uart_init();
@@ -280,7 +281,7 @@ int main(void)
     (void)logger_init(LOG_LEVEL_DEBUG);
 
     /* Hardware bring-up order: SDRAM → LCD → Touch → Graphics */
-    if (sdram_init() != SDRAM_OK)
+    if (sdram_init() != SDRAM_ERR_OK)
     {
         for (;;) {} /* Cannot display error without SDRAM */
     }

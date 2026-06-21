@@ -22,8 +22,9 @@
 #define WINDOW_H 480
 #define SDL_SCALE 2.0f
 
-/* Partial render buffer: 50 KB ÷ 2 bytes-per-pixel = 25 600 pixels */
-#define RENDER_BUF_PIXELS (50U * 1024U / 2U)
+/* Partial render buffer: 50 KB ÷ sizeof(lv_color_t).
+ * With LV_COLOR_DEPTH 32 → 4 bytes/px → 12 800 pixels. */
+#define RENDER_BUF_PIXELS (50U * 1024U / sizeof(lv_color_t))
 
 static SDL_Window   *s_window;
 static SDL_Renderer *s_renderer;
@@ -99,7 +100,7 @@ void sdl_backend_init(void)
     SDL_RenderSetScale(s_renderer, SDL_SCALE, SDL_SCALE);
 
     s_texture = SDL_CreateTexture(s_renderer,
-                                  SDL_PIXELFORMAT_RGB565,
+                                  SDL_PIXELFORMAT_ARGB8888,   /* matches LV_COLOR_DEPTH 32 */
                                   SDL_TEXTUREACCESS_STREAMING,
                                   WINDOW_W, WINDOW_H);
     if (!s_texture) {

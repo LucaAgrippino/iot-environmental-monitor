@@ -514,3 +514,73 @@ lv_color_t lv_color_hex(uint32_t c)
 {
     return (lv_color_t)c;
 }
+
+/* ===================================================================== */
+/* Font singleton                                                        */
+/* ===================================================================== */
+
+lv_font_t lv_font_montserrat_14 = { 0 };
+
+/* ===================================================================== */
+/* Animation stubs                                                       */
+/* ===================================================================== */
+
+void lv_anim_init(lv_anim_t *a)
+{
+    if (a != NULL)
+    {
+        (void)memset(a, 0, sizeof(*a));
+    }
+}
+
+void lv_anim_set_var(lv_anim_t *a, void *var)
+{
+    if (a != NULL) { a->var = var; }
+}
+
+void lv_anim_set_exec_cb(lv_anim_t *a, lv_anim_exec_xcb_t cb)
+{
+    if (a != NULL) { a->exec_cb = cb; }
+}
+
+void lv_anim_set_values(lv_anim_t *a, int32_t start, int32_t end)
+{
+    if (a != NULL) { a->start = start; a->end = end; }
+}
+
+void lv_anim_set_time(lv_anim_t *a, uint32_t duration)
+{
+    if (a != NULL) { a->time = duration; }
+}
+
+void lv_anim_set_playback_time(lv_anim_t *a, uint32_t time)
+{
+    if (a != NULL) { a->playback_time = time; }
+}
+
+void lv_anim_set_repeat_count(lv_anim_t *a, uint16_t cnt)
+{
+    if (a != NULL) { a->repeat_count = cnt; }
+}
+
+void lv_anim_set_path_cb(lv_anim_t *a, lv_anim_path_cb_t path_cb)
+{
+    if (a != NULL) { a->path_cb = path_cb; }
+}
+
+void lv_anim_start(lv_anim_t *a)
+{
+    (void)a; /* no-op in test builds */
+}
+
+void lv_anim_del(void *var, lv_anim_exec_xcb_t exec_cb)
+{
+    (void)var;
+    (void)exec_cb;
+}
+
+lv_anim_value_t lv_anim_path_step(const lv_anim_t *a)
+{
+    (void)a;
+    return 0;
+}

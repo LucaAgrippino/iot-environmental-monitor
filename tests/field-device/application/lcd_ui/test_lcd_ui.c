@@ -68,7 +68,7 @@ static sensor_service_err_t stub_sensor_get_snapshot(sensor_snapshot_t *snap)
     return SENSOR_SERVICE_ERR_OK;
 }
 
-static const isensor_service_t g_sensors = { stub_sensor_get_snapshot };
+static const isensor_service_t g_sensors = { .get_snapshot = stub_sensor_get_snapshot };
 
 /* ===================================================================== */
 /* Alarm service stub                                                   */
@@ -83,7 +83,7 @@ static alarm_service_err_t stub_get_all_states(
     return ALARM_SERVICE_ERR_OK;
 }
 
-static const ialarm_service_t g_alarms = { stub_get_all_states };
+static const ialarm_service_t g_alarms = { .get_all_states = stub_get_all_states };
 
 /* ===================================================================== */
 /* Config service stubs                                                 */
@@ -107,8 +107,8 @@ static config_service_err_t stub_set_param(config_param_id_t id,
     return g_stub_set_param_result;
 }
 
-static const iconfig_provider_t g_cfg_read  = { stub_get_params };
-static const iconfig_manager_t  g_cfg_write = { stub_set_param };
+static const iconfig_provider_t g_cfg_read  = { .get_params = stub_get_params };
+static const iconfig_manager_t  g_cfg_write = { .set_param = stub_set_param };
 
 /* ===================================================================== */
 /* Health monitor stubs                                                 */
@@ -123,7 +123,7 @@ static health_monitor_err_t stub_health_get_snapshot(
     return HEALTH_MONITOR_ERR_OK;
 }
 
-static const ihealth_snapshot_t g_health = { stub_health_get_snapshot };
+static const ihealth_snapshot_t g_health = { .get_snapshot = stub_health_get_snapshot };
 
 static int          g_stub_push_event_count;
 static health_event_t g_stub_last_push_event;
@@ -137,7 +137,7 @@ static health_monitor_err_t stub_push_event(health_event_t ev, uint32_t param)
     return HEALTH_MONITOR_ERR_OK;
 }
 
-static const ihealth_report_t g_report_s = { stub_init, stub_push_event };
+static const ihealth_report_t g_report_s = { .init = stub_init, .push_event = stub_push_event };
 
 /* Required by health_monitor_stub.h external declaration */
 const ihealth_report_t *const health_report = &g_report_s;
@@ -313,7 +313,7 @@ void test_TC_LCDUI_010_init_builds_four_screens(void)
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
 
-    TEST_ASSERT_NOT_NULL(ui->tabview);
+    TEST_ASSERT_NOT_NULL(ui->tab_bar);
     TEST_ASSERT_NOT_NULL(ui->sensor_screen.waiting_label);
     TEST_ASSERT_EQUAL((screen_t *)&ui->sensor_screen, ui->current);
     TEST_ASSERT_FALSE(ui->sensor_screen.first_valid_received);
@@ -360,11 +360,11 @@ void test_TC_LCDUI_012_sensor_first_valid_data_hides_overlay(void)
 
     g_stub_sensor_snap.cycle_count = 1U;
     g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = true;
-    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 25.0f;
+    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 2500; /* 25.00 °C ×100 */
     g_stub_sensor_snap.readings[SENSOR_ID_HUMIDITY].valid    = true;
-    g_stub_sensor_snap.readings[SENSOR_ID_HUMIDITY].value    = 60.0f;
+    g_stub_sensor_snap.readings[SENSOR_ID_HUMIDITY].value    = 6000; /* 60.00 %RH ×100 */
     g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].valid    = true;
-    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].value    = 1013.0f;
+    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].value    = 10130; /* 1013.0 hPa ×10 */
 
     ui->current->on_refresh(ui->current);
 
@@ -372,10 +372,10 @@ void test_TC_LCDUI_012_sensor_first_valid_data_hides_overlay(void)
         lv_obj_has_flag(ui->sensor_screen.waiting_label, LV_OBJ_FLAG_HIDDEN));
     TEST_ASSERT_FALSE(
         lv_obj_has_flag(ui->sensor_screen.value_label[0], LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_EQUAL_STRING("25",
+    TEST_ASSERT_EQUAL_STRING("25.0",
         ui->sensor_screen.value_label[0]->stub_text);
-    TEST_ASSERT_EQUAL_STRING("v",
-        ui->sensor_screen.icon_label[0]->stub_text);
+    TEST_ASSERT_NOT_NULL(
+        strstr(ui->sensor_screen.icon_label[0]->stub_text, "OK"));
     TEST_ASSERT_TRUE(ui->sensor_screen.first_valid_received);
 }
 
@@ -397,8 +397,8 @@ void test_TC_LCDUI_013_sensor_invalid_reading_shows_dash(void)
 
     TEST_ASSERT_EQUAL_STRING("--",
         ui->sensor_screen.value_label[0]->stub_text);
-    TEST_ASSERT_EQUAL_STRING("x",
-        ui->sensor_screen.icon_label[0]->stub_text);
+    TEST_ASSERT_NOT_NULL(
+        strstr(ui->sensor_screen.icon_label[0]->stub_text, "ERROR"));
 }
 
 /* ===================================================================== */

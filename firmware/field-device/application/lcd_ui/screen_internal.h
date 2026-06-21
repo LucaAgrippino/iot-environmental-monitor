@@ -15,15 +15,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "lcd_ui/widgets/sensor_card.h"
+
 /* ===================================================================== */
 /* Screen identifiers and count                                         */
 /* ===================================================================== */
 
 #define SCR_SENSOR (0U)
 #define SCR_STATUS (1U)
-#define SCR_ALARM (2U)
+#define SCR_ALARM  (2U)
 #define SCR_CONFIG (3U)
-#define SCR_COUNT (4U)
+#define SCR_COUNT  (4U)
 
 /* ===================================================================== */
 /* Display sensor indexing (Sensor screen only — 3 physical sensors)   */
@@ -42,8 +44,8 @@
 typedef struct
 {
     uint32_t polling_interval_ms;     /**< [100, 60000] ms              */
-    int16_t temp_alarm_hi_centi_c;    /**< centi-°C ×100; default 4000  */
-    int16_t temp_alarm_lo_centi_c;    /**< centi-°C ×100; default 0     */
+    int16_t  temp_alarm_hi_centi_c;   /**< centi-°C ×100; default 4000  */
+    int16_t  temp_alarm_lo_centi_c;   /**< centi-°C ×100; default 0     */
     uint16_t humidity_alarm_hi_centi; /**< centi-%RH ×100; default 8000 */
     uint16_t humidity_alarm_lo_centi; /**< centi-%RH ×100; default 2000 */
     uint16_t pressure_alarm_hi_deci;  /**< deci-hPa ×10; default 10500  */
@@ -56,8 +58,8 @@ typedef struct
 
 typedef enum
 {
-    CFG_STATE_VIEWING = 0,
-    CFG_STATE_EDITING = 1,
+    CFG_STATE_VIEWING    = 0,
+    CFG_STATE_EDITING    = 1,
     CFG_STATE_CONFIRMING = 2,
 } cfg_screen_state_t;
 
@@ -91,26 +93,29 @@ struct screen
 
 typedef struct
 {
-    screen_t base;
-    lv_obj_t *waiting_label;
-    lv_obj_t *value_label[SENSOR_DISPLAY_COUNT];
-    lv_obj_t *unit_label[SENSOR_DISPLAY_COUNT];
-    lv_obj_t *timestamp_label[SENSOR_DISPLAY_COUNT];
-    lv_obj_t *icon_label[SENSOR_DISPLAY_COUNT];
-    bool first_valid_received;
+    screen_t       base;
+    sensor_card_t  cards[SENSOR_DISPLAY_COUNT];
+    /* Convenience alias pointers — assigned in build_sensor_screen().
+     * These preserve the public-test assertion surface
+     * (TC-011, TC-012, TC-013, TC-014) without requiring test-file edits. */
+    lv_obj_t      *waiting_label;                     /* = cards[0].waiting_lbl */
+    lv_obj_t      *value_label[SENSOR_DISPLAY_COUNT]; /* = cards[i].value_lbl   */
+    lv_obj_t      *unit_label[SENSOR_DISPLAY_COUNT];  /* = cards[i].unit_lbl    */
+    lv_obj_t      *icon_label[SENSOR_DISPLAY_COUNT];  /* = cards[i].status_lbl  */
+    bool           first_valid_received;
     const isensor_service_t *sensors;
 } sensor_screen_t;
 
 typedef struct
 {
-    screen_t base;
+    screen_t  base;
     lv_obj_t *metric_label[STATUS_METRIC_COUNT];
     const ihealth_snapshot_t *health;
 } status_screen_t;
 
 typedef struct
 {
-    screen_t base;
+    screen_t  base;
     lv_obj_t *list_widget;
     lv_obj_t *no_alarms_label;
     const ialarm_service_t *alarms;
@@ -118,20 +123,20 @@ typedef struct
 
 typedef struct
 {
-    screen_t base;
-    cfg_screen_state_t sub_state;
+    screen_t            base;
+    cfg_screen_state_t  sub_state;
     lcd_ui_editable_params_t committed;
     lcd_ui_editable_params_t pending;
-    lv_obj_t *spinbox[N_EDITABLE_FIELDS];
-    lv_obj_t *err_label[N_EDITABLE_FIELDS];
-    lv_obj_t *field_label[N_EDITABLE_FIELDS];
-    lv_obj_t *cancel_btn;
-    lv_obj_t *apply_btn;
-    lv_obj_t *confirm_dialog;
-    lv_timer_t *confirm_timeout_timer;
+    lv_obj_t           *spinbox[N_EDITABLE_FIELDS];
+    lv_obj_t           *err_label[N_EDITABLE_FIELDS];
+    lv_obj_t           *field_label[N_EDITABLE_FIELDS];
+    lv_obj_t           *cancel_btn;
+    lv_obj_t           *apply_btn;
+    lv_obj_t           *confirm_dialog;
+    lv_timer_t         *confirm_timeout_timer;
     const iconfig_provider_t *cfg_read;
-    const iconfig_manager_t *cfg_write;
-    const ihealth_report_t *report;
+    const iconfig_manager_t  *cfg_write;
+    const ihealth_report_t   *report;
 } config_screen_t;
 
 /* ===================================================================== */
@@ -140,22 +145,25 @@ typedef struct
 
 typedef struct lcd_ui
 {
-    bool initialised;
-    lv_obj_t *tabview;
+    bool      initialised;
+    lv_obj_t *tab_bar;             /* Custom tab bar (replaces lv_tabview)      */
+    lv_obj_t *header_bar;          /* 40 px header beneath the tab bar          */
+    lv_obj_t *footer_bar;          /* 36 px footer at bottom of canvas          */
+    lv_obj_t *content[SCR_COUNT];  /* Per-screen content panels (y=104, h=340)  */
     lv_obj_t *toast_label;
-    screen_t *current;
-    uint16_t current_tab_idx;
-    screen_t *screens[SCR_COUNT];
+    screen_t  *current;
+    uint16_t   current_tab_idx;
+    screen_t  *screens[SCR_COUNT];
     sensor_screen_t sensor_screen;
     status_screen_t status_screen;
-    alarm_screen_t alarm_screen;
+    alarm_screen_t  alarm_screen;
     config_screen_t config_screen;
-    const isensor_service_t *sensors;
-    const ialarm_service_t *alarms;
+    const isensor_service_t  *sensors;
+    const ialarm_service_t   *alarms;
     const iconfig_provider_t *cfg_read;
-    const iconfig_manager_t *cfg_write;
+    const iconfig_manager_t  *cfg_write;
     const ihealth_snapshot_t *health;
-    const ihealth_report_t *report;
+    const ihealth_report_t   *report;
 } lcd_ui_t;
 
 #endif /* SCREEN_INTERNAL_H */

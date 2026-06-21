@@ -309,4 +309,138 @@ lv_event_code_t lv_event_get_code(lv_event_t *e);
 
 lv_color_t lv_color_hex(uint32_t c);
 
+/* ===================================================================== */
+/* Additional scalar / flag constants                                    */
+/* ===================================================================== */
+
+typedef uint8_t  lv_opa_t;
+typedef uint32_t lv_part_t;
+typedef uint32_t lv_style_selector_t;
+typedef int32_t  lv_align_t;
+typedef int32_t  lv_anim_value_t;
+
+#define LV_OPA_TRANSP      ((lv_opa_t)  0U)
+#define LV_OPA_COVER       ((lv_opa_t)255U)
+
+#define LV_PART_MAIN       ((lv_part_t)0x00000000UL)
+
+#define LV_ALIGN_CENTER    ((lv_align_t) 0)
+#define LV_ALIGN_LEFT_MID  ((lv_align_t) 5)
+#define LV_ALIGN_RIGHT_MID ((lv_align_t) 6)
+#define LV_ALIGN_TOP_LEFT  ((lv_align_t) 1)
+
+#define LV_OBJ_FLAG_SCROLLABLE ((lv_obj_flag_t)(1U << 2U))
+
+#define LV_EVENT_SHORT_CLICKED ((lv_event_code_t)4U)
+
+#define LV_ANIM_REPEAT_INFINITE ((uint16_t)0xFFFFU)
+
+/* ===================================================================== */
+/* lv_style_t — opaque in stub (no fields needed for behaviour tests)    */
+/* ===================================================================== */
+
+typedef struct lv_style_s { int _dummy; } lv_style_t;
+
+/* ===================================================================== */
+/* lv_font_t                                                             */
+/* ===================================================================== */
+
+typedef struct lv_font_s { int _dummy; } lv_font_t;
+
+extern lv_font_t lv_font_montserrat_14; /* defined in lvgl_stub.c */
+
+/* ===================================================================== */
+/* lv_anim_t                                                             */
+/* ===================================================================== */
+
+struct lv_anim_s;
+typedef struct lv_anim_s lv_anim_t;
+typedef void     (*lv_anim_exec_xcb_t)(void *var, lv_anim_value_t val);
+typedef lv_anim_value_t (*lv_anim_path_cb_t)(const lv_anim_t *a);
+
+struct lv_anim_s
+{
+    void               *var;
+    lv_anim_exec_xcb_t  exec_cb;
+    lv_anim_path_cb_t   path_cb;
+    int32_t             start;
+    int32_t             end;
+    uint32_t            time;
+    uint32_t            playback_time;
+    uint16_t            repeat_count;
+};
+
+/* ===================================================================== */
+/* Style object functions — inline no-ops (visual only in tests)        */
+/* ===================================================================== */
+
+static inline void lv_style_init(lv_style_t *s) { (void)s; }
+static inline void lv_style_set_bg_color(lv_style_t *s, lv_color_t c) { (void)s; (void)c; }
+static inline void lv_style_set_bg_opa(lv_style_t *s, lv_opa_t o) { (void)s; (void)o; }
+static inline void lv_style_set_border_color(lv_style_t *s, lv_color_t c) { (void)s; (void)c; }
+static inline void lv_style_set_border_width(lv_style_t *s, lv_coord_t w) { (void)s; (void)w; }
+static inline void lv_style_set_border_opa(lv_style_t *s, lv_opa_t o) { (void)s; (void)o; }
+static inline void lv_style_set_pad_all(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_pad_hor(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_pad_ver(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_pad_top(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_pad_bottom(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_pad_left(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_pad_right(lv_style_t *s, lv_coord_t p) { (void)s; (void)p; }
+static inline void lv_style_set_radius(lv_style_t *s, lv_coord_t r) { (void)s; (void)r; }
+static inline void lv_style_set_text_color(lv_style_t *s, lv_color_t c) { (void)s; (void)c; }
+static inline void lv_style_set_text_font(lv_style_t *s, const lv_font_t *f) { (void)s; (void)f; }
+static inline void lv_style_set_opa(lv_style_t *s, lv_opa_t o) { (void)s; (void)o; }
+
+/* ===================================================================== */
+/* Per-object style functions — inline no-ops                           */
+/* ===================================================================== */
+
+static inline void lv_obj_add_style(lv_obj_t *o, lv_style_t *s, lv_style_selector_t sel) { (void)o; (void)s; (void)sel; }
+static inline void lv_obj_remove_style_all(lv_obj_t *o) { (void)o; }
+
+static inline void lv_obj_set_style_bg_color(lv_obj_t *o, lv_color_t c, lv_style_selector_t s) { (void)o; (void)c; (void)s; }
+static inline void lv_obj_set_style_bg_opa(lv_obj_t *o, lv_opa_t a, lv_style_selector_t s) { (void)o; (void)a; (void)s; }
+static inline void lv_obj_set_style_border_color(lv_obj_t *o, lv_color_t c, lv_style_selector_t s) { (void)o; (void)c; (void)s; }
+static inline void lv_obj_set_style_border_width(lv_obj_t *o, lv_coord_t w, lv_style_selector_t s) { (void)o; (void)w; (void)s; }
+static inline void lv_obj_set_style_border_opa(lv_obj_t *o, lv_opa_t a, lv_style_selector_t s) { (void)o; (void)a; (void)s; }
+static inline void lv_obj_set_style_text_color(lv_obj_t *o, lv_color_t c, lv_style_selector_t s) { (void)o; (void)c; (void)s; }
+static inline void lv_obj_set_style_text_font(lv_obj_t *o, const lv_font_t *f, lv_style_selector_t s) { (void)o; (void)f; (void)s; }
+static inline void lv_obj_set_style_pad_all(lv_obj_t *o, lv_coord_t p, lv_style_selector_t s) { (void)o; (void)p; (void)s; }
+static inline void lv_obj_set_style_pad_top(lv_obj_t *o, lv_coord_t p, lv_style_selector_t s) { (void)o; (void)p; (void)s; }
+static inline void lv_obj_set_style_pad_bottom(lv_obj_t *o, lv_coord_t p, lv_style_selector_t s) { (void)o; (void)p; (void)s; }
+static inline void lv_obj_set_style_pad_left(lv_obj_t *o, lv_coord_t p, lv_style_selector_t s) { (void)o; (void)p; (void)s; }
+static inline void lv_obj_set_style_pad_right(lv_obj_t *o, lv_coord_t p, lv_style_selector_t s) { (void)o; (void)p; (void)s; }
+static inline void lv_obj_set_style_radius(lv_obj_t *o, lv_coord_t r, lv_style_selector_t s) { (void)o; (void)r; (void)s; }
+static inline void lv_obj_set_style_opa(lv_obj_t *o, lv_opa_t a, lv_style_selector_t s) { (void)o; (void)a; (void)s; }
+static inline void lv_obj_set_style_shadow_width(lv_obj_t *o, lv_coord_t w, lv_style_selector_t s) { (void)o; (void)w; (void)s; }
+
+/* ===================================================================== */
+/* Layout / position — inline no-ops                                    */
+/* ===================================================================== */
+
+static inline void lv_obj_set_pos(lv_obj_t *o, lv_coord_t x, lv_coord_t y) { (void)o; (void)x; (void)y; }
+static inline void lv_obj_set_size(lv_obj_t *o, lv_coord_t w, lv_coord_t h) { (void)o; (void)w; (void)h; }
+static inline void lv_obj_set_width(lv_obj_t *o, lv_coord_t w) { (void)o; (void)w; }
+static inline void lv_obj_set_height(lv_obj_t *o, lv_coord_t h) { (void)o; (void)h; }
+static inline void lv_obj_center(lv_obj_t *o) { (void)o; }
+static inline void lv_obj_align(lv_obj_t *o, lv_align_t a, lv_coord_t x, lv_coord_t y) { (void)o; (void)a; (void)x; (void)y; }
+static inline void lv_obj_set_align(lv_obj_t *o, lv_align_t a) { (void)o; (void)a; }
+
+/* ===================================================================== */
+/* Animation — declared here, implemented in lvgl_stub.c                */
+/* ===================================================================== */
+
+void             lv_anim_init(lv_anim_t *a);
+void             lv_anim_set_var(lv_anim_t *a, void *var);
+void             lv_anim_set_exec_cb(lv_anim_t *a, lv_anim_exec_xcb_t cb);
+void             lv_anim_set_values(lv_anim_t *a, int32_t start, int32_t end);
+void             lv_anim_set_time(lv_anim_t *a, uint32_t duration);
+void             lv_anim_set_playback_time(lv_anim_t *a, uint32_t time);
+void             lv_anim_set_repeat_count(lv_anim_t *a, uint16_t cnt);
+void             lv_anim_set_path_cb(lv_anim_t *a, lv_anim_path_cb_t path_cb);
+void             lv_anim_start(lv_anim_t *a);
+void             lv_anim_del(void *var, lv_anim_exec_xcb_t exec_cb);
+lv_anim_value_t  lv_anim_path_step(const lv_anim_t *a);
+
 #endif /* LVGL_STUB_H */

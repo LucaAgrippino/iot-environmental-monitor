@@ -46,7 +46,7 @@ typedef enum
     HEALTH_EVENT_CONFIG_READ_FAIL     = 3,
     HEALTH_EVENT_CONFIG_NO_VALID_SLOT = 4,
     HEALTH_EVENT_SENSOR_FAIL          = 5,
-    HEALTH_EVENT_LCD_FAIL             = 6,
+    HEALTH_EVENT_LCD_FAIL             = 15, /* mirrors health_monitor.h */
 } health_event_t;
 
 /* --------------------------------------------------------------------- */

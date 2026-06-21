@@ -47,7 +47,7 @@
 #include "sensor_service/sensor_service.h"
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
-#include "application/health_monitor/health_monitor.h"
+#include "health_monitor/health_monitor.h"
 #endif /* TEST */
 
 /* ===================================================================== */
@@ -97,9 +97,18 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
                          const ihealth_snapshot_t *health, const ihealth_report_t *report);
 
 /**
+ * @brief Drive one UI refresh — update the current screen's data bindings.
+ *
+ * In firmware, called exclusively from lcd_ui_task_body().
+ * In the desktop simulator, called from main() via an LVGL timer so that
+ * FreeRTOS is not required.
+ */
+void lcd_ui_tick(void);
+
+/**
  * @brief LcdUiTask entry point — 200 ms refresh loop.
  *
- * Loop: vTaskDelayUntil → graphics_process() → current->on_refresh().
+ * Loop: vTaskDelayUntil → graphics_process() → lcd_ui_tick().
  *
  * @param[in] arg  Unused (NULL for FreeRTOS xTaskCreate compatibility).
  * @note Threading: entry point for LcdUiTask; never call directly.

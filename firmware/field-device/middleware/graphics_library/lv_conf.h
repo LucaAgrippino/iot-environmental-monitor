@@ -38,8 +38,10 @@
 
 /* Use LVGL's internal static heap (no malloc). */
 #define LV_MEM_CUSTOM 0
-/* 32 KB — tune upwards at integration if LVGL logs heap exhaustion. */
+/* 32 KB — simulator overrides to 512 KB via -DLV_MEM_SIZE=524288. */
+#ifndef LV_MEM_SIZE
 #define LV_MEM_SIZE (32768U)
+#endif
 
 /* ===================================================================== */
 /* Tick source (§6.4 — driven by lv_tick_inc from FreeRTOS timer)        */
@@ -94,6 +96,17 @@
 #define LV_USE_GPU_STM32_DMA2D 0
 
 /* ===================================================================== */
+/* Theme — disabled; LcdUi owns all styles via theme_init()             */
+/* ===================================================================== */
+
+/* Disable the built-in default theme. LcdUi applies its own
+ * design-token styles in theme_init(). Leaving this at the LVGL default
+ * (1) causes the grey default theme to re-apply on every
+ * lv_obj_remove_style_all() call (via LV_EVENT_STYLE_CHANGED), overriding
+ * our custom dark styles. */
+#define LV_USE_THEME_DEFAULT 0
+
+/* ===================================================================== */
 /* Feature guards — widgets used by LcdUi                               */
 /* ===================================================================== */
 
@@ -102,7 +115,7 @@
 #define LV_USE_ARC 1
 #define LV_USE_BTN 1
 #define LV_USE_MSGBOX 0
-#define LV_USE_TABVIEW 0
+#define LV_USE_TABVIEW 1
 #define LV_USE_TILEVIEW 0
 #define LV_USE_WIN 0
 #define LV_USE_SPAN 0
