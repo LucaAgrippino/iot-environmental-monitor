@@ -35,6 +35,9 @@ tmp/
 tests/build/
 tests/build/test/mocks/
 
+# Generated firmware sources
+firmware/shared/firmware_version.h
+
 # CubeIDE build outputs
 firmware/**/Debug/
 firmware/**/Release/
