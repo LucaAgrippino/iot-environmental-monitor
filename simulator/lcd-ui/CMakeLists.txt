@@ -25,9 +25,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 
 # Firmware source root shortcuts
-set(FW_ROOT ${CMAKE_SOURCE_DIR}/../../firmware/field-device)
-set(APP_ROOT ${FW_ROOT}/application)
-set(MW_ROOT  ${FW_ROOT}/middleware)
+set(FW_ROOT    ${CMAKE_SOURCE_DIR}/../../firmware/field-device)
+set(APP_ROOT   ${FW_ROOT}/application)
+set(MW_ROOT    ${FW_ROOT}/middleware)
+set(SHARED_ROOT ${CMAKE_SOURCE_DIR}/../../firmware/shared)
 
 add_executable(lcd_sim
     main.c
@@ -53,6 +54,9 @@ target_include_directories(lcd_sim PRIVATE
 
     # Firmware application headers (sensor_service/, alarm_service/, etc.)
     ${APP_ROOT}
+
+    # Shared generated headers (firmware_version.h)
+    ${SHARED_ROOT}
 
     # SDL2 platform headers
     ${SDL2_INCLUDE_DIRS}
