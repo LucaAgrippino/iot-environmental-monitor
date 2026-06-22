@@ -31,6 +31,7 @@
 #include "lcd_ui/widgets/header_bar.h"
 #include "lcd_ui/widgets/footer_bar.h"
 #include "lcd_ui/widgets/sensor_card.h"
+#include "firmware_version.h"
 
 /* ===================================================================== */
 /* Module tag                                                           */
@@ -779,6 +780,9 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
         return LCD_UI_ERR_INVALID_ARG;
     }
 
+    LOG_INFO(LCD_MODULE_TAG, "LcdUi init: firmware %s, built %s %s", FW_VERSION_STRING,
+             FW_BUILD_DATE, FW_BUILD_TIME);
+
     if (s_ui.initialised)
     {
         LOG_ERROR(LCD_MODULE_TAG, "lcd_ui_init: already initialised");
@@ -811,7 +815,9 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
     s_ui.header_bar = header_bar_create(root, k_screen_titles[SCR_SENSOR]);
 
     /* ── Chrome: footer bar (y=444, h=36) ───────────────────────────── */
-    s_ui.footer_bar = footer_bar_create(root, "IoT Environmental Monitor", "");
+    s_ui.footer_bar =
+        footer_bar_create(root, "POLL 2s \xc2\xb7 NEXT 0s",
+                          "STM32F469 \xc2\xb7 " FW_VERSION_STRING " \xc2\xb7 800x480");
 
     /* ── Content panels — one per screen (y=104, h=340) ─────────────── */
     for (uint32_t i = 0U; i < SCR_COUNT; i++)

@@ -13,6 +13,7 @@
  */
 
 #include "unity.h"
+#include "firmware_version.h"
 #include "modbus_register_map/modbus_register_map.h"
 #include <string.h>
 
@@ -295,14 +296,14 @@ void test_TC_MRM_005_fc04_identity_regs(void)
     uint16_t buf[8];
     modbus_exception_t exc = s_iface.read_input_regs(s_iface.ctx, 0x0000u, 8u, buf);
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, exc);
-    TEST_ASSERT_EQUAL_UINT16(1u, buf[0]);     /* MAP_VERSION  */
-    TEST_ASSERT_EQUAL_UINT16(0u, buf[1]);     /* DEVICE_ID_HI */
-    TEST_ASSERT_EQUAL_UINT16(0u, buf[2]);     /* DEVICE_ID_LO */
-    TEST_ASSERT_EQUAL_UINT16(1u, buf[3]);     /* HARDWARE_REV */
-    TEST_ASSERT_EQUAL_UINT16(1u, buf[4]);     /* FW_VER_MAJOR */
-    TEST_ASSERT_EQUAL_UINT16(0u, buf[5]);     /* FW_VER_MINOR */
-    TEST_ASSERT_EQUAL_UINT16(0u, buf[6]);     /* FW_VER_PATCH */
-    TEST_ASSERT_EQUAL_HEX16(0x1A45u, buf[7]); /* VENDOR_CODE  */
+    TEST_ASSERT_EQUAL_UINT16(1u, buf[0]);                          /* MAP_VERSION  */
+    TEST_ASSERT_EQUAL_UINT16(0u, buf[1]);                          /* DEVICE_ID_HI */
+    TEST_ASSERT_EQUAL_UINT16(0u, buf[2]);                          /* DEVICE_ID_LO */
+    TEST_ASSERT_EQUAL_UINT16(1u, buf[3]);                          /* HARDWARE_REV */
+    TEST_ASSERT_EQUAL_UINT16((uint16_t) FW_VERSION_MAJOR, buf[4]); /* FW_VER_MAJOR */
+    TEST_ASSERT_EQUAL_UINT16((uint16_t) FW_VERSION_MINOR, buf[5]); /* FW_VER_MINOR */
+    TEST_ASSERT_EQUAL_UINT16((uint16_t) FW_VERSION_PATCH, buf[6]); /* FW_VER_PATCH */
+    TEST_ASSERT_EQUAL_HEX16(0x1A45u, buf[7]);                      /* VENDOR_CODE  */
 }
 
 /* ===================================================================== */

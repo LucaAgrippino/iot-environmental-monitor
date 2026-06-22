@@ -15,6 +15,7 @@
     - field-device/**
   :source:
     - mocks/**
+    - ../firmware/shared/
     - ../firmware/field-device/application/**
     - ../firmware/field-device/drivers/**
     - ../firmware/field-device/middleware/**

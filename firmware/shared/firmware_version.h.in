@@ -1,0 +1,31 @@
+/**
+ * @file firmware_version.h
+ * @brief Generated firmware version macros.
+ *
+ * Do NOT edit by hand. Regenerated on every build by
+ * scripts/gen-version.py.
+ *
+ * Source: git describe --tags --always --dirty --match=v*
+ *
+ * The version string follows semantic versioning with build metadata:
+ *   v<MAJOR>.<MINOR>.<PATCH>[+<short-sha>][-dirty]
+ *
+ * Examples:
+ *   v0.1.0                       (clean build of a tagged commit)
+ *   v0.1.0+a3f8c2                (3 commits past the tag, sha a3f8c2)
+ *   v0.1.0+a3f8c2-dirty          (uncommitted changes present)
+ *   v0.0.0+a3f8c2                (no tag yet; degraded version 0.0.0)
+ */
+
+#ifndef FIRMWARE_VERSION_H
+#define FIRMWARE_VERSION_H
+
+#define FW_VERSION_MAJOR   @FW_MAJOR@
+#define FW_VERSION_MINOR   @FW_MINOR@
+#define FW_VERSION_PATCH   @FW_PATCH@
+#define FW_VERSION_GIT     "@FW_GIT@"
+#define FW_VERSION_STRING  "@FW_STRING@"
+#define FW_BUILD_DATE      "@FW_DATE@"
+#define FW_BUILD_TIME      "@FW_TIME@"
+
+#endif /* FIRMWARE_VERSION_H */
