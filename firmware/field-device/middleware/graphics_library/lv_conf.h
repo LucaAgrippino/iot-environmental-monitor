@@ -96,6 +96,19 @@
 #define LV_USE_GPU_STM32_DMA2D 0
 
 /* ===================================================================== */
+/* Built-in fonts — Montserrat                                          */
+/* ===================================================================== */
+
+/* LV_FONT_MONTSERRAT_14 is the LVGL default (enabled in lv_conf_internal.h).
+ * Enable additional sizes required for LcdUi design-token bindings.
+ * Flash budget impact: ~25 KB total on F469 (well within the 2 MB app
+ * partition). — 01_DESIGN_TOKENS.md §Typography scale */
+#define LV_FONT_MONTSERRAT_10 1 /* FONT_EYEBROW, FONT_PILL, FONT_FOOTER   */
+#define LV_FONT_MONTSERRAT_12 1 /* FONT_META, FONT_CAPTION_MONO, FONT_TAB */
+#define LV_FONT_MONTSERRAT_18 1 /* FONT_HEAD, FONT_VALUE (status rows)     */
+#define LV_FONT_MONTSERRAT_48 1 /* FONT_HERO — sensor card primary value   */
+
+/* ===================================================================== */
 /* Theme — disabled; LcdUi owns all styles via theme_init()             */
 /* ===================================================================== */
 

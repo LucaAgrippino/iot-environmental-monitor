@@ -64,8 +64,11 @@ void theme_init(void)
     lv_style_set_border_width(&theme_st_tab_btn, 0);
     lv_style_set_radius(&theme_st_tab_btn, THEME_RAD_NONE);
     lv_style_set_pad_all(&theme_st_tab_btn, 0);
-    /* TODO(fonts): replace FONT_TAB with lv_font_conv output */
-    lv_style_set_text_font(&theme_st_tab_btn, &lv_font_montserrat_14);
+    /* FONT_TAB: Sans 11 Medium Upper → montserrat_12 placeholder.
+     * TODO(fonts): replace with font_inter_md_11 when lv_font_conv is run.
+     * Tracking: +2 px (02_FONTS_AND_ICONS.md §Tracking FONT_TAB) */
+    lv_style_set_text_font(&theme_st_tab_btn, &lv_font_montserrat_12);
+    lv_style_set_text_letter_space(&theme_st_tab_btn, 2);
     lv_style_set_text_color(&theme_st_tab_btn, THEME_COL_TAB_INACTIVE);
 
     /* ── Header bar — BG fill, bottom border ─────────────────────────── */
@@ -86,39 +89,60 @@ void theme_init(void)
     lv_style_set_radius(&theme_st_footer, THEME_RAD_NONE);
     lv_style_set_pad_all(&theme_st_footer, 0);
 
-    /* ── Text style: primary (COL_INK) ───────────────────────────────── */
+    /* ── Text style: primary / hero (COL_INK) ────────────────────────── */
     lv_style_init(&theme_st_label_ink);
     lv_style_set_text_color(&theme_st_label_ink, THEME_COL_INK);
-    /* TODO(fonts): replace with FONT_EYEBROW (Sans 10 Bold Upper) when available */
-    lv_style_set_text_font(&theme_st_label_ink, &lv_font_montserrat_14);
+    /* FONT_HERO: Mono 54 SemiBold → montserrat_48 placeholder.
+     * TODO(fonts): replace with font_jb_sb_54 when lv_font_conv is run.
+     * Tracking: -2 px (02_FONTS_AND_ICONS.md §Tracking FONT_HERO) */
+    lv_style_set_text_font(&theme_st_label_ink, &lv_font_montserrat_48);
+    lv_style_set_text_letter_space(&theme_st_label_ink, -2);
 
-    /* ── Text style: muted (COL_MUTED) ───────────────────────────────── */
+    /* ── Text style: muted / eyebrow + caption (COL_MUTED) ───────────── */
     lv_style_init(&theme_st_label_muted);
     lv_style_set_text_color(&theme_st_label_muted, THEME_COL_MUTED);
-    lv_style_set_text_font(&theme_st_label_muted, &lv_font_montserrat_14);
+    /* FONT_EYEBROW / FONT_CAPTION: Sans 10–11 → montserrat_12 placeholder.
+     * TODO(fonts): replace with font_inter_b_10 (eyebrow) / font_inter_md_11 (caption).
+     * Tracking: +2 px (02_FONTS_AND_ICONS.md §Tracking FONT_EYEBROW) */
+    lv_style_set_text_font(&theme_st_label_muted, &lv_font_montserrat_12);
+    lv_style_set_text_letter_space(&theme_st_label_muted, 2);
 
-    /* ── Text style: dim placeholder (COL_DIM) ───────────────────────── */
+    /* ── Text style: dim / footer + placeholder (COL_DIM) ────────────── */
     lv_style_init(&theme_st_label_dim);
     lv_style_set_text_color(&theme_st_label_dim, THEME_COL_DIM);
-    lv_style_set_text_font(&theme_st_label_dim, &lv_font_montserrat_14);
+    /* FONT_FOOTER: Mono 10 500 → montserrat_10 placeholder.
+     * TODO(fonts): replace with font_jb_b_10 when lv_font_conv is run.
+     * Tracking: +1 px (02_FONTS_AND_ICONS.md §Tracking FONT_FOOTER) */
+    lv_style_set_text_font(&theme_st_label_dim, &lv_font_montserrat_10);
+    lv_style_set_text_letter_space(&theme_st_label_dim, 1);
 
     /* ── Text style: valid / OK (COL_OK) ─────────────────────────────── */
     lv_style_init(&theme_st_label_ok);
     lv_style_set_text_color(&theme_st_label_ok, THEME_COL_OK);
-    lv_style_set_text_font(&theme_st_label_ok, &lv_font_montserrat_14);
+    /* FONT_CAPTION_MONO: Mono 11 → montserrat_12 placeholder.
+     * TODO(fonts): replace with font_jb_md_11 when lv_font_conv is run.
+     * Tracking: 0 (03_SCREEN_SPECS.md §Sensor card status row) */
+    lv_style_set_text_font(&theme_st_label_ok, &lv_font_montserrat_12);
+    lv_style_set_text_letter_space(&theme_st_label_ok, 0);
 
     /* ── Text style: error / alarm (COL_ERR) ─────────────────────────── */
     lv_style_init(&theme_st_label_err);
     lv_style_set_text_color(&theme_st_label_err, THEME_COL_ERR);
-    lv_style_set_text_font(&theme_st_label_err, &lv_font_montserrat_14);
+    /* Same binding as label_ok — 03_SCREEN_SPECS.md §Sensor card status row */
+    lv_style_set_text_font(&theme_st_label_err, &lv_font_montserrat_12);
+    lv_style_set_text_letter_space(&theme_st_label_err, 0);
 
     /* ── Text style: warning (COL_WARN) ──────────────────────────────── */
     lv_style_init(&theme_st_label_warn);
     lv_style_set_text_color(&theme_st_label_warn, THEME_COL_WARN);
-    lv_style_set_text_font(&theme_st_label_warn, &lv_font_montserrat_14);
+    /* Same binding — 03_SCREEN_SPECS.md §Sensor card status row */
+    lv_style_set_text_font(&theme_st_label_warn, &lv_font_montserrat_12);
+    lv_style_set_text_letter_space(&theme_st_label_warn, 0);
 
     /* ── Text style: accent / active (COL_ACCENT) ────────────────────── */
     lv_style_init(&theme_st_label_accent);
     lv_style_set_text_color(&theme_st_label_accent, THEME_COL_ACCENT);
-    lv_style_set_text_font(&theme_st_label_accent, &lv_font_montserrat_14);
+    /* Same binding — 03_SCREEN_SPECS.md §Sensor card status row */
+    lv_style_set_text_font(&theme_st_label_accent, &lv_font_montserrat_12);
+    lv_style_set_text_letter_space(&theme_st_label_accent, 0);
 }
