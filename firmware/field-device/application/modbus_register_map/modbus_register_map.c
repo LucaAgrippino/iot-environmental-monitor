@@ -29,7 +29,7 @@
 #endif /* TEST */
 
 #include "modbus_register_map/modbus_register_map.h"
-#include "shared/firmware_version.h"
+#include "firmware_version.h"
 #include <string.h>
 #include <stddef.h>
 

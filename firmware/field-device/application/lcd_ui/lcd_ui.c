@@ -31,7 +31,7 @@
 #include "lcd_ui/widgets/header_bar.h"
 #include "lcd_ui/widgets/footer_bar.h"
 #include "lcd_ui/widgets/sensor_card.h"
-#include "shared/firmware_version.h"
+#include "firmware_version.h"
 
 /* ===================================================================== */
 /* Module tag                                                           */

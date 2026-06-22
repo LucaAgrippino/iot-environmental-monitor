@@ -69,6 +69,9 @@ jobs:
       - name: Install cppcheck
         run: sudo apt-get install -y cppcheck
 
+      - name: Generate firmware_version.h
+        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
+
       - name: Run cppcheck
         run: |
           sources=$(find firmware \
@@ -80,6 +83,7 @@ jobs:
           fi
           echo "$sources" | xargs cppcheck \
             --enable=style,warning,performance \
+            -I firmware/shared \
             --suppressions-list=cppcheck-suppressions.txt \
             --suppress=unmatchedSuppression \
             --inline-suppr \
