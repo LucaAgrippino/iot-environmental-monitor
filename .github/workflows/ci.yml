@@ -129,6 +129,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Generate firmware_version.h
+        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
+
       - name: Build Docker image
         run: docker build -t lcd-sim-builder:ci simulator/lcd-ui
       - name: Build simulator inside container

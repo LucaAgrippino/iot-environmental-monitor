@@ -219,6 +219,7 @@ typedef enum
     HEALTH_EVENT_ALARM_RAISED = 12,
     HEALTH_EVENT_ALARM_CLEARED = 13,
     HEALTH_EVENT_FAULT = 14,
+    HEALTH_EVENT_LCD_FAIL = 15, /* FD: LCD UI init or refresh error */
 } health_event_t;
 
 /* ======================================================================= */

@@ -104,6 +104,10 @@
   :test_graphics_library:
     - STM32F469xx
     - TEST
+  :test_lcd_ui:
+    - STM32F469xx
+    - TEST
+    - UNIT_TEST
 
 :cmock:
   :mock_prefix: mock_

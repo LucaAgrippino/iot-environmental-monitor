@@ -6,6 +6,7 @@ You're implementing the **EnvMon Field Device LCD GUI** in **LVGL 9.x** on the *
 
 Read these files first, in order. Do NOT start writing code until you've read all of them.
 
+0. **`00_PROJECT_OVERLAY.md`** — **project-specific overrides; takes precedence over every other file in this pack**
 1. **`README.md`** — defaults and bundle contents (you've probably already read it)
 2. **`01_DESIGN_TOKENS.md`** — the color/type/spacing system
 3. **`02_FONTS_AND_ICONS.md`** — which fonts to convert, how, and the icon glyph table
@@ -45,3 +46,4 @@ Stop and ask the user before:
 - Don't write tests for visuals; do write tests for the data model and persistence.
 
 Start now: read `01_DESIGN_TOKENS.md`.
+
