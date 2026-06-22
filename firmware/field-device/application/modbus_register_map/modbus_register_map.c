@@ -29,6 +29,7 @@
 #endif /* TEST */
 
 #include "modbus_register_map/modbus_register_map.h"
+#include "firmware_version.h"
 #include <string.h>
 #include <stddef.h>
 
@@ -65,9 +66,9 @@ static modbus_register_map_t s_mrm;
 #define MRM_DEVICE_ID_HI ((uint16_t) 0U)
 #define MRM_DEVICE_ID_LO ((uint16_t) 0U)
 #define MRM_HARDWARE_REV ((uint16_t) 1U)
-#define MRM_FW_VER_MAJOR ((uint16_t) 1U)
-#define MRM_FW_VER_MINOR ((uint16_t) 0U)
-#define MRM_FW_VER_PATCH ((uint16_t) 0U)
+#define MRM_FW_VER_MAJOR ((uint16_t) FW_VERSION_MAJOR) /* firmware_version.h §0x0004 */
+#define MRM_FW_VER_MINOR ((uint16_t) FW_VERSION_MINOR) /* firmware_version.h §0x0005 */
+#define MRM_FW_VER_PATCH ((uint16_t) FW_VERSION_PATCH) /* firmware_version.h §0x0006 */
 #define MRM_VENDOR_CODE ((uint16_t) 0x1A45U)
 
 /* ===================================================================== */
