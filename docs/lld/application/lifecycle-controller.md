@@ -1,48 +1,179 @@
 # LLD Companion — LifecycleController
 
-**Layer:** Application  
-**Boards:** Field Device (FD) · Gateway (GW)  
-**Provides:** `ILifecycle`  
-**Consumes (FD):** `IConfigStore`, `IConfigService`, `ISensorService`, `IAlarmService`, `IConsoleService`, `IGraphicsLibrary`, `ILogger`  
-**Consumes (GW):** `IConfigStore`, `IConfigService`, `ISensorService`, `IAlarmService`, `ICloudPublisher`, `IModbusPoller`, `IUpdateService`, `ITimeService`, `IConsoleService`, `IFirmwareStore`, `IResetDriver`, `IHealthAdmin`, `ILogger`  
-**SRS traces (both):** REQ-SA-000–060, REQ-DM-040, REQ-NF-202, REQ-NF-203, REQ-NF-213, REQ-NF-214  
-**SRS traces (FD add.):** REQ-LD-200, REQ-LD-210, REQ-LD-220, REQ-LD-230, REQ-LD-240  
-**SRS traces (GW add.):** REQ-DM-010, REQ-DM-020, REQ-DM-030, REQ-DM-071, REQ-DM-072  
-**HLD ref:** `state-machines.md` Machine 1 (GW), Machine 5 (FD); `hld.md` §7.1, §7.2, §7.6; `sequence-diagrams.md` SD-00a–c; `task-breakdown.md` §4.2, §5.2
-**Version:** 0.1
-**Date:** May 2026
-**Status:** Draft
+**Boards:** Field Device (FD) + Gateway (GW).
+**Layer:** Application.
 
-**HLD anchor:** LifecycleController in `components.md` (FD + GW application layer)
+This artefact specifies the software design of the `LifecycleController`
+component — boot orchestration, runtime lifecycle state machine,
+EditingConfig workflow, board-specific Restarting and UpdatingFirmware
+states, and remote-command dispatch.
+
+**Version:** 0.2
+**Date:** June 2026
+**Status:** Ready for code implementation
+
+**HLD anchor:** LifecycleController in `components.md` (FD + GW
+application layer); `state-machines.md` Machine 5 (FD), Machine 1 (GW);
+`sequence-diagrams.md` SD-00a / SD-00b / SD-00c.
 
 ---
 
 ## 1. Sources
 
-LifecycleController owns the top-level lifecycle state machine on each
-board. Its two roles:
+| Field | FD | GW |
+|---|---|---|
+| **Provides** | `ILifecycle` (vtable: `get_state`, `get_reset_cause`, `post_event`, `handle_remote_command`) | `ILifecycle` (same vtable) |
+| **Uses** | `IConfigStore`, `IConfigProvider`, `IConfigManager`, `ISensorService`, `IAlarmService`, `IGraphicsLibrary`, `ILcdUi`, `IModbusSlave`, `IConsoleService`, `IHealthMonitor`, `IHealthReport`, `ILogger` | `IConfigStore`, `IConfigProvider`, `IConfigManager`, `ISensorService`, `IAlarmService`, `ICloudPublisher`, `IModbusPoller`, `IUpdateService`, `ITimeService`, `IConsoleService`, `IFirmwareStore`, `IResetDriver`, `IHealthAdmin`, `IHealthReport`, `ILogger` |
+| **Hosted in task** | `LifecycleTask` prio 1, 2048 words / 8 KB | `LifecycleTask` prio 1, 2048 words / 8 KB |
+| **Activation** | Event — queue receive (depth 4) | Event — queue receive (depth 4) |
 
-1. **Sequencer** — drives the Init sub-state chain at boot, gating
-   Operational entry on each subsystem starting up cleanly.
-2. **Event router** — reacts to runtime events (restart commands,
-   OTA commands, config-edit enter/exit, faults) by transitioning the
-   lifecycle state machine and coordinating the affected components.
-
-LifecycleController does **not** own data acquisition, display content,
-cloud publishing, or Modbus protocol. It activates and gates those
-components but does not perform their work.
-
-Runs exclusively in `LifecycleTask` (priority 1 — lowest application
-task, no hard real-time constraint). Events arrive via a queue of depth
-4 (task-breakdown.md §4.4, §5.4).
+The 8 KB task stack is intentionally larger than typical (compare
+ConsoleService 2 KB) because the EditingConfig snapshot path passes the
+config buffer on its way to `config_manager->snapshot()` and several
+init sub-states call into BSP code with deep stack frames.
 
 ---
 
-## 2. Data types
+## 2. Traceability
+
+| Concern | SRS requirements | Use cases |
+|---|---|---|
+| Boot orchestration | REQ-SA-000..030 | UC-00 |
+| Init sub-state failure → Faulted | REQ-SA-040, REQ-NF-202 | UC-00 |
+| Reset cause detection | REQ-NF-203 | UC-00 |
+| Init time budget | REQ-NF-213 | UC-00 |
+| Operational entry | REQ-SA-050 | UC-01..16 |
+| EditingConfig | REQ-SA-060, REQ-DM-040 | UC-09 |
+| EditingConfig timeout (5 min) | REQ-NF-214 | UC-09 |
+| Splash screen *(FD only)* | REQ-LD-200, LD-210, LD-220, LD-230, LD-240 | UC-00 |
+| Post-update boot *(GW only)* | REQ-DM-071, REQ-DM-072 | UC-18 |
+| Restarting state *(GW only)* | REQ-DM-010, REQ-DM-020, REQ-DM-030 | UC-17 |
+| UpdatingFirmware state *(GW only)* | REQ-DM-054 | UC-18 |
+| Reset-metrics command dispatch | REQ-DM-040 | UC-17 |
+
+---
+
+## 3. Responsibility
+
+`LifecycleController` is the top-level orchestrator on each board. Two
+roles:
+
+1. **Sequencer** — drives the Init sub-state chain at boot, gating
+   Operational entry on each subsystem starting up cleanly.
+2. **Event router** — reacts to runtime events (restart commands, OTA
+   commands, EditingConfig enter/exit, faults) by transitioning the
+   lifecycle state machine and coordinating the affected components
+   through their injected vtables.
+
+It does **not** own sensor acquisition, display content, cloud
+publishing, or Modbus protocol. It activates and gates those
+components but does not perform their work.
+
+It is the **single dispatch point for remote commands** that affect
+system state (LLD-D12, LLD-D15). `ModbusRegisterMap` and
+`CloudPublisher` never reach cross-layer state-changing components
+directly — they call `lifecycle_controller->handle_remote_command()`.
+
+`LifecycleController` runs exclusively in `LifecycleTask` (priority 1
+— lowest application task; no hard real-time constraint). Events
+arrive via a static FreeRTOS queue of depth 4.
+
+---
+
+## 4. Provided interface
+
+### 4.1 Singleton accessor
 
 ```c
-/* lifecycle_controller.h */
+extern const ilifecycle_t * const lifecycle_controller;
+```
 
+### 4.2 Vtable
+
+```c
+typedef struct ilifecycle {
+    lifecycle_state_t       (*get_state)(void);
+    lifecycle_reset_cause_t (*get_reset_cause)(void);
+    bool                    (*post_event)(lifecycle_event_t event);
+    lifecycle_err_t         (*handle_remote_command)(lifecycle_remote_cmd_t cmd);
+} ilifecycle_t;
+```
+
+`get_state` is read-only and thread-safe — backed by a `volatile`
+state variable written only from `LifecycleTask`.
+
+`get_reset_cause` returns the cause detected once at startup.
+
+`post_event` is non-blocking; returns `false` if the event queue is
+full. Safe from any task context. Not ISR-safe (use ISR-specific
+post variant if needed; not currently required).
+
+`handle_remote_command` is task-safe but not ISR-safe; callers are
+`ModbusSlaveTask` (FD) or `ModbusPollerTask` (GW), both task context.
+
+### 4.3 Initialisation function
+
+```c
+lifecycle_err_t
+lifecycle_controller_init(const iconfig_store_t        *config_store,
+                          const iconfig_provider_t     *cfg_read,
+                          const iconfig_manager_t      *cfg_write,
+                          const isensor_service_t      *sensors,
+                          const ialarm_service_t       *alarms,
+                          const iconsole_service_t     *console,
+                          const ihealth_report_t       *health_report,
+#ifdef BOARD_FIELD_DEVICE
+                          const igraphics_library_t    *graphics,
+                          const ilcd_ui_t              *lcd_ui,
+                          const imodbus_slave_t        *modbus_slave,
+#else  /* BOARD_GATEWAY */
+                          const icloud_publisher_t     *cloud,
+                          const imodbus_poller_t       *modbus_poller,
+                          const iupdate_service_t      *update_service,
+                          const itime_service_t        *time_service,
+                          const ifirmware_store_t      *firmware_store,
+                          const ireset_driver_t        *reset_driver,
+                          const ihealth_admin_t        *health_admin,
+#endif
+                          const ilogger_t              *log);
+```
+
+Singleton pattern — no `self` parameter. All injected pointers stored
+in file-scope statics. Returns `LIFECYCLE_ERR_NULL_ARG` on any null
+pointer; `LIFECYCLE_ERR_OK` otherwise.
+
+Init does **not** transition the state machine — it only stores
+pointers, creates the event queue, creates the EditingConfig timeout
+timer, and detects reset cause. The state machine drives forward only
+after `LifecycleTask` starts and calls `lifecycle_controller_run()`.
+
+### 4.4 Task entry
+
+```c
+void lifecycle_task_body(void *arg);
+```
+
+`xTaskCreateStatic` references this. It runs the state machine
+forever; never returns.
+
+### 4.5 Start gate (used by other tasks)
+
+```c
+EventGroupHandle_t lifecycle_get_start_gate(void);
+#define LIFECYCLE_START_GATE_BIT  (1U << 0)
+```
+
+Other application tasks block on this event-group bit before starting
+their work loops. `LifecycleController` sets the bit on Operational
+entry. Bit index per LC-O3.
+
+---
+
+## 5. Data types
+
+### 5.1 States
+
+```c
 typedef enum {
     LIFECYCLE_STATE_INIT           = 0,
     LIFECYCLE_STATE_OPERATIONAL    = 1,
@@ -51,130 +182,139 @@ typedef enum {
     LIFECYCLE_STATE_UPDATING_FW    = 4,  /* GW only */
     LIFECYCLE_STATE_FAULTED        = 5,
 } lifecycle_state_t;
+```
 
+### 5.2 Reset cause
+
+```c
 typedef enum {
     LIFECYCLE_RESET_POWER_ON  = 0,
     LIFECYCLE_RESET_SOFT      = 1,
     LIFECYCLE_RESET_WATCHDOG  = 2,
     LIFECYCLE_RESET_UNKNOWN   = 3,
 } lifecycle_reset_cause_t;
+```
 
+### 5.3 Error enum
+
+```c
 typedef enum {
-    LIFECYCLE_ERR_OK        = 0,
-    LIFECYCLE_ERR_NULL_ARG  = 1,
-    LIFECYCLE_ERR_NOT_INIT  = 2,
+    LIFECYCLE_ERR_OK              = 0,
+    LIFECYCLE_ERR_NULL_ARG        = 1,
+    LIFECYCLE_ERR_NOT_INIT        = 2,
+    LIFECYCLE_ERR_QUEUE_FULL      = 3,
+    LIFECYCLE_ERR_UNKNOWN_CMD     = 4,
+    LIFECYCLE_ERR_BAD_STATE       = 5,
 } lifecycle_err_t;
+```
 
-/* Events posted to LifecycleTask by other components */
+### 5.4 Events
+
+```c
 typedef enum {
     LC_EVENT_CONFIG_EDIT_ENTER     = 0,
     LC_EVENT_CONFIG_EDIT_APPLY     = 1,
     LC_EVENT_CONFIG_EDIT_CANCEL    = 2,
     LC_EVENT_CONFIG_EDIT_TIMEOUT   = 3,
-    LC_EVENT_RESTART_REQUESTED     = 4,  /* GW: first Modbus/MQTT command */
-    LC_EVENT_RESTART_CONFIRMED     = 5,  /* GW: confirmation write received (DM-020) */
-    LC_EVENT_OTA_REQUESTED         = 6,  /* GW */
-    LC_EVENT_SELF_CHECK_PASS       = 7,  /* GW: UpdateService result */
-    LC_EVENT_SELF_CHECK_FAIL       = 8,  /* GW: UpdateService result */
-    LC_EVENT_UNRECOVERABLE_FAULT   = 9,  /* any component */
+    LC_EVENT_RESTART_REQUESTED     = 4,  /* GW */
+    LC_EVENT_RESTART_CONFIRMED     = 5,  /* GW */
+    LC_EVENT_RESTART_TIMEOUT       = 6,  /* GW (LC-O4) */
+    LC_EVENT_OTA_REQUESTED         = 7,  /* GW */
+    LC_EVENT_SELF_CHECK_PASS       = 8,  /* GW */
+    LC_EVENT_SELF_CHECK_FAIL       = 9,  /* GW */
+    LC_EVENT_UNRECOVERABLE_FAULT   = 10,
 } lifecycle_event_type_t;
 
 typedef struct {
     lifecycle_event_type_t type;
-    uint32_t               param;   /* event-specific payload (e.g. fault code) */
+    uint32_t               param;  /* fault code, OTA size, etc. */
 } lifecycle_event_t;
+```
 
-/* Remote commands issued via Modbus or MQTT (LLD-D12, LLD-D15) */
+### 5.5 Remote commands
+
+```c
 typedef enum {
-    LC_REMOTE_CMD_SOFT_RESTART   = 0,  /* Modbus 0x0202 — two-step confirmation required */
-    LC_REMOTE_CMD_RESET_METRICS  = 1,  /* Modbus 0x0201 — dispatch to IHealthAdmin       */
+    LC_REMOTE_CMD_SOFT_RESTART   = 0,  /* Modbus 0x0202; two-step (REQ-DM-020) */
+    LC_REMOTE_CMD_RESET_METRICS  = 1,  /* Modbus 0x0201; direct dispatch       */
 } lifecycle_remote_cmd_t;
 ```
 
 ---
 
-## 2. Public API — `ILifecycle`
+## 6. Internal state
+
+All state is file-scope static — no heap, no per-instance context.
 
 ```c
-/**
- * @brief  Return the current lifecycle state.
- *
- * Called by HealthMonitor, ConsoleService, and (on GW) CloudPublisher
- * to include lifecycle state in health payloads.
- * Thread-safe — reads a volatile state variable.
- * @return Current state value.
- */
-lifecycle_state_t lifecycle_get_state(void);
+/* Injected interface pointers */
+static const iconfig_store_t        *s_config_store;
+static const iconfig_provider_t     *s_cfg_read;
+static const iconfig_manager_t      *s_cfg_write;
+static const isensor_service_t      *s_sensors;
+static const ialarm_service_t       *s_alarms;
+static const iconsole_service_t     *s_console;
+static const ihealth_report_t       *s_health_report;
+#ifdef BOARD_FIELD_DEVICE
+static const igraphics_library_t    *s_graphics;
+static const ilcd_ui_t              *s_lcd_ui;
+static const imodbus_slave_t        *s_modbus_slave;
+#else
+static const icloud_publisher_t     *s_cloud;
+static const imodbus_poller_t       *s_modbus_poller;
+static const iupdate_service_t      *s_update_service;
+static const itime_service_t        *s_time_service;
+static const ifirmware_store_t      *s_firmware_store;
+static const ireset_driver_t        *s_reset_driver;
+static const ihealth_admin_t        *s_health_admin;
+#endif
+static const ilogger_t              *s_log;
 
-/**
- * @brief  Return the reset cause detected at last boot.
- *
- * Determined from RCC reset-status flags and the watchdog RTC backup
- * register at startup. Exposed in health payloads (REQ-NF-202).
- * @return lifecycle_reset_cause_t result.
- * @note Threading: thread-safe.
- */
-lifecycle_reset_cause_t lifecycle_get_reset_cause(void);
+/* Machine state */
+static volatile lifecycle_state_t   s_state;       /* read by other tasks */
+static lifecycle_reset_cause_t      s_reset_cause;
+static bool                         s_initialised;
 
-/**
- * @brief  Post an event to LifecycleTask.
- *
- * Non-blocking. Returns false if the event queue is full (depth 4);
- * caller may log and discard. Safe from any task context.
- *
- * @param  event  Event to enqueue.
- * @return true if enqueued; false if queue full.
- */
-bool lifecycle_post_event(lifecycle_event_t event);
+/* GW only — restart/OTA flags */
+#ifdef BOARD_GATEWAY
+static bool s_restart_pending;
+static bool s_pending_self_check;
+static bool s_pending_rollback;
+#endif
 
-/**
- * @brief  Dispatch a remote command received via Modbus or MQTT.
- *
- * LifecycleController is the single dispatch point for all remote
- * commands that affect system state (LLD-D12, LLD-D15). This keeps
- * ModbusRegisterMap and CloudPublisher free of direct cross-component
- * coupling.
- *
- * Commands and their dispatch targets:
- *   LC_REMOTE_CMD_SOFT_RESTART  — posts LC_EVENT_RESTART_REQUESTED to
- *                                  LifecycleTask (GW only; two-step
- *                                  confirmation handled there).
- *   LC_REMOTE_CMD_RESET_METRICS — calls health_admin->reset_metrics().
- *
- * Called from ModbusRegisterMap write handler (called in ModbusSlaveTask
- * context on FD, ModbusPollerTask context on GW).
- *
- * @param  cmd  Command to dispatch.
- * @return LIFECYCLE_ERR_OK on success; LIFECYCLE_ERR_NOT_INIT if not
- *         initialised; LIFECYCLE_ERR_NULL_ARG for unknown command.
- * @note Threading: thread-safe.
- */
-lifecycle_err_t lifecycle_handle_remote_command(lifecycle_remote_cmd_t cmd);
+/* Event queue (static) */
+static StaticQueue_t s_queue_struct;
+static uint8_t       s_queue_storage[4 * sizeof(lifecycle_event_t)];
+static QueueHandle_t s_event_queue;
 
-/* ------------------------------------------------------------------ */
-/* Singleton vtable interface (ILifecycle — LLD-D10)                   */
-/* ------------------------------------------------------------------ */
+/* EditingConfig timeout timer (5 minutes per REQ-NF-214) */
+static StaticTimer_t s_edit_timer_struct;
+static TimerHandle_t s_edit_timer;
 
-typedef struct {
-    lifecycle_state_t       (*get_state)(void);
-    lifecycle_reset_cause_t (*get_reset_cause)(void);
-    bool                    (*post_event)(lifecycle_event_t event);
-    lifecycle_err_t         (*handle_remote_command)(lifecycle_remote_cmd_t cmd);
-} ilifecycle_t;
+/* Restart confirmation timer (GW only, LC-O4 — provisional 30 s) */
+#ifdef BOARD_GATEWAY
+static StaticTimer_t s_restart_timer_struct;
+static TimerHandle_t s_restart_timer;
+#endif
 
-/** Singleton pointer to the LifecycleController vtable (FD + GW). */
-extern const ilifecycle_t * const lifecycle_controller;
+/* Start-gate event group (other tasks block until Operational) */
+static StaticEventGroup_t s_start_gate_struct;
+static EventGroupHandle_t s_start_gate;
+
+/* Config snapshot buffer (EditingConfig) */
+static uint8_t s_cfg_snapshot[CONFIG_STORE_MAX_DATA_BYTES];
+static uint32_t s_cfg_snapshot_len;
 ```
 
-`lifecycle_post_event()` and `lifecycle_handle_remote_command()` are the
-only calls other components make at runtime. LifecycleController is
-otherwise entirely reactive.
+`CONFIG_STORE_MAX_DATA_BYTES` is at most 32 712 bytes per the
+ConfigStore companion. This makes the snapshot buffer the dominant
+RAM cost (LC-O1).
 
 ---
 
-## 4. Init sub-state sequences
+## 7. Init sub-state sequences
 
-### 4.1 Field Device — Machine 5 Init
+### 7.1 Field Device — Machine 5 Init
 
 Five sequential sub-states. Any failure transitions immediately to
 Faulted. The display sub-state (BringingUpLCD) is FD-specific — LCD
@@ -182,254 +322,239 @@ is architecturally essential per REQ-LD-000.
 
 ```
 sub-state 1 — CheckingIntegrity
-  config_store_check_integrity()
+  s_config_store->check_integrity()
   → fail: log + post LC_EVENT_UNRECOVERABLE_FAULT → Faulted
 
 sub-state 2 — LoadingConfig
-  config_store_load(&cfg_buf, &len, sizeof(cfg_buf))
-  config_service_apply_loaded(cfg_buf, len)    /* or apply defaults */
+  s_config_store->load(buf, &len, sizeof(buf))
+  s_cfg_write->apply_loaded(buf, len)            /* or apply defaults */
   → fail: log + Faulted
 
 sub-state 3 — BringingUpSensors
-  sensor_service_init()
-  alarm_service_init()
+  s_sensors->init()
+  s_alarms->init()
   → fail: log + Faulted
 
-sub-state 4 — BringingUpLCD          [FD only]
-  graphics_init()
-  lcd_ui_init()
-  lcd_ui_show_splash()                          /* REQ-LD-200, LD-210, LD-220 */
+sub-state 4 — BringingUpLCD                      [FD only]
+  s_graphics->init()
+  s_lcd_ui->init()
+  s_lcd_ui->show_splash()                        /* REQ-LD-200..220 */
   → fail: log + Faulted
-  (Splash remains visible through sub-state 5 — REQ-LD-230)
+  (Splash visible through sub-state 5 — REQ-LD-230)
 
 sub-state 5 — StartingMiddleware
-  modbus_slave_set_address(cfg.modbus_address)
-  console_service_init()
-  health_monitor_init()
+  s_modbus_slave->set_address(cfg.modbus_address)
+  s_console->init_finalise()                     /* prompt, etc.    */
+  s_health_report->init()
   → enter Operational
-  lcd_ui_dismiss_splash()                       /* REQ-LD-240 — first Operational frame */
+  s_lcd_ui->dismiss_splash()                     /* REQ-LD-240      */
+  xEventGroupSetBits(s_start_gate, LIFECYCLE_START_GATE_BIT)
 ```
 
-BringingUpLCD is the fourth sub-state, not the last, because the splash
-screen must be visible while StartingMiddleware completes — the user sees
-boot progress through the splash progress bar (REQ-LD-210) during sub-state 5.
+The order matters: BringingUpLCD is fourth (not last) because the
+splash must be visible while StartingMiddleware completes — the user
+sees boot progress through the splash progress bar (REQ-LD-210) during
+sub-state 5.
 
-### 4.2 Gateway — Machine 1 Init
+### 7.2 Gateway — Machine 1 Init
 
 Five sequential sub-states. SelfChecking replaces BringingUpLCD —
 the GW has no display, but has a post-boot functional self-check
-(REQ-DM-040).
+(REQ-DM-040) and handles post-update boot paths (SD-00c).
 
 ```
 sub-state 1 — CheckingIntegrity
-  config_store_check_integrity()
-  firmware_store_get_pending_flags(&self_check, &rollback)   /* SD-00c */
+  s_config_store->check_integrity()
+  s_firmware_store->get_pending_flags(&self_check, &rollback)
+  s_pending_self_check = self_check
+  s_pending_rollback   = rollback
   → cfg fail: Faulted
-  (pending flags recorded for sub-state 5 routing)
 
 sub-state 2 — LoadingConfig
-  config_store_load() + config_service_apply_loaded()
+  s_config_store->load(buf, &len, sizeof(buf))
+  s_cfg_write->apply_loaded(buf, len)
   → fail: Faulted
 
 sub-state 3 — BringingUpSensors
-  sensor_service_init() + alarm_service_init()
+  s_sensors->init()
+  s_alarms->init()
   → fail: Faulted
 
 sub-state 4 — StartingMiddleware
-  modbus_poller_init()
-  cloud_publisher_init()
-  time_service_init()
-  update_service_init()
-  console_service_init()
-  health_monitor_init()
+  s_modbus_poller->init()
+  s_cloud->init()
+  s_time_service->init()
+  s_update_service->init()
+  s_console->init_finalise()
+  s_health_report->init()
   → fail on any: Faulted
 
-sub-state 5 — SelfChecking           [REQ-DM-040]
-  probe sensor_service_is_ready()
-  probe modbus_poller_is_ready()      /* link-check: at least one poll attempt */
-  probe cloud_publisher_is_ready()    /* WiFi associated check */
+sub-state 5 — SelfChecking                       [REQ-DM-040]
+  if s_pending_self_check:
+      s_update_service->resume_self_checking()
+      /* wait on event */
+      LC_EVENT_SELF_CHECK_PASS:
+          s_firmware_store->confirm_self_check()
+          → Operational
+      LC_EVENT_SELF_CHECK_FAIL:
+          s_update_service->resume_rollback()
+          s_firmware_store->rollback()
+          s_reset_driver->soft_reset()           /* will not return */
 
-  [post-update boot path — SD-00c]
-  if pending_self_check:
-      update_service_resume_self_checking()
-      → wait for LC_EVENT_SELF_CHECK_PASS / LC_EVENT_SELF_CHECK_FAIL
-      on PASS: firmware_store_confirm_self_check() → Operational
-      on FAIL: update_service_resume_rollback()    → FirmwareStore.rollback()
-               → reset_driver_soft_reset()
-  if pending_rollback:
-      update_service_resume_after_rollback()
-      → cloud_publisher_report_rollback_result()
+  else if s_pending_rollback:
+      s_update_service->resume_after_rollback()
+      s_cloud->report_rollback_result()
       → Operational
+
   else:
-      on all probes pass → Operational
-      on any probe fail  → Faulted
+      sensor_ok = s_sensors->is_ready()
+      modbus_ok = s_modbus_poller->is_ready()
+      cloud_ok  = s_cloud->is_ready()
+      if all ok → Operational
+      else      → Faulted
+
+  on Operational entry:
+      xEventGroupSetBits(s_start_gate, LIFECYCLE_START_GATE_BIT)
 ```
 
----
+### 7.3 Init time budget
 
-## 5. Operational — event handling
-
-In Operational, LifecycleTask blocks on the event queue with a timeout
-equal to the EditingConfig watchdog period (5 minutes). On timeout with
-no events, it kicks the watchdog (if enabled) and loops.
-
-| Event | Action |
-|-------|--------|
-| `LC_EVENT_CONFIG_EDIT_ENTER` | Snapshot config via `config_service_snapshot()`; transition to EditingConfig; start 5-minute timeout timer |
-| `LC_EVENT_RESTART_REQUESTED` (GW) | Log intent; transition to Restarting; notify CloudPublisher to flush queue |
-| `LC_EVENT_OTA_REQUESTED` (GW) | Lock OTA entry (REQ-DM-054 — reject if already in progress); transition to UpdatingFirmware; call `update_service_start()` |
-| `LC_EVENT_UNRECOVERABLE_FAULT` | Log fault code from `param`; push `HEALTH_EVENT_FAULT`; transition to Faulted |
+A FreeRTOS software timer is created at init with a period of
+**REQ-NF-213 TBD** (LC-O2). On expiry it posts
+`LC_EVENT_UNRECOVERABLE_FAULT` with `param = LC_FAULT_INIT_TIMEOUT`.
+The timer is started at the first sub-state and stopped on Operational
+entry. Provisional value: **10 seconds** — confirm at coding time.
 
 ---
 
-## 6. EditingConfig
+## 8. Operational — event handling
 
-Entry action: `config_service_snapshot()` — saves current in-memory
-config so it can be restored on cancel or timeout.
+In Operational, `LifecycleTask` blocks on the event queue with a
+timeout equal to the watchdog kick period (provisional 1 second). On
+timeout with no events, it kicks the watchdog (if enabled) and loops.
 
-Exit actions:
-- Apply: `config_service_commit()` → notify affected components (SensorService for threshold changes, ModbusSlave for address changes).
-- Cancel / timeout: `config_service_restore_snapshot()`.
-
-The 5-minute timeout is a FreeRTOS software timer created at
-`lifecycle_controller_init()` and started on each EditingConfig entry.
-On expiry the timer posts `LC_EVENT_CONFIG_EDIT_TIMEOUT` to the queue.
+| Event | Action | New state |
+|---|---|---|
+| `LC_EVENT_CONFIG_EDIT_ENTER` | `s_cfg_write->snapshot(s_cfg_snapshot, &s_cfg_snapshot_len, sizeof s_cfg_snapshot)`; start `s_edit_timer` | EditingConfig |
+| `LC_EVENT_RESTART_REQUESTED` (GW) | `s_restart_pending = true`; `s_cloud->flush()`; start `s_restart_timer` (LC-O4) | Restarting |
+| `LC_EVENT_OTA_REQUESTED` (GW) | If already UpdatingFirmware: reject (REQ-DM-054). Otherwise: `s_update_service->start()` | UpdatingFirmware |
+| `LC_EVENT_UNRECOVERABLE_FAULT` | Log `event.param`; push `HEALTH_EVENT_FAULT` via `s_health_report->push_fault()` | Faulted |
+| Other events | Log and ignore | Operational |
 
 ---
 
-## 7. Restarting (GW only — UC-17, REQ-DM-010–030)
+## 9. EditingConfig
 
-The two-step confirmation guard is defined in the Modbus register map
+**Entry action**: snapshot current config via
+`s_cfg_write->snapshot(s_cfg_snapshot, &s_cfg_snapshot_len, sizeof s_cfg_snapshot)`.
+Start `s_edit_timer` (5 minutes per REQ-NF-214).
+
+**Exit actions** (and corresponding events):
+
+| Trigger | Action | New state |
+|---|---|---|
+| `LC_EVENT_CONFIG_EDIT_APPLY` | `s_cfg_write->commit()`; notify affected components (sensor threshold change → `s_sensors->reconfigure()`; Modbus address change → `s_modbus_slave->set_address()`) | Operational |
+| `LC_EVENT_CONFIG_EDIT_CANCEL` | `s_cfg_write->restore_snapshot(s_cfg_snapshot, s_cfg_snapshot_len)` | Operational |
+| `LC_EVENT_CONFIG_EDIT_TIMEOUT` | Same as CANCEL | Operational |
+
+The 5-minute timer is created at `lifecycle_controller_init()` and
+started on each EditingConfig entry. On expiry it posts
+`LC_EVENT_CONFIG_EDIT_TIMEOUT` to the queue.
+
+While in EditingConfig, all other events are queued but not acted
+upon (they are processed on return to Operational). The exception is
+`LC_EVENT_UNRECOVERABLE_FAULT` — always honoured immediately.
+
+---
+
+## 10. Restarting (GW only — UC-17, REQ-DM-010..030)
+
+Two-step confirmation guard defined in the Modbus register map
 (CMD_SOFT_RESTART at address 0x0202, confirmation token 0xA5A5).
 
 ```
-Operational → LC_EVENT_RESTART_REQUESTED:
-  Set restart_pending = true; log; notify CloudPublisher to flush.
+Operational + LC_EVENT_RESTART_REQUESTED:
+  s_restart_pending = true
+  log; s_cloud->flush()
+  start s_restart_timer  (LC-O4 — provisional 30 s)
+  → Restarting
 
-    LC_EVENT_RESTART_CONFIRMED (within REQ-DM-020 timeout):
-      log; reset_driver_soft_reset()   → NVIC_SystemReset()
+Restarting + LC_EVENT_RESTART_CONFIRMED:
+  stop s_restart_timer
+  log
+  s_reset_driver->soft_reset()                   /* will not return */
 
-    Timeout (no confirmation):
-      restart_pending = false; log; stay Operational.
+Restarting + LC_EVENT_RESTART_TIMEOUT:
+  s_restart_pending = false
+  log
+  → Operational
+
+Restarting + LC_EVENT_RESTART_REQUESTED (second time):
+  Treat as confirmation — same as LC_EVENT_RESTART_CONFIRMED above.
+  Handles the case where the Modbus master issues the command twice
+  using the same register write.
+
+Restarting + LC_EVENT_UNRECOVERABLE_FAULT:
+  → Faulted (always honoured)
 ```
 
-If a second `LC_EVENT_RESTART_REQUESTED` arrives while
-`restart_pending` is true, it is treated as the confirmation.
-This handles the case where the Modbus master issues the command twice
-using the same register write.
-
 ---
 
-## 8. Faulted
+## 11. UpdatingFirmware (GW only — UC-18, REQ-DM-054)
 
-Entry action: log fault code; push `HEALTH_EVENT_FAULT` via IHealthReport;
-set LED to fault pattern (via `health_monitor_set_led_fault()`).
+Entered when `LC_EVENT_OTA_REQUESTED` arrives in Operational and no
+update is already in progress (REQ-DM-054 lock).
 
-Do activity: continue kicking the watchdog if enabled (no watchdog
-reset on top of an application fault — the fault LED must remain visible).
-No other processing.
+```
+Operational + LC_EVENT_OTA_REQUESTED:
+  if s_state == LIFECYCLE_STATE_UPDATING_FW: reject (return BAD_STATE)
+  s_update_service->start(event.param)          /* event.param = image size */
+  → UpdatingFirmware
 
-Exit: hardware reset only. No `LC_EVENT_*` causes Faulted exit.
+UpdatingFirmware + LC_EVENT_SELF_CHECK_PASS:
+  s_firmware_store->confirm_self_check()
+  → Operational
 
----
+UpdatingFirmware + LC_EVENT_SELF_CHECK_FAIL:
+  s_update_service->resume_rollback()
+  s_firmware_store->rollback()
+  s_reset_driver->soft_reset()
 
-## 3. Internal design
-
-```c
-/* lifecycle_controller.c */
-
-typedef struct {
-    bool                    initialised;
-    lifecycle_state_t       state;          /* volatile — read by other tasks */
-    lifecycle_reset_cause_t reset_cause;
-    QueueHandle_t           event_queue;    /* depth 4 */
-    TimerHandle_t           edit_timeout_timer;
-    bool                    restart_pending;           /* GW only */
-    bool                    pending_self_check;        /* GW only */
-    bool                    pending_rollback;          /* GW only */
-    uint8_t                 cfg_snapshot[CONFIG_STORE_MAX_DATA_BYTES]; /* edit snapshot */
-} LifecycleControllerState;
-
-static LifecycleControllerState s_lc;
+UpdatingFirmware + LC_EVENT_UNRECOVERABLE_FAULT:
+  → Faulted (always honoured)
 ```
 
-`s_lc.state` is declared `volatile` so `lifecycle_get_state()` reads a
-coherent value without a mutex. All writes to `s_lc.state` happen inside
-`LifecycleTask` — no concurrent write path exists.
-
-**Remote command dispatch (LLD-D12, LLD-D15).** LifecycleController is
-the single dispatch point for all remote commands that affect system
-state. LLD-D12 established this for cloud-originated commands; LLD-D15
-extends the same pattern to Modbus-originated commands. The consequence
-is that ModbusRegisterMap and CloudPublisher never reach cross-layer
-components directly for state-changing commands — they call
-`lifecycle_controller->handle_remote_command()` instead.
-
-`handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)` calls
-`health_admin->reset_metrics()` directly from the caller's task context
-(ModbusSlaveTask / ModbusPollerTask) — it does not post to LifecycleTask.
-This is deliberate: metric reset has no lifecycle-state side-effects and
-must not block on queue availability.
-
-`handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART)` posts
-`LC_EVENT_RESTART_REQUESTED` to LifecycleTask, which enforces the
-two-step confirmation requirement (REQ-DM-020) before calling
-`reset_driver_soft_reset()`.
-
-CMD_ACK_ALARM continues to dispatch directly to AlarmService
-(`alarm_service->ack_all()`) from ModbusRegisterMap — it is not routed
-via LifecycleController because alarm acknowledgment has no lifecycle-
-state dependency (LLD-D14).
-
-The config snapshot buffer (`CONFIG_STORE_MAX_DATA_BYTES` ≤ 32 712 bytes)
-is the largest field. This places `s_lc` in static storage, not on the
-stack — annotate clearly in the code. See LC-O1.
+Most of the UpdatingFirmware workflow (image receive, signature
+verify, flash write) happens inside `UpdateService` — LifecycleController
+only orchestrates the state transitions and the post-update reboot.
 
 ---
 
+## 12. Faulted
 
-### Synchronisation
+**Entry action**: log fault code; push `HEALTH_EVENT_FAULT` via
+`s_health_report->push_fault()`; set LED to fault pattern (via the
+health monitor's LED control, which observes the fault via its own
+data path — LifecycleController does not call LED directly).
 
-This component uses an internal mutex to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
+**Do activity**: continue kicking the watchdog (if enabled). No
+watchdog reset on top of an application fault — the fault LED must
+remain visible to the user.
 
-### lifecycle_get_state
+**Exit**: hardware reset only. No `LC_EVENT_*` causes Faulted exit.
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
+---
 
-### lifecycle_get_reset_cause
+## 13. Reset cause detection
 
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### lifecycle_post_event
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### lifecycle_handle_remote_command
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### Principles applied
-
-- **P1 (Strict directional layering).** Depends on middleware and driver interfaces injected at init; no component in the system exists above the application layer, so no upward dependency can arise.
-- **P2 (Dependency Inversion).** Exposes `ilifecycle_t` vtable; consumes all middleware / driver dependencies via injected vtable pointers; `IHealthAdmin` (owned by HealthMonitor) is injected per P2 inversion (LLD-D15).
-- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Lifecycle state-machine state and event queue in a static struct; FreeRTOS event group created once at init; no heap.
-- **P6 (Responsibility traces to requirements).** Every lifecycle state transition and remote command (LLD-D15) traces to REQ-SA-000-060 / REQ-DM-* system-lifecycle requirements.
-- **P8 (Total error propagation, no silent failures).** `lifecycle_err_t` on all state-modifying functions; `handle_remote_command()` returns error for unrecognised commands; state-machine errors reported via IHealthReport.
-- **P9 (BARR-C coding standard).** State values `uint8_t` enum; event flags `uint32_t` (FreeRTOS EventBits_t); no floating-point.
-- **P10 (Naming conventions).** Prefix `lifecycle_`; interface `ILifecycle` -> `ilifecycle_t`; errors `LIFECYCLE_ERR_*`; states `LIFECYCLE_STATE_*`; remote commands `LC_REMOTE_CMD_*`.
-
-
-## 10. Reset cause detection
-
-Detected once at startup before `lifecycle_controller_init()`, using
-RCC reset-status flags (RCC_CSR on STM32F469; RCC_CSR on STM32L475):
+Detected once at startup, **before** `lifecycle_controller_init()`, by a
+static helper called from early boot:
 
 ```c
-lifecycle_reset_cause_t detect_reset_cause(void)
+static lifecycle_reset_cause_t detect_reset_cause(void)
 {
     uint32_t csr = RCC->CSR;
-    RCC->CSR |= RCC_CSR_RMVF;          /* clear flags for next boot */
+    RCC->CSR |= RCC_CSR_RMVF;  /* clear flags for next boot */
 
     if (csr & RCC_CSR_IWDGRSTF) { return LIFECYCLE_RESET_WATCHDOG; }
     if (csr & RCC_CSR_SFTRSTF)  { return LIFECYCLE_RESET_SOFT;     }
@@ -438,109 +563,431 @@ lifecycle_reset_cause_t detect_reset_cause(void)
 }
 ```
 
-On a soft reset following OTA (SD-00c), `RCC_CSR_SFTRSTF` is set, which
-would give `LIFECYCLE_RESET_SOFT`. The pending-flag check in
-CheckingIntegrity distinguishes the OTA-reboot case from a plain
-soft reset.
+The detected value is passed into `lifecycle_controller_init()` and
+stored in `s_reset_cause`. `get_reset_cause()` returns it.
+
+On a soft reset following OTA (SD-00c), `RCC_CSR_SFTRSTF` is set,
+which gives `LIFECYCLE_RESET_SOFT`. The pending-flag check in
+CheckingIntegrity (`firmware_store->get_pending_flags`) distinguishes
+the OTA-reboot case from a plain soft reset.
 
 ---
 
-## 11. Init ordering
+## 14. Remote command dispatch
 
-```c
-/* main.c / startup — before LifecycleTask is created */
-s_lc.reset_cause = detect_reset_cause();
+LifecycleController is the **single dispatch point** for all remote
+commands that affect system state (LLD-D12, LLD-D15).
 
-/* LifecycleTask entry point — runs init sub-states sequentially */
-void vLifecycleTask(void *pvParameters)
-{
-    lifecycle_controller_run();  /* drives state machine; never returns */
-}
+```
+handle_remote_command(cmd):
+    if not s_initialised: return LIFECYCLE_ERR_NOT_INIT
+    switch cmd:
+        case LC_REMOTE_CMD_RESET_METRICS:
+            s_health_admin->reset_metrics()     /* GW only */
+            return LIFECYCLE_ERR_OK
+        case LC_REMOTE_CMD_SOFT_RESTART:
+            return post_event({type=LC_EVENT_RESTART_REQUESTED, param=0})
+                   ? LIFECYCLE_ERR_OK : LIFECYCLE_ERR_QUEUE_FULL
+        default:
+            log unknown command
+            return LIFECYCLE_ERR_UNKNOWN_CMD
 ```
 
-`LifecycleTask` is the **last task created** in `main()`. All other tasks
-exist before it starts, but they block on a start-gate event group bit
-set by LifecycleController at the end of Init. This ensures no application
-task races ahead of the boot sequence.
+**`RESET_METRICS` is direct dispatch** (not queued) — it has no
+lifecycle-state side-effect and must not block on queue availability.
+Called from `ModbusSlaveTask` / `ModbusPollerTask` context.
+
+**`SOFT_RESTART` is queued** — it must coordinate with the two-step
+confirmation logic in the state machine, which lives in `LifecycleTask`.
+
+`CMD_ACK_ALARM` is **not** routed through LifecycleController. It
+dispatches directly from `ModbusRegisterMap` to `s_alarms->ack_all()`
+because alarm acknowledgement has no lifecycle-state dependency
+(LLD-D14).
 
 ---
 
-## 12. Board differences summary
-
-| Aspect | FD | GW |
-|--------|----|----|
-| Init sub-state 4 | BringingUpLCD | StartingMiddleware continues |
-| Init sub-state 5 | StartingMiddleware | SelfChecking (DM-040) |
-| Post-update boot path | — | pending_self_check / pending_rollback |
-| Restarting state | — | Yes (UC-17, DM-010–030) |
-| UpdatingFirmware state | — | Yes (UC-18) |
-| Splash screen | Yes (LD-200–240) | — |
-| ResetDriver | — | Used in Restarting and post-OTA rollback |
-| `config_service_snapshot` buffer | ~same | ~same |
-
-The code is distinct per board (`lifecycle_fd.c` / `lifecycle_gw.c`), sharing
-`lifecycle_types.h` for the shared enums and `lifecycle_common.c` for shared
-logic (queue-post, reset-cause detection, EditingConfig timeout).
-
----
-
-## 5. Sequence integration
-
-See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
-
-### SD trace
+## 15. Sequence integration
 
 | SD | Component role | Key function |
 |---|---|---|
-| SD-00 | Orchestrates the entire boot sequence on both boards: calls `config_service_load()`, `device_profile_registry_load()`, `modbus_slave_init()` (FD), drives the per-slave probe loop (GW), and transitions the state machine from Init to Operational or Faulted | `lifecycle_controller_init()`, `lifecycle_controller_run()` |
-| SD-06 | Receives the OTA start command; transitions to UpdatingFirmware; calls `update_service_start()`; on completion transitions back to Operational or Faulted | `lifecycle_controller_on_command()`, `lifecycle_controller_run()` |
-| SD-08 | Receives the remote-restart command; transitions to Restarting; calls `cloud_publisher_flush()` then `reset_driver_request_reset()` | `lifecycle_controller_on_command()`, `lifecycle_controller_run()` |
+| SD-00a | Orchestrates FD boot: drives Machine 5 Init sub-states 1..5, calls subsystem `init()` operations, transitions to Operational or Faulted | `lifecycle_task_body()` |
+| SD-00b | Orchestrates GW boot (normal path): drives Machine 1 Init sub-states 1..5, including SelfChecking probes | `lifecycle_task_body()` |
+| SD-00c | Orchestrates GW boot (post-OTA path): branches on `pending_self_check` / `pending_rollback` flags in SelfChecking | `lifecycle_task_body()` |
+| SD-06 | Receives OTA start command; transitions to UpdatingFirmware; calls `s_update_service->start()`; on completion transitions back to Operational or Faulted | `lifecycle_task_body()`, `handle_remote_command()` |
+| SD-08 | Receives remote-restart command; transitions to Restarting; calls `s_cloud->flush()` then `s_reset_driver->soft_reset()` | `handle_remote_command()`, `lifecycle_task_body()` |
+| SD-09 | EditingConfig: snapshot, edit, commit/restore | `lifecycle_task_body()` |
 
 ---
 
-## 6. Error and fault behaviour
+## 16. Thread safety
 
-All public functions return `lifecycle_err_t`; callers must not ignore non-OK
-returns.  LifecycleController is the system root — errors in its API indicate
-programming errors (init not called, null argument) rather than runtime
-recoverable conditions.
+`s_state` is declared `volatile` so `get_state()` reads a coherent
+value without a mutex. **All writes to `s_state` happen inside
+`LifecycleTask`** — no concurrent write path exists.
+
+`s_reset_cause` and `s_initialised` are written once at init, read-only
+afterwards. No synchronisation needed.
+
+`s_event_queue` and `s_start_gate` are FreeRTOS primitives — thread
+safety guaranteed by the kernel.
+
+`s_restart_pending`, `s_pending_self_check`, `s_pending_rollback`,
+`s_cfg_snapshot`, `s_cfg_snapshot_len` are accessed only from
+`LifecycleTask`. No mutex needed.
+
+Provider calls (`s_sensors->init()`, `s_cfg_write->commit()`, etc.)
+are individually thread-safe inside each provider per their respective
+companions. `LifecycleTask` does not hold locks while issuing them.
+
+**No internal mutex is created.** Earlier draft text claiming an
+"internal mutex" was incorrect.
+
+---
+
+## 17. Initialisation order
+
+```
+main():
+    SystemInit (CMSIS)
+    SystemClock_Config / system_clock_init
+    reset_cause = detect_reset_cause()  /* before any other init */
+
+    /* Driver layer */
+    gpio_init, debug_uart_init, rtc_init, i2c_init, ...
+
+    /* Middleware */
+    logger_init, time_provider_init, modbus_slave_init (FD) ...
+
+    /* Application services — pointer table population only */
+    config_store_init, config_service_init, sensor_service_init,
+    alarm_service_init, health_monitor_init, console_service_init
+
+    lifecycle_controller_init(reset_cause, /* all injected interfaces */)
+
+    /* Task creation (static) */
+    xTaskCreateStatic(sensor_task_body, ...)
+    xTaskCreateStatic(alarm_task_body, ...)
+    xTaskCreateStatic(modbus_task_body, ...)
+    xTaskCreateStatic(console_task_body, ...)
+    xTaskCreateStatic(health_monitor_task_body, ...)
+#ifdef BOARD_FIELD_DEVICE
+    xTaskCreateStatic(lcd_ui_task_body, ...)
+#endif
+    xTaskCreateStatic(lifecycle_task_body, ...)  /* LAST */
+
+    vTaskStartScheduler()
+```
+
+`LifecycleTask` is the **last task created**. All other tasks block on
+the start-gate event group bit set by `LifecycleController` on
+Operational entry — this prevents any application task from racing
+ahead of the boot sequence.
+
+---
+
+## 18. Memory and sizing
+
+| Item | Size |
+|---|---|
+| Injected interface pointers (FD: ×12, GW: ×14) | 48 B / 56 B |
+| Machine state (s_state, s_reset_cause, s_initialised, GW flags) | 12 B |
+| Event queue storage (4 × 8 B) | 32 B |
+| `StaticQueue_t` | ~80 B |
+| `StaticTimer_t` × 2 (edit + restart, GW only ×2) | ~80 B (FD) / ~160 B (GW) |
+| `StaticEventGroup_t` | ~16 B |
+| `s_cfg_snapshot` | up to 32 712 B (LC-O1) |
+| `s_cfg_snapshot_len` | 4 B |
+| **Total RAM (excl. cfg_snapshot)** | ~270 B |
+| **Total RAM (incl. cfg_snapshot)** | up to **~33 KB** |
+| Task stack (FreeRTOS, static) | 8192 B |
+
+Recommendation per LC-O1: place `s_cfg_snapshot` in a dedicated BSS
+section so the budget is explicit in the linker map and a regression
+(e.g. another static buffer crowding the same region) is visible.
+
+No dynamic allocation post-init (P5).
+
+---
+
+## 19. Error and fault behaviour
+
+All public functions return `lifecycle_err_t`; callers must not ignore
+non-OK returns. LifecycleController is the system root — errors in its
+API indicate programming errors rather than runtime recoverable
+conditions, with two exceptions: `QUEUE_FULL` (caller may retry or
+log+discard) and `UNKNOWN_CMD` (caller has a protocol bug).
 
 | Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
 |---|---|---|---|---|---|
-| `LIFECYCLE_ERR_NULL_ARG` | Null pointer argument | Return error; no state change | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
-| `LIFECYCLE_ERR_NOT_INIT` | Function called before `lifecycle_controller_init()` | Return error; no action taken | Non-OK return | No retry — programming error; system cannot enter Operational without a successful init | Logged at ERROR via ILogger |
-
-
-## 7. Unit-test plan
-
-All subsystem calls (`sensor_service_init()`, `config_store_load()`, etc.)
-are replaced with stubs that return configurable success/failure codes.
-
-Minimum test cases:
-- All Init sub-states succeed → state == OPERATIONAL.
-- CheckingIntegrity fails → state == FAULTED; no further sub-states entered.
-- LoadingConfig fails → state == FAULTED.
-- BringingUpLCD fails (FD) → state == FAULTED.
-- `LC_EVENT_CONFIG_EDIT_ENTER` in Operational → state == EDITING_CONFIG.
-- `LC_EVENT_CONFIG_EDIT_APPLY` → `config_service_commit()` called; state == OPERATIONAL.
-- `LC_EVENT_CONFIG_EDIT_TIMEOUT` → `config_service_restore_snapshot()` called; state == OPERATIONAL.
-- GW: `LC_EVENT_RESTART_REQUESTED` + `LC_EVENT_RESTART_CONFIRMED` → `reset_driver_soft_reset()` called.
-- GW: `LC_EVENT_RESTART_REQUESTED` + timeout → `restart_pending` cleared; state stays OPERATIONAL.
-- GW: pending_self_check on boot → `update_service_resume_self_checking()` called.
-- GW: pending_rollback on boot → `update_service_resume_after_rollback()` called.
-- `LC_EVENT_UNRECOVERABLE_FAULT` in any state → state == FAULTED.
-- `lifecycle_get_state()` from another task context → correct state returned.
-- `handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)` → `health_admin->reset_metrics()` called once; returns `LIFECYCLE_ERR_OK`.
-- `handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART)` → `LC_EVENT_RESTART_REQUESTED` posted to queue.
-- `handle_remote_command` with unknown command value → `LIFECYCLE_ERR_NULL_ARG`.
+| `LIFECYCLE_ERR_NULL_ARG` | Null pointer to init | Return error; no state change | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `LIFECYCLE_ERR_NOT_INIT` | Function called before init | Return error; no action | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
+| `LIFECYCLE_ERR_QUEUE_FULL` | Event queue at capacity (depth 4) | Return error; event dropped | Non-OK return | Caller may retry after delay | Logged at WARN via ILogger; queue full is a system-overload indicator |
+| `LIFECYCLE_ERR_UNKNOWN_CMD` | `handle_remote_command` received an unrecognised value | Return error; no action | Non-OK return | No retry — caller protocol bug | Logged at WARN via ILogger |
+| `LIFECYCLE_ERR_BAD_STATE` | OTA requested while already UpdatingFirmware (REQ-DM-054) | Return error; reject second OTA | Non-OK return | Caller waits for completion | Logged at WARN via ILogger |
 
 ---
 
-## 8. Open items
+## 20. Principles applied
+
+- **P1 (Strict directional layering).** Depends on driver, middleware,
+  and application interfaces injected at init. No component exists
+  above the application layer, so no upward dependency arises.
+- **P2 (Dependency Inversion).** Exposes `ilifecycle_t` vtable;
+  consumes every external dependency via injected vtable pointers;
+  `IHealthAdmin` (owned by HealthMonitor) is injected per LLD-D15
+  to enable the metric-reset command dispatch path without coupling
+  to the HealthMonitor implementation.
+- **P4 (Cross-cutting concern exception).** `Logger` and
+  `TimeProvider` (where used) are referenced concretely per the
+  cross-cutting exception.
+- **P5 (Bounded resources, no dynamic allocation post-init).** Event
+  queue, timers, event group, and config snapshot buffer are all
+  static. No heap.
+- **P6 (Responsibility traces to requirements).** Every state, sub-state,
+  event, and remote command in this document traces to a specific
+  `REQ-SA-*`, `REQ-DM-*`, `REQ-LD-*`, or `REQ-NF-*` requirement
+  — see §2.
+- **P8 (Total error propagation, no silent failures).** `lifecycle_err_t`
+  on all state-modifying functions; `handle_remote_command` returns
+  an error for unrecognised commands; init returns an error on any
+  null pointer; state-machine errors reported via `IHealthReport`.
+- **P9 (BARR-C coding standard).** State values `uint8_t` enum; event
+  flags `uint32_t` (FreeRTOS `EventBits_t`); no floating-point;
+  designated initialisers throughout.
+- **P10 (Naming conventions).** Prefix `lifecycle_`; interface
+  `ILifecycle` → `ilifecycle_t`; errors `LIFECYCLE_ERR_*`; states
+  `LIFECYCLE_STATE_*`; events `LC_EVENT_*`; remote commands
+  `LC_REMOTE_CMD_*`.
+
+P3 (Interface Segregation) does not apply — `LifecycleController`
+exposes a small vtable used uniformly by `HealthMonitor`,
+`ConsoleService`, and `CloudPublisher` (read-only state queries) plus
+`ModbusRegisterMap` (write commands). No class of consumers requires
+only a strict subset that would justify splitting.
+
+P7 (Pull-based access) does not apply — `LifecycleController` is
+event-driven (queue receive). Reads from injected providers happen
+only during Init sub-states (one-shot, not steady-state).
+
+---
+
+## 21. Unit test plan (Pass H)
+
+File: `tests/field-device/application/lifecycle_controller/test_lifecycle_controller_fd.c`
+and `tests/gateway/application/lifecycle_controller/test_lifecycle_controller_gw.c`.
+
+All injected interfaces use CMock-generated mocks. The state machine
+is driven by calling `lifecycle_task_body()` in single-step mode —
+`lifecycle_task_body()` checks for a test hook (`#ifdef TEST`) that
+allows one event to be processed per call instead of looping forever.
+
+Test isolation: `lifecycle_controller_reset_for_test()` (TEST-only)
+zeroes all file-scope statics and recreates the queue, timers, and
+event group between cases.
+
+### 21.1 Init — NULL-argument rejection
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-001 | `lifecycle_controller_init(NULL, …)` (any param) → `LIFECYCLE_ERR_NULL_ARG` | P8 |
+| TC-LC-002 | FD build accepts `cloud == NULL` (compile-time, not param) | P2 |
+| TC-LC-003 | GW build requires all GW-specific pointers | P2 |
+| TC-LC-004 | Post-init: `s_initialised == true`, `s_state == LIFECYCLE_STATE_INIT` | — |
+| TC-LC-005 | Post-init: `s_reset_cause` equals the value passed in | REQ-NF-203 |
+| TC-LC-006 | Post-init: event queue, timers, event group all created | — |
+| TC-LC-007 | Vtable call before init → `LIFECYCLE_ERR_NOT_INIT` | P8 |
+
+### 21.2 Reset cause detection
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-010 | `detect_reset_cause` with `RCC_CSR_IWDGRSTF` set → `LIFECYCLE_RESET_WATCHDOG` | REQ-NF-203 |
+| TC-LC-011 | `detect_reset_cause` with `RCC_CSR_SFTRSTF` set → `LIFECYCLE_RESET_SOFT` | REQ-NF-203 |
+| TC-LC-012 | `detect_reset_cause` with `RCC_CSR_PINRSTF` set → `LIFECYCLE_RESET_POWER_ON` | REQ-NF-203 |
+| TC-LC-013 | `detect_reset_cause` with no flag set → `LIFECYCLE_RESET_UNKNOWN` | REQ-NF-203 |
+| TC-LC-014 | `detect_reset_cause` clears `RCC_CSR_RMVF` after read | — |
+| TC-LC-015 | Both watchdog and soft flags set → watchdog wins (highest-severity-first) | REQ-NF-203 |
+
+### 21.3 FD Init sub-state sequence (file: `test_lifecycle_controller_fd.c`)
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-030 | All sub-states succeed → final state `OPERATIONAL` | REQ-SA-050 |
+| TC-LC-031 | CheckingIntegrity: `check_integrity` fails → `FAULTED`; subsequent sub-states NOT entered | REQ-SA-040 |
+| TC-LC-032 | LoadingConfig: `load` returns error → `FAULTED` | REQ-SA-040 |
+| TC-LC-033 | LoadingConfig: `apply_loaded` returns error → `FAULTED` | REQ-SA-040 |
+| TC-LC-034 | BringingUpSensors: `sensors->init` returns error → `FAULTED` | REQ-SA-040 |
+| TC-LC-035 | BringingUpSensors: `alarms->init` returns error → `FAULTED` | REQ-SA-040 |
+| TC-LC-036 | BringingUpLCD: `graphics->init` returns error → `FAULTED` | REQ-SA-040 |
+| TC-LC-037 | BringingUpLCD: `lcd_ui->init` returns error → `FAULTED` | REQ-SA-040 |
+| TC-LC-038 | BringingUpLCD: `show_splash` called exactly once | REQ-LD-200 |
+| TC-LC-039 | StartingMiddleware: `modbus_slave->set_address` called with `cfg.modbus_address` | REQ-LD-220 |
+| TC-LC-040 | Operational entry: `dismiss_splash` called exactly once | REQ-LD-240 |
+| TC-LC-041 | Operational entry: start-gate bit set in event group | — |
+| TC-LC-042 | Init timeout fires before completion → `FAULTED` (LC-O2) | REQ-NF-213 |
+
+### 21.4 GW Init sub-state sequence (file: `test_lifecycle_controller_gw.c`)
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-050 | All sub-states succeed (normal boot) → `OPERATIONAL` | REQ-SA-050 |
+| TC-LC-051 | CheckingIntegrity records `pending_self_check` from `firmware_store->get_pending_flags` | REQ-DM-071 |
+| TC-LC-052 | CheckingIntegrity records `pending_rollback` from `firmware_store->get_pending_flags` | REQ-DM-072 |
+| TC-LC-053 | SelfChecking normal path: all probes pass → `OPERATIONAL` | REQ-DM-040 |
+| TC-LC-054 | SelfChecking: `sensors->is_ready` returns false → `FAULTED` | REQ-DM-040 |
+| TC-LC-055 | SelfChecking: `modbus_poller->is_ready` returns false → `FAULTED` | REQ-DM-040 |
+| TC-LC-056 | SelfChecking: `cloud->is_ready` returns false → `FAULTED` | REQ-DM-040 |
+| TC-LC-057 | SelfChecking: `pending_self_check=true` → `update_service->resume_self_checking` called | REQ-DM-071 |
+| TC-LC-058 | After `LC_EVENT_SELF_CHECK_PASS` → `firmware_store->confirm_self_check`, then `OPERATIONAL` | REQ-DM-071 |
+| TC-LC-059 | After `LC_EVENT_SELF_CHECK_FAIL` → `update_service->resume_rollback`, `firmware_store->rollback`, `reset_driver->soft_reset` | REQ-DM-072 |
+| TC-LC-060 | SelfChecking: `pending_rollback=true` → `update_service->resume_after_rollback` called | REQ-DM-072 |
+| TC-LC-061 | SelfChecking: pending_rollback path → `cloud->report_rollback_result` called, then `OPERATIONAL` | REQ-DM-072 |
+| TC-LC-062 | SelfChecking: both pending flags false → normal probe path executed | REQ-DM-040 |
+
+### 21.5 EditingConfig
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-070 | Operational + `CONFIG_EDIT_ENTER` → `EDITING_CONFIG`, `cfg_write->snapshot` called once, edit timer started | REQ-SA-060, REQ-DM-040 |
+| TC-LC-071 | EditingConfig + `CONFIG_EDIT_APPLY` → `cfg_write->commit` called, `OPERATIONAL` | REQ-SA-060 |
+| TC-LC-072 | EditingConfig + `CONFIG_EDIT_CANCEL` → `cfg_write->restore_snapshot(s_cfg_snapshot, s_cfg_snapshot_len)`, `OPERATIONAL` | REQ-SA-060 |
+| TC-LC-073 | EditingConfig + `CONFIG_EDIT_TIMEOUT` → same as CANCEL | REQ-NF-214 |
+| TC-LC-074 | Edit timer fires at 5 minutes → `CONFIG_EDIT_TIMEOUT` posted | REQ-NF-214 |
+| TC-LC-075 | EditingConfig + Modbus address changed in cfg → `modbus_slave->set_address` called on APPLY | REQ-SA-060 |
+| TC-LC-076 | EditingConfig + sensor threshold changed → `sensors->reconfigure` called on APPLY | REQ-SA-060 |
+| TC-LC-077 | EditingConfig + `UNRECOVERABLE_FAULT` → `FAULTED` (event honoured immediately) | REQ-SA-040 |
+| TC-LC-078 | Non-Operational state + `CONFIG_EDIT_ENTER` → ignored, state unchanged | REQ-SA-060 |
+
+### 21.6 Restarting (GW only)
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-085 | Operational + `RESTART_REQUESTED` → `RESTARTING`, `cloud->flush` called, restart timer started, `restart_pending=true` | REQ-DM-010 |
+| TC-LC-086 | Restarting + `RESTART_CONFIRMED` → `reset_driver->soft_reset` called | REQ-DM-020 |
+| TC-LC-087 | Restarting + `RESTART_TIMEOUT` → `restart_pending=false`, `OPERATIONAL` | REQ-DM-030, LC-O4 |
+| TC-LC-088 | Restart timer fires at provisional 30 s → `RESTART_TIMEOUT` posted | LC-O4 |
+| TC-LC-089 | Restarting + second `RESTART_REQUESTED` → treated as confirmation, `soft_reset` called | REQ-DM-020 |
+| TC-LC-090 | Restarting + `UNRECOVERABLE_FAULT` → `FAULTED` (event honoured) | REQ-SA-040 |
+| TC-LC-091 | FD build excludes Restarting state entirely (compile-time check) | — |
+
+### 21.7 UpdatingFirmware (GW only)
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-095 | Operational + `OTA_REQUESTED` → `UPDATING_FW`, `update_service->start(event.param)` called | REQ-DM-054 |
+| TC-LC-096 | UpdatingFirmware + `OTA_REQUESTED` → rejected, `LIFECYCLE_ERR_BAD_STATE`, no second `start` call | REQ-DM-054 |
+| TC-LC-097 | UpdatingFirmware + `SELF_CHECK_PASS` → `firmware_store->confirm_self_check`, `OPERATIONAL` | REQ-DM-071 |
+| TC-LC-098 | UpdatingFirmware + `SELF_CHECK_FAIL` → `update_service->resume_rollback`, `firmware_store->rollback`, `reset_driver->soft_reset` | REQ-DM-072 |
+| TC-LC-099 | UpdatingFirmware + `UNRECOVERABLE_FAULT` → `FAULTED` (event honoured) | REQ-SA-040 |
+
+### 21.8 Faulted
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-105 | Any state + `UNRECOVERABLE_FAULT` → `FAULTED`; `health_report->push_fault(event.param)` called | REQ-NF-202 |
+| TC-LC-106 | Faulted entry happens exactly once (idempotent on repeat fault events) | REQ-NF-202 |
+| TC-LC-107 | Faulted state: no event causes Faulted exit | REQ-SA-040 |
+| TC-LC-108 | Faulted state: watchdog kicked on idle loop (no app fault on top of fault) | — |
+
+### 21.9 Vtable dispatch
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-115 | `lifecycle_controller->get_state()` returns current `s_state` | — |
+| TC-LC-116 | `lifecycle_controller->get_reset_cause()` returns `s_reset_cause` | REQ-NF-203 |
+| TC-LC-117 | `lifecycle_controller->post_event(e)` enqueues to event queue | — |
+| TC-LC-118 | `post_event` returns `false` on full queue | — |
+| TC-LC-119 | Queue depth is exactly 4 | — |
+| TC-LC-120 | Events processed FIFO | — |
+
+### 21.10 Remote command dispatch
+
+| TC | Behaviour under test | Traces to |
+|---|---|---|
+| TC-LC-130 | `handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)` → `health_admin->reset_metrics` called once; `LIFECYCLE_ERR_OK` returned | REQ-DM-040 |
+| TC-LC-131 | `RESET_METRICS` does not change `s_state` | — |
+| TC-LC-132 | `RESET_METRICS` does not post any event | — |
+| TC-LC-133 | `handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART)` → `LC_EVENT_RESTART_REQUESTED` posted; `LIFECYCLE_ERR_OK` returned | REQ-DM-010 |
+| TC-LC-134 | `SOFT_RESTART` with full queue → `LIFECYCLE_ERR_QUEUE_FULL` returned | — |
+| TC-LC-135 | `handle_remote_command(<unknown>)` → `LIFECYCLE_ERR_UNKNOWN_CMD` | P8 |
+| TC-LC-136 | `handle_remote_command` before init → `LIFECYCLE_ERR_NOT_INIT` | P8 |
+| TC-LC-137 | (FD) `RESET_METRICS` is also routed via LifecycleController (uniform dispatch) | LLD-D15 |
+
+---
+
+## 22. Integration test plan
+
+On-target tests. Executed manually with debug UART and (for GW) a
+Modbus master tool + WiFi/MQTT broker.
+
+| TC | Setup | Pass criterion |
+|---|---|---|
+| IT-LC-001 (FD) | Cold boot from POR | UART log shows all 5 sub-states completed; state reaches Operational; splash dismissed |
+| IT-LC-002 (GW) | Cold boot from POR | UART log shows all 5 sub-states; state reaches Operational; `reset_cause == POWER_ON` reflected in health |
+| IT-LC-003 | Corrupt config in flash; cold boot | State enters Faulted; LED shows fault pattern; UART shows fault code |
+| IT-LC-004 | Sensor I²C bus pulled low; cold boot | State enters Faulted at BringingUpSensors |
+| IT-LC-005 | Operational → Console `config commit` → reboot | Snapshot applied, persists across reboot |
+| IT-LC-006 | Operational → Console `config discard` | Snapshot rolled back, original values restored |
+| IT-LC-007 | EditingConfig entry, no input for 5 minutes | Auto-cancel; rollback to original; state Operational |
+| IT-LC-008 (GW) | Modbus master writes CMD_RESET_METRICS (0x0201) | `health_admin->reset_metrics` called; counters zero on next read |
+| IT-LC-009 (GW) | Modbus master writes CMD_SOFT_RESTART (0x0202) + confirmation token within 30 s | Board reboots; `reset_cause == SOFT` on next boot |
+| IT-LC-010 (GW) | Modbus master writes CMD_SOFT_RESTART, no confirmation in 30 s | State returns to Operational; no reset |
+| IT-LC-011 (GW) | Cloud OTA: image push, signature OK | UpdatingFirmware entered; image written; soft reset; pending_self_check on next boot; SelfChecking passes; Operational |
+| IT-LC-012 (GW) | Cloud OTA: image push, intentionally broken (signature fail in UpdateService) | Fault during OTA; state Faulted; no soft reset |
+| IT-LC-013 (GW) | Cloud OTA passes signature; SelfChecking-after-boot fails (sensor unresponsive) | Rollback path executes; previous firmware boots; `cloud->report_rollback_result` published |
+| IT-LC-014 | Operational, then watchdog hardware reset | `reset_cause == WATCHDOG` reflected in health snapshot |
+
+---
+
+## 23. Board differences summary
+
+| Aspect | FD | GW |
+|---|---|---|
+| Init sub-state 4 | BringingUpLCD | (continues StartingMiddleware contents) |
+| Init sub-state 5 | StartingMiddleware | SelfChecking (REQ-DM-040) |
+| Post-update boot path | — | `pending_self_check` / `pending_rollback` branches |
+| Restarting state | — | Yes (UC-17, REQ-DM-010..030) |
+| UpdatingFirmware state | — | Yes (UC-18, REQ-DM-054) |
+| Splash screen | Yes (REQ-LD-200..240) | — |
+| ResetDriver consumed | — | Yes (Restarting and post-OTA rollback) |
+| `s_cfg_snapshot` buffer | Same | Same |
+
+Code is split per board: `lifecycle_fd.c` / `lifecycle_gw.c`. Shared
+declarations live in `lifecycle_types.h`. Shared logic
+(event queue post, reset-cause detection, EditingConfig timeout)
+lives in `lifecycle_common.c`.
+
+---
+
+## 24. Open items
+
+Earlier IDs (LC-O1..LC-O0) assigned in passes A–G.
 
 | ID | Item | Resolution path | Status |
-|--------|------|-----------------|--------|
-| LC-O1 | Config snapshot buffer size — `CONFIG_STORE_MAX_DATA_BYTES` (32 712 bytes) makes `LifecycleControllerState` very large for a static variable. Confirm it fits in BSS without pushing other static data out of budget. Alternative: allocate the snapshot buffer separately in a dedicated BSS section. | Verify BSS budget at integration; consider dedicated BSS section if too large | Open |
-| LC-O2 | Init timeout budget (REQ-NF-213, value TBD) — a hardware timer started on Init entry must fire and push `LC_EVENT_UNRECOVERABLE_FAULT` if the total Init duration exceeds the budget. Timer not yet specified; implement at coding time once the TBD value is set. | Implement timer at coding time once REQ-NF-213 TBD value is resolved in SRS | Open |
-| LC-O3 | Start-gate event group bit — the bit index for gating other tasks must be allocated from a project-wide event group map (similar to the RTC backup register map). Not yet produced. | Allocate bit from project-wide event-group map when that map is produced | Open |
-| LC-O4 | Restart confirmation timeout (GW, REQ-DM-020) — value TBD in SRS. Provisional: 30 seconds. Implement as a FreeRTOS software timer started on `LC_EVENT_RESTART_REQUESTED`; on expiry post `LC_EVENT_CONFIG_EDIT_CANCEL` (or a dedicated LC_EVENT_RESTART_TIMEOUT) to reset `restart_pending`. | Implement FreeRTOS software timer at coding time once SRS TBD value resolved | Open |
+|---|---|---|---|
+| **LC-O1** | `s_cfg_snapshot` buffer is up to 32 712 B — dominates the static RAM cost. Confirm it fits in BSS without pushing other static data out of budget; recommend a dedicated BSS section so the linker map shows it explicitly. | Verify BSS budget at integration; place in dedicated section if needed | Open |
+| **LC-O2** | Init timeout budget (REQ-NF-213, value TBD) — provisional 10 s. A FreeRTOS software timer fires `LC_EVENT_UNRECOVERABLE_FAULT` with `param = LC_FAULT_INIT_TIMEOUT` if total Init exceeds budget. | Implement at coding time once SRS TBD resolved | Open |
+| **LC-O3** | Start-gate event group bit allocation — needs a project-wide event-group bit map (similar to RTC backup register map). Provisional bit 0. | Allocate bit from project-wide map when produced | Open |
+| **LC-O4** | Restart confirmation timeout (GW, REQ-DM-020) — value TBD in SRS. Provisional 30 s. Implemented as a FreeRTOS software timer started on `LC_EVENT_RESTART_REQUESTED`; on expiry posts `LC_EVENT_RESTART_TIMEOUT`. | Implement timer at coding time once SRS TBD resolved | Open |
+| **LC-O5** | Test hook design: `lifecycle_task_body` needs a `#ifdef TEST` single-step mode (process one event and return) so unit tests can drive the state machine deterministically. Define the exact hook shape at coding time. | Define and implement at coding time | Open |
+
+---
+
+## 25. References
+
+- `docs/components.md` (FD + GW LifecycleController entries).
+- `docs/state-machines.md` Machine 1 (GW), Machine 5 (FD).
+- `docs/hld.md` §7.1, §7.2, §7.6.
+- `docs/sequence-diagrams.md` SD-00a, SD-00b, SD-00c, SD-06, SD-08, SD-09.
+- `docs/task-breakdown.md` §4.2, §4.4, §5.2, §5.4.
+- `docs/lld/config-service.md` (`IConfigProvider`, `IConfigManager`).
+- `docs/lld/config-store.md` (`IConfigStore`, `CONFIG_STORE_MAX_DATA_BYTES`).
+- `docs/lld/health-monitor.md` (`IHealthReport`, `IHealthAdmin`).
+- `docs/lld/console-service.md` (`IConsoleService`).
+- `docs/architecture-principles.md` P1, P2, P4, P5, P6, P8, P9, P10.
+
+---
+
+*Companion produced during the LLD Application Phase. Authored by Luca
+Agrippino; reviewed against the V-Model gate criteria for LLD Pass H.*
