@@ -52,10 +52,6 @@ __pycache__/
 docs/dev-tools/bug-log.md
 docs/dev-tools/interview-tests/
 
-# --- Simulator (host-side LCD UI build) ---
-simulator/lcd-ui/build/
-simulator/lcd-ui/.cache/
-simulator/lcd-ui/compile_commands.json
 
 # CMake intermediate artefacts (if ever generated at repo root)
 /build/
