@@ -1,7 +1,7 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.1
-**Date:** April 2026
+**Version:** 1.2
+**Date:** June 2026
 **Status:** Approved — baselined for HLD
 
 **Revision History:**
@@ -11,6 +11,7 @@
 | 0.1     | April 2026 | Initial draft        |
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
+| 1.2     | June 2026  | Added sensor history buffer (REQ-SA-190..250) |
 
 ---
 
@@ -114,6 +115,14 @@ polling interval
 <!-- 3. System returns result -->
 <!-- E1 (step 1): if the gateway is disconnected, show an command is not delivered to the gateway -->
 <!-- E2 (step 3): if the gateway is disconnected, system cannot deliver result to AWS IoT Core; result is buffered -->
+<!-- Sensor history buffer — traces to UC-01 -->
+- [REQ-SA-190] The system shall maintain a rolling in-memory history of validated sensor readings for each environmental channel (temperature, humidity, pressure)
+- [REQ-SA-200] The history shall span a window of 5 minutes
+- [REQ-SA-210] The history shall be sampled at a fixed interval of 5 seconds, independent of the configured polling rate
+- [REQ-SA-220] The history shall retain 60 entries per channel
+- [REQ-SA-230] Each history entry shall include the measurement value, its validity flag, and its acquisition timestamp
+- [REQ-SA-240] The history shall be stored in volatile memory only and shall be cleared on every reset
+- [REQ-SA-250] When the latest validated reading for a channel is older than the history sampling interval, the system shall record the entry as invalid
 
 ### 2.2 Alarm Management [AM] — 6 requirements
 
@@ -518,6 +527,13 @@ polling interval
 | REQ-SA-180 | UC-07 | §5.1 |
 | REQ-SA-160 | UC-07, UC-10 | §5.4 |
 | REQ-SA-170 | UC-14 | §5.7 |
+| REQ-SA-190 | UC-01 | §5.1 |
+| REQ-SA-200 | UC-01 | §5.1 |
+| REQ-SA-210 | UC-01 | §5.1 |
+| REQ-SA-220 | UC-01 | §5.1 |
+| REQ-SA-230 | UC-01 | §5.1 |
+| REQ-SA-240 | UC-01 | §5.1 |
+| REQ-SA-250 | UC-01 | §5.1 |
 | REQ-AM-000 | UC-08 | §5.2 |
 | REQ-AM-010 | UC-08 | §5.2 |
 | REQ-AM-011 | UC-08 | §5.2 |
