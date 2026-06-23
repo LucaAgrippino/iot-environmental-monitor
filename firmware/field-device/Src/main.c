@@ -17,13 +17,27 @@
  */
 
 #include <stdint.h>
+#include "system_clock.h"
+#include "debug_uart_driver.h"
+#include "firmware_version.h"
 
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
-  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
+#warning                                                                                           \
+    "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
 #endif
+
+static const char k_boot_banner[] =
+    "\r\nFW: " FW_VERSION_STRING " built " FW_BUILD_DATE " " FW_BUILD_TIME "\r\n";
 
 int main(void)
 {
+    system_clock_init();
+    debug_uart_init();
+    /* Tick source not yet wired — send uses unbounded-wait fallback (safe at boot). */
+    debug_uart_send((const uint8_t *) k_boot_banner, sizeof(k_boot_banner) - 1U, 0U);
+
     /* Loop forever */
-	for(;;);
+    for (;;)
+    {
+    }
 }
