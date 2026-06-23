@@ -261,6 +261,19 @@ i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len)
     /* 9. Generate STOP. */
     I2C1->CR1 |= I2C_CR1_STOP;
 
+    /* 10. Wait for the bus to return to idle (STOP completed). */
+    {
+        uint32_t timeout = I2C_TIMEOUT_COUNT;
+        while ((I2C1->SR2 & I2C_SR2_BUSY) != 0U)
+        {
+            if (--timeout == 0U)
+            {
+                i2c_bus_recovery();
+                return I2C_ERR_TIMEOUT;
+            }
+        }
+    }
+
     return I2C_ERR_OK;
 }
 
@@ -549,6 +562,19 @@ i2c_err_t i2c_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_l
 
         /* 19. Re-enable ACK for next transaction. */
         I2C1->CR1 |= I2C_CR1_ACK;
+    }
+
+    /* 20. Wait for the bus to return to idle (STOP completed). */
+    {
+        uint32_t timeout = I2C_TIMEOUT_COUNT;
+        while ((I2C1->SR2 & I2C_SR2_BUSY) != 0U)
+        {
+            if (--timeout == 0U)
+            {
+                i2c_bus_recovery();
+                return I2C_ERR_TIMEOUT;
+            }
+        }
     }
 
     return I2C_ERR_OK;

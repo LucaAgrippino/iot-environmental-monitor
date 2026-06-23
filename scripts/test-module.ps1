@@ -82,9 +82,9 @@ if ( ($Module.EndsWith( "_fd" ) ) -or ($Module.EndsWith( "_gw" ) )  ) {
 }
 
 $ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
-Where-Object { $_.Name -eq $Module -and 
-                $_.FullName -notmatch '\\Debug\\' -and
-                $_.FullName -notmatch '\\integration-tests\\' } |
+Where-Object { $_.Name -eq $Module -and
+               $_.FullName -notmatch '\\Debug\\' -and
+               $_.FullName -notmatch '\\integration-tests\\' } |
 Select-Object -First 1
 
 if ($null -eq $ModuleDir) {

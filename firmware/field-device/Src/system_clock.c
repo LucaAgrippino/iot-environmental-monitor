@@ -88,5 +88,5 @@ void system_clock_enable_dwt(void)
 
     /* Reset and enable the cycle counter. */
     DWT->CYCCNT = 0U;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
 }

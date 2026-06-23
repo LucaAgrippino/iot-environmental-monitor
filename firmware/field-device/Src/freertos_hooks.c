@@ -17,6 +17,8 @@
 
 #include "stm32f469xx.h" /* for __disable_irq() */
 
+#include <stdint.h>
+
 /* --- Idle-task static memory ------------------------------------------- */
 
 static StaticTask_t s_idle_tcb;
@@ -56,4 +58,19 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
     *ppxTimerTaskTCBBuffer   = &xTimerTaskTCB;
     *ppxTimerTaskStackBuffer = uxTimerTaskStack;
     *pulTimerTaskStackSize   = configTIMER_TASK_STACK_DEPTH;
+}
+
+/* --- Run-time stats timer on Cortex-M4 --------------------------------- */
+
+void debug_timer_dwt_init(void)
+{
+    /* Enable trace block (DWT lives here) */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t debug_timer_dwt_get_counter(void)
+{
+    return DWT->CYCCNT;
 }

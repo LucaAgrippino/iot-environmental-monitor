@@ -40,14 +40,13 @@ typedef enum
 
 typedef enum
 {
-    HEALTH_EVENT_TIME_SYNC_ACQUIRED = 0,
-    HEALTH_EVENT_TIME_SYNC_LOST     = 1,
-    HEALTH_EVENT_CONFIG_WRITE_FAIL  = 2,
-    HEALTH_EVENT_CONFIG_READ_FAIL   = 3,
+    HEALTH_EVENT_TIME_SYNC_ACQUIRED   = 0,
+    HEALTH_EVENT_TIME_SYNC_LOST       = 1,
+    HEALTH_EVENT_CONFIG_WRITE_FAIL    = 2,
+    HEALTH_EVENT_CONFIG_READ_FAIL     = 3,
     HEALTH_EVENT_CONFIG_NO_VALID_SLOT = 4,
-    HEALTH_EVENT_SENSOR_FAIL        = 5,
-    /* Remaining event constants exist in health_monitor.h but are not
-     * needed for sensor_service stub builds. */
+    HEALTH_EVENT_SENSOR_FAIL          = 5,
+    HEALTH_EVENT_LCD_FAIL             = 15, /* mirrors health_monitor.h */
 } health_event_t;
 
 /* --------------------------------------------------------------------- */
@@ -65,10 +64,35 @@ struct ihealth_report_s
      * access beyond push_event in stub builds. */
 };
 
-/* Singleton pointer — declared here, defined in the test TU that needs it.
- * e.g. test_sensor_service.c defines:
- *   static const ihealth_report_t s_stub_health = { .push_event = ... };
- *   const ihealth_report_t *const health_report = &s_stub_health;        */
+/* Singleton pointer — declared here, defined in the test TU that needs it. */
 extern const ihealth_report_t *const health_report;
+
+/* --------------------------------------------------------------------- */
+/* device_health_snapshot_t — subset used by LcdUi StatusScreen         */
+/* Fields match health_monitor.h exactly for binary compatibility.       */
+/* --------------------------------------------------------------------- */
+
+#define HEALTH_STUB_TASK_COUNT (7U)  /* mirrors HEALTH_TASK_COUNT */
+
+typedef struct
+{
+    uint32_t uptime_s;
+    uint32_t sensor_fail_count;
+    uint32_t alarm_raise_count;
+    bool     config_write_failed;
+    uint32_t modbus_valid_frames;
+    uint32_t modbus_crc_errors;
+    uint32_t modbus_exception_responses;
+    uint16_t stack_watermark_words[HEALTH_STUB_TASK_COUNT];
+} device_health_snapshot_t;
+
+/* --------------------------------------------------------------------- */
+/* ihealth_snapshot_t — read-side vtable                                */
+/* --------------------------------------------------------------------- */
+
+typedef struct
+{
+    health_monitor_err_t (*get_snapshot)(device_health_snapshot_t *snap_out);
+} ihealth_snapshot_t;
 
 #endif /* HEALTH_MONITOR_STUB_H */

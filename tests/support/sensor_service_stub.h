@@ -96,4 +96,14 @@ typedef enum
 sensor_service_err_t sensor_service_subscribe(
     void (*cb)(const sensor_snapshot_t *snap));
 
+/* --------------------------------------------------------------------- */
+/* isensor_service_t — vtable for LcdUi and ModbusRegisterMap           */
+/* Only the method lcd_ui.c calls is declared; offset-by-name is safe.  */
+/* --------------------------------------------------------------------- */
+
+typedef struct
+{
+    sensor_service_err_t (*get_snapshot)(sensor_snapshot_t *snap);
+} isensor_service_t;
+
 #endif /* SENSOR_SERVICE_STUB_H */

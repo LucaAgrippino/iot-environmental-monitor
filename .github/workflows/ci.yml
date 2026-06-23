@@ -48,6 +48,11 @@ jobs:
             project_target: gateway/Debug
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Generate firmware_version.h
+        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
 
       - name: Generate firmware_version.h
         run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
@@ -119,3 +124,25 @@ jobs:
           globs: |
             docs/**/*.md
             README.md
+
+  simulator-build:
+    name: Simulator build (host)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Generate firmware_version.h
+        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
+
+      - name: Build Docker image
+        run: docker build -t lcd-sim-builder:ci simulator/lcd-ui
+      - name: Build simulator inside container
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/work/repo" \
+            -w /work/repo/simulator/lcd-ui \
+            lcd-sim-builder:ci \
+            bash -c "cmake -S . -B build -G Ninja && cmake --build build"
+      - name: Confirm binary
+        run: test -x simulator/lcd-ui/build/lcd_sim

@@ -48,6 +48,13 @@ PWR_TypeDef g_mock_pwr;
 I2C_TypeDef g_mock_i2c1;
 
 /* ====================================================================== */
+/* §FMC Bank5_6 storage (SdramDriver)                                    */
+/* ====================================================================== */
+
+FMC_Bank5_6_TypeDef g_mock_fmc_bank5_6;
+
+
+/* ====================================================================== */
 /* §QUADSPI storage (QspiFlashDriver)                                    */
 /* ====================================================================== */
 
@@ -64,11 +71,33 @@ RTC_TypeDef g_mock_rtc;
 
 
 /* ====================================================================== */
+/* §SYSCFG storage (TouchscreenDriver)                                    */
+/* ====================================================================== */
+
+SYSCFG_TypeDef g_mock_syscfg;
+
+
+/* ====================================================================== */
+/* §LTDC storage (LcdDriver)                                             */
+/* ====================================================================== */
+
+LTDC_TypeDef g_mock_ltdc;
+
+
+/* ====================================================================== */
+/* §EXTI storage (TouchscreenDriver)                                      */
+/* ====================================================================== */
+
+EXTI_TypeDef g_mock_exti;
+
+
+/* ====================================================================== */
 /* §NVIC storage                                                          */
 /* ====================================================================== */
 
 uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
 uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 
 
 /* ====================================================================== */
@@ -98,6 +127,7 @@ void stm32_cmsis_mock_reset(void)
 
     /* §RCC */
     g_mock_rcc.AHB1ENR = 0;
+    g_mock_rcc.AHB2ENR = 0;
     g_mock_rcc.AHB3ENR = 0;
     g_mock_rcc.APB1ENR = 0;
     g_mock_rcc.APB2ENR = 0;
@@ -135,6 +165,15 @@ void stm32_cmsis_mock_reset(void)
     g_mock_i2c1.CCR   = 0;
     g_mock_i2c1.TRISE = 0;
 
+    /* §FMC Bank5_6 */
+    g_mock_fmc_bank5_6.SDCR[0] = 0;
+    g_mock_fmc_bank5_6.SDCR[1] = 0;
+    g_mock_fmc_bank5_6.SDTR[0] = 0;
+    g_mock_fmc_bank5_6.SDTR[1] = 0;
+    g_mock_fmc_bank5_6.SDCMR   = 0;
+    g_mock_fmc_bank5_6.SDRTR   = 0;
+    g_mock_fmc_bank5_6.SDSR    = 0;
+
     /* §QUADSPI */
     g_mock_quadspi.CR  = 0;
     g_mock_quadspi.DCR = 0;
@@ -166,11 +205,33 @@ void stm32_cmsis_mock_reset(void)
         g_mock_rtc.BKP1R_to_BKP19R[i] = 0;
     }
 
+    /* §LTDC */
+    g_mock_ltdc.IER = 0;
+    g_mock_ltdc.ISR = 0;
+    g_mock_ltdc.ICR = 0;
+
+    /* §SYSCFG */
+    g_mock_syscfg.MEMRMP = 0;
+    g_mock_syscfg.PMC    = 0;
+    for (uint32_t i = 0; i < 4U; ++i)
+    {
+        g_mock_syscfg.EXTICR[i] = 0;
+    }
+
+    /* §EXTI */
+    g_mock_exti.IMR   = 0;
+    g_mock_exti.EMR   = 0;
+    g_mock_exti.RTSR  = 0;
+    g_mock_exti.FTSR  = 0;
+    g_mock_exti.SWIER = 0;
+    g_mock_exti.PR    = 0;
+
     /* §NVIC */
     for (uint32_t i = 0; i < NVIC_IRQ_COUNT_MAX; ++i)
     {
         g_mock_nvic_enable_count[i]  = 0;
         g_mock_nvic_disable_count[i] = 0;
+        g_mock_nvic_priority[i]      = 0;
     }
 }
 
@@ -192,5 +253,13 @@ void NVIC_DisableIRQ(IRQn_Type irqn)
     if ((uint32_t) irqn < NVIC_IRQ_COUNT_MAX)
     {
         g_mock_nvic_disable_count[irqn]++;
+    }
+}
+
+void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority)
+{
+    if ((uint32_t) irqn < NVIC_IRQ_COUNT_MAX)
+    {
+        g_mock_nvic_priority[irqn] = priority;
     }
 }
