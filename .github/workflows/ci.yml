@@ -54,6 +54,9 @@ jobs:
       - name: Generate firmware_version.h
         run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
 
+      - name: Generate firmware_version.h
+        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
+
       - name: Build with STM32CubeIDE
         uses: xanderhendriks/action-build-stm32cubeide@v15.0
         with:

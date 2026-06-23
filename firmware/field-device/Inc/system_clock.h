@@ -17,9 +17,9 @@
 
 /* --- Clock tree --------------------------------------------------------- */
 
-#define SYSTEM_HCLK_HZ    (180000000UL)   /**< SYSCLK = HCLK = 180 MHz */
-#define SYSTEM_PCLK1_HZ   ( 45000000UL)   /**< APB1 = HCLK / 4 = 45 MHz */
-#define SYSTEM_PCLK2_HZ   ( 90000000UL)   /**< APB2 = HCLK / 2 = 90 MHz */
+#define SYSTEM_HCLK_HZ (180000000UL) /**< SYSCLK = HCLK = 180 MHz */
+#define SYSTEM_PCLK1_HZ (45000000UL) /**< APB1 = HCLK / 4 = 45 MHz */
+#define SYSTEM_PCLK2_HZ (90000000UL) /**< APB2 = HCLK / 2 = 90 MHz */
 
 /* --- API ---------------------------------------------------------------- */
 
