@@ -92,7 +92,6 @@
     - TEST
     - LOG_LEVEL_MIN=-1
 
-
 :cmock:
   :mock_prefix: mock_
   :when_no_prototypes: :warn

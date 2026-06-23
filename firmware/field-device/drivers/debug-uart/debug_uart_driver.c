@@ -46,6 +46,13 @@ typedef struct
 
 static debug_uart_driver_t s_debug_uart;
 
+static const idebug_uart_t s_debug_uart_vtable = {
+    .send = debug_uart_send,
+    .read_line = debug_uart_read_line,
+    .attach_rx = debug_uart_attach_rx,
+};
+const idebug_uart_t *const debug_uart = &s_debug_uart_vtable;
+
 debug_uart_err_t debug_uart_init(void)
 {
     if (s_debug_uart.initialised)
