@@ -17,9 +17,9 @@
 
 /* --- Clock tree --------------------------------------------------------- */
 
-#define SYSTEM_HCLK_HZ    (180000000UL)   /**< SYSCLK = HCLK = 180 MHz */
-#define SYSTEM_PCLK1_HZ   ( 45000000UL)   /**< APB1 = HCLK / 4 = 45 MHz */
-#define SYSTEM_PCLK2_HZ   ( 90000000UL)   /**< APB2 = HCLK / 2 = 90 MHz */
+#define SYSTEM_HCLK_HZ (180000000UL) /**< SYSCLK = HCLK = 180 MHz */
+#define SYSTEM_PCLK1_HZ (45000000UL) /**< APB1 = HCLK / 4 = 45 MHz */
+#define SYSTEM_PCLK2_HZ (90000000UL) /**< APB2 = HCLK / 2 = 90 MHz */
 
 /* --- API ---------------------------------------------------------------- */
 
@@ -41,5 +41,6 @@
  * the corresponding poll, so a debugger session shows where it hung.
  */
 void system_clock_init(void);
+void system_clock_enable_dwt(void);
 
 #endif /* SYSTEM_CLOCK_H */
