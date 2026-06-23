@@ -17,7 +17,15 @@
     - example/**
   :source:
     - mocks/**
-    - ../firmware/**
+    - ../firmware/field-device/Inc
+    - ../firmware/field-device/Src
+    - ../firmware/field-device/Startup
+    - ../firmware/field-device/application/**
+    - ../firmware/field-device/drivers/**
+    - ../firmware/field-device/middleware/**
+    - ../firmware/field-device/integration-tests/**
+    - ../firmware/gateway/**
+    - ../firmware/shared
   :support:
     - support
 
