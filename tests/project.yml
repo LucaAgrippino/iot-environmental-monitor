@@ -91,6 +91,10 @@
     - STM32F469xx
     - TEST
     - LOG_LEVEL_MIN=-1
+  :test_console_service:
+    - STM32F469xx
+    - BOARD_FIELD_DEVICE
+    - TEST
 
 :cmock:
   :mock_prefix: mock_

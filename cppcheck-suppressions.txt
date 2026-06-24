@@ -22,6 +22,13 @@ unusedFunction
 // Same justification as unusedFunction above.
 unusedStructMember
 
+// knownConditionTrueFalse:console_service.c — board_comms_ok() returns a constant
+// in the unconfigured-board #else branch (neither BOARD_FIELD_DEVICE nor
+// BOARD_GATEWAY defined). That branch is only reachable in non-production builds
+// lacking a board macro. Production builds always define one of the two, so the
+// branch is never compiled in the real firmware.
+knownConditionTrueFalse:console_service.c
+
 // redundantAssignment:lcd_driver.c — s_lcd_init_stage is a volatile debug
 // sentinel written progressively through lcd_init() to mark each stage for
 // observation via a hardware debugger live-watch. Writing without reading back
