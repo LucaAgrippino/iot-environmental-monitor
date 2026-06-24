@@ -80,6 +80,9 @@ typedef enum
     HEALTH_EVENT_CONFIG_READ_FAIL = 3,
     HEALTH_EVENT_CONFIG_NO_VALID_SLOT = 4,
     HEALTH_EVENT_SENSOR_FAIL = 5,
+    HEALTH_EVENT_ALARM_RAISED = 12,
+    HEALTH_EVENT_ALARM_CLEARED = 13,
+    HEALTH_EVENT_FAULT = 14,
     HEALTH_EVENT_LCD_FAIL = 15, /* mirrors health_monitor.h */
 } health_event_t;
 
@@ -143,5 +146,14 @@ typedef struct
 {
     health_monitor_err_t (*get_snapshot)(device_health_snapshot_t *snap_out);
 } ihealth_snapshot_t;
+
+/* --------------------------------------------------------------------- */
+/* ihealth_admin_t — admin write side (reset_metrics; GW-only use)       */
+/* --------------------------------------------------------------------- */
+
+typedef struct
+{
+    health_monitor_err_t (*reset_metrics)(void);
+} ihealth_admin_t;
 
 #endif /* HEALTH_MONITOR_STUB_H */

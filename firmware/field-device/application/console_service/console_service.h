@@ -69,6 +69,17 @@ typedef enum
 typedef struct iconsole_service
 {
     /**
+     * @brief Finalise ConsoleService after all other services are operational.
+     *
+     * Called once by LifecycleController in sub-state StartingMiddleware,
+     * just before the start-gate bit is set. Emits the "System ready" banner
+     * and first command prompt. Must not be called before console_service_init().
+     *
+     * @return CONSOLE_SERVICE_ERR_OK on success.
+     */
+    console_service_err_t (*init_finalise)(void);
+
+    /**
      * @brief Drain one line from the UART buffer and dispatch it.
      *
      * Called by ConsoleTask in its loop after the RX line-ready notification.

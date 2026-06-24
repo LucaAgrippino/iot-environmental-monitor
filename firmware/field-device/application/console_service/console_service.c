@@ -952,8 +952,16 @@ static console_service_err_t cmd_mqtt(int argc, const char *argv[])
 /* Vtable and singleton                                                    */
 /* ======================================================================= */
 
+static console_service_err_t do_init_finalise(void)
+{
+    tx_str("\r\n=== System operational. Type 'help' for commands. ===\r\n");
+    tx_str("> ");
+    return CONSOLE_SERVICE_ERR_OK;
+}
+
 static const iconsole_service_t s_console_service_vtable = {
-    .run_once = do_run_once,
+    .init_finalise = do_init_finalise,
+    .run_once      = do_run_once,
 };
 const iconsole_service_t *const console_service = &s_console_service_vtable;
 

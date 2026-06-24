@@ -28,8 +28,12 @@ typedef uint32_t  UBaseType_t;
 typedef uint32_t  StackType_t;
 typedef uint32_t  TickType_t;
 
-typedef struct { uint32_t _dummy[4]; } StaticQueue_t;
-typedef struct { uint32_t _dummy[4]; } StaticTask_t;
+typedef struct { uint32_t _dummy[4]; }  StaticQueue_t;
+typedef struct { uint32_t _dummy[4]; }  StaticTask_t;
+typedef struct { uint32_t _dummy[16]; } StaticEventGroup_t;
+
+typedef uint32_t EventBits_t;
+typedef void     *EventGroupHandle_t;
 
 typedef void  *QueueHandle_t;
 typedef void  *TaskHandle_t;
@@ -121,11 +125,20 @@ extern uint32_t   g_mock_xSemaphoreGive_call_count;
 /* uxTaskGetStackHighWaterMark mock */
 extern UBaseType_t g_mock_uxTaskGetStackHighWaterMark_return;
 
-/* xTimerCreateStatic / xTimerStart mock */
+/* xTimerCreateStatic / xTimerStart / xTimerStop mock */
 extern TimerHandle_t g_mock_xTimerCreateStatic_return;
 extern uint32_t      g_mock_xTimerCreateStatic_call_count;
 extern BaseType_t    g_mock_xTimerStart_return;
 extern uint32_t      g_mock_xTimerStart_call_count;
+extern BaseType_t    g_mock_xTimerStop_return;
+extern uint32_t      g_mock_xTimerStop_call_count;
+
+/* xEventGroupCreateStatic / xEventGroupSetBits mock */
+extern EventGroupHandle_t g_mock_xEventGroupCreateStatic_return;
+extern uint32_t           g_mock_xEventGroupCreateStatic_call_count;
+extern EventBits_t        g_mock_xEventGroupSetBits_last_bits;
+extern uint32_t           g_mock_xEventGroupSetBits_call_count;
+extern EventBits_t        g_mock_xEventGroupWaitBits_return;
 
 /* xTaskGetCurrentTaskHandle mock */
 extern TaskHandle_t  g_mock_xTaskGetCurrentTaskHandle_return;
@@ -182,6 +195,16 @@ TimerHandle_t xTimerCreateStatic(const char *name, TickType_t period,
                                   TimerCallbackFunction_t cb,
                                   StaticTimer_t *buf);
 BaseType_t    xTimerStart(TimerHandle_t timer, TickType_t wait);
+BaseType_t    xTimerStop(TimerHandle_t timer, TickType_t wait);
+
+EventGroupHandle_t xEventGroupCreateStatic(StaticEventGroup_t *buf);
+EventBits_t        xEventGroupSetBits(EventGroupHandle_t eg, EventBits_t bits);
+EventBits_t        xEventGroupWaitBits(EventGroupHandle_t eg,
+                                       EventBits_t bits_to_wait,
+                                       BaseType_t clear_on_exit,
+                                       BaseType_t wait_for_all,
+                                       TickType_t wait);
+
 TaskHandle_t  xTaskGetCurrentTaskHandle(void);
 void          xTaskNotifyGive(TaskHandle_t task);
 uint32_t      ulTaskNotifyTake(BaseType_t clear, TickType_t wait);

@@ -101,8 +101,13 @@ sensor_service_err_t sensor_service_subscribe(void (*cb)(const sensor_snapshot_t
 
 typedef struct
 {
+    sensor_service_err_t (*init)(void);
+    sensor_service_err_t (*run_cycle)(void);
     sensor_service_err_t (*get_snapshot)(sensor_snapshot_t *snap);
-    sensor_service_err_t (*read_on_demand)(void); /* ConsoleService selftest */
+    sensor_service_err_t (*subscribe)(void (*cb)(const sensor_snapshot_t *));
+    sensor_service_err_t (*read_on_demand)(void);
+    bool                 (*is_ready)(void);
+    sensor_service_err_t (*reconfigure)(void);
 } isensor_service_t;
 
 #endif /* SENSOR_SERVICE_STUB_H */

@@ -132,6 +132,7 @@ void stm32_cmsis_mock_reset(void)
     g_mock_rcc.APB1ENR = 0;
     g_mock_rcc.APB2ENR = 0;
     g_mock_rcc.BDCR    = 0;
+    g_mock_rcc.CSR     = 0;
 
     /* §USART3 (DebugUartDriver) */
     g_mock_usart3.SR   = 0;
