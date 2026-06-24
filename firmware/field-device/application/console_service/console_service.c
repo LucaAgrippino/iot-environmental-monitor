@@ -67,7 +67,7 @@ typedef struct
 {
     bool dirty;
     uint8_t modbus_slave_addr;
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
     char mqtt_endpoint[128];
 #endif
 } prov_pending_t;
@@ -117,7 +117,7 @@ static const isensor_service_t *s_sensors;
 static const iconfig_provider_t *s_cfg_read;
 static const iconfig_manager_t *s_cfg_write;
 static const ihealth_snapshot_t *s_health;
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
 static const idevice_profile_mgr_t *s_profiles;
 #endif
 
@@ -144,10 +144,10 @@ static console_service_err_t cmd_selftest(int argc, const char *argv[]);
 static console_service_err_t cmd_selftest_result(int argc, const char *argv[]);
 static console_service_err_t cmd_config(int argc, const char *argv[]);
 static console_service_err_t cmd_prov(int argc, const char *argv[]);
-#if defined(BOARD_FIELD_DEVICE)
+#if defined(STM32F469xx)
 static console_service_err_t cmd_modbus(int argc, const char *argv[]);
 #endif
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
 static console_service_err_t cmd_profiles(int argc, const char *argv[]);
 static console_service_err_t cmd_wifi(int argc, const char *argv[]);
 static console_service_err_t cmd_mqtt(int argc, const char *argv[]);
@@ -169,10 +169,10 @@ static const cmd_entry_t s_cmd_table[] = {
     {"selftest-result", 0U, 0U, cmd_selftest_result, "Print last self-test result"},
     {"config", 1U, 3U, cmd_config, "config list|set <key> <val>|commit|discard"},
     {"prov", 1U, 3U, cmd_prov, "prov set <key> <val>|commit|discard"},
-#if defined(BOARD_FIELD_DEVICE)
+#if defined(STM32F469xx)
     {"modbus", 1U, 1U, cmd_modbus, "modbus status"},
 #endif
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
     {"profiles", 1U, 5U, cmd_profiles, "profiles list|add ...|remove <addr>"},
     {"wifi", 1U, 1U, cmd_wifi, "wifi status"},
     {"mqtt", 1U, 1U, cmd_mqtt, "mqtt status"},
@@ -202,7 +202,7 @@ static void tx_fmt(const char *fmt, ...)
 
 static void print_prompt(void)
 {
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
     tx_str("\r\ngw> ");
 #else
     tx_str("\r\nfd> ");
@@ -401,7 +401,7 @@ static console_service_err_t cmd_serial(int argc, const char *argv[])
     (void) argv;
 #ifndef TEST
     /* STM32 UID is three 32-bit words at 0x1FFF7A10 (F4) / 0x1FFF7590 (L4). */
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
     const uint32_t *uid = (const uint32_t *) 0x1FFF7590UL;
 #else
     const uint32_t *uid = (const uint32_t *) 0x1FFF7A10UL;
@@ -467,7 +467,7 @@ static console_service_err_t cmd_status(int argc, const char *argv[])
     tx_fmt("  Uptime:            %lu s\r\n", (unsigned long) snap.uptime_s);
     tx_fmt("  Sensor failures:   %lu\r\n", (unsigned long) snap.sensor_fail_count);
     tx_fmt("  Config write fail: %s\r\n", snap.config_write_failed ? "YES" : "no");
-#if defined(BOARD_FIELD_DEVICE)
+#if defined(STM32F469xx)
     tx_fmt("  Modbus frames:     %lu\r\n", (unsigned long) snap.modbus_valid_frames);
     tx_fmt("  Modbus CRC errors: %lu\r\n", (unsigned long) snap.modbus_crc_errors);
 #endif
@@ -504,12 +504,12 @@ static console_service_err_t cmd_alarms(int argc, const char *argv[])
 
 /* ── Self-test ────────────────────────────────────────────────────────── */
 
-#if defined(BOARD_FIELD_DEVICE)
+#if defined(STM32F469xx)
 static bool board_comms_ok(const device_health_snapshot_t *snap)
 {
     return snap->modbus_slave_ok;
 }
-#elif defined(BOARD_GATEWAY)
+#elif defined(STM32L475xx)
 static bool board_comms_ok(const device_health_snapshot_t *snap)
 {
     return snap->cloud_connected;
@@ -814,7 +814,7 @@ static console_service_err_t cmd_prov(int argc, const char *argv[])
             tx_fmt("[OK] staged: modbus-addr = %s\r\n", val);
             return CONSOLE_SERVICE_ERR_OK;
         }
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
         if (strcmp(key, "mqtt-endpoint") == 0)
         {
             size_t vlen = strlen(val);
@@ -856,7 +856,7 @@ static console_service_err_t cmd_prov(int argc, const char *argv[])
         }
         config_service_err_t rc = s_cfg_write->set_param(CONFIG_PARAM_MODBUS_SLAVE_ADDR,
                                                          &s_prov_pending.modbus_slave_addr);
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
         if (rc == CONFIG_SERVICE_OK)
         {
             rc = s_cfg_write->set_param(CONFIG_PARAM_MQTT_BROKER, s_prov_pending.mqtt_endpoint);
@@ -886,7 +886,7 @@ static console_service_err_t cmd_prov(int argc, const char *argv[])
 
 /* ── FD board-specific commands ───────────────────────────────────────── */
 
-#if defined(BOARD_FIELD_DEVICE)
+#if defined(STM32F469xx)
 static console_service_err_t cmd_modbus(int argc, const char *argv[])
 {
     if (argc < 2 || strcmp(argv[1], "status") != 0)
@@ -903,11 +903,11 @@ static console_service_err_t cmd_modbus(int argc, const char *argv[])
     tx_fmt("    Exception responses: %lu\r\n", (unsigned long) snap.modbus_exception_responses);
     return CONSOLE_SERVICE_ERR_OK;
 }
-#endif /* BOARD_FIELD_DEVICE */
+#endif /* STM32F469xx */
 
 /* ── GW board-specific commands ───────────────────────────────────────── */
 
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
 static console_service_err_t cmd_profiles(int argc, const char *argv[])
 {
     (void) argc;
@@ -946,7 +946,7 @@ static console_service_err_t cmd_mqtt(int argc, const char *argv[])
     tx_fmt("  Connected:        %s\r\n", snap.cloud_connected ? "yes" : "no");
     return CONSOLE_SERVICE_ERR_OK;
 }
-#endif /* BOARD_GATEWAY */
+#endif /* STM32L475xx */
 
 /* ======================================================================= */
 /* Vtable and singleton                                                    */
@@ -966,7 +966,7 @@ console_service_err_t console_service_init(const idebug_uart_t *uart,
                                            const iconfig_provider_t *cfg_read,
                                            const iconfig_manager_t *cfg_write,
                                            const ihealth_snapshot_t *health
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
                                            ,
                                            const idevice_profile_mgr_t *profiles
 #endif
@@ -978,7 +978,7 @@ console_service_err_t console_service_init(const idebug_uart_t *uart,
         LOG_ERROR(CS_MOD, "init: null argument");
         return CONSOLE_SERVICE_ERR_NULL_ARG;
     }
-#if defined(BOARD_GATEWAY)
+#if defined(STM32L475xx)
     if (profiles == NULL)
     {
         LOG_ERROR(CS_MOD, "init: null profiles on GW");
