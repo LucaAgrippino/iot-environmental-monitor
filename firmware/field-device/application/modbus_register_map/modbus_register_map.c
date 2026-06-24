@@ -755,7 +755,7 @@ static modbus_exception_t write_modbus_slave_addr_reg(modbus_register_map_t *s, 
         return MB_EXC_ILLEGAL_DATA_VALUE;
     }
     /* Mediator: propagate immediately so current-frame address transitions */
-    s->mb_slave->set_slave_address(addr);
+    (void) s->mb_slave->set_address(addr);
     LOG_INFO(LOG_MODULE, "Modbus slave address changed to %u", (unsigned) addr);
     return MB_EXC_NONE;
 }

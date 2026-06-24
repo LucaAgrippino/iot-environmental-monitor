@@ -129,12 +129,8 @@ typedef struct
     void (*snapshot)(modbus_slave_stats_t *out);
 } imodbus_slave_stats_t;
 
-/* imodbus_slave_t: Mediator role — propagates address changes */
-typedef struct
-{
-    /* cppcheck-suppress unusedStructMember -- called by write_modbus_slave_addr */
-    void (*set_slave_address)(uint8_t new_addr);
-} imodbus_slave_t;
+/* imodbus_slave_t: leaf header — definition lives with the implementor */
+#include "modbus_slave/imodbus_slave.h"
 
 /* ilifecycle_controller_t: routes remote commands to LifecycleController */
 typedef struct
