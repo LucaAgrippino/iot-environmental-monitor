@@ -64,9 +64,11 @@ static const ialarm_service_t *s_alarms;
 static const iconsole_service_t *s_console;
 static const ihealth_report_t *s_health_report;
 
-#ifdef BOARD_FIELD_DEVICE
+#ifdef USE_GUI
 static const igraphics_library_t *s_graphics;
 static const ilcd_ui_t *s_lcd_ui;
+#endif
+#ifdef BOARD_FIELD_DEVICE
 static const imodbus_slave_t *s_modbus_slave;
 #else  /* BOARD_GATEWAY */
 static const icloud_publisher_t *s_cloud;
@@ -270,6 +272,7 @@ static void fd_run_init_sequence(void)
         return;
     }
 
+#ifdef USE_GUI
     /* Sub-state 4: BringingUpLCD (FD only) */
     if (s_graphics->init() != GRAPHICS_ERR_OK)
     {
@@ -288,6 +291,7 @@ static void fd_run_init_sequence(void)
     {
         return;
     }
+#endif
 
     /* Sub-state 5: StartingMiddleware */
     {
@@ -304,7 +308,11 @@ static void fd_run_init_sequence(void)
     (void) xTimerStop(s_init_timer, 0U);
     s_state = LIFECYCLE_STATE_OPERATIONAL;
     LOG_INFO("LC: Operational");
+
+#ifdef USE_GUI
     (void) s_lcd_ui->dismiss_splash();
+#endif
+
     (void) xEventGroupSetBits(s_start_gate, LIFECYCLE_START_GATE_BIT);
 }
 
@@ -726,8 +734,11 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
                           const iconfig_provider_t *cfg_read, const iconfig_manager_t *cfg_write,
                           const isensor_service_t *sensors, const ialarm_service_t *alarms,
                           const iconsole_service_t *console, const ihealth_report_t *health_report,
-#ifdef BOARD_FIELD_DEVICE
+#ifdef USE_GUI
                           const igraphics_library_t *graphics, const ilcd_ui_t *lcd_ui,
+#endif /* USE_GUI */
+
+#ifdef BOARD_FIELD_DEVICE
                           const imodbus_slave_t *modbus_slave
 #else  /* BOARD_GATEWAY */
                           const icloud_publisher_t *cloud, const imodbus_poller_t *modbus_poller,
@@ -745,8 +756,15 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
         return LIFECYCLE_ERR_NULL_ARG;
     }
 
-#ifdef BOARD_FIELD_DEVICE
+#ifdef USE_GUI
     if ((graphics == NULL) || (lcd_ui == NULL) || (modbus_slave == NULL))
+    {
+        return LIFECYCLE_ERR_NULL_ARG;
+    }
+#endif /* USE_GUI */
+
+#ifdef BOARD_FIELD_DEVICE
+    if (modbus_slave == NULL)
     {
         return LIFECYCLE_ERR_NULL_ARG;
     }
@@ -768,9 +786,12 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     s_console = console;
     s_health_report = health_report;
 
-#ifdef BOARD_FIELD_DEVICE
+#ifdef USE_GUI
     s_graphics = graphics;
     s_lcd_ui = lcd_ui;
+#endif
+
+#ifdef BOARD_FIELD_DEVICE
     s_modbus_slave = modbus_slave;
 #else  /* BOARD_GATEWAY */
     s_cloud = cloud;
@@ -864,9 +885,12 @@ void lifecycle_controller_reset_for_test(void)
     s_console = NULL;
     s_health_report = NULL;
 
-#ifdef BOARD_FIELD_DEVICE
+#ifdef USE_GUI
     s_graphics = NULL;
     s_lcd_ui = NULL;
+#endif
+
+#ifdef BOARD_FIELD_DEVICE
     s_modbus_slave = NULL;
 #else  /* BOARD_GATEWAY */
     s_cloud = NULL;

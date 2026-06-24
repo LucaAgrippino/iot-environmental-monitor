@@ -2,10 +2,11 @@
  * @file test_lifecycle_controller_fd.c
  * @brief Unit tests for LifecycleController — FD subset.
  *
- * Covers TC-LC-001..042, TC-LC-070..078, TC-LC-105..108, TC-LC-115..120,
- * TC-LC-137 as defined in docs/lld/application/lifecycle-controller.md §21.
+ * Covers TC-LC-001..035, TC-LC-039, TC-LC-041..042, TC-LC-070..078,
+ * TC-LC-105..108, TC-LC-115..120, TC-LC-137 as defined in
+ * docs/lld/application/lifecycle-controller.md §21.
  *
- * Build defines (project.yml): STM32F469xx, BOARD_FIELD_DEVICE, TEST.
+ * Build defines (project.yml): BOARD_FIELD_DEVICE, TEST.
  *
  * Test strategy:
  *  - Spy vtables with call counts and configurable return values
@@ -26,22 +27,14 @@
 #include "stm32_cmsis_mock.h"
 
 /* ======================================================================= */
-/* Graphics direct-function stubs (declared in graphics_library_stub.h)    */
-/* ======================================================================= */
-
-graphics_err_t graphics_process(void)   { return GRAPHICS_ERR_OK; }
-lv_disp_t     *graphics_get_display(void) { return NULL; }
-lv_indev_t    *graphics_get_indev(void)   { return NULL; }
-
-/* ======================================================================= */
 /* Spy infrastructure                                                       */
 /* ======================================================================= */
 
 /* --- config_store spy -------------------------------------------------- */
 static config_store_err_t g_cfg_store_check_integrity_return = CONFIG_STORE_OK;
-static uint32_t           g_cfg_store_check_integrity_calls  = 0U;
-static config_store_err_t g_cfg_store_load_return            = CONFIG_STORE_OK;
-static uint32_t           g_cfg_store_load_calls             = 0U;
+static uint32_t g_cfg_store_check_integrity_calls = 0U;
+static config_store_err_t g_cfg_store_load_return = CONFIG_STORE_OK;
+static uint32_t g_cfg_store_load_calls = 0U;
 
 static config_store_err_t spy_cfg_store_check_integrity(void)
 {
@@ -49,32 +42,49 @@ static config_store_err_t spy_cfg_store_check_integrity(void)
     return g_cfg_store_check_integrity_return;
 }
 
-static config_store_err_t spy_cfg_store_load(void *data_out, uint32_t *len_out,
-                                              uint32_t max_len)
+static config_store_err_t spy_cfg_store_load(void *data_out, uint32_t *len_out, uint32_t max_len)
 {
-    (void)data_out;
-    (void)max_len;
-    if (len_out != NULL) { *len_out = 0U; }
+    (void) data_out;
+    (void) max_len;
+    if (len_out != NULL)
+    {
+        *len_out = 0U;
+    }
     g_cfg_store_load_calls++;
     return g_cfg_store_load_return;
 }
 
-static config_store_err_t spy_cfg_store_init(const void *h) { (void)h; return CONFIG_STORE_OK; }
-static config_store_err_t spy_cfg_store_save(const void *d, uint32_t l) { (void)d; (void)l; return CONFIG_STORE_OK; }
-static config_store_err_t spy_cfg_store_erase(void) { return CONFIG_STORE_OK; }
+static config_store_err_t spy_cfg_store_init(const void *h)
+{
+    (void) h;
+    return CONFIG_STORE_OK;
+}
+static config_store_err_t spy_cfg_store_save(const void *d, uint32_t l)
+{
+    (void) d;
+    (void) l;
+    return CONFIG_STORE_OK;
+}
+static config_store_err_t spy_cfg_store_erase(void)
+{
+    return CONFIG_STORE_OK;
+}
 
 static const iconfig_store_t g_cfg_store_spy = {
-    .init             = spy_cfg_store_init,
-    .load             = spy_cfg_store_load,
-    .save             = spy_cfg_store_save,
-    .check_integrity  = spy_cfg_store_check_integrity,
-    .erase            = spy_cfg_store_erase,
+    .init = spy_cfg_store_init,
+    .load = spy_cfg_store_load,
+    .save = spy_cfg_store_save,
+    .check_integrity = spy_cfg_store_check_integrity,
+    .erase = spy_cfg_store_erase,
 };
 
 /* --- config_provider spy ----------------------------------------------- */
-static config_params_t g_spy_params = { .modbus_slave_addr = 5U };
+static config_params_t g_spy_params = {.modbus_slave_addr = 5U};
 
-static const config_params_t *spy_cfg_provider_get_params(void) { return &g_spy_params; }
+static const config_params_t *spy_cfg_provider_get_params(void)
+{
+    return &g_spy_params;
+}
 
 static const iconfig_provider_t g_cfg_provider_spy = {
     .get_params = spy_cfg_provider_get_params,
@@ -82,26 +92,31 @@ static const iconfig_provider_t g_cfg_provider_spy = {
 
 /* --- config_manager spy ------------------------------------------------ */
 static config_service_err_t g_cfg_mgr_apply_loaded_return = CONFIG_SERVICE_OK;
-static uint32_t             g_cfg_mgr_apply_loaded_calls  = 0U;
-static uint32_t             g_cfg_mgr_snapshot_calls      = 0U;
-static uint32_t             g_cfg_mgr_restore_calls       = 0U;
-static uint32_t             g_cfg_mgr_flush_calls         = 0U;
+static uint32_t g_cfg_mgr_apply_loaded_calls = 0U;
+static uint32_t g_cfg_mgr_snapshot_calls = 0U;
+static uint32_t g_cfg_mgr_restore_calls = 0U;
+static uint32_t g_cfg_mgr_flush_calls = 0U;
 
 static config_service_err_t spy_apply_loaded(const void *blob, uint32_t len)
 {
-    (void)blob; (void)len;
+    (void) blob;
+    (void) len;
     g_cfg_mgr_apply_loaded_calls++;
     return g_cfg_mgr_apply_loaded_return;
 }
 
 static config_service_err_t spy_cfg_mgr_set_param(config_param_id_t id, const void *v)
 {
-    (void)id; (void)v; return CONFIG_SERVICE_OK;
+    (void) id;
+    (void) v;
+    return CONFIG_SERVICE_OK;
 }
 
 static config_service_err_t spy_cfg_mgr_validate_param(config_param_id_t id, const void *v)
 {
-    (void)id; (void)v; return CONFIG_SERVICE_OK;
+    (void) id;
+    (void) v;
+    return CONFIG_SERVICE_OK;
 }
 
 static config_service_err_t spy_snapshot(void)
@@ -123,18 +138,18 @@ static config_service_err_t spy_flush(void)
 }
 
 static const iconfig_manager_t g_cfg_mgr_spy = {
-    .apply_loaded      = spy_apply_loaded,
-    .set_param         = spy_cfg_mgr_set_param,
-    .validate_param    = spy_cfg_mgr_validate_param,
-    .snapshot          = spy_snapshot,
-    .restore_snapshot  = spy_restore_snapshot,
-    .flush             = spy_flush,
+    .apply_loaded = spy_apply_loaded,
+    .set_param = spy_cfg_mgr_set_param,
+    .validate_param = spy_cfg_mgr_validate_param,
+    .snapshot = spy_snapshot,
+    .restore_snapshot = spy_restore_snapshot,
+    .flush = spy_flush,
 };
 
 /* --- sensor_service spy ----------------------------------------------- */
 static sensor_service_err_t g_sensors_init_return = SENSOR_SERVICE_ERR_OK;
-static uint32_t             g_sensors_init_calls  = 0U;
-static uint32_t             g_sensors_reconfigure_calls = 0U;
+static uint32_t g_sensors_init_calls = 0U;
+static uint32_t g_sensors_reconfigure_calls = 0U;
 
 static sensor_service_err_t spy_sensors_init(void)
 {
@@ -148,25 +163,42 @@ static sensor_service_err_t spy_sensors_reconfigure(void)
     return SENSOR_SERVICE_ERR_OK;
 }
 
-static sensor_service_err_t spy_sensors_run_cycle(void) { return SENSOR_SERVICE_ERR_OK; }
-static sensor_service_err_t spy_sensors_get_snapshot(sensor_snapshot_t *s) { (void)s; return SENSOR_SERVICE_ERR_OK; }
-static sensor_service_err_t spy_sensors_subscribe(void (*cb)(const sensor_snapshot_t *)) { (void)cb; return SENSOR_SERVICE_ERR_OK; }
-static sensor_service_err_t spy_sensors_read_on_demand(void) { return SENSOR_SERVICE_ERR_OK; }
-static bool                 spy_sensors_is_ready(void) { return true; }
+static sensor_service_err_t spy_sensors_run_cycle(void)
+{
+    return SENSOR_SERVICE_ERR_OK;
+}
+static sensor_service_err_t spy_sensors_get_snapshot(sensor_snapshot_t *s)
+{
+    (void) s;
+    return SENSOR_SERVICE_ERR_OK;
+}
+static sensor_service_err_t spy_sensors_subscribe(void (*cb)(const sensor_snapshot_t *))
+{
+    (void) cb;
+    return SENSOR_SERVICE_ERR_OK;
+}
+static sensor_service_err_t spy_sensors_read_on_demand(void)
+{
+    return SENSOR_SERVICE_ERR_OK;
+}
+static bool spy_sensors_is_ready(void)
+{
+    return true;
+}
 
 static const isensor_service_t g_sensors_spy = {
-    .init           = spy_sensors_init,
-    .run_cycle      = spy_sensors_run_cycle,
-    .get_snapshot   = spy_sensors_get_snapshot,
-    .subscribe      = spy_sensors_subscribe,
+    .init = spy_sensors_init,
+    .run_cycle = spy_sensors_run_cycle,
+    .get_snapshot = spy_sensors_get_snapshot,
+    .subscribe = spy_sensors_subscribe,
     .read_on_demand = spy_sensors_read_on_demand,
-    .is_ready       = spy_sensors_is_ready,
-    .reconfigure    = spy_sensors_reconfigure,
+    .is_ready = spy_sensors_is_ready,
+    .reconfigure = spy_sensors_reconfigure,
 };
 
 /* --- alarm_service spy ------------------------------------------------ */
 static alarm_service_err_t g_alarms_init_return = ALARM_SERVICE_ERR_OK;
-static uint32_t            g_alarms_init_calls  = 0U;
+static uint32_t g_alarms_init_calls = 0U;
 
 static alarm_service_err_t spy_alarms_init(void)
 {
@@ -174,17 +206,33 @@ static alarm_service_err_t spy_alarms_init(void)
     return g_alarms_init_return;
 }
 
-static alarm_service_err_t spy_alarms_get_state(sensor_id_t s, alarm_state_t *o) { (void)s; (void)o; return ALARM_SERVICE_ERR_OK; }
-static alarm_service_err_t spy_alarms_get_all_states(alarm_state_t st[SENSOR_ID_COUNT]) { (void)st; return ALARM_SERVICE_ERR_OK; }
-static alarm_service_err_t spy_alarms_subscribe(void (*cb)(sensor_id_t, int, const void *)) { (void)cb; return ALARM_SERVICE_ERR_OK; }
-static alarm_service_err_t spy_alarms_ack_all(void) { return ALARM_SERVICE_ERR_OK; }
+static alarm_service_err_t spy_alarms_get_state(sensor_id_t s, alarm_state_t *o)
+{
+    (void) s;
+    (void) o;
+    return ALARM_SERVICE_ERR_OK;
+}
+static alarm_service_err_t spy_alarms_get_all_states(alarm_state_t st[SENSOR_ID_COUNT])
+{
+    (void) st;
+    return ALARM_SERVICE_ERR_OK;
+}
+static alarm_service_err_t spy_alarms_subscribe(void (*cb)(sensor_id_t, int, const void *))
+{
+    (void) cb;
+    return ALARM_SERVICE_ERR_OK;
+}
+static alarm_service_err_t spy_alarms_ack_all(void)
+{
+    return ALARM_SERVICE_ERR_OK;
+}
 
 static const ialarm_service_t g_alarms_spy = {
-    .init           = spy_alarms_init,
-    .get_state      = spy_alarms_get_state,
+    .init = spy_alarms_init,
+    .get_state = spy_alarms_get_state,
     .get_all_states = spy_alarms_get_all_states,
-    .subscribe      = spy_alarms_subscribe,
-    .ack_all        = spy_alarms_ack_all,
+    .subscribe = spy_alarms_subscribe,
+    .ack_all = spy_alarms_ack_all,
 };
 
 /* --- console_service spy ---------------------------------------------- */
@@ -196,18 +244,21 @@ static console_service_err_t spy_console_init_finalise(void)
     return CONSOLE_SERVICE_ERR_OK;
 }
 
-static console_service_err_t spy_console_run_once(void) { return CONSOLE_SERVICE_ERR_OK; }
+static console_service_err_t spy_console_run_once(void)
+{
+    return CONSOLE_SERVICE_ERR_OK;
+}
 
 static const iconsole_service_t g_console_spy = {
     .init_finalise = spy_console_init_finalise,
-    .run_once      = spy_console_run_once,
+    .run_once = spy_console_run_once,
 };
 
 /* --- health_report spy ------------------------------------------------ */
-static uint32_t              g_health_init_calls       = 0U;
-static uint32_t              g_health_push_event_calls = 0U;
-static health_event_t        g_health_push_event_last_event = (health_event_t)0;
-static uint32_t              g_health_push_event_last_param = 0U;
+static uint32_t g_health_init_calls = 0U;
+static uint32_t g_health_push_event_calls = 0U;
+static health_event_t g_health_push_event_last_event = (health_event_t) 0;
+static uint32_t g_health_push_event_last_param = 0U;
 
 static health_monitor_err_t spy_health_init(void)
 {
@@ -224,57 +275,13 @@ static health_monitor_err_t spy_health_push_event(health_event_t event, uint32_t
 }
 
 static struct ihealth_report_s g_health_spy = {
-    .init       = spy_health_init,
+    .init = spy_health_init,
     .push_event = spy_health_push_event,
 };
 
-/* --- graphics_library spy --------------------------------------------- */
-static graphics_err_t g_graphics_init_return = GRAPHICS_ERR_OK;
-static uint32_t       g_graphics_init_calls  = 0U;
-
-static graphics_err_t spy_graphics_init(void)
-{
-    g_graphics_init_calls++;
-    return g_graphics_init_return;
-}
-
-static const igraphics_library_t g_graphics_spy = {
-    .init = spy_graphics_init,
-};
-
-/* --- lcd_ui spy -------------------------------------------------------- */
-static lcd_ui_err_t g_lcd_ui_init_return         = LCD_UI_ERR_OK;
-static uint32_t     g_lcd_ui_init_calls          = 0U;
-static uint32_t     g_lcd_ui_show_splash_calls   = 0U;
-static uint32_t     g_lcd_ui_dismiss_splash_calls = 0U;
-
-static lcd_ui_err_t spy_lcd_ui_init(void)
-{
-    g_lcd_ui_init_calls++;
-    return g_lcd_ui_init_return;
-}
-
-static lcd_ui_err_t spy_lcd_ui_show_splash(void)
-{
-    g_lcd_ui_show_splash_calls++;
-    return LCD_UI_ERR_OK;
-}
-
-static lcd_ui_err_t spy_lcd_ui_dismiss_splash(void)
-{
-    g_lcd_ui_dismiss_splash_calls++;
-    return LCD_UI_ERR_OK;
-}
-
-static const ilcd_ui_t g_lcd_ui_spy = {
-    .init          = spy_lcd_ui_init,
-    .show_splash   = spy_lcd_ui_show_splash,
-    .dismiss_splash = spy_lcd_ui_dismiss_splash,
-};
-
 /* --- modbus_slave spy -------------------------------------------------- */
-static uint32_t g_modbus_set_address_calls       = 0U;
-static uint8_t  g_modbus_set_address_last_value  = 0U;
+static uint32_t g_modbus_set_address_calls = 0U;
+static uint8_t g_modbus_set_address_last_value = 0U;
 
 static modbus_slave_err_t spy_modbus_set_address(uint8_t new_addr)
 {
@@ -294,39 +301,31 @@ static const imodbus_slave_t g_modbus_spy = {
 static void spy_reset_all(void)
 {
     g_cfg_store_check_integrity_return = CONFIG_STORE_OK;
-    g_cfg_store_check_integrity_calls  = 0U;
-    g_cfg_store_load_return            = CONFIG_STORE_OK;
-    g_cfg_store_load_calls             = 0U;
+    g_cfg_store_check_integrity_calls = 0U;
+    g_cfg_store_load_return = CONFIG_STORE_OK;
+    g_cfg_store_load_calls = 0U;
 
     g_cfg_mgr_apply_loaded_return = CONFIG_SERVICE_OK;
-    g_cfg_mgr_apply_loaded_calls  = 0U;
-    g_cfg_mgr_snapshot_calls      = 0U;
-    g_cfg_mgr_restore_calls       = 0U;
-    g_cfg_mgr_flush_calls         = 0U;
+    g_cfg_mgr_apply_loaded_calls = 0U;
+    g_cfg_mgr_snapshot_calls = 0U;
+    g_cfg_mgr_restore_calls = 0U;
+    g_cfg_mgr_flush_calls = 0U;
 
-    g_sensors_init_return       = SENSOR_SERVICE_ERR_OK;
-    g_sensors_init_calls        = 0U;
+    g_sensors_init_return = SENSOR_SERVICE_ERR_OK;
+    g_sensors_init_calls = 0U;
     g_sensors_reconfigure_calls = 0U;
 
     g_alarms_init_return = ALARM_SERVICE_ERR_OK;
-    g_alarms_init_calls  = 0U;
+    g_alarms_init_calls = 0U;
 
     g_console_init_finalise_calls = 0U;
 
-    g_health_init_calls       = 0U;
+    g_health_init_calls = 0U;
     g_health_push_event_calls = 0U;
-    g_health_push_event_last_event = (health_event_t)0;
+    g_health_push_event_last_event = (health_event_t) 0;
     g_health_push_event_last_param = 0U;
 
-    g_graphics_init_return = GRAPHICS_ERR_OK;
-    g_graphics_init_calls  = 0U;
-
-    g_lcd_ui_init_return          = LCD_UI_ERR_OK;
-    g_lcd_ui_init_calls           = 0U;
-    g_lcd_ui_show_splash_calls    = 0U;
-    g_lcd_ui_dismiss_splash_calls = 0U;
-
-    g_modbus_set_address_calls      = 0U;
+    g_modbus_set_address_calls = 0U;
     g_modbus_set_address_last_value = 0U;
 
     g_spy_params.modbus_slave_addr = 5U;
@@ -334,19 +333,10 @@ static void spy_reset_all(void)
 
 static lifecycle_err_t do_init(void)
 {
-    return lifecycle_controller_init(
-        LIFECYCLE_RESET_POWER_ON,
-        &g_cfg_store_spy,
-        &g_cfg_provider_spy,
-        &g_cfg_mgr_spy,
-        &g_sensors_spy,
-        &g_alarms_spy,
-        &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy,
-        &g_lcd_ui_spy,
-        &g_modbus_spy
-    );
+    return lifecycle_controller_init(LIFECYCLE_RESET_POWER_ON, &g_cfg_store_spy,
+                                     &g_cfg_provider_spy, &g_cfg_mgr_spy, &g_sensors_spy,
+                                     &g_alarms_spy, &g_console_spy,
+                                     (const ihealth_report_t *) &g_health_spy, &g_modbus_spy);
 }
 
 /* Drive to OPERATIONAL: init + first lifecycle_task_body() with no queue event */
@@ -363,10 +353,10 @@ static void drive_to_operational(void)
 /* Post event into mock queue for next lifecycle_task_body() call */
 static void queue_event(lifecycle_event_type_t type, uint32_t param)
 {
-    lifecycle_event_t ev = { .type = type, .param = param };
-    (void)memcpy(g_mock_xQueueReceive_next_item, &ev, sizeof(ev));
+    lifecycle_event_t ev = {.type = type, .param = param};
+    (void) memcpy(g_mock_xQueueReceive_next_item, &ev, sizeof(ev));
     g_mock_xQueueReceive_next_item_size = sizeof(ev);
-    g_mock_xQueueReceive_return         = pdTRUE;
+    g_mock_xQueueReceive_return = pdTRUE;
 }
 
 /* ======================================================================= */
@@ -381,7 +371,9 @@ void setUp(void)
     spy_reset_all();
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 /* ======================================================================= */
 /* TC-LC-001..007 — Init API                                               */
@@ -390,72 +382,27 @@ void tearDown(void) {}
 void test_LC_001_null_config_store_rejected(void)
 {
     lifecycle_err_t err = lifecycle_controller_init(
-        LIFECYCLE_RESET_POWER_ON,
-        NULL,                    /* config_store = NULL */
-        &g_cfg_provider_spy,
-        &g_cfg_mgr_spy,
-        &g_sensors_spy,
-        &g_alarms_spy,
-        &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy,
-        &g_lcd_ui_spy,
-        &g_modbus_spy
-    );
+        LIFECYCLE_RESET_POWER_ON, NULL, /* config_store = NULL */
+        &g_cfg_provider_spy, &g_cfg_mgr_spy, &g_sensors_spy, &g_alarms_spy, &g_console_spy,
+        (const ihealth_report_t *) &g_health_spy, &g_modbus_spy);
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, err);
 }
 
 void test_LC_001b_null_cfg_read_rejected(void)
 {
     lifecycle_err_t err = lifecycle_controller_init(
-        LIFECYCLE_RESET_POWER_ON,
-        &g_cfg_store_spy,
-        NULL,                    /* cfg_read = NULL */
-        &g_cfg_mgr_spy,
-        &g_sensors_spy,
-        &g_alarms_spy,
-        &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy,
-        &g_lcd_ui_spy,
-        &g_modbus_spy
-    );
+        LIFECYCLE_RESET_POWER_ON, &g_cfg_store_spy, NULL, /* cfg_read = NULL */
+        &g_cfg_mgr_spy, &g_sensors_spy, &g_alarms_spy, &g_console_spy,
+        (const ihealth_report_t *) &g_health_spy, &g_modbus_spy);
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, err);
 }
 
 void test_LC_001c_null_sensors_rejected(void)
 {
     lifecycle_err_t err = lifecycle_controller_init(
-        LIFECYCLE_RESET_POWER_ON,
-        &g_cfg_store_spy,
-        &g_cfg_provider_spy,
-        &g_cfg_mgr_spy,
-        NULL,                    /* sensors = NULL */
-        &g_alarms_spy,
-        &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy,
-        &g_lcd_ui_spy,
-        &g_modbus_spy
-    );
-    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, err);
-}
-
-void test_LC_001d_null_lcd_ui_rejected(void)
-{
-    lifecycle_err_t err = lifecycle_controller_init(
-        LIFECYCLE_RESET_POWER_ON,
-        &g_cfg_store_spy,
-        &g_cfg_provider_spy,
-        &g_cfg_mgr_spy,
-        &g_sensors_spy,
-        &g_alarms_spy,
-        &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy,
-        NULL,                    /* lcd_ui = NULL */
-        &g_modbus_spy
-    );
+        LIFECYCLE_RESET_POWER_ON, &g_cfg_store_spy, &g_cfg_provider_spy, &g_cfg_mgr_spy,
+        NULL, /* sensors = NULL */
+        &g_alarms_spy, &g_console_spy, (const ihealth_report_t *) &g_health_spy, &g_modbus_spy);
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, err);
 }
 
@@ -467,12 +414,9 @@ void test_LC_004_post_init_state_is_INIT(void)
 
 void test_LC_005_reset_cause_stored(void)
 {
-    lifecycle_controller_init(
-        LIFECYCLE_RESET_WATCHDOG,
-        &g_cfg_store_spy, &g_cfg_provider_spy, &g_cfg_mgr_spy,
-        &g_sensors_spy, &g_alarms_spy, &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy, &g_lcd_ui_spy, &g_modbus_spy);
+    lifecycle_controller_init(LIFECYCLE_RESET_WATCHDOG, &g_cfg_store_spy, &g_cfg_provider_spy,
+                              &g_cfg_mgr_spy, &g_sensors_spy, &g_alarms_spy, &g_console_spy,
+                              (const ihealth_report_t *) &g_health_spy, &g_modbus_spy);
     TEST_ASSERT_EQUAL(LIFECYCLE_RESET_WATCHDOG, lifecycle_controller->get_reset_cause());
 }
 
@@ -591,32 +535,7 @@ void test_LC_035_alarms_init_fail_goes_FAULTED(void)
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
     lifecycle_task_body(NULL);
     TEST_ASSERT_EQUAL(LIFECYCLE_STATE_FAULTED, lifecycle_controller->get_state());
-    TEST_ASSERT_EQUAL(0U, g_graphics_init_calls);
-}
-
-void test_LC_036_graphics_init_fail_goes_FAULTED(void)
-{
-    g_graphics_init_return = GRAPHICS_ERR_LVGL_FAIL;
-    g_mock_xQueueReceive_return = pdFALSE;
-    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
-    lifecycle_task_body(NULL);
-    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_FAULTED, lifecycle_controller->get_state());
-    TEST_ASSERT_EQUAL(0U, g_lcd_ui_init_calls);
-}
-
-void test_LC_037_lcd_ui_init_fail_goes_FAULTED(void)
-{
-    g_lcd_ui_init_return = LCD_UI_ERR_DRIVER;
-    g_mock_xQueueReceive_return = pdFALSE;
-    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
-    lifecycle_task_body(NULL);
-    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_FAULTED, lifecycle_controller->get_state());
-}
-
-void test_LC_038_show_splash_called_once_on_success(void)
-{
-    drive_to_operational();
-    TEST_ASSERT_EQUAL(1U, g_lcd_ui_show_splash_calls);
+    TEST_ASSERT_EQUAL(0U, g_modbus_set_address_calls);
 }
 
 void test_LC_039_modbus_set_address_called_with_cfg_addr(void)
@@ -625,12 +544,6 @@ void test_LC_039_modbus_set_address_called_with_cfg_addr(void)
     drive_to_operational();
     TEST_ASSERT_EQUAL(1U, g_modbus_set_address_calls);
     TEST_ASSERT_EQUAL(7U, g_modbus_set_address_last_value);
-}
-
-void test_LC_040_dismiss_splash_called_on_operational_entry(void)
-{
-    drive_to_operational();
-    TEST_ASSERT_EQUAL(1U, g_lcd_ui_dismiss_splash_calls);
 }
 
 void test_LC_041_start_gate_bit_set_on_operational_entry(void)
@@ -644,11 +557,11 @@ void test_LC_041_start_gate_bit_set_on_operational_entry(void)
 void test_LC_042_init_timeout_event_goes_FAULTED(void)
 {
     /* Simulate the init watchdog firing by pre-loading a fault event */
-    lifecycle_event_t fault_ev = { .type = LC_EVENT_UNRECOVERABLE_FAULT,
-                                   .param = LC_FAULT_INIT_TIMEOUT };
-    (void)memcpy(g_mock_xQueueReceive_next_item, &fault_ev, sizeof(fault_ev));
+    lifecycle_event_t fault_ev = {.type = LC_EVENT_UNRECOVERABLE_FAULT,
+                                  .param = LC_FAULT_INIT_TIMEOUT};
+    (void) memcpy(g_mock_xQueueReceive_next_item, &fault_ev, sizeof(fault_ev));
     g_mock_xQueueReceive_next_item_size = sizeof(fault_ev);
-    g_mock_xQueueReceive_return         = pdTRUE;
+    g_mock_xQueueReceive_return = pdTRUE;
 
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
     lifecycle_task_body(NULL);
@@ -800,19 +713,16 @@ void test_LC_115_get_state_returns_current_state(void)
 
 void test_LC_116_get_reset_cause_returns_value_passed_to_init(void)
 {
-    lifecycle_controller_init(
-        LIFECYCLE_RESET_SOFT,
-        &g_cfg_store_spy, &g_cfg_provider_spy, &g_cfg_mgr_spy,
-        &g_sensors_spy, &g_alarms_spy, &g_console_spy,
-        (const ihealth_report_t *)&g_health_spy,
-        &g_graphics_spy, &g_lcd_ui_spy, &g_modbus_spy);
+    lifecycle_controller_init(LIFECYCLE_RESET_SOFT, &g_cfg_store_spy, &g_cfg_provider_spy,
+                              &g_cfg_mgr_spy, &g_sensors_spy, &g_alarms_spy, &g_console_spy,
+                              (const ihealth_report_t *) &g_health_spy, &g_modbus_spy);
     TEST_ASSERT_EQUAL(LIFECYCLE_RESET_SOFT, lifecycle_controller->get_reset_cause());
 }
 
 void test_LC_117_post_event_enqueues_to_queue(void)
 {
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
-    lifecycle_event_t ev = { .type = LC_EVENT_CONFIG_EDIT_ENTER, .param = 0U };
+    lifecycle_event_t ev = {.type = LC_EVENT_CONFIG_EDIT_ENTER, .param = 0U};
     bool ok = lifecycle_controller->post_event(ev);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_GREATER_OR_EQUAL(1U, g_mock_xQueueSend_call_count);
@@ -822,7 +732,7 @@ void test_LC_118_post_event_returns_false_when_queue_full(void)
 {
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
     g_mock_xQueueSend_return = pdFALSE;
-    lifecycle_event_t ev = { .type = LC_EVENT_CONFIG_EDIT_ENTER, .param = 0U };
+    lifecycle_event_t ev = {.type = LC_EVENT_CONFIG_EDIT_ENTER, .param = 0U};
     bool ok = lifecycle_controller->post_event(ev);
     TEST_ASSERT_FALSE(ok);
 }

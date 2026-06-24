@@ -51,7 +51,7 @@ static void monitor_task(void *arg)
     (void)xEventGroupWaitBits(gate, LIFECYCLE_START_GATE_BIT,
                               pdFALSE, pdTRUE, portMAX_DELAY);
 
-    LOG_INFO("[IT-LC] Start-gate released — Operational entered");
+    LOG_INFO("[IT-LC]","Start-gate released — Operational entered");
 
     for (;;)
     {
@@ -92,9 +92,9 @@ void it_lc_start(void)
                             s_monitor_stack,
                             &s_monitor_tcb);
 
-    LOG_INFO("[IT-LC] Integration test monitor started");
-    LOG_INFO("[IT-LC] IT-LC-001: Cold boot FD — expect 5 sub-states then Operational");
-    LOG_INFO("[IT-LC] IT-LC-003: Corrupt config — expect Faulted + LED fault pattern");
-    LOG_INFO("[IT-LC] IT-LC-005: Console 'config commit' — expect EditingConfig then Operational");
-    LOG_INFO("[IT-LC] IT-LC-007: No console input 5 min — expect Operational (auto-cancel)");
+    LOG_INFO("[IT-LC]","Integration test monitor started");
+    LOG_INFO("[IT-LC]","IT-LC-001: Cold boot FD — expect 5 sub-states then Operational");
+    LOG_INFO("[IT-LC]","IT-LC-003: Corrupt config — expect Faulted + LED fault pattern");
+    LOG_INFO("[IT-LC]", "IT-LC-005: Console 'config commit' — expect EditingConfig then Operational");
+    LOG_INFO("[IT-LC]", "IT-LC-007: No console input 5 min — expect Operational (auto-cancel)");
 }

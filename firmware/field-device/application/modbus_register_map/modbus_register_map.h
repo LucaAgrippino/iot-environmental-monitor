@@ -111,7 +111,8 @@ typedef enum
 #include "sensor_service/sensor_service.h"
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
-#include "health_monitor/health_monitor.h"
+#include "health_monitor/ihealth_report.h"
+#include "health_monitor/ihealth_snapshot.h"
 #include "time_provider/time_provider.h"
 #else
 #include "mrm_deps_stub.h"

@@ -67,23 +67,13 @@ typedef struct
 } time_provider_ts_t;
 
 /* ========================================================================= */
-/* IHealthReport forward declaration                                         */
+/* IHealthReport                                                             */
 /* ========================================================================= */
 
-/* In production builds include health_monitor.h for the full ihealth_report_t
- * definition. In test builds only a forward declaration is provided here;
- * the test TU includes health_monitor_stub.h to complete the struct body
- * before instantiating any ihealth_report_t. This keeps health_monitor.c
- * and its LED/driver dependencies out of the test link unit. */
-#ifndef TEST
-#include "health_monitor/health_monitor.h"
-#else
-#ifndef IHEALTH_REPORT_T_DEFINED
-#define IHEALTH_REPORT_T_DEFINED
-struct ihealth_report_s;
-typedef struct ihealth_report_s ihealth_report_t;
-#endif /* IHEALTH_REPORT_T_DEFINED */
-#endif /* TEST */
+/* ihealth_report.h is a pure-type interface header — no implementation
+ * dependency — so it is safe to include unconditionally in both production
+ * and TEST builds without pulling health_monitor.c into the link unit. */
+#include "health_monitor/ihealth_report.h"
 
 /* ========================================================================= */
 /* Public API — ITimeProvider                                                */
