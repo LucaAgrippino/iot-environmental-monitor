@@ -154,6 +154,7 @@ typedef struct
     uint32_t modbus_crc_errors;
     uint32_t modbus_addr_mismatches;
     uint32_t modbus_exception_responses;
+    bool modbus_slave_ok; /**< Set by Modbus slave on first valid frame. */
 
 #if defined(BOARD_GATEWAY)
     /* ── Modbus master (GW) ── */

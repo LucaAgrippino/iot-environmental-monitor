@@ -226,4 +226,40 @@ debug_uart_err_t debug_uart_read_line(uint8_t *out_buf, size_t buf_size, size_t 
  */
 void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
 
+/* ------------------------------------------------------------------ */
+/* IDebugUart vtable (P2 — Dependency Inversion)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Singleton vtable for the debug-UART driver.
+ *
+ * Consumed by ConsoleService (send + read_line + attach_rx).
+ * Logger uses the free function directly (P4 cross-cutting exception).
+ */
+typedef struct idebug_uart_s
+{
+    debug_uart_err_t (*send)(const uint8_t *data, size_t length, uint32_t timeout_ms);
+    debug_uart_err_t (*read_line)(uint8_t *out_buf, size_t buf_size, size_t *out_length,
+                                  debug_uart_line_flag_t *out_flag);
+    debug_uart_err_t (*attach_rx)(debug_uart_line_callback_t callback, void *context);
+} idebug_uart_t;
+
+extern const idebug_uart_t *const debug_uart;
+
+/* ------------------------------------------------------------------ */
+/* Test-only hooks                                                      */
+/* ------------------------------------------------------------------ */
+
+#ifdef TEST
+/**
+ * @brief Reset driver state between unit tests (call from setUp()).
+ */
+void debug_uart_reset_for_test(void);
+
+/**
+ * @brief Pre-load a line into the ready buffer so read_line() returns it.
+ */
+void debug_uart_set_ready_line_for_test(const uint8_t *line, size_t len, bool truncated);
+#endif /* TEST */
+
 #endif /* DEBUG_UART_DRIVER_H */

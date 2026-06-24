@@ -20,34 +20,34 @@
 
 typedef enum
 {
-    CONFIG_SERVICE_OK           = 0,
+    CONFIG_SERVICE_OK = 0,
     CONFIG_SERVICE_ERR_NOT_INIT = 1,
     CONFIG_SERVICE_ERR_NULL_ARG = 2,
-    CONFIG_SERVICE_ERR_INVALID  = 3,
-    CONFIG_SERVICE_ERR_PERSIST  = 4,
+    CONFIG_SERVICE_ERR_INVALID = 3,
+    CONFIG_SERVICE_ERR_PERSIST = 4,
 } config_service_err_t;
 
 typedef enum
 {
-    CONFIG_PARAM_POLL_INTERVAL      = 0,
-    CONFIG_PARAM_FILTER_ALPHA       = 1,
-    CONFIG_PARAM_TEMP_RANGE_MIN     = 2,
-    CONFIG_PARAM_TEMP_RANGE_MAX     = 3,
+    CONFIG_PARAM_POLL_INTERVAL = 0,
+    CONFIG_PARAM_FILTER_ALPHA = 1,
+    CONFIG_PARAM_TEMP_RANGE_MIN = 2,
+    CONFIG_PARAM_TEMP_RANGE_MAX = 3,
     CONFIG_PARAM_HUMIDITY_RANGE_MIN = 4,
     CONFIG_PARAM_HUMIDITY_RANGE_MAX = 5,
     CONFIG_PARAM_PRESSURE_RANGE_MIN = 6,
     CONFIG_PARAM_PRESSURE_RANGE_MAX = 7,
-    CONFIG_PARAM_TEMP_ALARM_HIGH    = 8,
-    CONFIG_PARAM_TEMP_ALARM_LOW     = 9,
-    CONFIG_PARAM_TEMP_HYSTERESIS    = 10,
+    CONFIG_PARAM_TEMP_ALARM_HIGH = 8,
+    CONFIG_PARAM_TEMP_ALARM_LOW = 9,
+    CONFIG_PARAM_TEMP_HYSTERESIS = 10,
     CONFIG_PARAM_HUMIDITY_ALARM_HIGH = 11,
-    CONFIG_PARAM_HUMIDITY_ALARM_LOW  = 12,
+    CONFIG_PARAM_HUMIDITY_ALARM_LOW = 12,
     CONFIG_PARAM_HUMIDITY_HYSTERESIS = 13,
     CONFIG_PARAM_PRESSURE_ALARM_HIGH = 14,
-    CONFIG_PARAM_PRESSURE_ALARM_LOW  = 15,
+    CONFIG_PARAM_PRESSURE_ALARM_LOW = 15,
     CONFIG_PARAM_PRESSURE_HYSTERESIS = 16,
-    CONFIG_PARAM_MODBUS_SLAVE_ADDR   = 17,
-    CONFIG_PARAM_MODBUS_POLL_PERIOD  = 18,
+    CONFIG_PARAM_MODBUS_SLAVE_ADDR = 17,
+    CONFIG_PARAM_MODBUS_POLL_PERIOD = 18,
     CONFIG_PARAM_COUNT,
 } config_param_id_t;
 
@@ -61,12 +61,15 @@ typedef struct
 } iconfig_provider_t;
 
 /* --------------------------------------------------------------------- */
-/* iconfig_manager_t — write side (only set_param used by lcd_ui)       */
+/* iconfig_manager_t — write side (set_param + flush used by            */
+/* lcd_ui and console_service)                                           */
 /* --------------------------------------------------------------------- */
 
 typedef struct
 {
     config_service_err_t (*set_param)(config_param_id_t id, const void *value);
+    config_service_err_t (*validate_param)(config_param_id_t id, const void *value);
+    config_service_err_t (*flush)(void);
 } iconfig_manager_t;
 
 #endif /* CONFIG_SERVICE_STUB_H */
