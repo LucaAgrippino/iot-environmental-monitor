@@ -70,7 +70,9 @@ typedef enum
  * Polled by ModbusRegisterMap to expose reliability counters via Modbus
  * (Metric Producer Pattern — components.md §Metric Producer Pattern).
  */
-typedef struct
+#ifndef MODBUS_SLAVE_STATS_S_DEFINED
+#define MODBUS_SLAVE_STATS_S_DEFINED
+typedef struct modbus_slave_stats_s
 {
     uint32_t valid_frames;         /**< Frames received with correct address + CRC. */
     uint32_t crc_errors;           /**< Frames discarded due to CRC mismatch. */
@@ -79,6 +81,7 @@ typedef struct
     uint32_t unsupported_fc;       /**< Exception 0x01 triggered (unknown FC). */
     uint32_t successful_responses; /**< Normal (non-exception) responses sent. */
 } modbus_slave_stats_t;
+#endif /* MODBUS_SLAVE_STATS_S_DEFINED */
 
 /* ===================================================================== */
 /* IModbusRegisterMap — injected vtable (P2 DIP)                        */
