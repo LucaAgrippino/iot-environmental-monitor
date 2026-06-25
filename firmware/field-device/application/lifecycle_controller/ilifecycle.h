@@ -81,11 +81,14 @@ typedef struct
 } lifecycle_event_t;
 
 /** Remote commands dispatched through handle_remote_command (§5.5). */
+#ifndef LC_REMOTE_CMD_DEFINED
+#define LC_REMOTE_CMD_DEFINED
 typedef enum
 {
     LC_REMOTE_CMD_SOFT_RESTART = 0,
     LC_REMOTE_CMD_RESET_METRICS = 1,
 } lifecycle_remote_cmd_t;
+#endif /* LC_REMOTE_CMD_DEFINED */
 
 /** Fault param sent with LC_EVENT_UNRECOVERABLE_FAULT on init timeout. */
 #define LC_FAULT_INIT_TIMEOUT (0xFFF0U)

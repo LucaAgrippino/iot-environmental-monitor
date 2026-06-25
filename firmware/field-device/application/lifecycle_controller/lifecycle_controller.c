@@ -17,11 +17,41 @@
 
 #ifndef TEST
 #include "stm32f469xx.h"
+#include "queue.h"
 #include "logger/logger.h"
-#define LOG_DEBUG(m, ...) logger_log(LOG_LVL_DEBUG, m, ##__VA_ARGS__)
-#define LOG_INFO(m, ...) logger_log(LOG_LVL_INFO, m, ##__VA_ARGS__)
-#define LOG_WARN(m, ...) logger_log(LOG_LVL_WARN, m, ##__VA_ARGS__)
-#define LOG_ERROR(m, ...) logger_log(LOG_LVL_ERROR, m, ##__VA_ARGS__)
+/* logger.h defines LOG_*(mod, fmt, ...) — shadow with a pinned "LC" module. */
+#undef LOG_DEBUG
+#undef LOG_INFO
+#undef LOG_WARN
+#undef LOG_ERROR
+#define LOG_DEBUG(fmt, ...)                                                                        \
+    do                                                                                             \
+    {                                                                                              \
+        char _b[96];                                                                               \
+        (void) snprintf(_b, sizeof(_b), fmt, ##__VA_ARGS__);                                       \
+        logger_log(LOG_LVL_DEBUG, "LC", _b);                                                       \
+    } while (0)
+#define LOG_INFO(fmt, ...)                                                                         \
+    do                                                                                             \
+    {                                                                                              \
+        char _b[96];                                                                               \
+        (void) snprintf(_b, sizeof(_b), fmt, ##__VA_ARGS__);                                       \
+        logger_log(LOG_LVL_INFO, "LC", _b);                                                        \
+    } while (0)
+#define LOG_WARN(fmt, ...)                                                                         \
+    do                                                                                             \
+    {                                                                                              \
+        char _b[96];                                                                               \
+        (void) snprintf(_b, sizeof(_b), fmt, ##__VA_ARGS__);                                       \
+        logger_log(LOG_LVL_WARN, "LC", _b);                                                        \
+    } while (0)
+#define LOG_ERROR(fmt, ...)                                                                        \
+    do                                                                                             \
+    {                                                                                              \
+        char _b[96];                                                                               \
+        (void) snprintf(_b, sizeof(_b), fmt, ##__VA_ARGS__);                                       \
+        logger_log(LOG_LVL_ERROR, "LC", _b);                                                       \
+    } while (0)
 #else
 #include "stm32_cmsis_mock.h"
 #define LOG_DEBUG(m, ...) ((void) 0)
@@ -757,7 +787,7 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     }
 
 #ifdef USE_GUI
-    if ((graphics == NULL) || (lcd_ui == NULL) || (modbus_slave == NULL))
+    if ((graphics == NULL) || (lcd_ui == NULL))
     {
         return LIFECYCLE_ERR_NULL_ARG;
     }
