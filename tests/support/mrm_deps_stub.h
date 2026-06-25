@@ -25,6 +25,9 @@
  * that would cause Ceedling to auto-link an implementation file.        */
 #include "config_service/config_params.h"
 
+
+
+#include "lifecycle_controller/ilifecycle.h"
 /* ===================================================================== */
 /* time_provider types                                                   */
 /* ===================================================================== */
@@ -227,27 +230,6 @@ typedef struct
 /* ===================================================================== */
 /* health_monitor types                                                  */
 /* ===================================================================== */
-
-#ifndef LIFECYCLE_STATE_DEFINED
-#define LIFECYCLE_STATE_DEFINED
-typedef enum
-{
-    LIFECYCLE_STATE_INIT = 0,
-    LIFECYCLE_STATE_OPERATIONAL = 1,
-    LIFECYCLE_STATE_EDITING_CONFIG = 2,
-    LIFECYCLE_STATE_RESTARTING = 3,
-    LIFECYCLE_STATE_UPDATING_FW = 4,
-    LIFECYCLE_STATE_FAULTED = 5,
-} lifecycle_state_t;
-#endif /* LIFECYCLE_STATE_DEFINED */
-
-typedef enum
-{
-    LIFECYCLE_RESET_POWER_ON = 0,
-    LIFECYCLE_RESET_SOFT = 1,
-    LIFECYCLE_RESET_WATCHDOG = 2,
-    LIFECYCLE_RESET_UNKNOWN = 3,
-} lifecycle_reset_cause_t;
 
 typedef enum
 {
