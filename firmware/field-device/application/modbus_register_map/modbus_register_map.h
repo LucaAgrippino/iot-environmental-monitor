@@ -97,11 +97,17 @@ typedef struct imodbus_register_map_s
 /* Remote command identifiers (for LifecycleController routing)         */
 /* ===================================================================== */
 
+#ifndef LC_REMOTE_CMD_DEFINED
+#define LC_REMOTE_CMD_DEFINED
 typedef enum
 {
-    LC_REMOTE_CMD_RESET_METRICS = 0,
-    LC_REMOTE_CMD_SOFT_RESTART = 1,
+    LC_REMOTE_CMD_SOFT_RESTART  = 0,
+    LC_REMOTE_CMD_RESET_METRICS = 1,
 } lc_remote_cmd_t;
+#else
+/* ilifecycle.h already defined the enumerators — alias the type. */
+typedef lifecycle_remote_cmd_t lc_remote_cmd_t;
+#endif /* LC_REMOTE_CMD_DEFINED */
 
 /* ===================================================================== */
 /* Provider / dependency types pulled in for the init signature         */
