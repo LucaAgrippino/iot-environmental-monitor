@@ -102,7 +102,6 @@ typedef struct imodbus_register_map_s
 /* ilifecycle.h already defined the enumerators — alias the type. */
 typedef lifecycle_remote_cmd_t lifecycle_remote_cmd_t;
 
-
 /* ===================================================================== */
 /* Provider / dependency types pulled in for the init signature         */
 /* ===================================================================== */
@@ -162,7 +161,7 @@ modbus_register_map_init(modbus_register_map_t *self, const isensor_service_t *s
                          iconfig_manager_t *cfg_write, const ihealth_snapshot_t *health_read,
                          ihealth_report_t *health_write, const itime_provider_t *time,
                          const imodbus_slave_stats_t *mb_stats, imodbus_slave_t *mb_slave,
-						 const ilifecycle_t *lifecycle);
+                         const ilifecycle_t *lifecycle);
 
 /**
  * @brief Build the imodbus_register_map_t vtable for a given instance.

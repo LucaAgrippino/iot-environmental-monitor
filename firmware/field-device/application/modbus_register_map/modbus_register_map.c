@@ -966,7 +966,7 @@ modbus_register_map_init(modbus_register_map_t *self, const isensor_service_t *s
                          iconfig_manager_t *cfg_write, const ihealth_snapshot_t *health_read,
                          ihealth_report_t *health_write, const itime_provider_t *time,
                          const imodbus_slave_stats_t *mb_stats, imodbus_slave_t *mb_slave,
-						 const ilifecycle_t *lifecycle)
+                         const ilifecycle_t *lifecycle)
 {
     if (self == NULL || sensors == NULL || alarms == NULL || cfg_read == NULL ||
         cfg_write == NULL || health_read == NULL || health_write == NULL || time == NULL ||
