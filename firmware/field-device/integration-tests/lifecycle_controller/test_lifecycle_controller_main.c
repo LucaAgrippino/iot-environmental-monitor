@@ -109,11 +109,11 @@ void it_lc_start(void)
                             s_monitor_stack,
                             &s_monitor_tcb);
 
-    LOG_INFO("[IT-LC]","Integration test monitor started");
-    LOG_INFO("[IT-LC]","IT-LC-001: Cold boot FD — expect 5 sub-states then Operational");
-    LOG_INFO("[IT-LC]","IT-LC-003: Corrupt config — expect Faulted + LED fault pattern");
-    LOG_INFO("[IT-LC]", "IT-LC-005: Console 'config commit' — expect EditingConfig then Operational");
-    LOG_INFO("[IT-LC]", "IT-LC-007: No console input 5 min — expect Operational (auto-cancel)");
+    LOG_INFO("[IT-LC]", "Integration test monitor started");
+    LOG_INFO("[IT-LC]", "IT-LC-001: Cold boot FD -> 5 sub-states then Operational");
+    LOG_INFO("[IT-LC]", "IT-LC-003: Corrupt config — expect Faulted + LED fault");
+    LOG_INFO("[IT-LC]", "IT-LC-005: 'config commit' -> EditingConfig -> Operational");
+    LOG_INFO("[IT-LC]", "IT-LC-007: 5min idle -> Operational (auto-cancel)");
 }
 
 /* ======================================================================= */
@@ -160,12 +160,13 @@ static const imodbus_slave_stats_t s_mb_stats_vtable = {
 /* ILifecycleController vtable (routes to lifecycle_controller singleton)  */
 /* ======================================================================= */
 
-static void it_handle_remote_command(lc_remote_cmd_t cmd)
+static lifecycle_err_t it_handle_remote_command(lifecycle_remote_cmd_t cmd)
 {
     (void) lifecycle_controller->handle_remote_command((lifecycle_remote_cmd_t) cmd);
+    return LIFECYCLE_ERR_OK;
 }
 
-static ilifecycle_controller_t s_lc_ctrl_vtable = {
+static ilifecycle_t s_lc_ctrl_vtable = {
     .handle_remote_command = it_handle_remote_command,
 };
 

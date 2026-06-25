@@ -97,17 +97,11 @@ typedef struct imodbus_register_map_s
 /* Remote command identifiers (for LifecycleController routing)         */
 /* ===================================================================== */
 
-#ifndef LC_REMOTE_CMD_DEFINED
-#define LC_REMOTE_CMD_DEFINED
-typedef enum
-{
-    LC_REMOTE_CMD_SOFT_RESTART  = 0,
-    LC_REMOTE_CMD_RESET_METRICS = 1,
-} lc_remote_cmd_t;
-#else
+#include "lifecycle_controller/ilifecycle.h"
+
 /* ilifecycle.h already defined the enumerators — alias the type. */
-typedef lifecycle_remote_cmd_t lc_remote_cmd_t;
-#endif /* LC_REMOTE_CMD_DEFINED */
+typedef lifecycle_remote_cmd_t lifecycle_remote_cmd_t;
+
 
 /* ===================================================================== */
 /* Provider / dependency types pulled in for the init signature         */
@@ -137,14 +131,6 @@ typedef struct
 
 /* imodbus_slave_t: leaf header — definition lives with the implementor */
 #include "modbus_slave/imodbus_slave.h"
-
-/* ilifecycle_controller_t: routes remote commands to LifecycleController */
-typedef struct
-{
-    /* cppcheck-suppress unusedStructMember -- called by write_cmd_reset_metrics,
-     * write_cmd_soft_restart */
-    void (*handle_remote_command)(lc_remote_cmd_t cmd);
-} ilifecycle_controller_t;
 
 /* ===================================================================== */
 /* Public API                                                           */
@@ -176,7 +162,7 @@ modbus_register_map_init(modbus_register_map_t *self, const isensor_service_t *s
                          iconfig_manager_t *cfg_write, const ihealth_snapshot_t *health_read,
                          ihealth_report_t *health_write, const itime_provider_t *time,
                          const imodbus_slave_stats_t *mb_stats, imodbus_slave_t *mb_slave,
-                         ilifecycle_controller_t *lifecycle);
+						 const ilifecycle_t *lifecycle);
 
 /**
  * @brief Build the imodbus_register_map_t vtable for a given instance.
