@@ -961,7 +961,7 @@ static console_service_err_t do_init_finalise(void)
 
 static const iconsole_service_t s_console_service_vtable = {
     .init_finalise = do_init_finalise,
-    .run_once      = do_run_once,
+    .run_once = do_run_once,
 };
 const iconsole_service_t *const console_service = &s_console_service_vtable;
 

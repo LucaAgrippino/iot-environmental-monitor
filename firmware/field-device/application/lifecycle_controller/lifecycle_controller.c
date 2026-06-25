@@ -153,7 +153,6 @@ static uint32_t s_cfg_snapshot_len;
 /* Internal helpers — forward declarations                                 */
 /* ======================================================================= */
 
-static void post_fault(uint32_t fault_code);
 static void enter_faulted(uint32_t fault_code);
 static bool poll_for_abort(void);
 
@@ -211,12 +210,6 @@ lifecycle_reset_cause_t lifecycle_detect_reset_cause(void)
 /* ======================================================================= */
 /* Internal helpers                                                        */
 /* ======================================================================= */
-
-static void post_fault(uint32_t fault_code)
-{
-    lifecycle_event_t ev = {.type = LC_EVENT_UNRECOVERABLE_FAULT, .param = fault_code};
-    (void) xQueueSend(s_event_queue, &ev, 0U);
-}
 
 static void enter_faulted(uint32_t fault_code)
 {

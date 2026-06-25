@@ -181,7 +181,8 @@ typedef struct
     sensor_service_err_t (*read_on_demand)(void);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     bool (*is_ready)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController on config APPLY */
+    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController on config
+     * APPLY */
     sensor_service_err_t (*reconfigure)(void);
 } isensor_service_t;
 
