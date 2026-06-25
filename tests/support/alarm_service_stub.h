@@ -44,8 +44,11 @@ typedef enum
 
 typedef struct
 {
-    /** Returns all sensor alarm states in one call. */
+    alarm_service_err_t (*init)(void);
+    alarm_service_err_t (*get_state)(sensor_id_t sensor, alarm_state_t *state_out);
     alarm_service_err_t (*get_all_states)(alarm_state_t states[SENSOR_ID_COUNT]);
+    alarm_service_err_t (*subscribe)(void (*cb)(sensor_id_t, int, const void *));
+    alarm_service_err_t (*ack_all)(void);
 } ialarm_service_t;
 
 #endif /* ALARM_SERVICE_STUB_H */

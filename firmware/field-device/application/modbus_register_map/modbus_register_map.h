@@ -97,11 +97,10 @@ typedef struct imodbus_register_map_s
 /* Remote command identifiers (for LifecycleController routing)         */
 /* ===================================================================== */
 
-typedef enum
-{
-    LC_REMOTE_CMD_RESET_METRICS = 0,
-    LC_REMOTE_CMD_SOFT_RESTART = 1,
-} lc_remote_cmd_t;
+#include "lifecycle_controller/ilifecycle.h"
+
+/* ilifecycle.h already defined the enumerators — alias the type. */
+typedef lifecycle_remote_cmd_t lifecycle_remote_cmd_t;
 
 /* ===================================================================== */
 /* Provider / dependency types pulled in for the init signature         */
@@ -111,7 +110,8 @@ typedef enum
 #include "sensor_service/sensor_service.h"
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
-#include "health_monitor/health_monitor.h"
+#include "health_monitor/ihealth_report.h"
+#include "health_monitor/ihealth_snapshot.h"
 #include "time_provider/time_provider.h"
 #else
 #include "mrm_deps_stub.h"
@@ -128,20 +128,8 @@ typedef struct
     void (*snapshot)(modbus_slave_stats_t *out);
 } imodbus_slave_stats_t;
 
-/* imodbus_slave_t: Mediator role — propagates address changes */
-typedef struct
-{
-    /* cppcheck-suppress unusedStructMember -- called by write_modbus_slave_addr */
-    void (*set_slave_address)(uint8_t new_addr);
-} imodbus_slave_t;
-
-/* ilifecycle_controller_t: routes remote commands to LifecycleController */
-typedef struct
-{
-    /* cppcheck-suppress unusedStructMember -- called by write_cmd_reset_metrics,
-     * write_cmd_soft_restart */
-    void (*handle_remote_command)(lc_remote_cmd_t cmd);
-} ilifecycle_controller_t;
+/* imodbus_slave_t: leaf header — definition lives with the implementor */
+#include "modbus_slave/imodbus_slave.h"
 
 /* ===================================================================== */
 /* Public API                                                           */
@@ -173,7 +161,7 @@ modbus_register_map_init(modbus_register_map_t *self, const isensor_service_t *s
                          iconfig_manager_t *cfg_write, const ihealth_snapshot_t *health_read,
                          ihealth_report_t *health_write, const itime_provider_t *time,
                          const imodbus_slave_stats_t *mb_stats, imodbus_slave_t *mb_slave,
-                         ilifecycle_controller_t *lifecycle);
+                         const ilifecycle_t *lifecycle);
 
 /**
  * @brief Build the imodbus_register_map_t vtable for a given instance.

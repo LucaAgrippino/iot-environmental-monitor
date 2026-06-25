@@ -27,13 +27,15 @@
 #include "debug-uart/debug_uart_driver.h"
 #include "sensor_service/sensor_service.h"
 #include "config_service/config_service.h"
-#include "health_monitor/health_monitor.h"
 #else
 #include "debug_uart_stub.h"
 #include "sensor_service_stub.h"
 #include "config_service_stub.h"
-#include "health_monitor_stub.h"
 #endif /* TEST */
+
+/* ihealth_snapshot.h is a pure-type interface header — safe to include
+ * unconditionally in both production and TEST builds. */
+#include "health_monitor/ihealth_snapshot.h"
 
 /* ======================================================================= */
 /* IDeviceProfileManager (GW-only — not yet implemented)                   */
@@ -68,6 +70,17 @@ typedef enum
 
 typedef struct iconsole_service
 {
+    /**
+     * @brief Finalise ConsoleService after all other services are operational.
+     *
+     * Called once by LifecycleController in sub-state StartingMiddleware,
+     * just before the start-gate bit is set. Emits the "System ready" banner
+     * and first command prompt. Must not be called before console_service_init().
+     *
+     * @return CONSOLE_SERVICE_ERR_OK on success.
+     */
+    console_service_err_t (*init_finalise)(void);
+
     /**
      * @brief Drain one line from the UART buffer and dispatch it.
      *

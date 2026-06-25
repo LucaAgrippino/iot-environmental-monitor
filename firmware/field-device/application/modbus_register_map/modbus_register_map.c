@@ -49,7 +49,7 @@ struct modbus_register_map
     const itime_provider_t *time;
     const imodbus_slave_stats_t *mb_stats;
     imodbus_slave_t *mb_slave;
-    ilifecycle_controller_t *lifecycle;
+    const ilifecycle_t *lifecycle;
     uint16_t cmd_ack_alarm_last;
     uint16_t cmd_reset_metrics_last;
     uint16_t cmd_soft_restart_last;
@@ -755,7 +755,7 @@ static modbus_exception_t write_modbus_slave_addr_reg(modbus_register_map_t *s, 
         return MB_EXC_ILLEGAL_DATA_VALUE;
     }
     /* Mediator: propagate immediately so current-frame address transitions */
-    s->mb_slave->set_slave_address(addr);
+    (void) s->mb_slave->set_address(addr);
     LOG_INFO(LOG_MODULE, "Modbus slave address changed to %u", (unsigned) addr);
     return MB_EXC_NONE;
 }
@@ -966,7 +966,7 @@ modbus_register_map_init(modbus_register_map_t *self, const isensor_service_t *s
                          iconfig_manager_t *cfg_write, const ihealth_snapshot_t *health_read,
                          ihealth_report_t *health_write, const itime_provider_t *time,
                          const imodbus_slave_stats_t *mb_stats, imodbus_slave_t *mb_slave,
-                         ilifecycle_controller_t *lifecycle)
+                         const ilifecycle_t *lifecycle)
 {
     if (self == NULL || sensors == NULL || alarms == NULL || cfg_read == NULL ||
         cfg_write == NULL || health_read == NULL || health_write == NULL || time == NULL ||

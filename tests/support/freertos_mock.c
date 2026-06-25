@@ -50,6 +50,15 @@ TimerHandle_t g_mock_xTimerCreateStatic_return;
 uint32_t      g_mock_xTimerCreateStatic_call_count;
 BaseType_t    g_mock_xTimerStart_return;
 uint32_t      g_mock_xTimerStart_call_count;
+BaseType_t    g_mock_xTimerStop_return;
+uint32_t      g_mock_xTimerStop_call_count;
+
+EventGroupHandle_t g_mock_xEventGroupCreateStatic_return;
+uint32_t           g_mock_xEventGroupCreateStatic_call_count;
+EventBits_t        g_mock_xEventGroupSetBits_last_bits;
+uint32_t           g_mock_xEventGroupSetBits_call_count;
+EventBits_t        g_mock_xEventGroupWaitBits_return;
+
 TaskHandle_t  g_mock_xTaskGetCurrentTaskHandle_return;
 uint32_t      g_mock_xTaskNotifyGive_call_count;
 uint32_t      g_mock_ulTaskNotifyTake_return;
@@ -108,6 +117,15 @@ void mock_freertos_reset(void)
     g_mock_xTimerCreateStatic_call_count      = 0U;
     g_mock_xTimerStart_return                 = pdTRUE;
     g_mock_xTimerStart_call_count             = 0U;
+    g_mock_xTimerStop_return                  = pdTRUE;
+    g_mock_xTimerStop_call_count              = 0U;
+
+    g_mock_xEventGroupCreateStatic_return     = DUMMY_HANDLE;
+    g_mock_xEventGroupCreateStatic_call_count = 0U;
+    g_mock_xEventGroupSetBits_last_bits       = 0U;
+    g_mock_xEventGroupSetBits_call_count      = 0U;
+    g_mock_xEventGroupWaitBits_return         = 0U;
+
     g_mock_xTaskGetCurrentTaskHandle_return   = DUMMY_HANDLE;
     g_mock_xTaskNotifyGive_call_count         = 0U;
     g_mock_ulTaskNotifyTake_return            = 1U;
@@ -254,6 +272,43 @@ BaseType_t xTimerStart(TimerHandle_t timer, TickType_t wait)
     (void)wait;
     g_mock_xTimerStart_call_count++;
     return g_mock_xTimerStart_return;
+}
+
+BaseType_t xTimerStop(TimerHandle_t timer, TickType_t wait)
+{
+    (void)timer;
+    (void)wait;
+    g_mock_xTimerStop_call_count++;
+    return g_mock_xTimerStop_return;
+}
+
+EventGroupHandle_t xEventGroupCreateStatic(StaticEventGroup_t *buf)
+{
+    (void)buf;
+    g_mock_xEventGroupCreateStatic_call_count++;
+    return g_mock_xEventGroupCreateStatic_return;
+}
+
+EventBits_t xEventGroupSetBits(EventGroupHandle_t eg, EventBits_t bits)
+{
+    (void)eg;
+    g_mock_xEventGroupSetBits_call_count++;
+    g_mock_xEventGroupSetBits_last_bits = bits;
+    return bits;
+}
+
+EventBits_t xEventGroupWaitBits(EventGroupHandle_t eg,
+                                 EventBits_t bits_to_wait,
+                                 BaseType_t clear_on_exit,
+                                 BaseType_t wait_for_all,
+                                 TickType_t wait)
+{
+    (void)eg;
+    (void)bits_to_wait;
+    (void)clear_on_exit;
+    (void)wait_for_all;
+    (void)wait;
+    return g_mock_xEventGroupWaitBits_return;
 }
 
 TaskHandle_t xTaskGetCurrentTaskHandle(void)

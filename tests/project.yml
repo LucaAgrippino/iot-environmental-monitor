@@ -13,6 +13,7 @@
 :paths:
   :test:
     - field-device/**
+    - gateway/application/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -94,6 +95,14 @@
   :test_console_service:
     - STM32F469xx
     - BOARD_FIELD_DEVICE
+    - TEST
+  :test_lifecycle_controller_fd:
+    - STM32F469xx
+    - BOARD_FIELD_DEVICE
+    - TEST
+  :test_lifecycle_controller_gw:
+    - STM32F469xx
+    - BOARD_GATEWAY
     - TEST
 
 :cmock:

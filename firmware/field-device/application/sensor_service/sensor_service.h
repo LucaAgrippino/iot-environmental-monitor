@@ -155,6 +155,14 @@ sensor_service_err_t sensor_service_read_on_demand(void);
  */
 bool sensor_service_is_ready(void);
 
+/**
+ * @brief Re-apply configuration after a config-edit APPLY event.
+ *
+ * @return SENSOR_SERVICE_ERR_OK on success; SENSOR_SERVICE_ERR_NOT_INIT if
+ *         called before sensor_service_init().
+ */
+sensor_service_err_t sensor_service_reconfigure(void);
+
 /* ======================================================================= */
 /* Singleton vtable — ISensorService (LLD-D10)                             */
 /* ======================================================================= */
@@ -173,6 +181,9 @@ typedef struct
     sensor_service_err_t (*read_on_demand)(void);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     bool (*is_ready)(void);
+    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController on config
+     * APPLY */
+    sensor_service_err_t (*reconfigure)(void);
 } isensor_service_t;
 
 /** Singleton pointer to the SensorService vtable (FD + GW). */

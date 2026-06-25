@@ -240,7 +240,15 @@ static void on_frame_complete(modbus_uart_event_t event, void *context)
 }
 
 /* ===================================================================== */
-/* §5. Public API                                                        */
+/* §5. ISR callback                                                      */
+/* ===================================================================== */
+static const imodbus_slave_t s_modbus_slave_vtable = {
+    .set_address = modbus_slave_set_address,
+};
+
+const imodbus_slave_t *const modbus_slave = &s_modbus_slave_vtable;
+/* ===================================================================== */
+/* §6. Public API                                                        */
 /* ===================================================================== */
 
 modbus_slave_err_t modbus_slave_init(const IModbusRegisterMap *reg_map, uint8_t slave_addr,
@@ -387,7 +395,7 @@ modbus_slave_err_t modbus_slave_reset_stats(void)
 }
 
 /* ===================================================================== */
-/* §6. Test-only hooks                                                   */
+/* §7. Test-only hooks                                                   */
 /* ===================================================================== */
 
 #ifdef TEST

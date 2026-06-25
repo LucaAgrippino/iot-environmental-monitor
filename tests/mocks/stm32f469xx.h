@@ -50,6 +50,7 @@ typedef struct
     volatile uint32_t APB1ENR;
     volatile uint32_t APB2ENR;
     volatile uint32_t BDCR;
+    volatile uint32_t CSR;  /* Clock control & status — reset-cause flags */
 } RCC_TypeDef;
 
 extern RCC_TypeDef g_mock_rcc;
@@ -117,6 +118,16 @@ extern RCC_TypeDef g_mock_rcc;
 #define RCC_BDCR_RTCEN (1UL << RCC_BDCR_RTCEN_Pos)
 #define RCC_BDCR_BDRST_Pos (16U)
 #define RCC_BDCR_BDRST (1UL << RCC_BDCR_BDRST_Pos)
+
+/* --- CSR bits (LifecycleController — reset-cause detection) ----------- */
+#define RCC_CSR_RMVF_Pos    (24U)
+#define RCC_CSR_RMVF        (1UL << RCC_CSR_RMVF_Pos)
+#define RCC_CSR_PINRSTF_Pos (26U)
+#define RCC_CSR_PINRSTF     (1UL << RCC_CSR_PINRSTF_Pos)
+#define RCC_CSR_SFTRSTF_Pos (28U)
+#define RCC_CSR_SFTRSTF     (1UL << RCC_CSR_SFTRSTF_Pos)
+#define RCC_CSR_IWDGRSTF_Pos (29U)
+#define RCC_CSR_IWDGRSTF    (1UL << RCC_CSR_IWDGRSTF_Pos)
 
 /* ====================================================================== */
 /* §GPIO                                                                  */

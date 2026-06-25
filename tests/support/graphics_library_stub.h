@@ -32,4 +32,13 @@ graphics_err_t graphics_process(void);
 lv_disp_t     *graphics_get_display(void);
 lv_indev_t    *graphics_get_indev(void);
 
+/* --------------------------------------------------------------------- */
+/* igraphics_library_t — vtable used by LifecycleController              */
+/* --------------------------------------------------------------------- */
+
+typedef struct
+{
+    graphics_err_t (*init)(void);
+} igraphics_library_t;
+
 #endif /* GRAPHICS_LIBRARY_STUB_H */

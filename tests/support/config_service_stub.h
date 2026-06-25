@@ -67,8 +67,11 @@ typedef struct
 
 typedef struct
 {
+    config_service_err_t (*apply_loaded)(const void *blob, uint32_t len);
     config_service_err_t (*set_param)(config_param_id_t id, const void *value);
     config_service_err_t (*validate_param)(config_param_id_t id, const void *value);
+    config_service_err_t (*snapshot)(void);
+    config_service_err_t (*restore_snapshot)(void);
     config_service_err_t (*flush)(void);
 } iconfig_manager_t;
 

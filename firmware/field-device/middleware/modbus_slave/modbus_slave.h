@@ -48,6 +48,8 @@
  * to Modbus exception codes in the response PDU rather than surfaced here —
  * except to the internal helpers that build the response.
  */
+#ifndef MODBUS_SLAVE_ERR_DEFINED
+#define MODBUS_SLAVE_ERR_DEFINED
 typedef enum
 {
     MODBUS_SLAVE_ERR_OK = 0,       /**< Operation succeeded. */
@@ -59,6 +61,7 @@ typedef enum
     MODBUS_SLAVE_ERR_DEVICE_FAIL =
         5, /**< Register map returned device failure; maps to exception 0x04. */
 } modbus_slave_err_t;
+#endif /* MODBUS_SLAVE_ERR_DEFINED */
 
 /* ===================================================================== */
 /* Statistics                                                            */
@@ -70,7 +73,9 @@ typedef enum
  * Polled by ModbusRegisterMap to expose reliability counters via Modbus
  * (Metric Producer Pattern — components.md §Metric Producer Pattern).
  */
-typedef struct
+#ifndef MODBUS_SLAVE_STATS_S_DEFINED
+#define MODBUS_SLAVE_STATS_S_DEFINED
+typedef struct modbus_slave_stats_s
 {
     uint32_t valid_frames;         /**< Frames received with correct address + CRC. */
     uint32_t crc_errors;           /**< Frames discarded due to CRC mismatch. */
@@ -79,6 +84,9 @@ typedef struct
     uint32_t unsupported_fc;       /**< Exception 0x01 triggered (unknown FC). */
     uint32_t successful_responses; /**< Normal (non-exception) responses sent. */
 } modbus_slave_stats_t;
+#endif /* MODBUS_SLAVE_STATS_S_DEFINED */
+
+#include "modbus_slave/imodbus_slave.h"
 
 /* ===================================================================== */
 /* IModbusRegisterMap — injected vtable (P2 DIP)                        */

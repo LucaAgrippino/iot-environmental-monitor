@@ -39,7 +39,7 @@ static bool s_mb_stats_snapped;
 static bool s_slave_addr_set_called;
 static uint8_t s_slave_addr_set;
 static bool s_lc_cmd_called;
-static lc_remote_cmd_t s_last_lc_cmd;
+static lifecycle_remote_cmd_t s_last_lc_cmd;
 
 /* ===================================================================== */
 /* Stub functions                                                        */
@@ -99,16 +99,18 @@ static void stub_mb_stats_snapshot(modbus_slave_stats_t *out)
     *out = s_mb_stats;
 }
 
-static void stub_set_slave_address(uint8_t new_addr)
+static modbus_slave_err_t stub_set_address(uint8_t new_addr)
 {
     s_slave_addr_set_called = true;
     s_slave_addr_set = new_addr;
+    return MODBUS_SLAVE_ERR_OK;
 }
 
-static void stub_handle_remote_command(lc_remote_cmd_t cmd)
+static lifecycle_err_t stub_handle_remote_command(lifecycle_remote_cmd_t cmd)
 {
     s_lc_cmd_called = true;
     s_last_lc_cmd = cmd;
+    return LIFECYCLE_ERR_OK;
 }
 
 /* ===================================================================== */
@@ -124,7 +126,7 @@ static ihealth_report_t s_health_report_vtable;
 static itime_provider_t s_time_vtable;
 static imodbus_slave_stats_t s_mb_stats_vtable;
 static imodbus_slave_t s_mb_slave_vtable;
-static ilifecycle_controller_t s_lifecycle_vtable;
+static ilifecycle_t s_lifecycle_vtable;
 
 /* MRM instance and interface */
 static modbus_register_map_t *s_mrm;
@@ -173,7 +175,7 @@ void setUp(void)
     s_health_read_vtable.get_snapshot = stub_health_get_snapshot;
     s_health_report_vtable.update_modbus_slave_stats = stub_health_update_modbus_stats;
     s_mb_stats_vtable.snapshot = stub_mb_stats_snapshot;
-    s_mb_slave_vtable.set_slave_address = stub_set_slave_address;
+    s_mb_slave_vtable.set_address = stub_set_address;
     s_lifecycle_vtable.handle_remote_command = stub_handle_remote_command;
 
     /* Default params */
@@ -221,7 +223,7 @@ void setUp(void)
     s_slave_addr_set_called = false;
     s_slave_addr_set = 0;
     s_lc_cmd_called = false;
-    s_last_lc_cmd = (lc_remote_cmd_t) 0;
+    s_last_lc_cmd = (lifecycle_remote_cmd_t) 0;
 
     memset(&s_iface, 0, sizeof s_iface);
 }
@@ -556,7 +558,7 @@ void test_TC_MRM_021_fc06_write_sampling_period_valid(void)
 
 /* ===================================================================== */
 /* TC-MRM-022: FC06 write slave addr — Mediator calls both set_param    */
-/*             and mb_slave->set_slave_address                          */
+/*             and mb_slave->set_address                          */
 /* ===================================================================== */
 void test_TC_MRM_022_fc06_write_slave_addr_mediator(void)
 {

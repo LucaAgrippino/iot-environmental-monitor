@@ -23,6 +23,8 @@
 /* health_monitor_stub.h provides health_event_t and HEALTH_EVENT_* constants.
  * In production builds these come from health_monitor.h via config_store.h. */
 #include "health_monitor_stub.h"
+#else
+#include "health_monitor/health_monitor.h"
 #endif
 
 #ifndef UNIT_TEST

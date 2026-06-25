@@ -114,6 +114,7 @@ static const isensor_service_t s_sensor_service_vtable = {
     .subscribe = sensor_service_subscribe,
     .read_on_demand = sensor_service_read_on_demand,
     .is_ready = sensor_service_is_ready,
+    .reconfigure = sensor_service_reconfigure,
 };
 
 const isensor_service_t *const sensor_service = &s_sensor_service_vtable;
@@ -245,6 +246,15 @@ bool sensor_service_is_ready(void)
     }
 
     return true;
+}
+
+sensor_service_err_t sensor_service_reconfigure(void)
+{
+    if (!s_ss.initialised)
+    {
+        return SENSOR_SERVICE_ERR_NOT_INIT;
+    }
+    return SENSOR_SERVICE_ERR_OK;
 }
 
 /* ======================================================================= */
