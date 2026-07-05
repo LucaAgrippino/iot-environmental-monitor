@@ -77,11 +77,11 @@ if ($CeedlingExit -ne 0) {
 # Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
 # Some modules' Ceedling test target uses a long, board-suffixed name
-# (gpio_driver_l4, i2c_driver_f4, led_driver_gw) while the actual firmware
-# directory uses a short, unsuffixed name (gpio, i2c, led) shared by BOTH
-# boards. A bare suffix strip isn't enough to derive the directory, and an
-# unconstrained search risks matching the wrong board's same-named folder
-# when both boards have one (e.g. gpio, i2c).
+# (gpio_driver_gw, led_driver_gw) while the actual firmware directory uses
+# a short, unsuffixed name (gpio, led) shared by BOTH boards. A bare suffix
+# strip isn't enough to derive the directory, and an unconstrained search
+# risks matching the wrong board's same-named folder when both boards have
+# one (e.g. gpio).
 #
 # But the board suffix is only a *hint*, not a guarantee the source lives
 # under that board's tree: some modules (e.g. ModbusUartDriver) have a
@@ -94,13 +94,13 @@ if ($CeedlingExit -ne 0) {
 $OriginalModule = $Module
 
 $BoardHint = $null
-if ($Module -match '_(fd|f4)$') {
+if ($Module -match '_fd$') {
     $BoardHint = 'field-device'
-} elseif ($Module -match '_(gw|l4)$') {
+} elseif ($Module -match '_gw$') {
     $BoardHint = 'gateway'
 }
 
-$BareModule = $Module -replace '_(fd|gw|f4|l4)$', ''
+$BareModule = $Module -replace '_(fd|gw)$', ''
 
 $SearchRoots = [System.Collections.Generic.List[string]]::new()
 if ($BoardHint) { $SearchRoots.Add((Join-Path firmware $BoardHint)) }
