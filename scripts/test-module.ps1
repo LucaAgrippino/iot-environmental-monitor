@@ -76,19 +76,59 @@ if ($CeedlingExit -ne 0) {
 # ---------------------------------------------------------------------------
 # Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
-if ( ($Module.EndsWith( "_fd" ) ) -or ($Module.EndsWith( "_gw" ) )  ) {
+# Some modules' Ceedling test target uses a long, board-suffixed name
+# (gpio_driver_l4, i2c_driver_f4, led_driver_gw) while the actual firmware
+# directory uses a short, unsuffixed name (gpio, i2c, led) shared by BOTH
+# boards. A bare suffix strip isn't enough to derive the directory, and an
+# unconstrained search risks matching the wrong board's same-named folder
+# when both boards have one (e.g. gpio, i2c).
+#
+# But the board suffix is only a *hint*, not a guarantee the source lives
+# under that board's tree: some modules (e.g. ModbusUartDriver) have a
+# single shared implementation file that physically lives under only one
+# board's directory and is compiled for both via defines. So: try the
+# board-hinted tree first (fixes the same-named-folder ambiguity), then
+# fall back to an unconstrained search across all of firmware/ (preserves
+# modules with one shared location). Within each search root, try the
+# module name, then progressively shorter underscore-separated prefixes.
+$OriginalModule = $Module
 
-    $Module = $Module -replace '_fd$|_gw$', ''
+$BoardHint = $null
+if ($Module -match '_(fd|f4)$') {
+    $BoardHint = 'field-device'
+} elseif ($Module -match '_(gw|l4)$') {
+    $BoardHint = 'gateway'
 }
 
-$ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
-Where-Object { $_.Name -eq $Module -and
-               $_.FullName -notmatch '\\Debug\\' -and
-               $_.FullName -notmatch '\\integration-tests\\' } |
-Select-Object -First 1
+$BareModule = $Module -replace '_(fd|gw|f4|l4)$', ''
+
+$SearchRoots = [System.Collections.Generic.List[string]]::new()
+if ($BoardHint) { $SearchRoots.Add((Join-Path firmware $BoardHint)) }
+$SearchRoots.Add('firmware')
+
+$Candidates = [System.Collections.Generic.List[string]]::new()
+$Candidates.Add($OriginalModule)
+if ($BareModule -ne $OriginalModule) { $Candidates.Add($BareModule) }
+$Parts = $BareModule -split '_'
+for ($i = $Parts.Count - 1; $i -ge 1; $i--) {
+    $Candidates.Add(($Parts[0..($i - 1)] -join '_'))
+}
+
+$ModuleDir = $null
+foreach ($Root in $SearchRoots) {
+    foreach ($Candidate in $Candidates) {
+        $ModuleDir = Get-ChildItem -Path $Root -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $Candidate -and
+                           $_.FullName -notmatch '\\Debug\\' -and
+                           $_.FullName -notmatch '\\integration-tests\\' } |
+            Select-Object -First 1
+        if ($null -ne $ModuleDir) { break }
+    }
+    if ($null -ne $ModuleDir) { break }
+}
 
 if ($null -eq $ModuleDir) {
-    Write-Fail "Module directory '$Module' not found under firmware/"
+    Write-Fail "Module directory not found under $($SearchRoots -join ' or ') for '$OriginalModule' (tried: $($Candidates -join ', '))"
     Write-Host ""
     Write-Host "RESULT: FAILED - module directory not found." -ForegroundColor Red
     exit 1
