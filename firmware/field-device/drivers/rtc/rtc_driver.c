@@ -23,7 +23,13 @@
 #include <stddef.h>
 #include <string.h>
 
+#if defined(STM32F469xx)
 #include "stm32f469xx.h"
+#elif defined(STM32L475xx)
+#include "stm32l475xx.h"
+#else
+#error "Define STM32F469xx or STM32L475xx for RtcDriver."
+#endif
 
 /* ===================================================================== */
 /* §1. Configuration                                                     */

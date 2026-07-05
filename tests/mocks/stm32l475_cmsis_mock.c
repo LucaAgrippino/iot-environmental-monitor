@@ -138,6 +138,7 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_rcc_l4.AHB2ENR  = 0;
     g_mock_rcc_l4.APB1ENR1 = 0;
     g_mock_rcc_l4.APB2ENR  = 0;
+    g_mock_rcc_l4.BDCR     = 0;
 
     /* §PWR */
     g_mock_pwr.CR1 = 0;
@@ -159,6 +160,12 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_scb.MMFAR = 0;
 
     /* §RTC */
+    g_mock_rtc.TR     = 0;
+    g_mock_rtc.DR     = 0;
+    g_mock_rtc.CR     = 0;
+    g_mock_rtc.ISR    = 0;
+    g_mock_rtc.PRER   = 0;
+    g_mock_rtc.WPR    = 0;
     g_mock_rtc.BKP0R  = 0;
     g_mock_rtc.BKP1R  = 0;
     g_mock_rtc.BKP2R  = 0;
@@ -176,6 +183,21 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_rtc.BKP14R = 0;
     g_mock_rtc.BKP15R = 0;
     g_mock_rtc.BKP16R = 0;
+    g_mock_rtc.BKP17R = 0;
+    g_mock_rtc.BKP18R = 0;
+    g_mock_rtc.BKP19R = 0;
+    g_mock_rtc.BKP20R = 0;
+    g_mock_rtc.BKP21R = 0;
+    g_mock_rtc.BKP22R = 0;
+    g_mock_rtc.BKP23R = 0;
+    g_mock_rtc.BKP24R = 0;
+    g_mock_rtc.BKP25R = 0;
+    g_mock_rtc.BKP26R = 0;
+    g_mock_rtc.BKP27R = 0;
+    g_mock_rtc.BKP28R = 0;
+    g_mock_rtc.BKP29R = 0;
+    g_mock_rtc.BKP30R = 0;
+    g_mock_rtc.BKP31R = 0;
 
     /* §I2C2 */
     g_mock_i2c2.CR1      = 0;

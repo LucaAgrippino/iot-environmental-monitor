@@ -38,6 +38,7 @@ typedef struct
     volatile uint32_t AHB2ENR;  /**< AHB2 peripheral clock enable register.   */
     volatile uint32_t APB1ENR1; /**< APB1 peripheral clock enable register 1. */
     volatile uint32_t APB2ENR;  /**< APB2 peripheral clock enable register.   */
+    volatile uint32_t BDCR;     /**< Backup domain control register (RtcDriver: LSE, RTCSEL, RTCEN). */
 } RCC_TypeDef;
 
 extern RCC_TypeDef g_mock_rcc_l4;
@@ -106,6 +107,21 @@ extern RCC_TypeDef g_mock_rcc_l4;
 /* --- APB2ENR bits (CpuDriver) ---------------------------------------- */
 #define RCC_APB2ENR_USART1EN_Pos (14U)
 #define RCC_APB2ENR_USART1EN     (1UL << RCC_APB2ENR_USART1EN_Pos)
+
+/* --- BDCR bits (RtcDriver) --------------------------------------------- */
+#define RCC_BDCR_LSEON_Pos    (0U)
+#define RCC_BDCR_LSEON        (1UL << RCC_BDCR_LSEON_Pos)
+#define RCC_BDCR_LSERDY_Pos   (1U)
+#define RCC_BDCR_LSERDY       (1UL << RCC_BDCR_LSERDY_Pos)
+#define RCC_BDCR_RTCSEL_0_Pos (8U)
+#define RCC_BDCR_RTCSEL_0     (1UL << RCC_BDCR_RTCSEL_0_Pos)
+#define RCC_BDCR_RTCSEL_1_Pos (9U)
+#define RCC_BDCR_RTCSEL_1     (1UL << RCC_BDCR_RTCSEL_1_Pos)
+#define RCC_BDCR_RTCSEL       (RCC_BDCR_RTCSEL_0 | RCC_BDCR_RTCSEL_1)
+#define RCC_BDCR_RTCEN_Pos    (15U)
+#define RCC_BDCR_RTCEN        (1UL << RCC_BDCR_RTCEN_Pos)
+#define RCC_BDCR_BDRST_Pos    (16U)
+#define RCC_BDCR_BDRST        (1UL << RCC_BDCR_BDRST_Pos)
 
 /* ====================================================================== */
 /* §PWR — Power control (CpuDriver)                                       */
@@ -259,11 +275,27 @@ extern SCB_TypeDef g_mock_scb;
 #define SCB_CFSR_DIVBYZERO_Msk   SCB_CFSR_DIVBYZERO
 
 /* ====================================================================== */
-/* §RTC backup registers (CpuDriver post-mortem record)                   */
+/* §RTC (CpuDriver post-mortem record via backup registers; RtcDriver GW  */
+/* via TR/DR/CR/ISR/PRER/WPR + full backup-register range)                */
 /* ====================================================================== */
 
+/* Full register set: only the fields RtcDriver reads or writes, per the
+ * same minimal-mock philosophy as stm32f469xx.h's RTC_TypeDef. Backup
+ * registers are individually named (BKP0R..BKP31R, L475's full 32-register
+ * range per rtc-driver.md §4.4) rather than using an array-tail shortcut,
+ * matching the real CMSIS header's own naming exactly (also how CpuDriver's
+ * existing BKP0R..BKP16R panic-record code already references them by
+ * name). They are guaranteed contiguous (uniform uint32_t, no padding), so
+ * RtcDriver's `&RTC->BKP0R + idx` pointer-arithmetic access works correctly
+ * over the whole range. */
 typedef struct
 {
+    volatile uint32_t TR;     /**< Time register. */
+    volatile uint32_t DR;     /**< Date register. */
+    volatile uint32_t CR;     /**< Control register. */
+    volatile uint32_t ISR;    /**< Init / status register. */
+    volatile uint32_t PRER;   /**< Prescaler register. */
+    volatile uint32_t WPR;    /**< Write-protection register. */
     volatile uint32_t BKP0R;  /**< Backup register 0  — panic magic.      */
     volatile uint32_t BKP1R;  /**< Backup register 1  — CFSR.             */
     volatile uint32_t BKP2R;  /**< Backup register 2  — HFSR.             */
@@ -281,11 +313,40 @@ typedef struct
     volatile uint32_t BKP14R; /**< Backup register 14 — reason DJB2 hash. */
     volatile uint32_t BKP15R; /**< Backup register 15 — assert line.      */
     volatile uint32_t BKP16R; /**< Backup register 16 — uptime ms.        */
+    volatile uint32_t BKP17R;
+    volatile uint32_t BKP18R;
+    volatile uint32_t BKP19R;
+    volatile uint32_t BKP20R;
+    volatile uint32_t BKP21R;
+    volatile uint32_t BKP22R;
+    volatile uint32_t BKP23R;
+    volatile uint32_t BKP24R;
+    volatile uint32_t BKP25R;
+    volatile uint32_t BKP26R;
+    volatile uint32_t BKP27R;
+    volatile uint32_t BKP28R;
+    volatile uint32_t BKP29R;
+    volatile uint32_t BKP30R;
+    volatile uint32_t BKP31R; /**< Backup register 31 — last on L475 (RtcDriver, RTC_BACKUP_MAX_IDX_L475). */
 } RTC_TypeDef;
 
 extern RTC_TypeDef g_mock_rtc;
 
 #define RTC (&g_mock_rtc)
+
+/* --- RTC_ISR bits (RtcDriver) ------------------------------------------ */
+#define RTC_ISR_INITS_Pos (4U)
+#define RTC_ISR_INITS (1UL << RTC_ISR_INITS_Pos)
+#define RTC_ISR_RSF_Pos (5U)
+#define RTC_ISR_RSF (1UL << RTC_ISR_RSF_Pos)
+#define RTC_ISR_INITF_Pos (6U)
+#define RTC_ISR_INITF (1UL << RTC_ISR_INITF_Pos)
+#define RTC_ISR_INIT_Pos (7U)
+#define RTC_ISR_INIT (1UL << RTC_ISR_INIT_Pos)
+
+/* --- RTC_CR bits (RtcDriver) -------------------------------------------- */
+#define RTC_CR_FMT_Pos (6U)
+#define RTC_CR_FMT (1UL << RTC_CR_FMT_Pos)
 
 /* ====================================================================== */
 /* §GPIO (L4)                                                              */

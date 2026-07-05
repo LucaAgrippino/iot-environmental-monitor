@@ -117,6 +117,12 @@
   :test_debug_uart_driver_gw:
     - STM32L475xx
     - TEST
+  :test_rtc_driver:
+    - STM32F469xx
+    - TEST
+  :test_rtc_driver_gw:
+    - STM32L475xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
