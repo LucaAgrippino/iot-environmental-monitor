@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** May 2026
-**Status:** Draft
+**Status:** Final (Phase H complete 2026-07-05 — both boards implemented)
 
 **HLD anchor:** `GpioDriver` in `components.md` (Field Device §4 driver layer; Gateway §4 driver layer). Layer: Driver. Targets: STM32F469 Discovery (Field Device) and STM32L475 IoT Discovery (Gateway).
 
@@ -532,7 +532,7 @@ The driver does not contribute to `IHealthReport` either. No condition the GPIO 
 ### 7.1 Test framework and location
 
 - **Framework:** Unity (ThrowTheSwitch.org).
-- **File:** `tests/field-device/drivers/test_gpio_driver.c` and `tests/gateway/drivers/test_gpio_driver.c`.
+- **File:** `tests/field-device/drivers/gpio/test_gpio_driver.c` and `tests/gateway/drivers/gpio/test_gpio_driver_l4.c` (`_l4` suffix — see GPIO-O4).
 - **Build target:** host (PC). The test does not run on the target board.
 
 ### 7.2 Mock strategy
@@ -607,6 +607,7 @@ These are documented limitations, not gaps. Hardware verification is the integra
 | GPIO-O1 | Final list of GPIO ports actually used by the build, per board. `gpio_init()` enables every available port today; trimming to "only ports any consumer uses" would save a few microamps of clock domain power but complicates the init. | Decision deferred until all consumer driver companions land; final port set re-evaluated then. Default for v1.0: enable every available port. | Open |
 | GPIO-O2 | EXTI integration. Several Gateway consumers (WifiDriver DRDY, BUTTON_EXTI13 if a console-button feature is added, etc.) need interrupt-driven pin events. EXTI configuration is intentionally outside this companion's scope. | Address in `exti-driver.md` (Tier 1, to be added to `lld.md` §4 companion catalogue). | Open |
 | GPIO-O3 | Wake-up pin behaviour during low-power modes. Not specified by any SRS requirement at LLD time; low-power is not in current scope. | Defer until / unless a low-power requirement is added to the SRS. | Open |
+| GPIO-O4 | §2.2's single shared `gpio_driver.h` did not hold in practice: the Field Device implementation (`gpio_driver.c`, unsuffixed) predates the shared-header / per-board-suffixed-implementation convention established later by `I2cDriver` (`i2c_driver.h` shared, `i2c_driver_f4.c` / `i2c_driver_l4.c`). Ceedling's `:source:` globs include both boards' driver trees, so a Gateway test including the Field Device's `gpio_driver.h` auto-links its `gpio_driver.c` too, producing "multiple definition" linker errors. Resolved for v1.0 by giving the Gateway build its own `gpio_driver_l4.h`, byte-identical in public API to `gpio_driver.h` minus the non-companion `GPIO_LEVEL_UNDEF` sentinel the Field Device header added. | Consider renaming the Field Device's `gpio_driver.c`/`.h` to the `_f4` convention in a follow-up, then collapse both boards onto one shared header, matching `I2cDriver`. Out of scope for this session (Field Device module, not touched here). | Open |
 
 None of the inherited TBDs from `lld.md` §5 (O1 WiFi SPI naming, O2 stack measurements, O3 watchdog scope) is resolved by this companion. They remain open in `lld.md`.
 
