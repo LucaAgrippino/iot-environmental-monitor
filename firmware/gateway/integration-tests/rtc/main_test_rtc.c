@@ -14,10 +14,10 @@
  *   USART1 TX  PB6  115 200 8N1  Human-readable test results
  *   LD2 green  PA5                Heartbeat, ticking once per second
  *
- * RtcDriver is the shared implementation
- * (firmware/field-device/drivers/rtc/rtc_driver.c) compiled here with
- * STM32L475xx. It has no GPIO surface of its own (companion §4.8) —
- * DebugUartDriver (USART1) is brought up purely for reporting.
+ * RtcDriver is the dedicated Gateway implementation
+ * (firmware/gateway/drivers/rtc/rtc.c). It has no GPIO surface of its own
+ * (companion §4.8) — DebugUartDriver (USART1) is brought up purely for
+ * reporting.
  *
  * Automated test sequence:
  *   TC-HW-RTC-001  rtc_init() returns RTC_OK; reports whether the backup
@@ -45,7 +45,7 @@
 #include "cpu/cpu.h"
 #include "gpio/gpio_driver.h"
 #include "debug_uart/debug_uart.h"
-#include "rtc_driver.h"
+#include "rtc/rtc.h"
 #include "status.h"
 
 #ifdef STM32L475xx

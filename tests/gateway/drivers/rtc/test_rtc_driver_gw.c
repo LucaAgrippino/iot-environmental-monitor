@@ -4,18 +4,18 @@
  *
  * Covers TC-RTC-001 through TC-RTC-034 per docs/lld/drivers/rtc-driver.md §7,
  * mirroring tests/field-device/drivers/rtc/test_rtc_driver.c. RtcDriver is a
- * single shared implementation (firmware/field-device/drivers/rtc/rtc_driver.c)
- * compiled for both boards via #if defined(STM32F469xx)/#elif STM32L475xx —
- * unlike DebugUartDriver, the register layout is identical across F469 and
- * L475 (rtc-driver.md §4.4), so only the RCC/PWR register *names* differ
- * here (APB1ENR1 not APB1ENR, PWR->CR1 not CR) and the backup-register range
- * is wider (0..31, not 0..19).
+ * dedicated implementation per board (firmware/gateway/drivers/rtc/rtc.c),
+ * matching DebugUartDriver's two-implementation-file split — Field Device
+ * and Gateway are separate CubeIDE projects with separate source trees.
+ * The register layout is identical across F469 and L475 (rtc-driver.md
+ * §4.4), so only the RCC/PWR register *names* differ here (APB1ENR1 not
+ * APB1ENR, PWR->CR1 not CR) and the backup-register range is wider
+ * (0..31, not 0..19).
  *
  * Suffixed _gw for the same reason as DebugUartDriver's test target: the
- * Field Device already owns Ceedling target :test_rtc_driver:, so this
- * Gateway variant needs a distinct target name even though the production
- * file is the very same rtc_driver.c (no basename collision at all here —
- * there is only one rtc_driver.c in the whole source pool).
+ * Field Device already owns Ceedling target :test_rtc_driver:. There is no
+ * production basename collision (rtc.c here vs rtc_driver.c on Field
+ * Device), so only the test-target name needed disambiguating.
  */
 
 #include "unity.h"
@@ -24,7 +24,7 @@
 #include <string.h>
 #include "stm32l475_cmsis_mock.h"
 #include "stm32l475xx.h"
-#include "rtc_driver.h"
+#include "rtc.h"
 
 /* ===================================================================== */
 /* Local fake tick sources                                               */
