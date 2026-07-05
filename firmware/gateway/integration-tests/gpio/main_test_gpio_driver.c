@@ -40,9 +40,10 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "cpu/cpu.h"
-#include "gpio_driver_l4.h"
+#include "gpio/gpio_driver_l4.h"
 #include "status.h"
 
 #ifdef STM32L475xx
