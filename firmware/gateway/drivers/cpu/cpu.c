@@ -6,8 +6,9 @@
  * Documented deviation from the Gateway ADT default (see LLD companion §0).
  *
  * Consumes: CMSIS register definitions (stm32l475xx.h) — nothing else.
- * No FreeRTOS headers are included in this file; the FreeRTOS hook symbols
- * are provided as weak-override definitions using only primitive C types.
+ * No FreeRTOS headers are included in this file. The FreeRTOS hooks that
+ * route through cpu_panic() (stack overflow, malloc failed) are added
+ * back once RTOS integration begins.
  */
 
 #include "cpu.h"
@@ -513,23 +514,6 @@ void cpu_fault_entry(uint32_t *frame)
 {
     s_fault_frame = frame;
     cpu_panic(CPU_PANIC_HARDFAULT, NULL);
-}
-
-/* --------------------------------------------------------------------- */
-/* FreeRTOS hooks                                                          */
-/* --------------------------------------------------------------------- */
-
-/* TaskHandle_t is typedef void * in FreeRTOS.  Using void * avoids pulling
- * in FreeRTOS headers from a driver-layer module. */
-void vApplicationStackOverflowHook(void *xTask, char *pcTaskName)
-{
-    (void) xTask;
-    cpu_panic(CPU_PANIC_STACK_OVERFLOW, pcTaskName);
-}
-
-void vApplicationMallocFailedHook(void)
-{
-    cpu_panic(CPU_PANIC_MALLOC_FAILED, "heap exhausted");
 }
 
 /* ====================================================================== */

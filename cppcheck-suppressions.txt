@@ -47,8 +47,3 @@ staticFunction:cpu.c
 // (DWT->CYCCNT - start) as same-expression because start was captured from the
 // same volatile address immediately before the loop.
 duplicateExpression:cpu.c
-
-// constParameterPointer:cpu.c — vApplicationStackOverflowHook follows the FreeRTOS
-// weak-symbol ABI which specifies char* (non-const) for pcTaskName. Changing to
-// const char* would break the ABI contract with the RTOS.
-constParameterPointer:cpu.c
