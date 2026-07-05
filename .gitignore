@@ -34,6 +34,7 @@ tmp/
 # Ceedling / CMock generated
 tests/build/
 tests/build/test/mocks/
+tests/build_gateway/
 
 # Generated firmware sources
 firmware/shared/firmware_version.h

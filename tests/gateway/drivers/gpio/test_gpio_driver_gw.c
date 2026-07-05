@@ -8,13 +8,19 @@
  * for the invalid-port validation tests, exercising the L475-specific
  * board-target check (companion §3.2 step 3) rather than a generic
  * out-of-range enum value.
+ *
+ * Kept as test_gpio_driver_gw.c (suffixed) even though the production
+ * files are bare gpio_driver.{c,h} — the suffix here just gives this test
+ * its own unambiguous Ceedling target name; it doesn't need to match the
+ * SUT's filename. Runs under tests/project_gateway.yml, not the shared
+ * tests/project.yml (see GPIO-O4).
  */
 
 #include "unity.h"
 
 #include "stm32l475_cmsis_mock.h"
 #include "stm32l475xx.h"
-#include "gpio_driver_gw.h" /* real API + triggers auto-link of gpio_driver_gw.c */
+#include "gpio_driver.h" /* triggers auto-link of gpio_driver.c under project_gateway.yml */
 
 extern void gpio_driver_reset_for_test(void);
 

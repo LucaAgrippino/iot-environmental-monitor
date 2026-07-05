@@ -60,12 +60,36 @@ function Write-Fail {
 # ---------------------------------------------------------------------------
 # Step 1 - Ceedling
 # ---------------------------------------------------------------------------
-Write-Header "Ceedling - test:test_$Module"
+# Some Gateway modules have a production filename that collides with an
+# identically-named Field Device file (both boards keep bare, unsuffixed
+# filenames like gpio_driver.c - correct for the real per-board embedded
+# builds, but ambiguous for Ceedling's host test project, whose :source:
+# globs span both boards' driver trees at once). Those modules run under
+# their own tests/project_gateway.yml instead of the shared
+# tests/project.yml - see that file's header comment for the full reason.
+# Detect this by checking whether it declares a :test_<module>: block for
+# this module; if so, point Ceedling at it via CEEDLING_MAIN_PROJECT_FILE.
+$AltProjectFile = "project_gateway.yml"
+$AltProjectPath = Join-Path tests $AltProjectFile
+$UseAltProject = (Test-Path $AltProjectPath) -and
+    (Select-String -Path $AltProjectPath -Pattern ":test_${Module}:" -SimpleMatch -Quiet)
+
+$HeaderSuffix = if ($UseAltProject) { " (via $AltProjectFile)" } else { "" }
+Write-Header "Ceedling - test:test_$Module$HeaderSuffix"
 
 Push-Location tests
-ceedling test:test_$Module
-$CeedlingExit = $LASTEXITCODE
-Pop-Location
+try {
+    if ($UseAltProject) {
+        $env:CEEDLING_MAIN_PROJECT_FILE = $AltProjectFile
+    }
+    ceedling test:test_$Module
+    $CeedlingExit = $LASTEXITCODE
+} finally {
+    if ($UseAltProject) {
+        Remove-Item Env:\CEEDLING_MAIN_PROJECT_FILE -ErrorAction SilentlyContinue
+    }
+    Pop-Location
+}
 
 if ($CeedlingExit -ne 0) {
     Write-Fail "Ceedling tests failed (exit $CeedlingExit)"

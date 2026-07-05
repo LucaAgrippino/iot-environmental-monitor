@@ -43,7 +43,7 @@
 #include <stddef.h>
 
 #include "cpu/cpu.h"
-#include "gpio/gpio_driver_gw.h"
+#include "gpio/gpio_driver.h"
 #include "status.h"
 
 #ifdef STM32L475xx
