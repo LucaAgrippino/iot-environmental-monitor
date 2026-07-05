@@ -14,12 +14,14 @@
   :test:
     - field-device/**
     - gateway/application/**
+    - gateway/drivers/**
   :source:
     - mocks/**
     - ../firmware/shared/
     - ../firmware/field-device/application/**
     - ../firmware/field-device/drivers/**
     - ../firmware/field-device/middleware/**
+    - ../firmware/gateway/drivers/**
     - -:../firmware/**/Debug/**
   :support:
     - support
@@ -103,6 +105,9 @@
   :test_lifecycle_controller_gw:
     - STM32F469xx
     - BOARD_GATEWAY
+    - TEST
+  :test_cpu:
+    - STM32L475xx
     - TEST
 
 :cmock:
