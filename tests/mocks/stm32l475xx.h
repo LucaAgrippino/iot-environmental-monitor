@@ -318,7 +318,9 @@ extern GPIO_TypeDef g_mock_gpio_l4[MOCK_GPIO_PORT_COUNT_L4];
 #define GPIOH (&g_mock_gpio_l4[7])
 
 /* ====================================================================== */
-/* §USART — L4 family (ModbusUartDriver GW via UART4; CpuDriver via USART1) */
+/* §USART — L4 family (ModbusUartDriver GW via UART4; CpuDriver panic path */
+/* and DebugUartDriver GW both via USART1 — see debug_uart.c header note   */
+/* on the shared-peripheral relationship with CpuDriver's panic output.)   */
 /* ====================================================================== */
 
 /* L4 USART register layout per RM0351. Only fields the driver accesses.  */
@@ -357,6 +359,8 @@ extern USART_L4_TypeDef g_mock_usart1;
 #define USART_CR3_DEM     (1UL << USART_CR3_DEM_Pos)
 
 /* --- USART_ISR bits (L4 status register) ----------------------------- */
+#define USART_ISR_PE_Pos   (0U)
+#define USART_ISR_PE       (1UL << USART_ISR_PE_Pos)
 #define USART_ISR_FE_Pos   (1U)
 #define USART_ISR_FE       (1UL << USART_ISR_FE_Pos)
 #define USART_ISR_NE_Pos   (2U)
@@ -373,6 +377,8 @@ extern USART_L4_TypeDef g_mock_usart1;
 #define USART_ISR_TXE      (1UL << USART_ISR_TXE_Pos)
 
 /* --- USART_ICR bits (L4 clear register) ------------------------------ */
+#define USART_ICR_PECF_Pos   (0U)
+#define USART_ICR_PECF       (1UL << USART_ICR_PECF_Pos)
 #define USART_ICR_FECF_Pos   (1U)
 #define USART_ICR_FECF       (1UL << USART_ICR_FECF_Pos)
 #define USART_ICR_NECF_Pos   (2U)
@@ -381,6 +387,10 @@ extern USART_L4_TypeDef g_mock_usart1;
 #define USART_ICR_ORECF      (1UL << USART_ICR_ORECF_Pos)
 #define USART_ICR_IDLECF_Pos (4U)
 #define USART_ICR_IDLECF     (1UL << USART_ICR_IDLECF_Pos)
+
+/* --- Debug-UART line endings (consumed by DebugUartDriver GW) --------- */
+#define DEBUG_UART_CR ((uint8_t) '\r')
+#define DEBUG_UART_LF ((uint8_t) '\n')
 
 /* ====================================================================== */
 /* §I2C (I2cDriver — L475 I2C v2, peripheral I2C2)                        */
@@ -499,7 +509,8 @@ extern SPI_TypeDef g_mock_spi3;
 
 typedef enum
 {
-    UART4_IRQn = 52 /* Per stm32l475xx.h CMSIS canonical value. */
+    USART1_IRQn = 37, /* Per stm32l475xx.h CMSIS canonical value. */
+    UART4_IRQn = 52   /* Per stm32l475xx.h CMSIS canonical value. */
 } IRQn_Type;
 
 #define NVIC_IRQ_COUNT_MAX (128U)

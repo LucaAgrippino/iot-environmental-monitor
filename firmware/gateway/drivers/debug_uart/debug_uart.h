@@ -1,0 +1,277 @@
+/**
+ * @file debug_uart.h
+ * @brief CMSIS-level debug-UART driver — line-buffered RX, blocking TX (Gateway).
+ *
+ * Provides IDebugUart (per components.md): TX of arbitrary byte streams
+ * and ISR-driven line-ready notification for RX. Used by Logger (TX)
+ * and ConsoleService (TX + RX). Realised on USART1 on the B-L475E-IOT01A
+ * (Gateway); the Field Device counterpart realises the same header on
+ * USART3 (firmware/field-device/drivers/debug-uart/debug_uart_driver.h).
+ * Same public API, different implementation file per board — the two
+ * USART peripheral generations are not register-compatible (companion §1.6).
+ *
+ * The driver depends only on CMSIS. It does NOT depend on FreeRTOS or
+ * any other RTOS. The consumer wires the RX line-ready callback to its
+ * own threading primitives (e.g., xTaskNotifyFromISR()).
+ *
+ * Thread safety: the driver is NOT internally serialised. Concurrent
+ * calls to debug_uart_send() from multiple contexts will interleave
+ * bytes on the wire. The caller (typically Logger) must serialise
+ * itself if multiple producers exist.
+ *
+ * @note Realised on USART1, routed to the board's ST-LINK V2-1 virtual COM
+ *       port (UM2153 §7.3, Figure 22).
+ * @note CpuDriver's panic path (cpu.c) also owns USART1 for last-gasp fault
+ *       output, reconfiguring it directly from the fault handler. This is
+ *       intentional and does not conflict with this driver: a panic means
+ *       normal execution (and therefore this driver's state) can no longer
+ *       be trusted, so the fault handler re-inits the peripheral raw rather
+ *       than depending on it. See docs/dev-tools/debug_uart/session-report.md.
+ * @note See docs/lld/drivers/debug-uart-driver.md for the full design.
+ */
+
+#ifndef DEBUG_UART_H
+#define DEBUG_UART_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* ------------------------------------------------------------------ */
+/* Configuration constants                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Maximum length of a single received line, in bytes.
+ *
+ * Lines longer than this are truncated; the truncation is reported via
+ * the line-flag output of debug_uart_read_line().
+ */
+#define DEBUG_UART_LINE_MAX_LEN (128U)
+
+/* ------------------------------------------------------------------ */
+/* Error codes                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Debug-UART driver result codes.
+ */
+typedef enum
+{
+    DEBUG_UART_OK = 0,                  /**< Success. */
+    DEBUG_UART_ERR_NOT_INITIALISED = 1, /**< debug_uart_init() not yet called. */
+    DEBUG_UART_ERR_NULL_POINTER = 2,    /**< Required pointer is NULL. */
+    DEBUG_UART_ERR_INVALID_PARAM = 3,   /**< Out-of-range parameter. */
+    DEBUG_UART_ERR_TX_TIMEOUT = 4,      /**< Peripheral TXE flag did not assert within timeout. */
+    DEBUG_UART_ERR_NO_LINE_AVAILABLE =
+        5, /**< debug_uart_read_line() called with nothing pending. */
+    DEBUG_UART_ERR_RX_ALREADY_ATTACHED = 6 /**< debug_uart_attach_rx() called twice. */
+} debug_uart_err_t;
+
+/* ------------------------------------------------------------------ */
+/* Line completion flag                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Reported alongside each line read.
+ */
+typedef enum
+{
+    DEBUG_UART_LINE_OK = 0,       /**< Line fitted within DEBUG_UART_LINE_MAX_LEN. */
+    DEBUG_UART_LINE_TRUNCATED = 1 /**< Line exceeded DEBUG_UART_LINE_MAX_LEN; tail was dropped. */
+} debug_uart_line_flag_t;
+
+/* ------------------------------------------------------------------ */
+/* RX callback                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Signature of the RX line-ready callback.
+ *
+ * Invoked from the USART RX ISR each time a complete line has been
+ * accumulated. The callback runs in interrupt context with the USART
+ * vector active; it must follow the ISR contract from
+ * task-breakdown.md §6 (acknowledge, capture, notify, return).
+ *
+ * Typical FreeRTOS wiring:
+ * @code
+ *   static TaskHandle_t s_console_task;
+ *   static void on_line_ready(void *ctx)
+ *   {
+ *       BaseType_t woken = pdFALSE;
+ *       xTaskNotifyFromISR(s_console_task, (1U << CONSOLE_LINE_BIT),
+ *                          eSetBits, &woken);
+ *       portYIELD_FROM_ISR(woken);
+ *   }
+ * @endcode
+ *
+ * The driver does not call portYIELD_FROM_ISR() itself — that is a
+ * FreeRTOS concern and belongs in the callback.
+ *
+ * @param[in] context Opaque pointer registered with debug_uart_attach_rx().
+ */
+typedef void (*debug_uart_line_callback_t)(void *context);
+
+/* ------------------------------------------------------------------ */
+/* API                                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Initialise the driver (phase 1 — TX-ready).
+ *
+ * Enables peripheral clocks (USART1 and GPIOB), configures PB6/PB7 for
+ * alternate-function mode (AF7), sets the USART for 115200, 8N1, no flow
+ * control (REQ-LI-000), and arms the peripheral for TX. RX interrupts are
+ * not enabled yet.
+ *
+ * Must be called once before any other function. After this call returns
+ * OK, debug_uart_send() is callable; debug_uart_read_line() is not.
+ * Idempotent: a second call returns DEBUG_UART_OK without reconfiguring.
+ *
+ * @return DEBUG_UART_OK on success.
+ *
+ * @note Threading: not internally serialised. Caller must ensure this
+ *       function is called exactly once and not concurrently with any
+ *       other API entry point.
+ */
+debug_uart_err_t debug_uart_init(void);
+
+/**
+ * @brief Attach an RX line-ready callback (phase 2).
+ *
+ * Stores the callback and context, enables the RX-not-empty interrupt,
+ * and unmasks the USART1 NVIC vector. From this point on, each complete
+ * line received causes @c callback to be invoked from ISR context, with
+ * @c context as its argument.
+ *
+ * Calling twice returns DEBUG_UART_ERR_RX_ALREADY_ATTACHED.
+ *
+ * @param[in] callback Function invoked on each complete line. Must not be NULL.
+ *                     Runs in ISR context — see debug_uart_line_callback_t.
+ * @param[in] context  Opaque pointer passed back to @c callback. May be NULL.
+ *
+ * @return DEBUG_UART_OK on success; DEBUG_UART_ERR_NOT_INITIALISED,
+ *         DEBUG_UART_ERR_NULL_POINTER, or DEBUG_UART_ERR_RX_ALREADY_ATTACHED.
+ *
+ * @note Threading: not internally serialised. Caller calls once.
+ */
+debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback, void *context);
+
+/**
+ * @brief Send a buffer of bytes synchronously.
+ *
+ * Writes each byte to the USART data register, polling the TX-empty flag
+ * between bytes. Returns after the last byte has been pushed to the data
+ * register (not after it has fully left the wire).
+ *
+ * NOT thread-safe. If multiple producers exist, the caller must serialise.
+ * The typical case: Logger holds its own mutex and is the only caller in
+ * the multi-task path; ConsoleService is single-task.
+ *
+ * @param[in] data       Buffer of bytes to send. Must be non-NULL when length > 0.
+ * @param[in] length     Number of bytes; 0 is permitted and returns OK immediately.
+ * @param[in] timeout_ms Maximum time to wait for the TXE flag, per byte,
+ *                       in milliseconds. Used to detect a wedged peripheral.
+ *
+ * @return DEBUG_UART_OK on success; DEBUG_UART_ERR_NOT_INITIALISED,
+ *         DEBUG_UART_ERR_NULL_POINTER, or DEBUG_UART_ERR_TX_TIMEOUT.
+ *
+ * @note Threading: task-context only. Blocks during the byte loop for the
+ *       duration of the transmission (~87 µs per byte at 115200 bps).
+ *       NOT internally serialised. NOT ISR-safe.
+ */
+debug_uart_err_t debug_uart_send(const uint8_t *data, size_t length, uint32_t timeout_ms);
+
+/**
+ * @brief Read the most recent complete line.
+ *
+ * Copies the latest accumulated line into the caller's buffer and
+ * null-terminates it. The line terminator characters (\r and \n) are
+ * stripped before copying. Resets the internal line-ready flag so that
+ * the next callback invocation corresponds to a new line.
+ *
+ * @param[out] out_buf    Caller-provided buffer; receives the line.
+ * @param[in]  buf_size   Size of @c out_buf in bytes. Must be at least
+ *                        DEBUG_UART_LINE_MAX_LEN + 1 (for the null
+ *                        terminator).
+ * @param[out] out_length Number of bytes written, excluding the null.
+ *                        May be 0 (an empty line).
+ * @param[out] out_flag   DEBUG_UART_LINE_OK or DEBUG_UART_LINE_TRUNCATED.
+ *
+ * @return DEBUG_UART_OK on success; DEBUG_UART_ERR_NOT_INITIALISED,
+ *         DEBUG_UART_ERR_NULL_POINTER, DEBUG_UART_ERR_INVALID_PARAM
+ *         (buf_size too small), or DEBUG_UART_ERR_NO_LINE_AVAILABLE.
+ *
+ * @note Threading: task-context only. Typically called by the consumer
+ *       task after its callback has notified it. Briefly disables the
+ *       USART1 NVIC vector while copying.
+ */
+debug_uart_err_t debug_uart_read_line(uint8_t *out_buf, size_t buf_size, size_t *out_length,
+                                      debug_uart_line_flag_t *out_flag);
+
+/**
+ * @brief Inject the millisecond tick source used by debug_uart_send().
+ *
+ * The driver bounds each byte's TXE wait in debug_uart_send() against a
+ * monotonic millisecond counter. Because the driver is RTOS-free (P1)
+ * and host-testable, it cannot call into any specific RTOS tick API or
+ * into CMSIS SysTick/DWT directly — neither has a host equivalent. The
+ * tick source is therefore injected: production wires it to a real
+ * SysTick or DWT reader; tests wire it to a controllable counter.
+ *
+ * If never called (or called with NULL), debug_uart_send() falls back
+ * to an unbounded wait. Production code must wire a real tick source
+ * during system startup, before the first send call.
+ *
+ * May be called at any time, including before debug_uart_init().
+ * Subsequent calls replace the previously stored function pointer.
+ *
+ * @param[in] get_ms Function returning monotonic milliseconds since some
+ *                   fixed reference. 32-bit wrap is handled correctly by
+ *                   the driver via unsigned subtraction. May be NULL to
+ *                   disable the timeout mechanism.
+ *
+ * @note Threading: not internally serialised. Set once during startup;
+ *       do not change while debug_uart_send() may be executing.
+ */
+void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
+
+/* ------------------------------------------------------------------ */
+/* IDebugUart vtable (P2 — Dependency Inversion)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Singleton vtable for the debug-UART driver.
+ *
+ * Consumed by ConsoleService (send + read_line + attach_rx).
+ * Logger uses the free function directly (P4 cross-cutting exception).
+ * Mirrors the Field Device header exactly so both boards' ConsoleService
+ * can share the same tests/support/debug_uart_stub.h.
+ */
+typedef struct idebug_uart_s
+{
+    debug_uart_err_t (*send)(const uint8_t *data, size_t length, uint32_t timeout_ms);
+    debug_uart_err_t (*read_line)(uint8_t *out_buf, size_t buf_size, size_t *out_length,
+                                  debug_uart_line_flag_t *out_flag);
+    debug_uart_err_t (*attach_rx)(debug_uart_line_callback_t callback, void *context);
+} idebug_uart_t;
+
+extern const idebug_uart_t *const debug_uart;
+
+/* ------------------------------------------------------------------ */
+/* Test-only hooks                                                      */
+/* ------------------------------------------------------------------ */
+
+#ifdef TEST
+/**
+ * @brief Reset driver state between unit tests (call from setUp()).
+ */
+void debug_uart_reset_for_test(void);
+
+/**
+ * @brief Pre-load a line into the ready buffer so read_line() returns it.
+ */
+void debug_uart_set_ready_line_for_test(const uint8_t *line, size_t len, bool truncated);
+#endif /* TEST */
+
+#endif /* DEBUG_UART_H */
