@@ -60,12 +60,36 @@ function Write-Fail {
 # ---------------------------------------------------------------------------
 # Step 1 - Ceedling
 # ---------------------------------------------------------------------------
-Write-Header "Ceedling - test:test_$Module"
+# Some Gateway modules have a production filename that collides with an
+# identically-named Field Device file (both boards keep bare, unsuffixed
+# filenames like gpio_driver.c - correct for the real per-board embedded
+# builds, but ambiguous for Ceedling's host test project, whose :source:
+# globs span both boards' driver trees at once). Those modules run under
+# their own tests/project_gateway.yml instead of the shared
+# tests/project.yml - see that file's header comment for the full reason.
+# Detect this by checking whether it declares a :test_<module>: block for
+# this module; if so, point Ceedling at it via CEEDLING_MAIN_PROJECT_FILE.
+$AltProjectFile = "project_gateway.yml"
+$AltProjectPath = Join-Path tests $AltProjectFile
+$UseAltProject = (Test-Path $AltProjectPath) -and
+    (Select-String -Path $AltProjectPath -Pattern ":test_${Module}:" -SimpleMatch -Quiet)
+
+$HeaderSuffix = if ($UseAltProject) { " (via $AltProjectFile)" } else { "" }
+Write-Header "Ceedling - test:test_$Module$HeaderSuffix"
 
 Push-Location tests
-ceedling test:test_$Module
-$CeedlingExit = $LASTEXITCODE
-Pop-Location
+try {
+    if ($UseAltProject) {
+        $env:CEEDLING_MAIN_PROJECT_FILE = $AltProjectFile
+    }
+    ceedling test:test_$Module
+    $CeedlingExit = $LASTEXITCODE
+} finally {
+    if ($UseAltProject) {
+        Remove-Item Env:\CEEDLING_MAIN_PROJECT_FILE -ErrorAction SilentlyContinue
+    }
+    Pop-Location
+}
 
 if ($CeedlingExit -ne 0) {
     Write-Fail "Ceedling tests failed (exit $CeedlingExit)"
@@ -76,19 +100,59 @@ if ($CeedlingExit -ne 0) {
 # ---------------------------------------------------------------------------
 # Step 2 - Locate module source directory
 # ---------------------------------------------------------------------------
-if ( ($Module.EndsWith( "_fd" ) ) -or ($Module.EndsWith( "_gw" ) )  ) {
+# Some modules' Ceedling test target uses a long, board-suffixed name
+# (gpio_driver_gw, led_driver_gw) while the actual firmware directory uses
+# a short, unsuffixed name (gpio, led) shared by BOTH boards. A bare suffix
+# strip isn't enough to derive the directory, and an unconstrained search
+# risks matching the wrong board's same-named folder when both boards have
+# one (e.g. gpio).
+#
+# But the board suffix is only a *hint*, not a guarantee the source lives
+# under that board's tree: some modules (e.g. ModbusUartDriver) have a
+# single shared implementation file that physically lives under only one
+# board's directory and is compiled for both via defines. So: try the
+# board-hinted tree first (fixes the same-named-folder ambiguity), then
+# fall back to an unconstrained search across all of firmware/ (preserves
+# modules with one shared location). Within each search root, try the
+# module name, then progressively shorter underscore-separated prefixes.
+$OriginalModule = $Module
 
-    $Module = $Module -replace '_fd$|_gw$', ''
+$BoardHint = $null
+if ($Module -match '_fd$') {
+    $BoardHint = 'field-device'
+} elseif ($Module -match '_gw$') {
+    $BoardHint = 'gateway'
 }
 
-$ModuleDir = Get-ChildItem -Path firmware -Recurse -Directory |
-Where-Object { $_.Name -eq $Module -and
-               $_.FullName -notmatch '\\Debug\\' -and
-               $_.FullName -notmatch '\\integration-tests\\' } |
-Select-Object -First 1
+$BareModule = $Module -replace '_(fd|gw)$', ''
+
+$SearchRoots = [System.Collections.Generic.List[string]]::new()
+if ($BoardHint) { $SearchRoots.Add((Join-Path firmware $BoardHint)) }
+$SearchRoots.Add('firmware')
+
+$Candidates = [System.Collections.Generic.List[string]]::new()
+$Candidates.Add($OriginalModule)
+if ($BareModule -ne $OriginalModule) { $Candidates.Add($BareModule) }
+$Parts = $BareModule -split '_'
+for ($i = $Parts.Count - 1; $i -ge 1; $i--) {
+    $Candidates.Add(($Parts[0..($i - 1)] -join '_'))
+}
+
+$ModuleDir = $null
+foreach ($Root in $SearchRoots) {
+    foreach ($Candidate in $Candidates) {
+        $ModuleDir = Get-ChildItem -Path $Root -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $Candidate -and
+                           $_.FullName -notmatch '\\Debug\\' -and
+                           $_.FullName -notmatch '\\integration-tests\\' } |
+            Select-Object -First 1
+        if ($null -ne $ModuleDir) { break }
+    }
+    if ($null -ne $ModuleDir) { break }
+}
 
 if ($null -eq $ModuleDir) {
-    Write-Fail "Module directory '$Module' not found under firmware/"
+    Write-Fail "Module directory not found under $($SearchRoots -join ' or ') for '$OriginalModule' (tried: $($Candidates -join ', '))"
     Write-Host ""
     Write-Host "RESULT: FAILED - module directory not found." -ForegroundColor Red
     exit 1

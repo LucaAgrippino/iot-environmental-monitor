@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** May 2026
-**Status:** Draft
+**Status:** Final (Phase H complete 2026-07-05 — both boards implemented)
 
 **HLD anchor:** `GpioDriver` in `components.md` (Field Device §4 driver layer; Gateway §4 driver layer). Layer: Driver. Targets: STM32F469 Discovery (Field Device) and STM32L475 IoT Discovery (Gateway).
 
@@ -532,8 +532,8 @@ The driver does not contribute to `IHealthReport` either. No condition the GPIO 
 ### 7.1 Test framework and location
 
 - **Framework:** Unity (ThrowTheSwitch.org).
-- **File:** `tests/field-device/drivers/test_gpio_driver.c` and `tests/gateway/drivers/test_gpio_driver.c`.
-- **Build target:** host (PC). The test does not run on the target board.
+- **File:** `tests/field-device/drivers/gpio/test_gpio_driver.c` and `tests/gateway/drivers/gpio/test_gpio_driver_gw.c`. The Gateway test keeps a `_gw` suffix purely to give it its own unambiguous Ceedling target name; the production files it exercises are bare `gpio_driver.{c,h}` on both boards — see GPIO-O4 for how the Ceedling-side ambiguity that naming otherwise creates is resolved.
+- **Build target:** host (PC). The test does not run on the target board. The Gateway test runs under a dedicated `tests/project_gateway.yml` rather than the shared `tests/project.yml` — see GPIO-O4.
 
 ### 7.2 Mock strategy
 
@@ -607,6 +607,7 @@ These are documented limitations, not gaps. Hardware verification is the integra
 | GPIO-O1 | Final list of GPIO ports actually used by the build, per board. `gpio_init()` enables every available port today; trimming to "only ports any consumer uses" would save a few microamps of clock domain power but complicates the init. | Decision deferred until all consumer driver companions land; final port set re-evaluated then. Default for v1.0: enable every available port. | Open |
 | GPIO-O2 | EXTI integration. Several Gateway consumers (WifiDriver DRDY, BUTTON_EXTI13 if a console-button feature is added, etc.) need interrupt-driven pin events. EXTI configuration is intentionally outside this companion's scope. | Address in `exti-driver.md` (Tier 1, to be added to `lld.md` §4 companion catalogue). | Open |
 | GPIO-O3 | Wake-up pin behaviour during low-power modes. Not specified by any SRS requirement at LLD time; low-power is not in current scope. | Defer until / unless a low-power requirement is added to the SRS. | Open |
+| GPIO-O4 | Both boards keep bare, unsuffixed `gpio_driver.{c,h}` in their own directory — correct for the real embedded builds, since each board is a separate CubeIDE project that only ever compiles its own tree, so there's no actual naming conflict there. Ceedling's host test project is the exception: its `:source:` globs pool *both* boards' driver trees for every test, and it resolves a `#include` to a same-named `.c` by taking the first match in that pool with no ambiguity detection (`file_finder_helper.rb#find_file_in_collection` in the Ceedling gem just breaks on first match). Two identically-named `.c` files meant Ceedling could silently compile one board's test against the *other* board's file. | Resolved by giving the Gateway `GpioDriver` test its own Ceedling project, `tests/project_gateway.yml`, scoped only to `firmware/gateway/drivers/gpio/**` — Field Device's tree is invisible to it, so there's no pool to collide in. Invoked via `CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml`. Production filenames were never touched. `scripts/test-module.ps1` auto-detects which project a module needs by checking for a matching `:test_<module>:` block in `project_gateway.yml`. | Resolved |
 
 None of the inherited TBDs from `lld.md` §5 (O1 WiFi SPI naming, O2 stack measurements, O3 watchdog scope) is resolved by this companion. They remain open in `lld.md`.
 

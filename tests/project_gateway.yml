@@ -1,0 +1,79 @@
+---
+# Dedicated Ceedling project for Gateway modules whose production filename
+# collides with an identically-named Field Device file (e.g. gpio_driver.c
+# exists under both firmware/field-device/drivers/gpio/ and
+# firmware/gateway/drivers/gpio/). The real per-board embedded builds never
+# see both trees at once, so bare, unsuffixed filenames are fine there —
+# but tests/project.yml's :source: globs span both trees for host testing,
+# and Ceedling resolves a test's #include to a same-named .c by searching
+# that whole pool and taking the first match it finds, with no ambiguity
+# detection (see file_finder_helper.rb#find_file_in_collection in the
+# ceedling gem). Two identically-named .c files in that pool means one
+# board's test would silently compile against the other board's file.
+#
+# Rather than rename production files to work around a test-tool
+# limitation, modules with this collision get their own project file here,
+# scoped to only that module's Gateway directory, invoked via:
+#   CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml ceedling test:<target>
+# (run from tests/, same as the default project). This file is otherwise
+# a full, independent Ceedling project — it does not merge with or inherit
+# from project.yml.
+#
+# Add a new module here (its own :paths:source:/:paths:test: entry plus a
+# :test_<name>: defines block) only when it has this same collision.
+# Modules without a same-named Field Device counterpart do not need this
+# and should stay in the default project.yml.
+
+:project:
+  :use_exceptions: FALSE
+  :use_test_preprocessor: TRUE
+  :use_auxiliary_dependencies: TRUE
+  :build_root: build_gateway
+  :release_build: FALSE
+  :test_file_prefix: test_
+  :which_ceedling: gem
+  :default_tasks:
+    - test:all
+
+:paths:
+  :test:
+    - gateway/drivers/gpio/**
+  :source:
+    - mocks/**
+    - ../firmware/shared/
+    - ../firmware/gateway/drivers/gpio/**
+  :support:
+    - support
+
+:defines:
+  :common: &common_defines []
+  :test:
+    - *common_defines
+    - TEST
+  :test_preprocess:
+    - *common_defines
+    - TEST
+  :test_gpio_driver_gw:
+    - STM32L475xx
+    - TEST
+
+:cmock:
+  :mock_prefix: mock_
+  :when_no_prototypes: :warn
+  :enforce_strict_ordering: TRUE
+  :plugins:
+    - :ignore
+    - :callback
+  :treat_as:
+    uint8:    HEX8
+    uint16:   HEX16
+    uint32:   UINT32
+    int8:     INT8
+    bool:     UINT8
+
+:plugins:
+  :load_paths:
+    - "#{Ceedling.load_path}"
+  :enabled:
+    - stdout_pretty_tests_report
+    - module_generator
