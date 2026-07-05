@@ -1,9 +1,16 @@
 /**
  * @file rtc_driver.c
- * @brief STM32F469 implementation of RtcDriver.
+ * @brief STM32F469 implementation of RtcDriver (Field Device).
  *
  * Backup-domain RTC clocked from LSE 32.768 kHz. Implements IRtc.
  * See docs/lld/drivers/rtc-driver.md for the full design.
+ *
+ * Field Device and Gateway are separate CubeIDE projects with separate
+ * source trees, so this file is Field Device-only despite the driver
+ * logic being conceptually board-portable (identical RTC_TypeDef layout
+ * per companion §4.4). The Gateway realisation is a dedicated copy at
+ * firmware/gateway/drivers/rtc/rtc.c, matching the two-implementation-file
+ * pattern already used by DebugUartDriver.
  *
  * Layout follows the per-driver convention established by DebugUartDriver:
  *   §1 Includes and configuration
@@ -23,25 +30,13 @@
 #include <stddef.h>
 #include <string.h>
 
-#if defined(STM32F469xx)
 #include "stm32f469xx.h"
-#elif defined(STM32L475xx)
-#include "stm32l475xx.h"
-#else
-#error "Define STM32F469xx or STM32L475xx for RtcDriver."
-#endif
 
 /* ===================================================================== */
 /* §1. Configuration                                                     */
 /* ===================================================================== */
 
-#if defined(STM32F469xx)
 #define RTC_BACKUP_MAX_IDX RTC_BACKUP_MAX_IDX_F469
-#elif defined(STM32L475xx)
-#define RTC_BACKUP_MAX_IDX RTC_BACKUP_MAX_IDX_L475
-#else
-#error "Define STM32F469xx or STM32L475xx for RtcDriver."
-#endif
 
 /** RTC default DR value — 2000-01-01, weekday = Monday (RM0386 reset value). */
 #define RTC_DEFAULT_DR (0x00002101UL)
@@ -132,15 +127,9 @@ static uint32_t default_tick_source(void)
 
 static void backup_domain_unlock(void)
 {
-#if defined(STM32F469xx)
     RCC->APB1ENR |= RCC_APB1ENR_PWREN;
     (void) RCC->APB1ENR; /* read-back ensures the write took effect */
     PWR->CR |= PWR_CR_DBP;
-#elif defined(STM32L475xx)
-    RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN;
-    (void) RCC->APB1ENR1;
-    PWR->CR1 |= PWR_CR1_DBP;
-#endif
 }
 
 static rtc_err_t rtc_clock_select_and_enable(void)
