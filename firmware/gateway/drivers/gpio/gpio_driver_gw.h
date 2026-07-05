@@ -1,5 +1,5 @@
 /**
- * @file gpio_driver_l4.h
+ * @file gpio_driver_gw.h
  * @brief CMSIS-level GPIO driver — pin configuration and digital I/O.
  *
  * Provides IGpio (per components.md): configure, read, write, and toggle
@@ -11,17 +11,17 @@
  * identical on both boards (docs/lld/drivers/gpio-driver.md §2.1); it is
  * duplicated rather than shared as a single file because the Field Device
  * implementation file is named gpio_driver.c (unsuffixed, predating the
- * gpio_driver_<board>.c convention established by I2cDriver). Ceedling's
- * source-path globs include both boards' driver trees, so a Gateway test
- * including the Field Device's gpio_driver.h would auto-link its
- * gpio_driver.c as well, producing "multiple definition" linker errors.
+ * gpio_driver_<board>.c convention established by other Gateway modules).
+ * Ceedling's source-path globs include both boards' driver trees, so a
+ * Gateway test including the Field Device's gpio_driver.h would auto-link
+ * its gpio_driver.c as well, producing "multiple definition" linker errors.
  * Carried forward as GPIO-O4 in docs/lld/drivers/gpio-driver.md §8.
  *
  * @note See docs/lld/drivers/gpio-driver.md for the full design specification.
  */
 
-#ifndef GPIO_DRIVER_L4_H
-#define GPIO_DRIVER_L4_H
+#ifndef GPIO_DRIVER_GW_H
+#define GPIO_DRIVER_GW_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -226,4 +226,4 @@ gpio_err_t gpio_write_pin(gpio_port_t port, uint8_t pin, gpio_level_t level);
  */
 gpio_err_t gpio_toggle_pin(gpio_port_t port, uint8_t pin);
 
-#endif /* GPIO_DRIVER_L4_H */
+#endif /* GPIO_DRIVER_GW_H */

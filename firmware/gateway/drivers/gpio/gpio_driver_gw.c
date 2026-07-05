@@ -1,8 +1,8 @@
 /**
- * @file gpio_driver_l4.c
+ * @file gpio_driver_gw.c
  * @brief GpioDriver implementation for STM32L475 (B-L475E-IOT01A, Gateway).
  *
- * Implements the IGpio interface declared in gpio_driver_l4.h (see that
+ * Implements the IGpio interface declared in gpio_driver_gw.h (see that
  * header for why the Gateway build has its own copy rather than sharing
  * the Field Device's gpio_driver.h — GPIO-O4). The L475 exposes eight GPIO
  * ports (GPIOA..GPIOH) gated by RCC->AHB2ENR, versus the F469's eleven
@@ -12,7 +12,7 @@
  * @note See docs/lld/drivers/gpio-driver.md for the full design specification.
  */
 
-#include "gpio_driver_l4.h"
+#include "gpio_driver_gw.h"
 #include "stm32l475xx.h"
 
 #include <stdbool.h>

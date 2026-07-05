@@ -1,5 +1,5 @@
 /**
- * @file test_gpio_driver_l4.c
+ * @file test_gpio_driver_gw.c
  * @brief Unit tests for GpioDriver — STM32L475 (Gateway) implementation.
  *
  * Covers the test plan in docs/lld/drivers/gpio-driver.md §7.3, adapted for
@@ -14,7 +14,7 @@
 
 #include "stm32l475_cmsis_mock.h"
 #include "stm32l475xx.h"
-#include "gpio_driver_l4.h" /* real API + triggers auto-link of gpio_driver_l4.c */
+#include "gpio_driver_gw.h" /* real API + triggers auto-link of gpio_driver_gw.c */
 
 extern void gpio_driver_reset_for_test(void);
 

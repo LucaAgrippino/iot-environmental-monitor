@@ -109,7 +109,7 @@
   :test_cpu:
     - STM32L475xx
     - TEST
-  :test_gpio_driver_l4:
+  :test_gpio_driver_gw:
     - STM32L475xx
     - TEST
 
