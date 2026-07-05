@@ -17,6 +17,8 @@
 #include "stm32l475xx.h"
 #endif
 
+#include <stddef.h>
+
 /* --------------------------------------------------------------------- */
 /* Configuration                                                          */
 /* --------------------------------------------------------------------- */
@@ -122,23 +124,23 @@ static const struct
     uint32_t bit;
     const char *cause;
 } s_cfsr_table[] = {
-    {SCB_CFSR_IACCVIOL, "Instruction access violation"},
-    {SCB_CFSR_DACCVIOL, "Data access violation"},
-    {SCB_CFSR_MUNSTKERR, "MemManage unstacking error"},
-    {SCB_CFSR_MSTKERR, "MemManage stacking error"},
-    {SCB_CFSR_MLSPERR, "MemManage FP lazy state"},
-    {SCB_CFSR_IBUSERR, "Instruction bus error"},
-    {SCB_CFSR_PRECISERR, "Precise data bus error"},
-    {SCB_CFSR_IMPRECISERR, "Imprecise data bus error"},
-    {SCB_CFSR_UNSTKERR, "BusFault unstacking error"},
-    {SCB_CFSR_STKERR, "BusFault stacking error"},
-    {SCB_CFSR_LSPERR, "BusFault FP lazy state"},
-    {SCB_CFSR_UNDEFINSTR, "Undefined instruction"},
-    {SCB_CFSR_INVSTATE, "Invalid state (Thumb bit)"},
-    {SCB_CFSR_INVPC, "Invalid PC load"},
-    {SCB_CFSR_NOCP, "No coprocessor"},
-    {SCB_CFSR_UNALIGNED, "Unaligned access"},
-    {SCB_CFSR_DIVBYZERO, "Divide by zero"},
+    {SCB_CFSR_IACCVIOL_Msk, "Instruction access violation"},
+    {SCB_CFSR_DACCVIOL_Msk, "Data access violation"},
+    {SCB_CFSR_MUNSTKERR_Msk, "MemManage unstacking error"},
+    {SCB_CFSR_MSTKERR_Msk, "MemManage stacking error"},
+    {SCB_CFSR_MLSPERR_Msk, "MemManage FP lazy state"},
+    {SCB_CFSR_IBUSERR_Msk, "Instruction bus error"},
+    {SCB_CFSR_PRECISERR_Msk, "Precise data bus error"},
+    {SCB_CFSR_IMPRECISERR_Msk, "Imprecise data bus error"},
+    {SCB_CFSR_UNSTKERR_Msk, "BusFault unstacking error"},
+    {SCB_CFSR_STKERR_Msk, "BusFault stacking error"},
+    {SCB_CFSR_LSPERR_Msk, "BusFault FP lazy state"},
+    {SCB_CFSR_UNDEFINSTR_Msk, "Undefined instruction"},
+    {SCB_CFSR_INVSTATE_Msk, "Invalid state (Thumb bit)"},
+    {SCB_CFSR_INVPC_Msk, "Invalid PC load"},
+    {SCB_CFSR_NOCP_Msk, "No coprocessor"},
+    {SCB_CFSR_UNALIGNED_Msk, "Unaligned access"},
+    {SCB_CFSR_DIVBYZERO_Msk, "Divide by zero"},
 };
 
 #define CFSR_TABLE_SIZE ((uint32_t) (sizeof(s_cfsr_table) / sizeof(s_cfsr_table[0])))
@@ -401,11 +403,11 @@ status_t cpu_init(void)
     g_pclk2_hz = CPU_PCLK2_HZ;
 
     /* Step 7: Enable the DWT cycle counter. */
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA;
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
-    if ((DWT->CTRL & DWT_CTRL_CYCCNTENA) == 0U)
+    if ((DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) == 0U)
     {
         return STATUS_ERR_HW; /* cycle counter not implemented on this core */
     }
@@ -475,7 +477,9 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
         /* Recursive fault — skip all output and go directly to halt/reset. */
         CPU_HW_BREAKPOINT();
         CPU_HW_SYSTEM_RESET();
+#ifdef TEST
         return;
+#endif
     }
 
     g_panic_active = true;
@@ -494,6 +498,8 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
 
 #ifdef DEBUG
     CPU_HW_BREAKPOINT();
+    for (;;)
+        ;
 #else
     CPU_HW_SYSTEM_RESET();
 #endif
