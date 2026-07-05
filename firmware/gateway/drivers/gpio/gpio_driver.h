@@ -1,27 +1,29 @@
 /**
- * @file gpio_driver_gw.h
+ * @file gpio_driver.h
  * @brief CMSIS-level GPIO driver — pin configuration and digital I/O.
  *
  * Provides IGpio (per components.md): configure, read, write, and toggle
  * single-pin digital I/O. Used by every Gateway driver that owns physical
  * pins.
  *
- * This header is the STM32L475 (Gateway) counterpart of
- * firmware/field-device/drivers/gpio/gpio_driver.h. The public API is
- * identical on both boards (docs/lld/drivers/gpio-driver.md §2.1); it is
- * duplicated rather than shared as a single file because the Field Device
- * implementation file is named gpio_driver.c (unsuffixed, predating the
- * gpio_driver_<board>.c convention established by other Gateway modules).
- * Ceedling's source-path globs include both boards' driver trees, so a
- * Gateway test including the Field Device's gpio_driver.h would auto-link
- * its gpio_driver.c as well, producing "multiple definition" linker errors.
- * Carried forward as GPIO-O4 in docs/lld/drivers/gpio-driver.md §8.
+ * This is the STM32L475 (Gateway) counterpart of
+ * firmware/field-device/drivers/gpio/gpio_driver.h — same filename, same
+ * public API (docs/lld/drivers/gpio-driver.md §2.1), different directory.
+ * That's fine for the real embedded builds (each board is a separate
+ * CubeIDE project that only ever compiles its own tree). It is not fine
+ * for Ceedling's host test project, whose :source: globs span both
+ * boards' driver trees at once: a test built against the shared
+ * tests/project.yml that included this header would ambiguously resolve
+ * to whichever board's gpio_driver.c the search happened to find first.
+ * Resolved by giving this module's tests their own, board-scoped Ceedling
+ * project file (tests/project_gateway.yml) instead of renaming the file.
+ * See GPIO-O4 in docs/lld/drivers/gpio-driver.md §8.
  *
  * @note See docs/lld/drivers/gpio-driver.md for the full design specification.
  */
 
-#ifndef GPIO_DRIVER_GW_H
-#define GPIO_DRIVER_GW_H
+#ifndef GPIO_DRIVER_H
+#define GPIO_DRIVER_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -226,4 +228,4 @@ gpio_err_t gpio_write_pin(gpio_port_t port, uint8_t pin, gpio_level_t level);
  */
 gpio_err_t gpio_toggle_pin(gpio_port_t port, uint8_t pin);
 
-#endif /* GPIO_DRIVER_GW_H */
+#endif /* GPIO_DRIVER_H */
