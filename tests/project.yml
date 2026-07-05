@@ -111,6 +111,9 @@
   :test_cpu:
     - STM32L475xx
     - TEST
+  :test_spi_driver:
+    - STM32L475xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
