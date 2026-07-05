@@ -90,7 +90,7 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_AHB2ENR_GPIOHEN_Pos (7U)
 #define RCC_AHB2ENR_GPIOHEN     (1UL << RCC_AHB2ENR_GPIOHEN_Pos)
 
-/* --- APB1ENR1 bits (I2cDriver, ModbusUartDriver, CpuDriver) ---------- */
+/* --- APB1ENR1 bits (I2cDriver, ModbusUartDriver, CpuDriver, SpiDriver) - */
 #define RCC_APB1ENR1_I2C2EN_Pos  (22U)
 #define RCC_APB1ENR1_I2C2EN      (1UL << RCC_APB1ENR1_I2C2EN_Pos)
 
@@ -99,6 +99,9 @@ extern RCC_TypeDef g_mock_rcc_l4;
 
 #define RCC_APB1ENR1_PWREN_Pos   (28U)
 #define RCC_APB1ENR1_PWREN       (1UL << RCC_APB1ENR1_PWREN_Pos)
+
+#define RCC_APB1ENR1_SPI3EN_Pos  (15U)
+#define RCC_APB1ENR1_SPI3EN      (1UL << RCC_APB1ENR1_SPI3EN_Pos)
 
 /* --- APB2ENR bits (CpuDriver) ---------------------------------------- */
 #define RCC_APB2ENR_USART1EN_Pos (14U)
@@ -443,6 +446,52 @@ extern I2C_TypeDef g_mock_i2c2;
 #define I2C_ICR_NACKCF     (1UL << I2C_ICR_NACKCF_Pos)
 #define I2C_ICR_STOPCF_Pos (5U)
 #define I2C_ICR_STOPCF     (1UL << I2C_ICR_STOPCF_Pos)
+
+/* ====================================================================== */
+/* §SPI — SPI3 (SpiDriver GW, ISM43362 WiFi module)                       */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t CR1;
+    volatile uint32_t CR2;
+    volatile uint32_t SR;
+    volatile uint32_t DR;
+} SPI_TypeDef;
+
+extern SPI_TypeDef g_mock_spi3;
+
+#define SPI3 (&g_mock_spi3)
+
+/* --- SPI_CR1 bits ------------------------------------------------------ */
+#define SPI_CR1_CPHA_Pos (0U)
+#define SPI_CR1_CPHA     (1UL << SPI_CR1_CPHA_Pos)
+#define SPI_CR1_CPOL_Pos (1U)
+#define SPI_CR1_CPOL     (1UL << SPI_CR1_CPOL_Pos)
+#define SPI_CR1_MSTR_Pos (2U)
+#define SPI_CR1_MSTR     (1UL << SPI_CR1_MSTR_Pos)
+#define SPI_CR1_BR_Pos   (3U)
+#define SPI_CR1_BR       (0x7UL << SPI_CR1_BR_Pos)
+#define SPI_CR1_SPE_Pos  (6U)
+#define SPI_CR1_SPE      (1UL << SPI_CR1_SPE_Pos)
+#define SPI_CR1_SSI_Pos  (8U)
+#define SPI_CR1_SSI      (1UL << SPI_CR1_SSI_Pos)
+#define SPI_CR1_SSM_Pos  (9U)
+#define SPI_CR1_SSM      (1UL << SPI_CR1_SSM_Pos)
+
+/* --- SPI_CR2 bits ------------------------------------------------------ */
+#define SPI_CR2_DS_Pos     (8U)
+#define SPI_CR2_DS         (0xFUL << SPI_CR2_DS_Pos)
+#define SPI_CR2_FRXTH_Pos  (12U)
+#define SPI_CR2_FRXTH      (1UL << SPI_CR2_FRXTH_Pos)
+
+/* --- SPI_SR bits -------------------------------------------------------- */
+#define SPI_SR_RXNE_Pos (0U)
+#define SPI_SR_RXNE     (1UL << SPI_SR_RXNE_Pos)
+#define SPI_SR_TXE_Pos  (1U)
+#define SPI_SR_TXE      (1UL << SPI_SR_TXE_Pos)
+#define SPI_SR_BSY_Pos  (7U)
+#define SPI_SR_BSY      (1UL << SPI_SR_BSY_Pos)
 
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
