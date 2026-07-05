@@ -37,7 +37,7 @@
 
 #include "cpu/cpu.h"
 #include "gpio/gpio_driver.h"
-#include "debug_uart.h"
+#include "debug_uart/debug_uart.h"
 #include "status.h"
 
 #ifdef STM32L475xx
