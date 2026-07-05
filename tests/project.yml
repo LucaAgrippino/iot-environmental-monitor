@@ -109,6 +109,9 @@
   :test_cpu:
     - STM32L475xx
     - TEST
+  :test_gpio_driver_l4:
+    - STM32L475xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
