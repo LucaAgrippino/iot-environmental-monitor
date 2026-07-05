@@ -73,6 +73,13 @@ I2C_TypeDef g_mock_i2c2;
 
 
 /* ====================================================================== */
+/* §SPI3 storage (SpiDriver GW)                                          */
+/* ====================================================================== */
+
+SPI_TypeDef g_mock_spi3;
+
+
+/* ====================================================================== */
 /* §UART4 storage (ModbusUartDriver GW)                                  */
 /* ====================================================================== */
 
@@ -182,6 +189,12 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_i2c2.PECR     = 0;
     g_mock_i2c2.RXDR     = 0;
     g_mock_i2c2.TXDR     = 0;
+
+    /* §SPI3 */
+    g_mock_spi3.CR1 = 0;
+    g_mock_spi3.CR2 = 0;
+    g_mock_spi3.SR  = 0;
+    g_mock_spi3.DR  = 0;
 
     /* §UART4 */
     g_mock_uart4.CR1 = 0;
