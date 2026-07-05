@@ -1,5 +1,13 @@
 # Claude Code — Module Implementation Session
 
+**Board:** STM32F469I-DISCO (STM32F469NIH6)
+**Repository:** `D:\iot-environmental-monitor` (WSL2: `/mnt/d/iot-environmental-monitor`)
+**Linker script:** `firmware/field-device/stm32f469nih6_flash.ld`
+**CMSIS header:** `stm32f469xx.h`
+**Compile define:** `BOARD_FIELD_DEVICE`
+
+---
+
 ## Context
 
 This is the IoT Environmental Monitoring Gateway portfolio project.
@@ -195,7 +203,7 @@ tests/support/
     <dep>_stub.h    (one per driver dependency, if not already present)
 
 firmware/field-device/integration-tests/<module>/
-    test_<module>_main.c
+    main_test_<module>.c
 ```
 
 ### Test isolation (critical — read carefully)
@@ -253,247 +261,195 @@ the Authorisation section.
 ### Step 0 — Create feature branch
 
 ```bash
+cd D:\iot-environmental-monitor
 git fetch origin
 git switch main && git pull origin main
-git switch -c feature/phase-4-<module>
+git switch -c feature/phase-4-fd-<module>
 git branch --show-current
 ```
 
-The last command must print `feature/phase-4-<module>`.
+The last command must print `feature/phase-4-fd-<module>`.
 **Do NOT proceed if it prints `main`.**
 
 ---
 
 ### Step 1 — Read the companion
 
-Read the companion document in full before writing a single line of
-code. Confirm you understand:
-- The public API (§2 of the companion).
-- The internal design (§3).
-- The unit test plan (§7 — TC-NNN cases).
-- The open items (§8) — note which are pre-code decisions vs
-  post-code validations.
+Open `docs/lld/<layer>/<module>.md` (or the companion document
+provided in this prompt).  Read §2 (public API), §3 (internal design),
+and §7 (unit test plan) completely before writing any code.
 
 ---
 
-### Step 2 — Clean slate (this module only) + reuse audit
+### Step 2 — Verify HLD alignment
 
-Delete any existing files for **this** module (see Regeneration mode).
-Then verify the target directories are empty or absent:
+Check `docs/hld/components.md` for the module's PROVIDES / USES /
+LAYER.  The implementation must not widen the USES footprint without
+an explicit HLD escalation (add a comment and stop).
 
-```bash
-find firmware tests -path "*/<module>*" 2>/dev/null
+---
+
+### Step 3 — Create the source files
+
+```
+firmware/field-device/<layer>/<module>/
+    <module>.h
+    <module>.c
 ```
 
-The output must be empty before proceeding (apart from prior-module
-artefacts elsewhere in the tree, which stay put).
+Place the header and source in the appropriate layer directory per the
+HLD component diagram.
 
-Run the Reuse policy audit:
+---
 
-```bash
-ls tests/support/
-ls tests/mocks/
-grep -E '^:test_' tests/project.yml
+### Step 4 — Register-level drivers (CMSIS only)
+
+All drivers use CMSIS register definitions (`stm32f469xx.h`) directly.
+STM32 HAL is forbidden.
+
+**Key F469 specifics:**
+- GPIO clocks are on `RCC->AHB1ENR` (not AHB2ENR like L475).
+- SYSCLK target: 180 MHz.
+- APB1 max: 45 MHz; APB2 max: 90 MHz.
+- HSE crystal: 8 MHz on-board.
+- Flash wait states: 5 WS at 180 MHz.
+- SRAM: 384 KB; Flash: 2 MB.
+
+Always verify the correct RCC enable register from the CMSIS header.
+
+**Critical rule:** Enable the RCC clock for a peripheral **before** any
+register access to that peripheral.
+
+---
+
+### Step 5 — Write tests alongside implementation
+
+Test file: `tests/field-device/<layer>/<module>/test_<module>.c`
+
+- Use Unity (`TEST_ASSERT_*` macros) and CMock.
+- One test file per module.
+- Cover: every public API function, happy path + at least one error
+  case per function, boundary conditions.
+- `<module>_reset_for_test(void)` hook guarded by `#ifdef TEST` to
+  reset static state between tests.
+- Never use `TEST_SOURCE_FILE` directives.
+- Use `TEST_IGNORE_MESSAGE("deferred: <reason>")` for tests that
+  require hardware.
+
+---
+
+### Step 6 — Integration test main
+
+Create `firmware/field-device/integration-tests/<module>/main_test_<module>.c` 
+containing a standalone `main()` that exercises the module on real hardware.
+
+- Call `cpu_init()` first (clock, DWT, fault handlers).
+- Initialise only the dependencies this module needs.
+- Exercise every public API function with observable output
+  (LED toggle, UART printf, debugger breakpoint).
+- This file is NOT compiled by default — swap it for `main.c`
+  manually in CubeIDE when doing hardware bring-up.
+- Commit it alongside the module source.
+
+---
+
+### Step 7 — Update Ceedling project.yml
+
+Add the new test source path to `tests/project.yml` under
+`:paths:test:` and `:paths:source:`.  Ensure the module's source
+directory is included so Ceedling can find it.
+
+---
+
+### Step 8 — Local verification
+
+```powershell
+# From the repo root in PowerShell:
+.\scripts\test-module.ps1 -Module fd-<module>
 ```
 
-Note which dependency stubs and CMSIS mock symbols already exist. You
-will reuse them in Steps 5 and 6.
+This runs Ceedling + cppcheck + clang-format for the module.  All
+three must pass before committing.
 
----
-
-### Step 3 — Write the header
-
-Write `firmware/field-device/<layer>/<module>/<module>.h`.
-Include the `#ifdef TEST` block with reset and hook declarations.
-Do not write the `.c` yet.
-
----
-
-### Step 4 — Write the implementation
-
-Write `firmware/field-device/<layer>/<module>/<module>.c`.
-Follow the internal design in §3 of the companion exactly.
-Flag any deviation with a comment: `/* DEVIATION from companion §X: ... */`
-
----
-
-### Step 5 — Stub headers (reuse, then extend, then create)
-
-For each dependency the SUT calls:
-
-1. **Check** `tests/support/<dep>_stub.h` — does it exist?
-2. **If exists and declares every symbol the SUT calls**: reuse as-is.
-3. **If exists but missing symbols**: append the missing declarations
-   to the existing file. Preserve the existing declarations untouched.
-4. **If does not exist**: create
-   `tests/support/<dep>_stub.h` with minimal declarations.
-
-For CMSIS register access:
-
-1. **Check** whether `tests/mocks/stm32f469xx.h` and
-   `tests/mocks/stm32_cmsis_mock.{c,h}` already declare the registers
-   the SUT touches.
-2. **If yes**: reuse — no changes needed.
-3. **If partial**: extend by appending new register declarations or
-   stub function implementations. Preserve everything already there.
-4. **Never delete or modify** existing symbols in these files. Other
-   modules' tests depend on them.
-
----
-
-### Step 6 — Write the unit test file
-
-Write `tests/field-device/<layer>/<module>/test_<module>.c`.
-Implement every TC-NNN case from the companion §7 — implement, do
-not skip. Use `TEST_IGNORE_MESSAGE("TC-NNN: deferred — <reason>")`
-ONLY when:
-
-- The TC explicitly says it depends on hardware that the host harness
-  cannot reach (e.g. observing a real interrupt fire), AND
-- The companion §7 marks the TC as host-deferred.
-
-Otherwise: implement the TC. An TC that can be implemented with the
-existing mock surface must be implemented now, not deferred.
-
-Do not leave empty test functions.
-
----
-
-### Step 7 — Write the integration test
-
-Write `firmware/field-device/integration-tests/<module>/test_<module>_main.c`.
-Follow the pattern in
-`firmware/field-device/integration-tests/logger/test_logger_main.c`:
-- Call `system_clock_init()` first.
-- Init all dependencies in order (see companion §1 init ordering).
-- Run pre-scheduler diagnostics via Logger.
-- Create a test task that exercises the module's behaviour.
-- Include a visual checklist in the file header comment.
-
-This file is required even if you cannot run it on hardware in this
-session. Host-side compilation must succeed.
-
----
-
-### Step 8 — Update project.yml
-
-Add the `:test_<module>:` defines block. Do not modify any other
-block. Verify the test path is covered.
-
----
-
-### Step 9 — Gate pass: LLD companion check
-
-Before running the test script, verify the companion document is
-marked ready for implementation. The companion §1 (or the header
-metadata block) must show:
-
-- Status: `Pass H` or `Implementation ready`
-- All pre-code open items in §8 resolved
-
-If the companion is not at Pass H, stop and report which open items
-remain unresolved. Do not proceed to Step 10 until this is confirmed.
-
----
-
-### Step 10 — Run the test script (iterate to ALL CHECKS PASSED)
+If `test-module.ps1` is not yet adapted for Field Device paths, run
+manually:
 
 ```bash
-cd ..
-powershell -ExecutionPolicy Bypass -File scripts/test-module.ps1 -Module <module>
-```
+# Ceedling
+cd tests && ceedling test:test_<module> && cd ..
 
-Fix errors iteratively. For each error:
-- Read the full error message.
-- Identify root cause (type mismatch, missing symbol, wrong include, etc.).
-- Fix the minimal change that resolves it.
-- Re-run.
+# cppcheck
+cppcheck --enable=all --suppress=missingIncludeSystem \
+  --suppressions-list=cppcheck-suppressions.txt \
+  firmware/field-device/<layer>/<module>/
 
-If errors trace to a missing CMSIS symbol or missing stub declaration,
-**extend** the relevant file in `tests/support/` or `tests/mocks/`
-per the Reuse policy. Do not recreate.
-
-If clang-format violations are found, re-run with `-Fix` to auto-correct:
-
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/test-module.ps1 -Module <module> -Fix
-```
-
-Then re-run without `-Fix` to verify clean.
-
-You proceed to Step 11 only when the script exits with **ALL CHECKS
-PASSED**. There is no other exit condition that permits proceeding.
-
----
-
-### Step 11 — Commit implementation to feature branch
-
-Confirm you are on the feature branch:
-
-```bash
-git branch --show-current   # must print feature/phase-4-<module>
-```
-
-Commit in logical groups:
-
-```bash
-# Header + implementation
-git add firmware/field-device/<layer>/<module>/
-git commit -m "feat: add <Module> — <one-line summary>"
-
-# Tests (including any extensions to existing stubs/mocks)
-git add tests/field-device/<layer>/<module>/
-git add tests/support/                    # if any existing stub was extended
-git add tests/mocks/                       # if CMSIS mock was extended
-git add tests/project.yml
-git commit -m "test: add Unity unit tests for <Module>"
-
-# Integration test
-git add firmware/field-device/integration-tests/<module>/
-git commit -m "test: add integration test harness for <Module>"
-```
-
-Use `type:` prefix (feat, fix, test, docs, style, refactor).
-British spelling in commit messages.
-
-Push the feature branch:
-
-```bash
-git push -u origin feature/phase-4-<module>
+# clang-format
+clang-format --dry-run --Werror \
+  firmware/field-device/<layer>/<module>/*.c \
+  firmware/field-device/<layer>/<module>/*.h
 ```
 
 ---
 
-### Step 12 — Private-branch deliverables
+### Step 9 — Apply clang-format
 
-All post-session files go on the `dev-tools` branch, **never on main**.
-This branch is a permanent private accumulator — it never merges into main.
-All three files for this module go in a **single flat directory**:
-`docs/dev-tools/<module>/` — no subdirectories within it.
+Run `clang-format -i` on all new `.c` and `.h` files before the
+final commit.  The CI check will reject unformatted code.
 
-Switch to dev-tools (it must already exist remotely):
+---
+
+### Step 10 — Logical commits
+
+Conventional commit prefixes **without** parenthesised scope:
+
+- `feat: add <module> driver for Field Device`
+- `test: add <module> unit tests`
+- `docs: update <module> LLD companion`
+
+One logical change per commit.  Interactive rebase before PR if
+needed: `git rebase -i` then `git push --force-with-lease`.
+
+---
+
+### Step 11 — Create PR
 
 ```bash
-git fetch origin
+git push -u origin feature/phase-4-fd-<module>
+```
+
+PR title: `feat: implement <Module> for Field Device`
+
+PR description must include:
+
+- Module purpose (one sentence).
+- LLD companion reference.
+- Test summary (number of TCs, any deferred).
+- Checklist (see Step 12).
+
+---
+
+### Step 12 — Dev-tools deliverables
+
+Switch to the `dev-tools` branch:
+
+```bash
 git switch dev-tools
-git pull origin dev-tools
 ```
 
-If `dev-tools` does not exist locally or remotely, stop and report
-the error. Do NOT create it from main.
-
-Create the module directory and write the three files:
+Confirm you are on `dev-tools`:
 
 ```bash
-mkdir -p docs/dev-tools/<module>
+git branch --show-current   # must print dev-tools
 ```
 
-Write `session-report.md`, `bug-log.md`, and `exercise.md` directly
-into `docs/dev-tools/<module>/`. No further nesting. **All three
-files must be written completely.** Do not leave any with "TBD"
-placeholders.
+Create three files under `docs/dev-tools/<module>/`:
 
-Commit and push:
+- `session-report.md` — what was accomplished, tests run, decisions made
+- `bug-log.md` — bugs encountered and how to find them (if any)
+- `exercise.md` — a technical exercise based on this module for interview prep
+
+Then commit and push these files to `dev-tools` **only** — they do not go
+on the feature branch:
 
 ```bash
 git add docs/dev-tools/<module>/
@@ -504,8 +460,8 @@ git push origin dev-tools
 Return to the feature branch:
 
 ```bash
-git switch feature/phase-4-<module> || { echo "ERROR: feature branch not found"; exit 1; }
-git branch --show-current   # must print feature/phase-4-<module>
+git switch feature/phase-4-fd-<module> || { echo "ERROR: feature branch not found"; exit 1; }
+git branch --show-current   # must print feature/phase-4-fd-<module>
 ```
 
 ---
@@ -518,8 +474,8 @@ Structure:
 # Session Report — <Module>
 
 **Date:** <date>
-**Branch:** feature/phase-4-<module>
-**Companion:** docs/lld/companions/<module>.md
+**Branch:** feature/phase-4-fd-<module>
+**Companion:** docs/lld/<layer>/<module>.md
 
 ---
 
@@ -532,7 +488,7 @@ Structure:
 | tests/support/<dep>_stub.h | N | new / reused / extended |
 | tests/mocks/stm32_cmsis_mock.{c,h} | N | reused / extended |
 | tests/field-device/<layer>/<module>/test_<module>.c | N | |
-| firmware/field-device/integration-tests/<module>/test_<module>_main.c | N | |
+| firmware/field-device/integration-tests/<module>/main_test_<module>.c | N | |
 
 ---
 
@@ -593,8 +549,8 @@ feat: <Module> — <one-line summary>
 - firmware/field-device/<layer>/<module>/<module>.h — <summary>
 - firmware/field-device/<layer>/<module>/<module>.c — <summary>
 - tests/field-device/<layer>/<module>/test_<module>.c — N unit tests
-- firmware/field-device/integration-tests/<module>/test_<module>_main.c
-- docs/lld/companions/<module>.md — companion updated to v1.0
+- firmware/field-device/integration-tests/<module>/main_test_<module>.c
+- docs/lld/<layer>/<module>.md — companion updated to v1.0
 - Extended stubs and mocks (if any): <list>
 
 ## Design decisions
@@ -694,10 +650,10 @@ Red flags:
 
 ---
 
-### Step 13 — Final verification and completion checklist
+### Step 13 — Completion checklist
 
 ```bash
-git switch feature/phase-4-<module>
+git switch feature/phase-4-fd-<module>
 git status                                  # must be clean
 git log --oneline main -- docs/dev-tools/   # must return nothing
 ```
@@ -708,13 +664,13 @@ from the feature branch before raising the PR:
 ```bash
 git rm -r docs/dev-tools/
 git commit -m "chore: remove dev-tools files from feature branch"
-git push origin feature/phase-4-<module>
+git push origin feature/phase-4-fd-<module>
 ```
 
 Run the **completion checklist** — every item must be checked off
 before the session ends:
 
-- [ ] Step 10 reached ALL CHECKS PASSED
+- [ ] Step 8 reached ALL CHECKS PASSED
 - [ ] Feature branch pushed to origin
 - [ ] `tests/support/` and `tests/mocks/` show only **additive**
       changes (verified via `git diff --stat origin/main -- tests/support/ tests/mocks/`)
