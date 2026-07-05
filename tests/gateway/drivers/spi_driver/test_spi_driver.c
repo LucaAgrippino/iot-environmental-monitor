@@ -18,7 +18,7 @@
 
 #include "stm32l475_cmsis_mock.h"
 #include "stm32l475xx.h"
-#include "spi_driver.h"
+#include "spi.h"
 
 extern void spi_reset_for_test(void);
 

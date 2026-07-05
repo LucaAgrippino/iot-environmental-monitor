@@ -9,8 +9,7 @@
  * @note See docs/lld/drivers/spi-driver.md for the full design specification.
  */
 
-#include "spi_driver.h"
-
+#include <spi/spi.h>
 #include <stddef.h>
 
 /** Static instance pool size. Only SPI3 is used on this board. */

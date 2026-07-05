@@ -32,12 +32,15 @@
  *   confirm the transmitted words appear MSB-first.
  */
 
+
+
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "cpu/cpu.h"
 #include "gpio/gpio_driver.h"
-#include "spi_driver.h"
+#include "spi/spi.h"
 #include "status.h"
 
 #ifdef STM32L475xx
