@@ -42,3 +42,12 @@ introduced one. Every module before it either lived directly in
 `firmware/shared/` (just `firmware_version.h`, a header with no `.c`
 file to compile) or under a `**`-globbed board-specific tree, so the
 non-recursive entry never mattered until now.
+
+**Status: fix reverted, bug still latent.** Mid-session, ExtiDriver was
+relocated from `firmware/shared/` to `firmware/gateway/drivers/exti/`
+(see the module's session report), which removed the only thing that
+would have exercised the fixed glob. The `../firmware/shared/**` change
+was reverted along with the relocation to keep this PR's diff scoped to
+what it actually needs. The underlying gap in `tests/project.yml`
+therefore still exists on `main` — worth fixing proactively the next
+time any module is placed directly under `firmware/shared/`.
