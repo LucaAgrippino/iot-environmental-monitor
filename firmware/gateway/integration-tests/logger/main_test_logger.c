@@ -54,7 +54,7 @@
 #include "debug_uart/debug_uart.h"
 #include "rtc/rtc.h"
 #include "logger/logger.h"
-#include "status.h"
+#include "cpu/status.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
