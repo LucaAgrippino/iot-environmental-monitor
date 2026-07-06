@@ -385,6 +385,11 @@ int main(void)
     LOG_INFO("Wifi", "===== WifiDriver Hardware Bring-up =====");
     LOG_INFO("Wifi", "Board : B-L475E-IOT01A (STM32L475VGTx)");
     LOG_INFO("Wifi", "Module: ISM43362-M3G-L44 via SPI3");
+    /* Diagnostic: wifi_create()'s internal timeouts (100 ms DRDY, 5000 ms
+     * response) are cpu_delay_us() cycle counts derived from this value.
+     * If it's not ~80000000, every "millisecond" timeout below actually
+     * takes proportionally longer in real time. */
+    LOG_INFO("Wifi", "SYSCLK=%lu Hz", (unsigned long) cpu_get_sysclk_hz());
 
     /* 4. WifiDriver Phase 1 (pre-scheduler): pins, SpiDriver, wifi_create(). */
     gpio_pin_config_t spi_pins[3] = {
@@ -462,6 +467,15 @@ int main(void)
         bringup_fail("TC-HW-WIFI-001  ISM43362 control-line configuration failed");
     }
     LOG_INFO("Wifi", "TC-HW-WIFI-001a  All GPIO pins configured (SPI3 + 5 control lines)");
+
+    /* Diagnostic: DRDY idle level before any reset pulse. A floating/pulled
+     * input reading HIGH here would make the first "wait DRDY high"
+     * inside wifi_create() succeed trivially without the module actually
+     * being ready, masking the real failure until a later, longer wait. */
+    gpio_level_t drdy_idle_level;
+    (void) gpio_read_pin(BRINGUP_DRDY_PORT, BRINGUP_DRDY_PIN, &drdy_idle_level);
+    LOG_INFO("Wifi", "DRDY idle level (pre-reset) = %s",
+             (drdy_idle_level == GPIO_LEVEL_HIGH) ? "HIGH" : "LOW");
 
     spi_config_t spi_config = {.instance = SPI3};
     spi_handle_t spi_handle = NULL;
