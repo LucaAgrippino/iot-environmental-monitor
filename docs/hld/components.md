@@ -161,7 +161,6 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - RtcDriver
 - I2cDriver
 - GpioDriver
-- ExtiDriver
 
 ## 4. Responsibility sentences and interfaces — Field Device
 
@@ -195,7 +194,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Reads touch coordinate events from the touchscreen controller (REQ-LD-050).
 **PROVIDES (upward):** ITouchscreen
-**USES (downward):** I2cDriver, ExtiDriver
+**USES (downward):** I2cDriver
 
 **NAME:** SdramDriver
 **LAYER:** Driver
@@ -237,12 +236,6 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Configures GPIO pins and provides read/write access to single-pin digital I/O (REQ-NF-202).
 **PROVIDES (upward):** IGpio
-**USES (downward):** CMSIS
-
-**NAME:** ExtiDriver
-**LAYER:** Driver
-**RESPONSIBILITY:** Configures EXTI interrupt lines: maps GPIO ports via SYSCFG_EXTICRx, sets trigger edges, manages IMR and NVIC enable/disable. Provides conflict detection to prevent two drivers from claiming the same line (REQ-LD-050).
-**PROVIDES (upward):** IExti
 **USES (downward):** CMSIS
 
 ### Middleware layer

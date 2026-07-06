@@ -16,10 +16,9 @@
     - gateway/application/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
-    - shared/**
   :source:
     - mocks/**
-    - ../firmware/shared/**
+    - ../firmware/shared/
     - ../firmware/field-device/application/**
     - ../firmware/field-device/drivers/**
     - ../firmware/field-device/middleware/**
@@ -124,10 +123,7 @@
   :test_rtc_driver_gw:
     - STM32L475xx
     - TEST
-  :test_exti_driver_fd:
-    - STM32F469xx
-    - TEST
-  :test_exti_driver_gw:
+  :test_exti_driver:
     - STM32L475xx
     - TEST
 

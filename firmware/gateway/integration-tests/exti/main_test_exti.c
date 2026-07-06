@@ -39,7 +39,7 @@
 
 #include "cpu/cpu.h"
 #include "gpio/gpio_driver.h"
-#include "exti_driver.h"
+#include "exti/exti_driver.h"
 #include "status.h"
 
 #ifdef STM32L475xx

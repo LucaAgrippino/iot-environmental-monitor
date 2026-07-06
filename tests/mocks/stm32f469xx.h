@@ -523,18 +523,12 @@ extern LTDC_TypeDef g_mock_ltdc;
 
 typedef enum
 {
-    EXTI0_IRQn      = 6,  /* Per stm32f469xx.h CMSIS canonical value (ExtiDriver). */
-    EXTI1_IRQn      = 7,  /* Per stm32f469xx.h CMSIS canonical value (ExtiDriver). */
-    EXTI2_IRQn      = 8,  /* Per stm32f469xx.h CMSIS canonical value (ExtiDriver). */
-    EXTI3_IRQn      = 9,  /* Per stm32f469xx.h CMSIS canonical value (ExtiDriver). */
-    EXTI4_IRQn      = 10, /* Per stm32f469xx.h CMSIS canonical value (ExtiDriver). */
-    EXTI9_5_IRQn    = 23, /* EXTI lines 5..9 shared vector (TouchscreenDriver PJ5). */
-    USART3_IRQn     = 39, /* Per stm32f469xx.h CMSIS canonical value. */
-    EXTI15_10_IRQn  = 40, /* EXTI lines 10..15 shared vector (ExtiDriver). */
-    USART6_IRQn     = 71, /* Per stm32f469xx.h CMSIS canonical value. */
-    DSI_IRQn        = 86, /* DSI global interrupt (LcdDriver). */
-    LTDC_IRQn       = 88, /* LTDC global interrupt (LcdDriver). */
-    LTDC_ER_IRQn    = 89  /* LTDC error interrupt  (LcdDriver). */
+    EXTI9_5_IRQn = 23, /* EXTI lines 5..9 shared vector (TouchscreenDriver PJ5). */
+    USART3_IRQn  = 39, /* Per stm32f469xx.h CMSIS canonical value. */
+    USART6_IRQn  = 71, /* Per stm32f469xx.h CMSIS canonical value. */
+    DSI_IRQn     = 86, /* DSI global interrupt (LcdDriver). */
+    LTDC_IRQn    = 88, /* LTDC global interrupt (LcdDriver). */
+    LTDC_ER_IRQn = 89  /* LTDC error interrupt  (LcdDriver). */
 } IRQn_Type;
 
 /* Mock NVIC tracks call counts per IRQn. Tests inspect counters directly;
