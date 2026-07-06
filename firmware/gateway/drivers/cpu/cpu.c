@@ -362,7 +362,26 @@ status_t cpu_init(void)
     /* Step 2: Set Flash to 4 WS before increasing the clock. */
     FLASH->ACR = FLASH_ACR_LATENCY_4WS | FLASH_ACR_PRFTEN | FLASH_ACR_ICEN;
 
-    /* Step 3: Configure PLL: source = MSI, M = 1 (÷1), N = 40, R = 2 (÷2).
+    /* Step 3: Start the LSE oscillator for the backup-domain RTC. RtcDriver
+     * verifies LSERDY at the start of rtc_init() and refuses to proceed
+     * without it (rtc-driver.md §4.6) — LSE lifecycle belongs to system
+     * clock config, not to any single driver, since it is a shared resource.
+     * DBP unlocks backup-domain register writes (PWR clock already enabled
+     * in Step 1). */
+    PWR->CR1 |= PWR_CR1_DBP;
+    RCC->BDCR |= RCC_BDCR_LSEON;
+    {
+        uint32_t timeout = CPU_POLL_TIMEOUT;
+        while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0U)
+        {
+            if (--timeout == 0U)
+            {
+                return STATUS_ERR_TIMEOUT;
+            }
+        }
+    }
+
+    /* Step 4: Configure PLL: source = MSI, M = 1 (÷1), N = 40, R = 2 (÷2).
      *   VCO input  = MSI 4 MHz / 1 = 4 MHz
      *   VCO output = 4 MHz × 40   = 160 MHz
      *   SYSCLK     = 160 MHz / 2  = 80 MHz                              */
@@ -372,7 +391,7 @@ status_t cpu_init(void)
                    | (0U << RCC_PLLCFGR_PLLR_Pos)  /* R = 2  */
                    | RCC_PLLCFGR_PLLREN;           /* enable R output */
 
-    /* Step 4: Enable the PLL and wait for lock. */
+    /* Step 5: Enable the PLL and wait for lock. */
     RCC->CR |= RCC_CR_PLLON;
     {
         uint32_t timeout = CPU_POLL_TIMEOUT;
@@ -385,7 +404,7 @@ status_t cpu_init(void)
         }
     }
 
-    /* Step 5: Switch SYSCLK source to PLL and confirm. */
+    /* Step 6: Switch SYSCLK source to PLL and confirm. */
     RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW) | RCC_CFGR_SW_PLL;
     {
         uint32_t timeout = CPU_POLL_TIMEOUT;
@@ -398,12 +417,12 @@ status_t cpu_init(void)
         }
     }
 
-    /* Step 6: Update internal frequency variables. */
+    /* Step 7: Update internal frequency variables. */
     g_sysclk_hz = CPU_SYSCLK_HZ;
     g_pclk1_hz = CPU_PCLK1_HZ;
     g_pclk2_hz = CPU_PCLK2_HZ;
 
-    /* Step 7: Enable the DWT cycle counter. */
+    /* Step 8: Enable the DWT cycle counter. */
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -413,7 +432,7 @@ status_t cpu_init(void)
         return STATUS_ERR_HW; /* cycle counter not implemented on this core */
     }
 
-    /* Step 8: Check for and report any panic record from the previous boot. */
+    /* Step 9: Check for and report any panic record from the previous boot. */
     check_panic_record();
 
     return STATUS_OK;

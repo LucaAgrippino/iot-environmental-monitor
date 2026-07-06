@@ -39,6 +39,13 @@ static void arrange_pll_ready(void)
     g_mock_rcc_l4.CFGR |= RCC_CFGR_SWS_PLL;
 }
 
+/** Pre-arrange LSE ready so cpu_init()'s backup-domain RTC clock step
+ *  (required by RtcDriver, rtc-driver.md §4.6) does not block. */
+static void arrange_lse_ready(void)
+{
+    g_mock_rcc_l4.BDCR |= RCC_BDCR_LSERDY;
+}
+
 /** Pre-arrange DWT CYCCNTENA readback (write-back stays set in mock). */
 static void arrange_dwt_ready(void)
 {
@@ -51,6 +58,7 @@ static void arrange_dwt_ready(void)
 /** Perform a successful cpu_init() with all pre-conditions satisfied. */
 static void arrange_cpu_init_success(void)
 {
+    arrange_lse_ready();
     arrange_pll_ready();
     arrange_dwt_ready();
     TEST_ASSERT_EQUAL(STATUS_OK, cpu_init());
@@ -78,6 +86,7 @@ void tearDown(void)
 void test_TC_CPU_001_init_sets_flash_wait_states_to_4(void)
 {
     /* Arrange */
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -92,6 +101,7 @@ void test_TC_CPU_001_init_sets_flash_wait_states_to_4(void)
 void test_TC_CPU_002_init_configures_pll_m1_n40_r2_msi(void)
 {
     /* Arrange */
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -123,6 +133,7 @@ void test_TC_CPU_002_init_configures_pll_m1_n40_r2_msi(void)
 void test_TC_CPU_003_init_polls_pllrdy_and_succeeds(void)
 {
     /* Arrange: PLLRDY and SWS_PLL pre-set (immediate exit from poll loops). */
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -135,8 +146,10 @@ void test_TC_CPU_003_init_polls_pllrdy_and_succeeds(void)
 
 void test_TC_CPU_004_init_returns_timeout_when_pllrdy_never_sets(void)
 {
-    /* Arrange: PLLRDY never set — poll loop exhausts CPU_POLL_TIMEOUT (3). */
-    /* Do NOT arrange_pll_ready() here. */
+    /* Arrange: LSE ready so the timeout is specifically attributable to the
+     * PLL poll, not the earlier LSE poll. PLLRDY never set — poll loop
+     * exhausts CPU_POLL_TIMEOUT (3). Do NOT arrange_pll_ready() here. */
+    arrange_lse_ready();
 
     /* Act */
     status_t result = cpu_init();
@@ -148,6 +161,7 @@ void test_TC_CPU_004_init_returns_timeout_when_pllrdy_never_sets(void)
 void test_TC_CPU_005_init_switches_sysclk_to_pll(void)
 {
     /* Arrange */
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -175,6 +189,36 @@ void test_TC_CPU_008_get_pclk2_hz_returns_80mhz_after_init(void)
 {
     arrange_cpu_init_success();
     TEST_ASSERT_EQUAL_UINT32(80000000U, cpu_get_pclk2_hz());
+}
+
+void test_TC_CPU_009_init_starts_lse_and_unlocks_backup_domain(void)
+{
+    /* Arrange */
+    arrange_lse_ready();
+    arrange_pll_ready();
+
+    /* Act */
+    status_t result = cpu_init();
+
+    /* Assert: DBP set (backup-domain writes unlocked) and LSEON written —
+     * RtcDriver's rtc_init() depends on both having happened before it runs. */
+    TEST_ASSERT_EQUAL(STATUS_OK, result);
+    TEST_ASSERT_BITS_HIGH(PWR_CR1_DBP, g_mock_pwr.CR1);
+    TEST_ASSERT_BITS_HIGH(RCC_BDCR_LSEON, g_mock_rcc_l4.BDCR);
+}
+
+void test_TC_CPU_014_init_returns_timeout_when_lserdy_never_sets(void)
+{
+    /* Arrange: LSERDY never set — poll loop exhausts CPU_POLL_TIMEOUT (3).
+     * Do NOT arrange_lse_ready() here. PLL left un-arranged too since the
+     * LSE step runs first and should fail before the PLL step is reached. */
+
+    /* Act */
+    status_t result = cpu_init();
+
+    /* Assert */
+    TEST_ASSERT_EQUAL(STATUS_ERR_TIMEOUT, result);
+    TEST_ASSERT_BITS_LOW(RCC_CR_PLLON, g_mock_rcc_l4.CR); /* never reached */
 }
 
 /* ===================================================================== */
@@ -402,6 +446,7 @@ void test_TC_CPU_030_init_detects_valid_panic_record_and_configures_uart(void)
     g_mock_rtc.BKP1R  = SCB_CFSR_IMPRECISERR;
     g_mock_rtc.BKP13R = (uint32_t) CPU_PANIC_HARDFAULT;
     g_mock_usart1.ISR |= USART_ISR_TXE; /* so output doesn't time out */
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -418,6 +463,7 @@ void test_TC_CPU_031_init_clears_magic_after_reading_panic_record(void)
     /* Arrange */
     g_mock_rtc.BKP0R  = 0xDEADC0DEU;
     g_mock_usart1.ISR |= USART_ISR_TXE;
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -431,6 +477,7 @@ void test_TC_CPU_032_init_ignores_invalid_magic(void)
 {
     /* Arrange: wrong magic — no valid record. */
     g_mock_rtc.BKP0R = 0xCAFEBABEU;
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
@@ -448,6 +495,7 @@ void test_TC_CPU_033_post_mortem_output_includes_decoded_cause_string(void)
     g_mock_rtc.BKP0R = 0xDEADC0DEU;
     g_mock_rtc.BKP1R = SCB_CFSR_IMPRECISERR; /* CFSR in record */
     g_mock_usart1.ISR |= USART_ISR_TXE;
+    arrange_lse_ready();
     arrange_pll_ready();
 
     /* Act */
