@@ -1,16 +1,16 @@
 /**
- * @file rtc_driver.c
- * @brief STM32F469 implementation of RtcDriver (Field Device).
+ * @file rtc.c
+ * @brief STM32L475 implementation of RtcDriver (Gateway).
  *
  * Backup-domain RTC clocked from LSE 32.768 kHz. Implements IRtc.
  * See docs/lld/drivers/rtc-driver.md for the full design.
  *
  * Field Device and Gateway are separate CubeIDE projects with separate
- * source trees, so this file is Field Device-only despite the driver
- * logic being conceptually board-portable (identical RTC_TypeDef layout
- * per companion §4.4). The Gateway realisation is a dedicated copy at
- * firmware/gateway/drivers/rtc/rtc.c, matching the two-implementation-file
- * pattern already used by DebugUartDriver.
+ * source trees, so this is a dedicated copy — not an #ifdef branch inside
+ * the Field Device's rtc_driver.c — even though RTC_TypeDef's register
+ * layout is identical across both boards (companion §4.4). Same split as
+ * DebugUartDriver's two implementation files. Register *names* differ from
+ * the F469 side: RCC->APB1ENR1 (not APB1ENR), PWR->CR1 (not CR).
  *
  * Layout follows the per-driver convention established by DebugUartDriver:
  *   §1 Includes and configuration
@@ -24,21 +24,21 @@
  *   §9 Test-only hooks
  */
 
-#include "rtc_driver.h"
+#include "rtc.h"
 
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
 
-#include "stm32f469xx.h"
+#include "stm32l475xx.h"
 
 /* ===================================================================== */
 /* §1. Configuration                                                     */
 /* ===================================================================== */
 
-#define RTC_BACKUP_MAX_IDX RTC_BACKUP_MAX_IDX_F469
+#define RTC_BACKUP_MAX_IDX RTC_BACKUP_MAX_IDX_L475
 
-/** RTC default DR value — 2000-01-01, weekday = Monday (RM0386 reset value). */
+/** RTC default DR value — 2000-01-01, weekday = Monday (RM reset value). */
 #define RTC_DEFAULT_DR (0x00002101UL)
 
 /** RTC default TR value — 00:00:00. */
@@ -127,9 +127,9 @@ static uint32_t default_tick_source(void)
 
 static void backup_domain_unlock(void)
 {
-    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
-    (void) RCC->APB1ENR; /* read-back ensures the write took effect */
-    PWR->CR |= PWR_CR_DBP;
+    RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN;
+    (void) RCC->APB1ENR1; /* read-back ensures the write took effect */
+    PWR->CR1 |= PWR_CR1_DBP;
 }
 
 static rtc_err_t rtc_clock_select_and_enable(void)
@@ -256,8 +256,8 @@ rtc_err_t rtc_get_time(rtc_datetime_t *dt)
         }
     }
 
-    /* RM0386 §27.3.6 / RM0351 §38.4.4: read TR first, then DR. The TR read
-     * locks the calendar shadow until DR is read — coherent snapshot. */
+    /* RM0351 §38.4.4: read TR first, then DR. The TR read locks the
+     * calendar shadow until DR is read — coherent snapshot. */
     uint32_t tr = RTC->TR;
     uint32_t dr = RTC->DR;
 
