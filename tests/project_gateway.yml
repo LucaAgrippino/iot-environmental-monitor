@@ -38,10 +38,23 @@
 :paths:
   :test:
     - gateway/drivers/gpio/**
+    - gateway/middleware/logger/**
   :source:
     - mocks/**
     - ../firmware/shared/
     - ../firmware/gateway/drivers/gpio/**
+    - ../firmware/gateway/middleware/logger/**
+    # The whole Gateway drivers tree is added (not just rtc/ and debug_uart/)
+    # so that "../firmware/gateway/drivers" itself becomes an include root —
+    # logger.c #includes "rtc/rtc.h" and "debug_uart/debug_uart.h", which
+    # only resolve if the *parent* of those two folders is on the include
+    # path (a glob's pre-"**" prefix, not each leaf folder individually).
+    # No collision risk: this project file never references firmware/field-device,
+    # so nothing here can collide with an FD basename. test_logger_gw.c includes
+    # driver_stubs.h instead of the real rtc.h/debug_uart.h, so Ceedling's
+    # auto-link (which scans the *test file's* own includes, not the SUT's)
+    # never pulls rtc.c/debug_uart.c into the test_logger_gw executable.
+    - ../firmware/gateway/drivers/**
   :support:
     - support
 
@@ -55,6 +68,10 @@
     - TEST
   :test_gpio_driver_gw:
     - STM32L475xx
+    - TEST
+  :test_logger_gw:
+    - STM32L475xx
+    - LOG_LEVEL_MIN=LOG_LVL_DEBUG
     - TEST
 
 :cmock:
