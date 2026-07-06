@@ -5,6 +5,7 @@
   "MD004": false,  // ul-style (dash vs plus vs asterisk)
   "MD007": false,  // ul-indent
   "MD009": false,  // trailing spaces
+  "MD010": { "code_blocks": false },  // hard tabs — Makefile recipe lines require literal tabs; only flag tabs in prose now
   "MD012": false,  // multiple blank lines
   "MD013": false,  // line length
   "MD022": false,  // blanks around headings
