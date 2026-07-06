@@ -3,6 +3,10 @@
  * @brief WiFi driver implementation — AT-command engine, SPI protocol,
  *        socket table, DATARDY ISR (Gateway).
  *
+ * AT command set: Inventek's IWIN command set (companion §3.3, WIFI-D12),
+ * verified against inventeksys.com/iwin/ — NOT a Hayes "AT+" set. Every
+ * command is `<CODE>[=<value>]<CR>` with no attention prefix.
+ *
  * @note See docs/lld/drivers/wifi-driver.md for the full design specification.
  */
 
@@ -24,7 +28,10 @@
 #define WIFI_FIRMWARE_VERSION "C3.5.2.3"
 #define WIFI_RESP_OK_MARKER "\r\nOK\r\n"
 #define WIFI_RESP_ERROR_MARKER "\r\nERROR\r\n"
-#define WIFI_RSSI_MARKER "+WRSSI:"
+#define WIFI_SECURITY_WPA2_MIXED "4" /**< C3= security type (IWIN: 4 = WPA2 Mixed). */
+#define WIFI_DHCP_ENABLE "1"         /**< C4= DHCP enable. */
+#define WIFI_MAX_PACKET_SIZE 1460u   /**< S1/R1/S3 packet-size ceiling (IWIN spec). */
+#define WIFI_NUMSTR_MAX 6u           /**< Fits "65535\0". */
 
 struct wifi_inst
 {
@@ -99,45 +106,39 @@ WIFI_TEST_VISIBLE wifi_err_t prv_parse_response(const char *resp, size_t resp_le
     return WIFI_ERR_TIMEOUT;
 }
 
+/**
+ * @brief Parse a bare `CR` response: optional leading '-', then digits.
+ *
+ * The IWIN `CR` command returns the RSSI with no prefix/marker — just the
+ * number (or "0" if not joined) followed by the usual OK terminator.
+ */
 WIFI_TEST_VISIBLE wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, int8_t *out_rssi)
 {
-    const size_t marker_len = strlen(WIFI_RSSI_MARKER);
+    size_t pos = 0u;
+    bool negative = false;
+    int32_t value = 0;
+    bool any_digit = false;
 
-    for (size_t i = 0u; (marker_len <= resp_len) && (i <= (resp_len - marker_len)); i++)
+    if ((pos < resp_len) && (resp[pos] == '-'))
     {
-        if (memcmp(&resp[i], WIFI_RSSI_MARKER, marker_len) != 0)
-        {
-            continue;
-        }
-
-        size_t pos = i + marker_len;
-        bool negative = false;
-        int32_t value = 0;
-        bool any_digit = false;
-
-        if ((pos < resp_len) && (resp[pos] == '-'))
-        {
-            negative = true;
-            pos++;
-        }
-
-        while ((pos < resp_len) && (resp[pos] >= '0') && (resp[pos] <= '9'))
-        {
-            value = (value * 10) + (resp[pos] - '0');
-            pos++;
-            any_digit = true;
-        }
-
-        if (!any_digit)
-        {
-            return WIFI_ERR_MODULE;
-        }
-
-        *out_rssi = (int8_t) (negative ? -value : value);
-        return WIFI_ERR_OK;
+        negative = true;
+        pos++;
     }
 
-    return WIFI_ERR_MODULE;
+    while ((pos < resp_len) && (resp[pos] >= '0') && (resp[pos] <= '9'))
+    {
+        value = (value * 10) + (resp[pos] - '0');
+        pos++;
+        any_digit = true;
+    }
+
+    if (!any_digit)
+    {
+        return WIFI_ERR_MODULE;
+    }
+
+    *out_rssi = (int8_t) (negative ? -value : value);
+    return WIFI_ERR_OK;
 }
 
 WIFI_TEST_VISIBLE wifi_err_t prv_check_firmware_version(const char *resp, size_t resp_len)
@@ -240,15 +241,15 @@ static size_t prv_recv_words(struct wifi_inst *inst, char *resp_buf, size_t resp
 }
 
 /**
- * @brief Send an AT command and read the response.
+ * @brief Send a raw, already-formatted command buffer and read the response.
  *
  * Full send/receive SPI cycle with DRDY handshake (companion §3.2). NSS is
  * deasserted on every path once the send phase completes (WIFI-D6).
  *
  * DRDY waits are bounded busy-polls in every phase (pre- and
  * post-scheduler): WifiDriver has no FreeRTOS dependency of its own
- * (companion §3.5, H11) — task-level notification of DATARDY events is
- * WifiTask's responsibility, layered above this driver.
+ * (companion §3.5, WIFI-D11) — task-level notification of DATARDY events
+ * is WifiTask's responsibility, layered above this driver.
  */
 static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, size_t cmd_len,
                                  char *resp_buf, size_t resp_buf_len, size_t *out_resp_len)
@@ -295,6 +296,39 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
     }
 
     return prv_parse_response(resp_buf, received);
+}
+
+/**
+ * @brief Format and send a single IWIN command: `<code>[=<value>]<CR>`.
+ *
+ * @param[in]  inst          WifiDriver instance.
+ * @param[in]  code          Command code, e.g. "C1", "P0", "CR", "?".
+ * @param[in]  value         Value string for "<code>=<value>", or NULL for
+ *                            a bare "<code>" command (e.g. "C0", "?").
+ * @param[out] out_resp_len  Receives the response byte count, or NULL if
+ *                            the caller only needs the OK/ERROR verdict.
+ */
+static wifi_err_t prv_send_kv(struct wifi_inst *inst, const char *code, const char *value,
+                              size_t *out_resp_len)
+{
+    int written;
+
+    if (value != NULL)
+    {
+        written = snprintf(inst->at_buf, WIFI_AT_BUF_SIZE, "%s=%s\r", code, value);
+    }
+    else
+    {
+        written = snprintf(inst->at_buf, WIFI_AT_BUF_SIZE, "%s\r", code);
+    }
+
+    if ((written < 0) || ((size_t) written >= WIFI_AT_BUF_SIZE))
+    {
+        return WIFI_ERR_INVALID_ARG;
+    }
+
+    return prv_at_command(inst, (const uint8_t *) inst->at_buf, (size_t) written, inst->at_buf,
+                          WIFI_AT_BUF_SIZE, out_resp_len);
 }
 
 /* ====================================================================== */
@@ -344,18 +378,16 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
 
     (void) exti_configure(WIFI_DRDY_EXTI_LINE, EXTI_PORT_E, EXTI_EDGE_RISING);
 
-    size_t resp_len = 0u;
-    static const uint8_t at_handshake[] = "AT\r";
-    wifi_err_t err = prv_at_command(inst, at_handshake, sizeof(at_handshake) - 1u, inst->at_buf,
-                                    WIFI_AT_BUF_SIZE, &resp_len);
+    /* "?" — liveness/handshake (IWIN "print help"). */
+    wifi_err_t err = prv_send_kv(inst, "?", NULL, NULL);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
 
-    static const uint8_t at_version[] = "AT+GMR\r";
-    err = prv_at_command(inst, at_version, sizeof(at_version) - 1u, inst->at_buf, WIFI_AT_BUF_SIZE,
-                         &resp_len);
+    /* "I?" — module info; response must contain the required firmware rev. */
+    size_t resp_len = 0u;
+    err = prv_send_kv(inst, "I?", NULL, &resp_len);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -409,15 +441,28 @@ wifi_err_t wifi_connect_ap(wifi_handle_t handle, const char *ssid, const char *p
         return WIFI_ERR_INVALID_ARG;
     }
 
-    const int written =
-        snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "AT+WC=%s,%s,0\r", ssid, password);
-    if ((written < 0) || ((size_t) written >= WIFI_AT_BUF_SIZE))
+    /* C1/C2/C3/C4/C0 — SSID, password, security (WPA2 Mixed), DHCP on, join. */
+    wifi_err_t err = prv_send_kv(handle, "C1", ssid, NULL);
+    if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_INVALID_ARG;
+        return err;
     }
-
-    const wifi_err_t err = prv_at_command(handle, (const uint8_t *) handle->at_buf,
-                                          (size_t) written, handle->at_buf, WIFI_AT_BUF_SIZE, NULL);
+    err = prv_send_kv(handle, "C2", password, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+    err = prv_send_kv(handle, "C3", WIFI_SECURITY_WPA2_MIXED, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+    err = prv_send_kv(handle, "C4", WIFI_DHCP_ENABLE, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+    err = prv_send_kv(handle, "C0", NULL, NULL);
     if (err == WIFI_ERR_OK)
     {
         handle->link_state = WIFI_LINK_UP;
@@ -436,9 +481,7 @@ wifi_err_t wifi_disconnect_ap(wifi_handle_t handle)
         return WIFI_ERR_NOT_INIT;
     }
 
-    static const uint8_t at_disconnect[] = "AT+WD\r";
-    const wifi_err_t err = prv_at_command(handle, at_disconnect, sizeof(at_disconnect) - 1u,
-                                          handle->at_buf, WIFI_AT_BUF_SIZE, NULL);
+    const wifi_err_t err = prv_send_kv(handle, "CD", NULL, NULL);
     if (err == WIFI_ERR_OK)
     {
         handle->link_state = WIFI_LINK_DOWN;
@@ -477,9 +520,7 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm)
     }
 
     size_t resp_len = 0u;
-    static const uint8_t at_rssi[] = "AT+WRSSI\r";
-    const wifi_err_t err = prv_at_command(handle, at_rssi, sizeof(at_rssi) - 1u, handle->at_buf,
-                                          WIFI_AT_BUF_SIZE, &resp_len);
+    const wifi_err_t err = prv_send_kv(handle, "CR", NULL, &resp_len);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -521,27 +562,37 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
         return WIFI_ERR_NO_RESOURCE;
     }
 
-    const uint8_t transport = (type == WIFI_SOCKET_TCP) ? 0u : 1u;
-    int written = snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "AT+P1=%u\r", (unsigned) transport);
-    if ((written < 0) || ((size_t) written >= WIFI_AT_BUF_SIZE))
-    {
-        return WIFI_ERR_INVALID_ARG;
-    }
-    wifi_err_t err = prv_at_command(handle, (const uint8_t *) handle->at_buf, (size_t) written,
-                                    handle->at_buf, WIFI_AT_BUF_SIZE, NULL);
+    char slot_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(slot_str, sizeof(slot_str), "%u", (unsigned) slot);
+
+    char port_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(port_str, sizeof(port_str), "%u", (unsigned) remote_port);
+
+    const char *protocol_str = (type == WIFI_SOCKET_TCP) ? "0" : "1";
+
+    /* P0/P1/P3/P4/P6=1 — select socket, protocol, remote host, remote port,
+     * start client. There is no combined "open connection" command. */
+    wifi_err_t err = prv_send_kv(handle, "P0", slot_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-
-    written = snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "AT+NCPX=%u,%s,%u,%u\r", (unsigned) slot,
-                       remote_addr, (unsigned) remote_port, (unsigned) transport);
-    if ((written < 0) || ((size_t) written >= WIFI_AT_BUF_SIZE))
+    err = prv_send_kv(handle, "P1", protocol_str, NULL);
+    if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_INVALID_ARG;
+        return WIFI_ERR_SOCKET;
     }
-    err = prv_at_command(handle, (const uint8_t *) handle->at_buf, (size_t) written, handle->at_buf,
-                         WIFI_AT_BUF_SIZE, NULL);
+    err = prv_send_kv(handle, "P3", remote_addr, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return WIFI_ERR_SOCKET;
+    }
+    err = prv_send_kv(handle, "P4", port_str, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return WIFI_ERR_SOCKET;
+    }
+    err = prv_send_kv(handle, "P6", "1", NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -566,23 +617,35 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
     {
         return WIFI_ERR_NOT_CONNECTED;
     }
-    if ((socket >= WIFI_MAX_SOCKETS) || (!handle->socket_open[socket]))
+    if ((socket >= WIFI_MAX_SOCKETS) || (!handle->socket_open[socket]) ||
+        (len > WIFI_MAX_PACKET_SIZE))
     {
         return WIFI_ERR_INVALID_ARG;
     }
 
-    const int header_len = snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "AT+S.=%u,%u\r",
-                                    (unsigned) socket, (unsigned) len);
+    char socket_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
+
+    /* P0 — select socket. */
+    wifi_err_t err = prv_send_kv(handle, "P0", socket_str, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return WIFI_ERR_SOCKET;
+    }
+
+    /* S3=<len> — set packet size and send in one command; payload follows
+     * the <CR> directly (no combined string formatting: payload may be
+     * binary and is not null-terminated). */
+    const int header_len = snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "S3=%u\r", (unsigned) len);
     if ((header_len < 0) || (((size_t) header_len + len) > WIFI_AT_BUF_SIZE))
     {
         return WIFI_ERR_INVALID_ARG;
     }
-
     memcpy(&handle->at_buf[header_len], data, len);
     const size_t total_len = (size_t) header_len + len;
 
-    const wifi_err_t err = prv_at_command(handle, (const uint8_t *) handle->at_buf, total_len,
-                                          handle->at_buf, WIFI_AT_BUF_SIZE, NULL);
+    err = prv_at_command(handle, (const uint8_t *) handle->at_buf, total_len, handle->at_buf,
+                         WIFI_AT_BUF_SIZE, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -609,17 +672,29 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
         return WIFI_ERR_INVALID_ARG;
     }
 
-    const int written = snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "AT+R=%u,%u\r",
-                                 (unsigned) socket, (unsigned) buf_len);
-    if ((written < 0) || ((size_t) written >= WIFI_AT_BUF_SIZE))
+    char socket_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
+
+    /* P0 — select socket. */
+    wifi_err_t err = prv_send_kv(handle, "P0", socket_str, NULL);
+    if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_INVALID_ARG;
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
+    /* R1 — expected packet size, capped at the IWIN maximum. */
+    const size_t req_len = (buf_len < WIFI_MAX_PACKET_SIZE) ? buf_len : WIFI_MAX_PACKET_SIZE;
+    char len_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(len_str, sizeof(len_str), "%u", (unsigned) req_len);
+    err = prv_send_kv(handle, "R1", len_str, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
+    }
+
+    /* R0 — receive one packet. */
     size_t resp_len = 0u;
-    const wifi_err_t err =
-        prv_at_command(handle, (const uint8_t *) handle->at_buf, (size_t) written, handle->at_buf,
-                       WIFI_AT_BUF_SIZE, &resp_len);
+    err = prv_send_kv(handle, "R0", NULL, &resp_len);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
@@ -656,15 +731,17 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
         return WIFI_ERR_INVALID_ARG;
     }
 
-    const int written =
-        snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "AT+NCLS=%u\r", (unsigned) socket);
-    if ((written < 0) || ((size_t) written >= WIFI_AT_BUF_SIZE))
-    {
-        return WIFI_ERR_INVALID_ARG;
-    }
+    char socket_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
 
-    const wifi_err_t err = prv_at_command(handle, (const uint8_t *) handle->at_buf,
-                                          (size_t) written, handle->at_buf, WIFI_AT_BUF_SIZE, NULL);
+    /* P0 — select socket, then P6=0 — stop client. There is no dedicated
+     * "close" command in the IWIN set. */
+    wifi_err_t err = prv_send_kv(handle, "P0", socket_str, NULL);
+    if (err != WIFI_ERR_OK)
+    {
+        return WIFI_ERR_SOCKET;
+    }
+    err = prv_send_kv(handle, "P6", "0", NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;

@@ -36,10 +36,11 @@
 /* DRDY sequence + SPI word queues driving the stub callbacks              */
 /* ====================================================================== */
 
-#define MAX_SCRIPTED_LEVELS 128u
-#define MAX_SCRIPTED_WORDS 64u
-#define MAX_CAPTURED_BYTES 256u
-#define MAX_CAPTURED_WRITES 64u
+/* Generous headroom: WIFI-T17 alone opens 4 sockets x 5 IWIN commands each. */
+#define MAX_SCRIPTED_LEVELS 512u
+#define MAX_SCRIPTED_WORDS 256u
+#define MAX_CAPTURED_BYTES 512u
+#define MAX_CAPTURED_WRITES 256u
 
 static gpio_level_t s_drdy_seq[MAX_SCRIPTED_LEVELS];
 static size_t s_drdy_seq_len;
@@ -278,7 +279,8 @@ void test_WIFI_T03_parse_response_truncated(void)
 
 void test_WIFI_T04_parse_rssi(void)
 {
-    const char *resp = "+WRSSI:-67\r\nOK\r\n";
+    /* IWIN "CR" response is a bare value, no "+WRSSI:" marker. */
+    const char *resp = "-67\r\nOK\r\n";
     int8_t rssi = 0;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, prv_parse_rssi(resp, strlen(resp), &rssi));
     TEST_ASSERT_EQUAL_INT8(-67, rssi);
@@ -334,7 +336,11 @@ void test_WIFI_T10_connect_ap_nominal(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nOK\r\n");
+    helper_script_at_command("\r\nOK\r\n"); /* C1=ssid */
+    helper_script_at_command("\r\nOK\r\n"); /* C2=password */
+    helper_script_at_command("\r\nOK\r\n"); /* C3=4 (security) */
+    helper_script_at_command("\r\nOK\r\n"); /* C4=1 (DHCP) */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 (join) */
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
 
     wifi_link_state_t state;
@@ -346,7 +352,11 @@ void test_WIFI_T11_connect_ap_wrong_ssid(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nERROR\r\n");
+    helper_script_at_command("\r\nOK\r\n");    /* C1=ssid */
+    helper_script_at_command("\r\nOK\r\n");    /* C2=password */
+    helper_script_at_command("\r\nOK\r\n");    /* C3=4 (security) */
+    helper_script_at_command("\r\nOK\r\n");    /* C4=1 (DHCP) */
+    helper_script_at_command("\r\nERROR\r\n"); /* C0 (join) fails */
     TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, wifi_connect_ap(handle, "myssid", "wrongpass"));
 
     wifi_link_state_t state;
@@ -358,8 +368,11 @@ void test_WIFI_T12_open_socket_tcp_nominal(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nOK\r\n"); /* AT+P1=0 */
-    helper_script_at_command("\r\nOK\r\n"); /* AT+NCPX=... */
+    helper_script_at_command("\r\nOK\r\n"); /* P0=0 (select) */
+    helper_script_at_command("\r\nOK\r\n"); /* P1=0 (TCP) */
+    helper_script_at_command("\r\nOK\r\n"); /* P3=<host> */
+    helper_script_at_command("\r\nOK\r\n"); /* P4=<port> */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 (start client) */
 
     wifi_socket_t sock = WIFI_INVALID_SOCKET;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK,
@@ -371,8 +384,11 @@ void test_WIFI_T13_open_socket_udp_nominal(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nOK\r\n"); /* AT+P1=1 */
-    helper_script_at_command("\r\nOK\r\n"); /* AT+NCPX=... */
+    helper_script_at_command("\r\nOK\r\n"); /* P0=0 (select) */
+    helper_script_at_command("\r\nOK\r\n"); /* P1=1 (UDP) */
+    helper_script_at_command("\r\nOK\r\n"); /* P3=<host> */
+    helper_script_at_command("\r\nOK\r\n"); /* P4=<port> */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 (start client) */
 
     wifi_socket_t sock = WIFI_INVALID_SOCKET;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK,
@@ -394,7 +410,11 @@ void test_WIFI_T15_drdy_timeout(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nOK\r\n");
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
 
     /* No DRDY levels scripted for this call: stub falls back to LOW
@@ -408,7 +428,11 @@ void test_WIFI_T16_nss_deasserted_on_spi_error(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nOK\r\n");
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
 
     drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* pre-send DRDY high succeeds ... */
@@ -425,8 +449,11 @@ void test_WIFI_T17_socket_table_exhaustion(void)
 
     for (uint8_t i = 0u; i < WIFI_MAX_SOCKETS; i++)
     {
-        helper_script_at_command("\r\nOK\r\n"); /* AT+P1= */
-        helper_script_at_command("\r\nOK\r\n"); /* AT+NCPX= */
+        helper_script_at_command("\r\nOK\r\n"); /* P0= */
+        helper_script_at_command("\r\nOK\r\n"); /* P1= */
+        helper_script_at_command("\r\nOK\r\n"); /* P3= */
+        helper_script_at_command("\r\nOK\r\n"); /* P4= */
+        helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
 
         wifi_socket_t sock = WIFI_INVALID_SOCKET;
         TEST_ASSERT_EQUAL(WIFI_ERR_OK,
@@ -443,18 +470,25 @@ void test_WIFI_T18_close_socket_frees_slot(void)
 {
     wifi_handle_t handle = helper_create_ready();
 
-    helper_script_at_command("\r\nOK\r\n"); /* AT+P1= */
-    helper_script_at_command("\r\nOK\r\n"); /* AT+NCPX= */
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
     wifi_socket_t sock = WIFI_INVALID_SOCKET;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK,
                       wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
     TEST_ASSERT_EQUAL(0u, sock);
 
-    helper_script_at_command("\r\nOK\r\n"); /* AT+NCLS= */
+    helper_script_at_command("\r\nOK\r\n"); /* P0= (select) */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=0 (stop client) */
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_close_socket(handle, sock));
 
-    helper_script_at_command("\r\nOK\r\n"); /* AT+P1= */
-    helper_script_at_command("\r\nOK\r\n"); /* AT+NCPX= */
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
     wifi_socket_t reopened = WIFI_INVALID_SOCKET;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK,
                       wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &reopened));

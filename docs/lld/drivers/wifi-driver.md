@@ -447,20 +447,30 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst,
                                   size_t resp_buf_len);
 ```
 
-AT command mapping:
+AT command mapping (WIFI-D12 — corrected against Inventek's own IWIN AT
+command reference, not the fictional Hayes-style commands v0.2 originally
+used; see WIFI-D12 in §11 for how that was found and why the correction
+matters):
 
-| Public API | AT command |
+The ISM43362's IWIN command set has **no "AT" attention prefix** — every
+command is `<COMMAND><=data><CR>`, e.g. `C1=mySSID\r`, not `AT+C1=mySSID\r`.
+
+| Public API | IWIN command(s) |
 |---|---|
-| `wifi_create` (handshake) | `AT\r` |
-| `wifi_create` (version) | `AT+GMR\r` |
-| `wifi_connect_ap` | `AT+WC=<ssid>,<pwd>,0\r` |
-| `wifi_disconnect_ap` | `AT+WD\r` |
-| `wifi_get_rssi` | `AT+WRSSI\r` |
-| `wifi_open_socket(TCP)` | `AT+P1=0\r` + `AT+NCPX=<id>,<host>,<port>,0\r` |
-| `wifi_open_socket(UDP)` | `AT+P1=1\r` + `AT+NCPX=<id>,<host>,<port>,1\r` |
-| `wifi_send` | `AT+S.=<id>,<len>\r` + payload |
-| `wifi_recv` | `AT+R=<id>,<len>\r` |
-| `wifi_close_socket` | `AT+NCLS=<id>\r` |
+| `wifi_create` (handshake) | `?\r` (print-help liveness check) |
+| `wifi_create` (version) | `I?\r` (module info; response must contain "C3.5.2.3") |
+| `wifi_connect_ap` | `C1=<ssid>\r`, `C2=<pwd>\r`, `C3=4\r` (WPA2 Mixed), `C4=1\r` (DHCP on), `C0\r` (join) — five sequential commands |
+| `wifi_disconnect_ap` | `CD\r` |
+| `wifi_get_rssi` | `CR\r` — bare response: `0` if not joined, else the RSSI value with no prefix |
+| `wifi_open_socket(TCP\|UDP)` | `P0=<slot>\r` (select), `P1=<0\|1>\r` (protocol), `P3=<host>\r`, `P4=<port>\r`, `P6=1\r` (start client) — five sequential commands; there is no combined "open connection" command |
+| `wifi_send` | `P0=<slot>\r` (select), then `S3=<len>\r` + payload |
+| `wifi_recv` | `P0=<slot>\r` (select), `R1=<len>\r` (set expected size), then `R0\r` |
+| `wifi_close_socket` | `P0=<slot>\r` (select), then `P6=0\r` (stop client) — there is no dedicated close command |
+
+Every one of these is a **separate** `prv_at_command()` round trip (send →
+wait for its own `\r\nOK\r\n`/`\r\nERROR\r\n` → proceed); the module's
+socket commands operate on whichever socket `P0=` last selected, so the
+select must precede every per-socket operation, including send/recv/close.
 
 ### 3.4 FRXTH — ISM43362 16-bit SPI requirement
 
@@ -528,8 +538,8 @@ registered.
 6. Configure DRDY line: `exti_configure(1u, EXTI_PORT_E, EXTI_EDGE_RISING)`.
    Does not enable the interrupt — only maps PE1 to EXTI1 and sets the
    trigger edge (see `exti-driver.md`).
-7. AT handshake in polling mode: `prv_at_command("AT\r", ...)`.
-8. Firmware version check: `prv_at_command("AT+GMR\r", ...)` — must
+7. AT handshake in polling mode: `prv_at_command("?\r", ...)`.
+8. Firmware version check: `prv_at_command("I?\r", ...)` — response must
    contain "C3.5.2.3" (per UM2153 §7.11.3 FCC/CE compliance).
 9. Set `inst->ready = true`.
 
@@ -720,7 +730,7 @@ Test file: `tests/gateway/drivers/wifi_driver/test_wifi_driver.c`
 | WIFI-T01 | OK response `"\r\nOK\r\n"` | Returns `WIFI_ERR_OK` |
 | WIFI-T02 | ERROR response `"\r\nERROR\r\n"` | Returns `WIFI_ERR_MODULE` |
 | WIFI-T03 | Truncated response (buffer full, no OK/ERROR) | Returns `WIFI_ERR_TIMEOUT` |
-| WIFI-T04 | RSSI parse `"+WRSSI:-67\r\nOK\r\n"` | `rssi_dbm = -67` |
+| WIFI-T04 | RSSI parse `"-67\r\nOK\r\n"` (bare value, no prefix per IWIN `CR` command) | `rssi_dbm = -67` |
 | WIFI-T05 | Firmware version match | Returns `WIFI_ERR_OK` |
 | WIFI-T06 | Firmware version mismatch | Returns `WIFI_ERR_FIRMWARE` |
 
@@ -731,10 +741,10 @@ Test file: `tests/gateway/drivers/wifi_driver/test_wifi_driver.c`
 | WIFI-T07 | `wifi_create` happy path | SPI handshake sent, firmware checked, handle returned |
 | WIFI-T08 | `wifi_create` with NULL config | Returns `WIFI_ERR_NULL_PTR` |
 | WIFI-T09 | `wifi_create` pool exhaustion | Second call returns `WIFI_ERR_NO_RESOURCE` |
-| WIFI-T10 | `wifi_connect_ap` nominal | `AT+WC=...` sent, link_state = UP |
-| WIFI-T11 | `wifi_connect_ap` wrong SSID | SPI returns ERROR, returns `WIFI_ERR_MODULE` |
-| WIFI-T12 | `wifi_open_socket(TCP)` nominal | `AT+P1=0` + `AT+NCPX` sent, valid socket returned |
-| WIFI-T13 | `wifi_open_socket(UDP)` nominal | `AT+P1=1` + `AT+NCPX` sent, valid socket returned |
+| WIFI-T10 | `wifi_connect_ap` nominal | `C1/C2/C3/C4/C0` sequence sent, link_state = UP |
+| WIFI-T11 | `wifi_connect_ap` wrong SSID | `C0` (join) returns ERROR, returns `WIFI_ERR_MODULE` |
+| WIFI-T12 | `wifi_open_socket(TCP)` nominal | `P0/P1/P3/P4/P6=1` sequence sent, valid socket returned |
+| WIFI-T13 | `wifi_open_socket(UDP)` nominal | `P0/P1/P3/P4/P6=1` sequence sent (P1=1), valid socket returned |
 | WIFI-T14 | `wifi_send` with link down | No SPI, returns `WIFI_ERR_NOT_CONNECTED` |
 | WIFI-T15 | DRDY timeout | Mock DRDY stays low, returns `WIFI_ERR_TIMEOUT`, NSS deasserted |
 | WIFI-T16 | NSS deasserted on SPI error | Mock SPI fails, verify NSS high at exit |
@@ -766,13 +776,15 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 | WIFI-D1 | IWifi exposes a socket API (TCP + UDP), not AT commands | AT commands are ISM43362-specific. MqttClient and NtpClient consume a portable socket interface; replacing the WiFi module requires only WifiDriver changes. |
 | WIFI-D2 | TLS NOT handled inside WifiDriver | On-module TLS couples certificate management to the ISM43362. mbedTLS at MqttClient layer is portable and inspectable. |
 | WIFI-D3 | Firmware version checked at init; mismatch = hard fail | Wrong firmware violates FCC/CE compliance per UM2153 §7.11.3. Fail-fast is safer than silent non-compliance. |
-| WIFI-D4 | DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2) | AT responses take 10–500 ms. Busy-polling would monopolise the CPU and starve lower-priority tasks. |
+| WIFI-D4 | ~~DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2)~~ **Superseded by WIFI-D11.** | AT responses take 10–500 ms. Busy-polling would monopolise the CPU and starve lower-priority tasks. |
 | WIFI-D5 | BOOT0 held low during normal operation | BOOT0 high = firmware update mode, not normal WiFi operation. |
 | WIFI-D6 | NSS deasserted on every error path | A stuck-low NSS permanently blocks the ISM43362. |
 | WIFI-D7 | `open_socket()` accepts `wifi_socket_type_t` (TCP/UDP) | NTP requires UDP (RFC 5905). TCP-only IWifi cannot serve NtpClient. The ISM43362 selects transport via P1= AT command. |
 | WIFI-D8 | ADT pattern (opaque handle, static pool of 1) | Gateway default. Dependencies (SPI, GPIO handles) injected via config struct. |
 | WIFI-D9 | EXTI configuration owned by ExtiDriver, not GpioDriver | ExtiDriver is the sole owner of `SYSCFG_EXTICRx` and EXTI trigger/mask registers across both boards (see `exti-driver.md`, originated from WIFI-O2 root). Folding EXTI into GpioDriver would create two owners for the same shared register set once MagnetometerDriver/ImuDriver also need EXTI lines. Superseded an earlier draft of this decision that proposed a `gpio_configure_exti()` extension. |
 | WIFI-D10 | `wifi_socket_t` is a distinct typedef from `wifi_handle_t` | Avoids naming collision between driver instance handles and socket identifiers. |
+| WIFI-D11 | `prv_at_command()` uses bounded busy-polling on the DRDY GPIO uniformly, pre- and post-scheduler; WifiDriver has no FreeRTOS dependency of its own | Supersedes WIFI-D4. `components.md`'s USES list for WifiDriver does not include FreeRTOS, and Phase H's own H11 check certifies "no FreeRTOS dependency except ISR" — WIFI-D4 contradicted that certification. Task-level notification of DATARDY events (via `xTaskNotifyFromISR` in the registered callback) remains WifiTask's responsibility, not this driver's. |
+| WIFI-D12 | AT command mapping (§3.3) corrected from a fictional Hayes-style set (`AT+WC=`, `AT+NCPX=`, `AT+S.=`, `AT+R=`, `AT+NCLS=`) to the real Inventek IWIN command set (`C1..C4`/`C0`, `P0..P6`, `S0..S3`, `R0..R3`, `CR`, `I?`, `?`) | v0.2 of this companion invented AT strings without checking them against Inventek's own documentation. Verified against `inventeksys.com/iwin/getting-started-guide/`, `/iwin/at-status-commands/`, and `/iwin/at-cmds/`, and cross-checked against UM2153 §7.11.3. The real command set has no "AT" attention prefix, and several operations (open socket, close socket) that v0.2 modelled as one combined command are actually 2–5 sequential single-purpose commands operating on whichever socket `P0=` last selected. |
 
 ---
 

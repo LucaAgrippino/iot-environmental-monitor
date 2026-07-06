@@ -147,8 +147,9 @@ wifi_err_t wifi_attach_datardy_callback(wifi_handle_t handle, wifi_datardy_cb_t 
 /**
  * @brief Connect to a WiFi access point.
  *
- * Issues AT+WC=<ssid>,<password>,0 and waits for association.
- * On success, sets internal link state to WIFI_LINK_UP.
+ * Issues the IWIN join sequence (C1=ssid, C2=password, C3=security,
+ * C4=DHCP, C0=join) and waits for association. On success, sets
+ * internal link state to WIFI_LINK_UP.
  *
  * @param[in] handle    WifiDriver handle.
  * @param[in] ssid      Null-terminated SSID (max WIFI_MAX_SSID_LEN).
@@ -162,7 +163,8 @@ wifi_err_t wifi_connect_ap(wifi_handle_t handle, const char *ssid, const char *p
 /**
  * @brief Disconnect from the current access point.
  *
- * Issues AT+WD and sets internal link state to WIFI_LINK_DOWN.
+ * Issues the IWIN "CD" command and sets internal link state to
+ * WIFI_LINK_DOWN.
  *
  * @param[in] handle  WifiDriver handle.
  * @return WIFI_ERR_OK on success.
@@ -187,7 +189,8 @@ wifi_err_t wifi_get_link_state(wifi_handle_t handle, wifi_link_state_t *state);
 /**
  * @brief Read the current RSSI from the access point.
  *
- * Issues AT+WRSSI and parses the numeric response.
+ * Issues the IWIN "CR" command and parses the bare numeric response
+ * (0 if not associated).
  *
  * @param[in]  handle    WifiDriver handle.
  * @param[out] rssi_dbm  Receives the RSSI in dBm (negative value).
@@ -200,9 +203,10 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm);
 /**
  * @brief Open a TCP or UDP socket to a remote host.
  *
- * Issues AT+P1=<type> to select transport, then AT+NCPX to open the
- * connection. Returns a socket identifier for use with wifi_send(),
- * wifi_recv(), and wifi_close_socket().
+ * Issues the IWIN sequence P0=<slot> (select), P1=<type> (protocol),
+ * P3=<host>, P4=<port>, P6=1 (start client) — there is no combined
+ * "open connection" command. Returns a socket identifier for use with
+ * wifi_send(), wifi_recv(), and wifi_close_socket().
  *
  * @param[in]  handle       WifiDriver handle.
  * @param[in]  type         WIFI_SOCKET_TCP or WIFI_SOCKET_UDP.
@@ -219,7 +223,8 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
 /**
  * @brief Send data on an open socket.
  *
- * Issues AT+S.=<socket>,<len> followed by the data payload.
+ * Issues P0=<socket> (select), then S3=<len> followed by the data
+ * payload in the same transaction.
  *
  * @param[in] handle  WifiDriver handle.
  * @param[in] socket  Socket identifier from wifi_open_socket().
@@ -236,8 +241,9 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
 /**
  * @brief Receive data from an open socket.
  *
- * Issues AT+R=<socket>,<buf_len> and reads the response payload.
- * Blocks until data is available or timeout expires.
+ * Issues P0=<socket> (select), R1=<len> (expected packet size), then
+ * R0 to read the response payload. Blocks until data is available or
+ * timeout expires.
  *
  * @param[in]  handle      WifiDriver handle.
  * @param[in]  socket      Socket identifier from wifi_open_socket().
@@ -256,7 +262,8 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
 /**
  * @brief Close an open socket.
  *
- * Issues AT+NCLS=<socket> and frees the internal socket table entry.
+ * Issues P0=<socket> (select), then P6=0 (stop client) — there is no
+ * dedicated close command — and frees the internal socket table entry.
  *
  * @param[in] handle  WifiDriver handle.
  * @param[in] socket  Socket identifier from wifi_open_socket().
