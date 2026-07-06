@@ -12,10 +12,32 @@
  *      B-L475E-IOT01A) and flash with a debugger attached.
  *   5. Optionally fill in BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD below
  *      before flashing to exercise the association + socket path.
+ *   6. To exercise real data transfer (TC-HW-WIFI-005/006), run SocketTest
+ *      (https://sourceforge.net/projects/sockettest/, or any TCP/UDP
+ *      listener) on a PC on the same LAN as the board:
+ *        - Start it in TCP server (listen) mode on BRINGUP_SOCKETTEST_TCP_PORT
+ *          before flashing, to catch TC-HW-WIFI-005.
+ *        - The task pauses 5 s between TC-HW-WIFI-005 and TC-HW-WIFI-006 —
+ *          switch SocketTest to UDP listen mode on BRINGUP_SOCKETTEST_UDP_PORT
+ *          during that pause.
+ *        - Fill in BRINGUP_SOCKETTEST_HOST with the PC's LAN IP address.
+ *        - Watching the bytes actually arrive in SocketTest's receive
+ *          window is the point: it proves data survives the full path
+ *          (WifiDriver -> ISM43362 -> real network -> PC), not just that
+ *          AT commands returned OK.
+ *
+ * Reports through the real Logger middleware (companion:
+ * docs/lld/middleware/logger.md), not raw UART — same pattern as
+ * integration-tests/logger/main_test_logger.c. wifi_create() itself
+ * (companion Phase 1) runs pre-scheduler, so its diagnostics take
+ * Logger's synchronous-write path; wifi_attach_datardy_callback() and the
+ * connect/RSSI/socket exercise (companion Phase 2) run from a real
+ * FreeRTOS task after vTaskStartScheduler(), exercising Logger's
+ * queue + drain-task path as well as WifiDriver's own two-phase design.
  *
  * Hardware outputs:
- *   USART1 TX  PB6   115 200 8N1  Human-readable test results
- *   LD2 green  PA5                Heartbeat and pass/fail markers
+ *   USART1 TX  PB6   115 200 8N1  Logger output (LOG_INFO/LOG_ERROR lines)
+ *   LD2 green  PA5                Heartbeat once the wifi task is running
  *   SPI3 SCK/MISO/MOSI  PC10/PC11/PC12  AF6, 10 MHz, mode 0, 16-bit frames
  *   NSS   PE0  (GpioDriver, output, active low)
  *   DRDY  PE1  (GpioDriver input + ExtiDriver EXTI1, rising edge)
@@ -30,23 +52,32 @@
  *   TC-HW-WIFI-002  wifi_attach_datardy_callback() returns WIFI_ERR_OK
  *   TC-HW-WIFI-003  wifi_get_link_state() reports WIFI_LINK_DOWN pre-connect
  *   TC-HW-WIFI-004  (only if BRINGUP_WIFI_SSID is non-empty) connect to the
- *                   configured AP, read RSSI, open+close a TCP socket
+ *                   configured AP, read RSSI
+ *   TC-HW-WIFI-005  Open a TCP socket to BRINGUP_SOCKETTEST_HOST:_TCP_PORT,
+ *                   send a message, attempt to receive a reply, close
+ *   TC-HW-WIFI-006  Same as 005, over UDP to BRINGUP_SOCKETTEST_UDP_PORT
+ *
+ * If cpu_init(), debug_uart_init(), or rtc_init() fail, Logger cannot be
+ * trusted as the reporting channel yet — the board halts with a fast LED
+ * blink instead (same convention as main_test_logger.c).
  *
  * Manual step (requires the DATARDY line and a logic analyser, or reliance
  * on the on-board module's real responses): probe PE1 during TC-HW-WIFI-001
  * to confirm the module asserts DATARDY in response to the AT handshake.
  */
 
-#include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include "cpu/cpu.h"
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
 #include "exti/exti_driver.h"
 #include "gpio/gpio_driver.h"
+#include "logger/logger.h"
+#include "rtc/rtc.h"
 #include "spi/spi.h"
 #include "wifi_driver/wifi_driver.h"
 
@@ -56,10 +87,17 @@
 
 /* ---------------------------------------------------------------------- */
 /* Fill these in before flashing to exercise the AP-connect + socket path. */
-/* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFI-004.                    */
+/* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFI-004/005/006.            */
 /* ---------------------------------------------------------------------- */
-#define BRINGUP_WIFI_SSID ""
-#define BRINGUP_WIFI_PASSWORD ""
+#define BRINGUP_WIFI_SSID "Grove Island"
+#define BRINGUP_WIFI_PASSWORD "1234"
+
+/* PC running SocketTest (or any TCP/UDP listener) on the same LAN — see
+ * the file header for setup instructions. Leave BRINGUP_SOCKETTEST_HOST
+ * empty to skip TC-HW-WIFI-005/006. */
+#define BRINGUP_SOCKETTEST_HOST ""
+#define BRINGUP_SOCKETTEST_TCP_PORT (5000U)
+#define BRINGUP_SOCKETTEST_UDP_PORT (5001U)
 
 /* ---------------------------------------------------------------------- */
 /* Board constants                                                         */
@@ -73,8 +111,6 @@
 #define BRINGUP_UART_RX_PORT GPIO_PORT_B
 #define BRINGUP_UART_RX_PIN (7U)
 #define BRINGUP_UART_AF (7U)
-
-#define BRINGUP_TX_TIMEOUT_MS (100U)
 
 #define BRINGUP_SPI_SCK_PORT GPIO_PORT_C
 #define BRINGUP_SPI_SCK_PIN (10U)
@@ -96,26 +132,13 @@
 #define BRINGUP_BOOT0_PORT GPIO_PORT_B
 #define BRINGUP_BOOT0_PIN (12U)
 
-/* ---------------------------------------------------------------------- */
-/* Reporting helpers — built on DebugUartDriver (USART1, PB6, 115 200 8N1). */
-/* ---------------------------------------------------------------------- */
+#define WIFI_TASK_STACK_WORDS (384U)
+#define WIFI_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 
-static void bringup_puts(const char *s)
-{
-    size_t len = 0U;
-    while (s[len] != '\0')
-    {
-        ++len;
-    }
-    (void) debug_uart_send((const uint8_t *) s, len, BRINGUP_TX_TIMEOUT_MS);
-}
-
-static void bringup_pass(const char *label)
-{
-    bringup_puts("[PASS] ");
-    bringup_puts(label);
-    bringup_puts("\r\n");
-}
+/* ---------------------------------------------------------------------- */
+/* Boot-failure halt — Logger is not yet trusted, so this bypasses it,     */
+/* same convention as integration-tests/logger/main_test_logger.c.         */
+/* ---------------------------------------------------------------------- */
 
 static void bringup_raw_spin(uint32_t n)
 {
@@ -126,25 +149,38 @@ static void bringup_raw_spin(uint32_t n)
     }
 }
 
-static void bringup_fail(const char *label)
+static void bringup_halt(void)
 {
-    bringup_puts("[FAIL] ");
-    bringup_puts(label);
-    bringup_puts(" - HALTED\r\n");
+    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
+    GPIOA->MODER &= ~(3UL << (BRINGUP_LED_PIN * 2U));
+    GPIOA->MODER |= (1UL << (BRINGUP_LED_PIN * 2U));
     for (;;)
     {
         GPIOA->BSRR = (1UL << BRINGUP_LED_PIN);
-        bringup_raw_spin(1000000U);
+        bringup_raw_spin(200000U);
         GPIOA->BSRR = (1UL << (BRINGUP_LED_PIN + 16U));
-        bringup_raw_spin(1000000U);
+        bringup_raw_spin(200000U);
+    }
+}
+
+/**
+ * @brief Halt after Logger is up: log the reason, then blink via GpioDriver.
+ */
+static void bringup_fail(const char *label)
+{
+    LOG_ERROR("Wifi", "%s", label);
+    for (;;)
+    {
+        (void) gpio_toggle_pin(BRINGUP_LED_PORT, BRINGUP_LED_PIN);
+        bringup_raw_spin(500000U);
     }
 }
 
 /* ---------------------------------------------------------------------- */
-/* DATARDY callback — pre-scheduler bring-up, so this is never actually   */
-/* invoked from an ISR here (EXTI1 is enabled but nothing services it     */
-/* without the scheduler + stm32l4xx_it.c wiring from WifiTask); it only  */
-/* proves wifi_attach_datardy_callback() accepts a valid callback.        */
+/* DATARDY callback — this bring-up never enables real WifiTask-style      */
+/* notification plumbing (xTaskNotifyFromISR); it only proves              */
+/* wifi_attach_datardy_callback() accepts a valid callback and enables     */
+/* EXTI1 without error.                                                    */
 /* ---------------------------------------------------------------------- */
 
 static volatile uint32_t s_datardy_calls;
@@ -156,35 +192,161 @@ static void bringup_datardy_cb(void *ctx)
 }
 
 /* ---------------------------------------------------------------------- */
+/* WiFi task — Phase 2 (post-scheduler): attach callback, run TC-HW-WIFI-  */
+/* 002..004, then heartbeat.                                               */
+/* ---------------------------------------------------------------------- */
+
+static StaticTask_t s_wifi_task_tcb;
+static StackType_t s_wifi_task_stack[WIFI_TASK_STACK_WORDS];
+
+static void wifi_bringup_task(void *arg)
+{
+    wifi_handle_t wifi_handle = (wifi_handle_t) arg;
+
+    /* TC-HW-WIFI-002 */
+    if (wifi_attach_datardy_callback(wifi_handle, bringup_datardy_cb, NULL) != WIFI_ERR_OK)
+    {
+        bringup_fail("TC-HW-WIFI-002  wifi_attach_datardy_callback() failed");
+    }
+    LOG_INFO("Wifi", "TC-HW-WIFI-002  wifi_attach_datardy_callback() returned WIFI_ERR_OK");
+
+    /* TC-HW-WIFI-003 */
+    wifi_link_state_t link_state;
+    if ((wifi_get_link_state(wifi_handle, &link_state) != WIFI_ERR_OK) ||
+        (link_state != WIFI_LINK_DOWN))
+    {
+        bringup_fail("TC-HW-WIFI-003  expected WIFI_LINK_DOWN before wifi_connect_ap()");
+    }
+    LOG_INFO("Wifi", "TC-HW-WIFI-003  link state is WIFI_LINK_DOWN pre-connect");
+
+    /* TC-HW-WIFI-004 — only runs if credentials were filled in above. */
+    if (sizeof(BRINGUP_WIFI_SSID) > 1U)
+    {
+        if (wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD) != WIFI_ERR_OK)
+        {
+            bringup_fail("TC-HW-WIFI-004  wifi_connect_ap() failed");
+        }
+
+        int8_t rssi_dbm = 0;
+        if (wifi_get_rssi(wifi_handle, &rssi_dbm) != WIFI_ERR_OK)
+        {
+            bringup_fail("TC-HW-WIFI-004  wifi_get_rssi() failed after association");
+        }
+        LOG_INFO("Wifi", "TC-HW-WIFI-004  associated, RSSI=%d dBm", (int) rssi_dbm);
+
+        if (sizeof(BRINGUP_SOCKETTEST_HOST) > 1U)
+        {
+            /* TC-HW-WIFI-005 — TCP round trip against SocketTest. */
+            wifi_socket_t tcp_sock = WIFI_INVALID_SOCKET;
+            if (wifi_open_socket(wifi_handle, WIFI_SOCKET_TCP, BRINGUP_SOCKETTEST_HOST,
+                                 BRINGUP_SOCKETTEST_TCP_PORT, &tcp_sock) != WIFI_ERR_OK)
+            {
+                bringup_fail("TC-HW-WIFI-005  wifi_open_socket(TCP) failed");
+            }
+            LOG_INFO("Wifi", "TC-HW-WIFI-005  TCP socket open (id=%u) - check SocketTest",
+                     (unsigned) tcp_sock);
+
+            static const uint8_t tcp_hello[] = "WIFI-BRINGUP-TCP-HELLO\r\n";
+            if (wifi_send(wifi_handle, tcp_sock, tcp_hello, sizeof(tcp_hello) - 1U) != WIFI_ERR_OK)
+            {
+                bringup_fail("TC-HW-WIFI-005  wifi_send() failed");
+            }
+            LOG_INFO("Wifi", "TC-HW-WIFI-005  sent - confirm it appeared in SocketTest's window");
+
+            uint8_t rx_buf[64];
+            size_t rx_len = 0U;
+            wifi_err_t recv_err =
+                wifi_recv(wifi_handle, tcp_sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len, 3000U);
+            if (recv_err == WIFI_ERR_OK)
+            {
+                rx_buf[rx_len] = (uint8_t) '\0';
+                LOG_INFO("Wifi", "TC-HW-WIFI-005  received %u bytes: %s", (unsigned) rx_len,
+                         (const char *) rx_buf);
+            }
+            else
+            {
+                LOG_INFO("Wifi", "TC-HW-WIFI-005  no reply within timeout (type something in "
+                                 "SocketTest and resend to exercise this path)");
+            }
+
+            (void) wifi_close_socket(wifi_handle, tcp_sock);
+            LOG_INFO("Wifi", "TC-HW-WIFI-005  TCP socket closed");
+
+            LOG_INFO("Wifi",
+                     "Switch SocketTest to UDP listen mode on port %u now - "
+                     "5 s pause...",
+                     (unsigned) BRINGUP_SOCKETTEST_UDP_PORT);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+
+            /* TC-HW-WIFI-006 — UDP round trip against SocketTest. */
+            wifi_socket_t udp_sock = WIFI_INVALID_SOCKET;
+            if (wifi_open_socket(wifi_handle, WIFI_SOCKET_UDP, BRINGUP_SOCKETTEST_HOST,
+                                 BRINGUP_SOCKETTEST_UDP_PORT, &udp_sock) != WIFI_ERR_OK)
+            {
+                bringup_fail("TC-HW-WIFI-006  wifi_open_socket(UDP) failed");
+            }
+            LOG_INFO("Wifi", "TC-HW-WIFI-006  UDP socket open (id=%u) - check SocketTest",
+                     (unsigned) udp_sock);
+
+            static const uint8_t udp_hello[] = "WIFI-BRINGUP-UDP-HELLO\r\n";
+            if (wifi_send(wifi_handle, udp_sock, udp_hello, sizeof(udp_hello) - 1U) != WIFI_ERR_OK)
+            {
+                bringup_fail("TC-HW-WIFI-006  wifi_send() failed");
+            }
+            LOG_INFO("Wifi", "TC-HW-WIFI-006  sent - confirm it appeared in SocketTest's window");
+
+            recv_err =
+                wifi_recv(wifi_handle, udp_sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len, 3000U);
+            if (recv_err == WIFI_ERR_OK)
+            {
+                rx_buf[rx_len] = (uint8_t) '\0';
+                LOG_INFO("Wifi", "TC-HW-WIFI-006  received %u bytes: %s", (unsigned) rx_len,
+                         (const char *) rx_buf);
+            }
+            else
+            {
+                LOG_INFO("Wifi", "TC-HW-WIFI-006  no reply within timeout (type something in "
+                                 "SocketTest and resend to exercise this path)");
+            }
+
+            (void) wifi_close_socket(wifi_handle, udp_sock);
+            LOG_INFO("Wifi", "TC-HW-WIFI-006  UDP socket closed");
+        }
+        else
+        {
+            LOG_INFO("Wifi", "BRINGUP_SOCKETTEST_HOST is empty - skipping TC-HW-WIFI-005/006");
+        }
+    }
+    else
+    {
+        LOG_INFO("Wifi", "BRINGUP_WIFI_SSID is empty - skipping TC-HW-WIFI-004/005/006");
+    }
+
+    LOG_INFO("Wifi", "All automated tests complete.");
+
+    for (;;)
+    {
+        (void) gpio_toggle_pin(BRINGUP_LED_PORT, BRINGUP_LED_PIN);
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+/* ---------------------------------------------------------------------- */
 /* main()                                                                  */
 /* ---------------------------------------------------------------------- */
 
 int main(void)
 {
-    status_t init_st = cpu_init();
-    if (init_st != STATUS_OK)
+    /* 1. Clock tree -> 80 MHz, DWT, fault handlers, LSE for the RTC. */
+    if (cpu_init() != STATUS_OK)
     {
-        RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
-        GPIOA->MODER &= ~(3UL << (BRINGUP_LED_PIN * 2U));
-        GPIOA->MODER |= (1UL << (BRINGUP_LED_PIN * 2U));
-        for (;;)
-        {
-            GPIOA->BSRR = (1UL << BRINGUP_LED_PIN);
-            bringup_raw_spin(200000U);
-            GPIOA->BSRR = (1UL << (BRINGUP_LED_PIN + 16U));
-            bringup_raw_spin(200000U);
-        }
+        bringup_halt();
     }
 
+    /* 2. Drivers Logger depends on. */
     if (gpio_init() != GPIO_OK)
     {
-        for (;;)
-        {
-            GPIOA->BSRR = (1UL << BRINGUP_LED_PIN);
-            bringup_raw_spin(100000U);
-            GPIOA->BSRR = (1UL << (BRINGUP_LED_PIN + 16U));
-            bringup_raw_spin(100000U);
-        }
+        bringup_halt();
     }
 
     gpio_pin_config_t uart_tx_config = {
@@ -207,14 +369,24 @@ int main(void)
     };
     (void) gpio_configure_pin(&uart_tx_config);
     (void) gpio_configure_pin(&uart_rx_config);
-    (void) debug_uart_init();
+    if (debug_uart_init() != DEBUG_UART_OK)
+    {
+        bringup_halt();
+    }
+    if (rtc_init() != RTC_OK)
+    {
+        bringup_halt();
+    }
 
-    bringup_puts("\r\n======= WifiDriver Hardware Bring-up =======\r\n");
-    bringup_puts("Board : B-L475E-IOT01A  (STM32L475VGTx)\r\n");
-    bringup_puts("Module: ISM43362-M3G-L44 via SPI3\r\n");
-    bringup_puts("=============================================\r\n\r\n");
+    /* 3. Logger — creates the queue and drain task statically; log calls
+     *    before vTaskStartScheduler() take the synchronous-write path. */
+    (void) logger_init(LOG_LEVEL_DEBUG);
 
-    /* SPI3 pins (SCK/MISO/MOSI, AF6). */
+    LOG_INFO("Wifi", "===== WifiDriver Hardware Bring-up =====");
+    LOG_INFO("Wifi", "Board : B-L475E-IOT01A (STM32L475VGTx)");
+    LOG_INFO("Wifi", "Module: ISM43362-M3G-L44 via SPI3");
+
+    /* 4. WifiDriver Phase 1 (pre-scheduler): pins, SpiDriver, wifi_create(). */
     gpio_pin_config_t spi_pins[3] = {
         {.port = BRINGUP_SPI_SCK_PORT,
          .pin = BRINGUP_SPI_SCK_PIN,
@@ -246,7 +418,6 @@ int main(void)
         }
     }
 
-    /* ISM43362 control lines. */
     gpio_pin_config_t nss_config = {.port = BRINGUP_NSS_PORT,
                                     .pin = BRINGUP_NSS_PIN,
                                     .mode = GPIO_MODE_OUTPUT,
@@ -290,7 +461,7 @@ int main(void)
     {
         bringup_fail("TC-HW-WIFI-001  ISM43362 control-line configuration failed");
     }
-    bringup_pass("TC-HW-WIFI-001a  All GPIO pins configured (SPI3 + 5 control lines)");
+    LOG_INFO("Wifi", "TC-HW-WIFI-001a  All GPIO pins configured (SPI3 + 5 control lines)");
 
     spi_config_t spi_config = {.instance = SPI3};
     spi_handle_t spi_handle = NULL;
@@ -298,7 +469,7 @@ int main(void)
     {
         bringup_fail("TC-HW-WIFI-001b  spi_create() failed");
     }
-    bringup_pass("TC-HW-WIFI-001b  spi_create() returned SPI_ERR_OK");
+    LOG_INFO("Wifi", "TC-HW-WIFI-001b  spi_create() returned SPI_ERR_OK");
 
     wifi_config_t wifi_config = {
         .spi = spi_handle,
@@ -317,66 +488,23 @@ int main(void)
     wifi_err_t wifi_err = wifi_create(&wifi_config, &wifi_handle);
     if (wifi_err != WIFI_ERR_OK)
     {
-        char err_msg[48];
-        (void) snprintf(err_msg, sizeof(err_msg), "[INFO] wifi_create() error code: %d\r\n",
-                        (int) wifi_err);
-        bringup_puts(err_msg);
+        LOG_ERROR("Wifi", "wifi_create() error code: %d", (int) wifi_err);
         bringup_fail("TC-HW-WIFI-001c  wifi_create() failed (reset sequence, AT "
                      "handshake, or firmware version check)");
     }
-    bringup_pass("TC-HW-WIFI-001c  wifi_create() completed reset + AT handshake + "
-                 "firmware check");
+    LOG_INFO("Wifi", "TC-HW-WIFI-001c  wifi_create() completed reset + AT handshake + "
+                     "firmware check");
+    LOG_INFO("Wifi", "starting scheduler...");
 
-    /* TC-HW-WIFI-002 */
-    if (wifi_attach_datardy_callback(wifi_handle, bringup_datardy_cb, NULL) != WIFI_ERR_OK)
-    {
-        bringup_fail("TC-HW-WIFI-002  wifi_attach_datardy_callback() failed");
-    }
-    bringup_pass("TC-HW-WIFI-002  wifi_attach_datardy_callback() returned WIFI_ERR_OK");
+    /* 5. Phase 2 (post-scheduler): attach callback, connect, heartbeat. */
+    (void) xTaskCreateStatic(wifi_bringup_task, "wifi_bringup", WIFI_TASK_STACK_WORDS, wifi_handle,
+                             WIFI_TASK_PRIORITY, s_wifi_task_stack, &s_wifi_task_tcb);
 
-    /* TC-HW-WIFI-003 */
-    wifi_link_state_t link_state;
-    if ((wifi_get_link_state(wifi_handle, &link_state) != WIFI_ERR_OK) ||
-        (link_state != WIFI_LINK_DOWN))
-    {
-        bringup_fail("TC-HW-WIFI-003  expected WIFI_LINK_DOWN before wifi_connect_ap()");
-    }
-    bringup_pass("TC-HW-WIFI-003  wifi_get_link_state() reports WIFI_LINK_DOWN pre-connect");
+    /* 6. Start the scheduler. Does not return under normal operation. */
+    vTaskStartScheduler();
 
-    /* TC-HW-WIFI-004 — only runs if credentials were filled in above. */
-    if (sizeof(BRINGUP_WIFI_SSID) > 1U)
-    {
-        if (wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD) != WIFI_ERR_OK)
-        {
-            bringup_fail("TC-HW-WIFI-004  wifi_connect_ap() failed");
-        }
-
-        int8_t rssi_dbm = 0;
-        if (wifi_get_rssi(wifi_handle, &rssi_dbm) != WIFI_ERR_OK)
-        {
-            bringup_fail("TC-HW-WIFI-004  wifi_get_rssi() failed after association");
-        }
-
-        wifi_socket_t sock = WIFI_INVALID_SOCKET;
-        if (wifi_open_socket(wifi_handle, WIFI_SOCKET_TCP, "8.8.8.8", 53U, &sock) != WIFI_ERR_OK)
-        {
-            bringup_fail("TC-HW-WIFI-004  wifi_open_socket() failed");
-        }
-        (void) wifi_close_socket(wifi_handle, sock);
-        bringup_pass("TC-HW-WIFI-004  connected, read RSSI, opened+closed a TCP socket");
-    }
-    else
-    {
-        bringup_puts("[INFO] BRINGUP_WIFI_SSID is empty — skipping TC-HW-WIFI-004 "
-                     "(connect/RSSI/socket path).\r\n");
-    }
-
-    bringup_puts("\r\n[PASS] All automated tests complete.\r\n");
-    bringup_puts("[INFO] Heartbeat: LD2 PA5 toggles every 500 ms.\r\n\r\n");
-
+    /* 7. Only reached if the scheduler fails to start. */
     for (;;)
     {
-        gpio_toggle_pin(BRINGUP_LED_PORT, BRINGUP_LED_PIN);
-        cpu_delay_ms(500U);
     }
 }
