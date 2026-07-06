@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "cpu.h"
+#include "cpu/cpu.h"
 
 #define WIFI_MAX_INSTANCES 1u
 #define WIFI_AT_BUF_SIZE 512u

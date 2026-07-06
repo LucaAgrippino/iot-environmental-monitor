@@ -23,9 +23,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "exti_driver.h"
-#include "gpio_driver.h"
-#include "spi.h"
+#include "exti/exti_driver.h"
+#include "gpio/gpio_driver.h"
+#include "spi/spi.h"
 
 #define WIFI_MAX_SSID_LEN 32u
 #define WIFI_MAX_PASS_LEN 64u

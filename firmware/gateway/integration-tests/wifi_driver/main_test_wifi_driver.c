@@ -40,12 +40,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "cpu/cpu.h"
+#include "cpu/status.h"
+#include "debug_uart/debug_uart.h"
 #include "exti/exti_driver.h"
 #include "gpio/gpio_driver.h"
 #include "spi/spi.h"
-#include "status.h"
 #include "wifi_driver/wifi_driver.h"
 
 #ifdef STM32L475xx
@@ -68,7 +70,11 @@
 
 #define BRINGUP_UART_TX_PORT GPIO_PORT_B
 #define BRINGUP_UART_TX_PIN (6U)
-#define BRINGUP_UART_TX_AF (7U)
+#define BRINGUP_UART_RX_PORT GPIO_PORT_B
+#define BRINGUP_UART_RX_PIN (7U)
+#define BRINGUP_UART_AF (7U)
+
+#define BRINGUP_TX_TIMEOUT_MS (100U)
 
 #define BRINGUP_SPI_SCK_PORT GPIO_PORT_C
 #define BRINGUP_SPI_SCK_PIN (10U)
@@ -90,38 +96,18 @@
 #define BRINGUP_BOOT0_PORT GPIO_PORT_B
 #define BRINGUP_BOOT0_PIN (12U)
 
-#define BRINGUP_UART_BRR (694U) /* 80 MHz / 115 200 */
-
 /* ---------------------------------------------------------------------- */
-/* UART helpers (USART1, PB6, 115 200 8N1) — reporting only.               */
+/* Reporting helpers — built on DebugUartDriver (USART1, PB6, 115 200 8N1). */
 /* ---------------------------------------------------------------------- */
-
-static void bringup_uart_peripheral_init(void)
-{
-    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
-    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
-
-    USART1->CR1 = 0U;
-    USART1->BRR = BRINGUP_UART_BRR;
-    USART1->CR1 = USART_CR1_TE | USART_CR1_UE;
-}
-
-static void bringup_putc(char c)
-{
-    while (!(USART1->ISR & USART_ISR_TXE))
-    {
-        /* spin */
-    }
-    USART1->TDR = (uint32_t) (uint8_t) c;
-}
 
 static void bringup_puts(const char *s)
 {
-    while (*s != '\0')
+    size_t len = 0U;
+    while (s[len] != '\0')
     {
-        bringup_putc(*s);
-        ++s;
+        ++len;
     }
+    (void) debug_uart_send((const uint8_t *) s, len, BRINGUP_TX_TIMEOUT_MS);
 }
 
 static void bringup_pass(const char *label)
@@ -208,10 +194,20 @@ int main(void)
         .otype = GPIO_OTYPE_PUSH_PULL,
         .speed = GPIO_SPEED_VERY_HIGH,
         .pull = GPIO_PULL_NONE,
-        .alternate = BRINGUP_UART_TX_AF,
+        .alternate = BRINGUP_UART_AF,
+    };
+    gpio_pin_config_t uart_rx_config = {
+        .port = BRINGUP_UART_RX_PORT,
+        .pin = BRINGUP_UART_RX_PIN,
+        .mode = GPIO_MODE_ALTERNATE,
+        .otype = GPIO_OTYPE_PUSH_PULL,
+        .speed = GPIO_SPEED_VERY_HIGH,
+        .pull = GPIO_PULL_UP,
+        .alternate = BRINGUP_UART_AF,
     };
     (void) gpio_configure_pin(&uart_tx_config);
-    bringup_uart_peripheral_init();
+    (void) gpio_configure_pin(&uart_rx_config);
+    (void) debug_uart_init();
 
     bringup_puts("\r\n======= WifiDriver Hardware Bring-up =======\r\n");
     bringup_puts("Board : B-L475E-IOT01A  (STM32L475VGTx)\r\n");
@@ -321,9 +317,10 @@ int main(void)
     wifi_err_t wifi_err = wifi_create(&wifi_config, &wifi_handle);
     if (wifi_err != WIFI_ERR_OK)
     {
-        bringup_puts("[INFO] wifi_create() error code: ");
-        bringup_putc((char) ('0' + (int) wifi_err));
-        bringup_puts("\r\n");
+        char err_msg[48];
+        (void) snprintf(err_msg, sizeof(err_msg), "[INFO] wifi_create() error code: %d\r\n",
+                        (int) wifi_err);
+        bringup_puts(err_msg);
         bringup_fail("TC-HW-WIFI-001c  wifi_create() failed (reset sequence, AT "
                      "handshake, or firmware version check)");
     }
