@@ -104,9 +104,13 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_APB1ENR1_SPI3EN_Pos  (15U)
 #define RCC_APB1ENR1_SPI3EN      (1UL << RCC_APB1ENR1_SPI3EN_Pos)
 
-/* --- APB2ENR bits (CpuDriver) ---------------------------------------- */
+/* --- APB2ENR bits (CpuDriver, ExtiDriver) ----------------------------- */
 #define RCC_APB2ENR_USART1EN_Pos (14U)
 #define RCC_APB2ENR_USART1EN     (1UL << RCC_APB2ENR_USART1EN_Pos)
+
+/* SYSCFGEN is bit 0 on L4 (RM0351) — differs from F4's bit 14. */
+#define RCC_APB2ENR_SYSCFGEN_Pos (0U)
+#define RCC_APB2ENR_SYSCFGEN     (1UL << RCC_APB2ENR_SYSCFGEN_Pos)
 
 /* --- BDCR bits (RtcDriver) --------------------------------------------- */
 #define RCC_BDCR_LSEON_Pos    (0U)
@@ -565,22 +569,65 @@ extern SPI_TypeDef g_mock_spi3;
 #define SPI_SR_BSY      (1UL << SPI_SR_BSY_Pos)
 
 /* ====================================================================== */
+/* §SYSCFG (ExtiDriver — L4)                                               */
+/* ====================================================================== */
+
+/* Fields: MEMRMP, EXTICR[4]. SCSR/CFGR2 exist on real hardware but are not
+ * touched by ExtiDriver. */
+typedef struct
+{
+    volatile uint32_t MEMRMP;
+    volatile uint32_t EXTICR[4U];
+} SYSCFG_TypeDef;
+
+extern SYSCFG_TypeDef g_mock_syscfg_l4;
+
+#define SYSCFG (&g_mock_syscfg_l4)
+
+/* ====================================================================== */
+/* §EXTI (ExtiDriver — L4 multi-bank field names: IMR1/RTSR1/FTSR1/PR1)    */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t IMR1;
+    volatile uint32_t EMR1;
+    volatile uint32_t RTSR1;
+    volatile uint32_t FTSR1;
+    volatile uint32_t SWIER1;
+    volatile uint32_t PR1;
+} EXTI_TypeDef;
+
+extern EXTI_TypeDef g_mock_exti_l4;
+
+#define EXTI (&g_mock_exti_l4)
+
+/* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
 
 typedef enum
 {
-    USART1_IRQn = 37, /* Per stm32l475xx.h CMSIS canonical value. */
-    UART4_IRQn = 52   /* Per stm32l475xx.h CMSIS canonical value. */
+    EXTI0_IRQn     = 6,  /* Per stm32l475xx.h CMSIS canonical value (ExtiDriver). */
+    EXTI1_IRQn     = 7,  /* Per stm32l475xx.h CMSIS canonical value (ExtiDriver). */
+    EXTI2_IRQn     = 8,  /* Per stm32l475xx.h CMSIS canonical value (ExtiDriver). */
+    EXTI3_IRQn     = 9,  /* Per stm32l475xx.h CMSIS canonical value (ExtiDriver). */
+    EXTI4_IRQn     = 10, /* Per stm32l475xx.h CMSIS canonical value (ExtiDriver). */
+    EXTI9_5_IRQn   = 23, /* EXTI lines 5..9 shared vector (ExtiDriver). */
+    USART1_IRQn    = 37, /* Per stm32l475xx.h CMSIS canonical value. */
+    EXTI15_10_IRQn = 40, /* EXTI lines 10..15 shared vector (ExtiDriver). */
+    UART4_IRQn     = 52  /* Per stm32l475xx.h CMSIS canonical value. */
 } IRQn_Type;
 
 #define NVIC_IRQ_COUNT_MAX (128U)
 
 extern uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
 extern uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+extern uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 
 void NVIC_EnableIRQ(IRQn_Type irqn);
 void NVIC_DisableIRQ(IRQn_Type irqn);
+void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority);
 
 /* ====================================================================== */
 /* §CpuDriver hw-abstraction stubs (test builds only)                     */

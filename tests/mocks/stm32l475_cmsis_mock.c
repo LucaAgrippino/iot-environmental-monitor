@@ -94,11 +94,26 @@ USART_L4_TypeDef g_mock_usart1;
 
 
 /* ====================================================================== */
+/* §SYSCFG storage (ExtiDriver — L4)                                      */
+/* ====================================================================== */
+
+SYSCFG_TypeDef g_mock_syscfg_l4;
+
+
+/* ====================================================================== */
+/* §EXTI storage (ExtiDriver — L4)                                        */
+/* ====================================================================== */
+
+EXTI_TypeDef g_mock_exti_l4;
+
+
+/* ====================================================================== */
 /* §NVIC storage (L475)                                                   */
 /* ====================================================================== */
 
 uint32_t g_mock_nvic_enable_count[NVIC_IRQ_COUNT_MAX];
 uint32_t g_mock_nvic_disable_count[NVIC_IRQ_COUNT_MAX];
+uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 
 
 /* ====================================================================== */
@@ -238,11 +253,27 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_usart1.RDR = 0;
     g_mock_usart1.TDR = 0;
 
+    /* §SYSCFG */
+    g_mock_syscfg_l4.MEMRMP = 0;
+    for (uint32_t i = 0; i < 4U; ++i)
+    {
+        g_mock_syscfg_l4.EXTICR[i] = 0;
+    }
+
+    /* §EXTI */
+    g_mock_exti_l4.IMR1   = 0;
+    g_mock_exti_l4.EMR1   = 0;
+    g_mock_exti_l4.RTSR1  = 0;
+    g_mock_exti_l4.FTSR1  = 0;
+    g_mock_exti_l4.SWIER1 = 0;
+    g_mock_exti_l4.PR1    = 0;
+
     /* §NVIC */
     for (uint32_t i = 0; i < NVIC_IRQ_COUNT_MAX; ++i)
     {
         g_mock_nvic_enable_count[i]  = 0;
         g_mock_nvic_disable_count[i] = 0;
+        g_mock_nvic_priority[i]      = 0;
     }
 
     /* §CpuDriver hw-abstraction counters */
@@ -269,6 +300,14 @@ void NVIC_DisableIRQ(IRQn_Type irqn)
     if ((uint32_t) irqn < NVIC_IRQ_COUNT_MAX)
     {
         g_mock_nvic_disable_count[irqn]++;
+    }
+}
+
+void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority)
+{
+    if ((uint32_t) irqn < NVIC_IRQ_COUNT_MAX)
+    {
+        g_mock_nvic_priority[irqn] = priority;
     }
 }
 

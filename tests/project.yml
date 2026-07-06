@@ -123,6 +123,9 @@
   :test_rtc_driver_gw:
     - STM32L475xx
     - TEST
+  :test_exti_driver:
+    - STM32L475xx
+    - TEST
 
 :cmock:
   :mock_prefix: mock_
