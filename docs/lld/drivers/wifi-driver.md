@@ -1,11 +1,11 @@
 # LLD Companion — WifiDriver (ISM43362-M3G-L44)
 
-**Board:** Gateway (B-L475E-IOT01A)  
-**Branch:** `feature/lld-wifi-driver`  
-**Status:** Draft  
-**Methodology:** lld-methodology.md v1.1, steps 1–8  
-**Version:** 0.1
-**Date:** May 2026
+**Document:** `docs/lld/drivers/wifi-driver.md`
+**Version:** 0.2 (Phase H complete — ready for implementation)
+**Board:** Gateway (B-L475E-IOT01A)
+**Layer:** Driver
+**Status:** Implementation-ready
+**Date:** July 2026
 
 **HLD anchor:** WifiDriver in `components.md` (GW driver layer)
 
@@ -18,39 +18,85 @@ ISM43362-M3G-L44 embedded WiFi module via an AT-command protocol over SPI3.
 It is the sole driver consumed by WifiTask, which is the sole accessor of the
 WiFi peripheral per D29.
 
-| Component | Interface | PROVIDES | Root req |
-|-----------|-----------|----------|----------|
-| WifiDriver | SPI3 + 4 GPIO lines | IWifi | REQ-CC-050, CON-001 |
+| Attribute | Value | Source |
+|---|---|---|
+| Responsibility | Sends and receives data between the MCU and the external WiFi module via AT commands. Exposes link-level state (RSSI, connection status) to its consumer. | `components.md` |
+| PROVIDES (upward) | IWifi | `components.md` |
+| USES (downward) | SpiDriver, GpioDriver, ExtiDriver | `components.md` |
+| Root requirements | REQ-CC-050 (WiFi connect), CON-001 (ISM43362 module) | `SRS.md` §4 |
+| Board | Gateway only | `components.md` |
+| Hardware | ISM43362-M3G-L44 via SPI3 + 5 GPIO lines | UM2153 §7.11.3 |
 
----
+**Consumer:** WifiTask only (D29). WifiTask serialises all calls to WifiDriver —
+no concurrent access is possible by construction.
 
-### 1.1 Source references
+**CON-001 text (SRS.md §4):** *"The gateway WiFi module (ISM43362-M3G-L44)
+communicates with the host MCU via SPI using AT commands. All TCP/IP and TLS
+operations are handled by the module's internal stack, not by the application
+firmware."*
+
+### 1.1 Additional source references
 
 | Source | Relevant section |
-|--------|-----------------|
-| `components.md` | WifiDriver responsibility sentence, USES: SpiDriver, GpioDriver |
-| `SRS.md` | REQ-CC-050 (WiFi connect), CON-001 (ISM43362 module), REQ-CC-010/020/030/040 (MQTT/TLS) |
+|---|---|
 | `task-breakdown.md` §5.2, §6.1, §7 | WifiTask: priority 3, 256 words; D29 (sole SPI3 owner); `SPI_wifi_IRQHandler` → WifiTask |
-| `sequence-diagrams.md` SD-03, SD-04 | Cloud publish and store-and-forward flows involving WiFi |
-| UM2153 §7.11.3 | ISM43362 description, SPI3, firmware version C3.5.2.3.BETA9 |
-| UM2153 Appendix B, Fig. 26 | ISM43362 GPIO connections: CSN, DRDY, RST, WAKEUP, BOOT0 |
-| UM2153 Appendix B, Fig. 23 | MCU pin assignments |
-| ISM43362 ES-WiFi datasheet / application note | AT command set, SPI protocol, DRDY handshake |
+| `sequence-diagrams.md` SD-03, SD-04, SD-09 | Cloud publish, store-and-forward, NTP flows |
+| UM2153 Table 11, Fig. 23, Fig. 26 | Pin assignments, MCU schematic, RF module schematic |
+| ISM43362 ES-WiFi application note | AT command set, SPI protocol, DRDY handshake |
 
 ---
 
 ## 2. Public API
 
-### 3.1 IWifi
+### 2.1 ADT pattern
 
-IWifi presents a polymorphic socket abstraction to its consumers (MqttClient
-via TCP, NtpClient via UDP, both routed through WifiTask). AT commands are an
-internal implementation detail — they are not exposed above the driver layer.
+WifiDriver follows the Gateway ADT default: an opaque handle
+(`wifi_handle_t`) is returned by `wifi_create()` from a static internal
+pool. The internal struct is hidden in `wifi_driver.c`. Pool size is 1
+(single ISM43362 module on the board).
 
-**LLD-D13:** The ISM43362 AT-command set selects socket type via the `P1=`
-command (0 = TCP, 1 = UDP). `open_socket()` takes a `wifi_socket_type_t`
-parameter and issues the appropriate AT command sequence. The handle returned
-(`out_handle`) is the ISM43362 socket ID — valid for both transports.
+Dependencies (SpiDriver, GpioDriver) are injected via the config struct
+at creation time. This makes them explicit and testable.
+
+### 2.2 Dependency-conformance check
+
+| Dependency | In `components.md` | Actual usage |
+|---|---|---|
+| SpiDriver | Yes | All SPI3 transactions via `spi_transceive()` |
+| GpioDriver | Yes | NSS, RST, WAKEUP, BOOT0 driven; DRDY read |
+| ExtiDriver | Yes | DRDY (PE1) line mapping and trigger edge via `exti_configure()`; interrupt enable via `exti_enable()`; pending-flag clear via `exti_clear_pending()` |
+
+**EXTI configuration:** DRDY (PE1) requires EXTI1 configuration. This is
+owned by ExtiDriver (see `exti-driver.md`), the sole owner of
+`SYSCFG_EXTICRx` and the EXTI trigger/mask registers on both boards.
+WifiDriver calls `exti_configure()` during `wifi_create()` (Phase 1) and
+`exti_enable()` during `wifi_attach_datardy_callback()` (Phase 2), and
+the DRDY ISR calls `exti_clear_pending()` before invoking
+`wifi_datardy_irq_handler()`.
+
+### 2.3 P3 consideration
+
+Single consumer (WifiTask via D29). IWifi is a single interface. No ISP
+split warranted at this level.
+
+### 2.4 Socket abstraction rationale
+
+IWifi presents a polymorphic socket abstraction to its consumers
+(MqttClient via TCP, NtpClient via UDP, both routed through WifiTask).
+AT commands are an internal implementation detail — they are not exposed
+above the driver layer.
+
+**LLD-D13:** The ISM43362 AT-command set selects socket type via the
+`P1=` command (0 = TCP, 1 = UDP). `wifi_open_socket()` takes a
+`wifi_socket_type_t` parameter and issues the appropriate AT sequence.
+
+**Why no TLS at driver level?** The ISM43362 supports on-module TLS
+(`AT+TLSCERT`, `AT+TLSKEY`). However, surfacing TLS at the driver layer
+couples certificate management to a specific module. TLS is handled at
+the MqttClient level via a software TLS stack (e.g., mbedTLS over
+`wifi_send/recv`). See WIFI-O1.
+
+### 2.5 Data types
 
 ```c
 /* wifi_driver.h */
@@ -60,194 +106,307 @@ parameter and issues the appropriate AT command sequence. The handle returned
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
+#include "spi_driver.h"
+#include "gpio_driver.h"
+#include "exti_driver.h"
 
-#define WIFI_MAX_SSID_LEN    32U
-#define WIFI_MAX_PASS_LEN    64U
-#define WIFI_MAX_SOCKETS      4U   /* ISM43362 supports up to 4 concurrent sockets */
-#define WIFI_INVALID_SOCKET 255U
+#define WIFI_MAX_SSID_LEN     32u
+#define WIFI_MAX_PASS_LEN     64u
+#define WIFI_MAX_SOCKETS       4u   /**< ISM43362 supports up to 4 concurrent sockets. */
+#define WIFI_INVALID_SOCKET  255u
+#define WIFI_DRDY_EXTI_LINE    1u   /**< PE1 — EXTI1. */
+#define WIFI_EXTI_NVIC_PRIORITY 6u  /**< Suggested by exti-driver.md §4.4; must be
+                                         >= configMAX_SYSCALL_INTERRUPT_PRIORITY. */
+
+/** @brief Opaque handle to a WifiDriver instance. */
+typedef struct wifi_inst *wifi_handle_t;
+
+/** @brief Socket identifier returned by wifi_open_socket(). */
+typedef uint8_t wifi_socket_t;
 
 typedef enum {
-    WIFI_ERR_OK             = 0,
-    WIFI_ERR_NOT_INIT       = 1,
-    WIFI_ERR_SPI            = 2,   /* SPI transaction failure           */
-    WIFI_ERR_MODULE         = 3,   /* AT command returned ERROR         */
-    WIFI_ERR_TIMEOUT        = 4,   /* DRDY or response wait timed out   */
-    WIFI_ERR_NOT_CONNECTED  = 5,   /* AP not associated                 */
-    WIFI_ERR_SOCKET         = 6,   /* socket open / send / recv failure */
-    WIFI_ERR_INVALID_ARG    = 7,
-    WIFI_ERR_FIRMWARE       = 8    /* wrong firmware version on module  */
+    WIFI_ERR_OK            = 0,
+    WIFI_ERR_NOT_INIT      = 1,  /**< Function called before successful wifi_create().     */
+    WIFI_ERR_SPI           = 2,  /**< SPI transaction failure.                             */
+    WIFI_ERR_MODULE        = 3,  /**< AT command returned ERROR.                           */
+    WIFI_ERR_TIMEOUT       = 4,  /**< DRDY or response wait timed out.                    */
+    WIFI_ERR_NOT_CONNECTED = 5,  /**< AP not associated.                                  */
+    WIFI_ERR_SOCKET        = 6,  /**< Socket open / send / recv failure.                  */
+    WIFI_ERR_INVALID_ARG   = 7,  /**< NULL pointer or out-of-range argument.              */
+    WIFI_ERR_FIRMWARE      = 8,  /**< Wrong firmware version on module.                   */
+    WIFI_ERR_NULL_PTR      = 9,  /**< Required pointer argument was NULL.                 */
+    WIFI_ERR_NO_RESOURCE   = 10, /**< Static instance pool or socket table exhausted.     */
 } wifi_err_t;
 
 typedef enum {
     WIFI_SOCKET_TCP = 0,
-    WIFI_SOCKET_UDP = 1
+    WIFI_SOCKET_UDP = 1,
 } wifi_socket_type_t;
 
 typedef enum {
     WIFI_LINK_DOWN = 0,
-    WIFI_LINK_UP   = 1
+    WIFI_LINK_UP   = 1,
 } wifi_link_state_t;
 
-/* Callback invoked from DRDY ISR — must be ISR-safe */
+/** @brief Callback invoked from DRDY ISR — must be ISR-safe. */
 typedef void (*wifi_datardy_cb_t)(void *ctx);
+```
 
-/* Phase 1 — pre-scheduler */
+### 2.6 Configuration struct
+
+```c
 /**
- * @brief Initialise the ISM43362 Wi-Fi module via SPI.
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ * @brief WifiDriver creation configuration.
+ *
+ * Injected dependencies: SPI handle (from spi_create) and GPIO handles
+ * for all ISM43362 control lines (from gpio_create).
  */
-wifi_err_t wifi_init(void);
+typedef struct {
+    spi_handle_t  spi;      /**< SPI3 handle for data transfer.        */
+    gpio_handle_t nss;      /**< ISM43362 chip-select (PE0, active low). */
+    gpio_handle_t drdy;     /**< ISM43362 data-ready input (PE1).      */
+    gpio_handle_t rst;      /**< ISM43362 reset (PE8, active low).     */
+    gpio_handle_t wakeup;   /**< ISM43362 wakeup (PB13, active high).  */
+    gpio_handle_t boot0;    /**< ISM43362 boot mode (PB12, low=normal). */
+} wifi_config_t;
+```
 
-/* Phase 2 — post-scheduler, called from WifiTask init */
+### 2.7 Public API (`wifi_driver.h`)
+
+```c
+/**
+ * @brief Create and initialise a WifiDriver instance.
+ *
+ * Performs the ISM43362 hardware reset sequence (BOOT0 low → RST
+ * pulse → 500 ms boot wait), sends AT handshake, and verifies
+ * firmware version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
+ *
+ * GPIO pin configuration (mode, AF, pull) must be completed by the
+ * caller via gpio_create() before calling this function.  This
+ * function drives the pins but does not configure their mode.
+ *
+ * DRDY ISR is NOT enabled by this function — call
+ * wifi_attach_datardy_callback() post-scheduler.  During creation,
+ * DRDY waits use bounded busy-polling (pre-scheduler, acceptable).
+ *
+ * @param[in]  config  Injected dependencies (SPI + GPIO handles).
+ * @param[out] handle  Receives the created handle on success.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NULL_PTR if config or
+ *         handle is NULL; WIFI_ERR_NO_RESOURCE if pool exhausted;
+ *         WIFI_ERR_TIMEOUT if module does not respond to AT
+ *         handshake; WIFI_ERR_FIRMWARE if version mismatch.
+ * @note Threading: task-context only. Must be called before the
+ *       scheduler starts.
+ */
+wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle);
+
 /**
  * @brief Register the DATARDY interrupt callback.
- * @param[in,out] cb  (description TBD)
- * @param[in,out] ctx  (description TBD)
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Call before the scheduler starts; callback executes in ISR context.
+ *
+ * Stores the callback and enables EXTI1 interrupt.  The callback
+ * executes in ISR context — it must be ISR-safe (e.g.,
+ * xTaskNotifyFromISR).
+ *
+ * @param[in] handle  WifiDriver handle from wifi_create().
+ * @param[in] cb      Callback function (ISR-safe).
+ * @param[in] ctx     Opaque context passed to callback (typically
+ *                    a TaskHandle_t for xTaskNotifyFromISR).
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NULL_PTR if handle or
+ *         cb is NULL.
+ * @note Threading: task-context only. Call from WifiTask init,
+ *       after the scheduler has started.
  */
-wifi_err_t wifi_attach_datardy_callback(wifi_datardy_cb_t cb, void *ctx);
+wifi_err_t wifi_attach_datardy_callback(wifi_handle_t handle,
+                                         wifi_datardy_cb_t cb,
+                                         void *ctx);
 
-/* Network association */
 /**
- * @brief Connect to a Wi-Fi access point.
- * @param[in] ssid  (description TBD)
- * @param[in] password  (description TBD)
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ * @brief Connect to a WiFi access point.
+ *
+ * Issues AT+WC=<ssid>,<password>,0 and waits for association.
+ * On success, sets internal link state to WIFI_LINK_UP.
+ *
+ * @param[in] handle    WifiDriver handle.
+ * @param[in] ssid      Null-terminated SSID (max WIFI_MAX_SSID_LEN).
+ * @param[in] password  Null-terminated password (max WIFI_MAX_PASS_LEN).
+ * @return WIFI_ERR_OK on success; WIFI_ERR_MODULE if association
+ *         fails; WIFI_ERR_TIMEOUT if module does not respond.
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
-wifi_err_t wifi_connect_ap(const char *ssid, const char *password);
+wifi_err_t wifi_connect_ap(wifi_handle_t handle,
+                            const char *ssid,
+                            const char *password);
+
 /**
  * @brief Disconnect from the current access point.
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ *
+ * Issues AT+WD and sets internal link state to WIFI_LINK_DOWN.
+ *
+ * @param[in] handle  WifiDriver handle.
+ * @return WIFI_ERR_OK on success.
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
-wifi_err_t wifi_disconnect_ap(void);
+wifi_err_t wifi_disconnect_ap(wifi_handle_t handle);
+
 /**
- * @brief Query the current Wi-Fi link state.
- * @param[in,out] state  (description TBD)
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ * @brief Query the current WiFi link state.
+ *
+ * Returns the cached link state (UP or DOWN).  Does not issue an AT
+ * command — the state is updated by wifi_connect_ap() and
+ * wifi_disconnect_ap().
+ *
+ * @param[in]  handle  WifiDriver handle.
+ * @param[out] state   Receives the current link state.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NULL_PTR if state is NULL.
+ * @note Threading: task-context only, non-blocking.
  */
-wifi_err_t wifi_get_link_state(wifi_link_state_t *state);
+wifi_err_t wifi_get_link_state(wifi_handle_t handle,
+                                wifi_link_state_t *state);
+
 /**
  * @brief Read the current RSSI from the access point.
- * @param[in,out] rssi_dbm  (description TBD)
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
- */
-wifi_err_t wifi_get_rssi(int8_t *rssi_dbm);
-
-/* Polymorphic socket operations (LLD-D13) */
-wifi_err_t wifi_open_socket(wifi_socket_type_t type, const char *remote_addr,
-                             uint16_t remote_port, uint8_t *out_handle);
-/**
- * @brief Send data on an open socket.
- * @param[in,out] handle  (description TBD)
- * @param[in] data  (description TBD)
- * @param[in,out] len  (description TBD)
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
+ *
+ * Issues AT+WRSSI and parses the numeric response.
+ *
+ * @param[in]  handle    WifiDriver handle.
+ * @param[out] rssi_dbm  Receives the RSSI in dBm (negative value).
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NOT_CONNECTED if not
+ *         associated.
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
-wifi_err_t wifi_send(uint8_t handle, const uint8_t *data, size_t len);
-wifi_err_t wifi_recv(uint8_t handle, uint8_t *buf, size_t buf_len,
-                     size_t *out_len, uint32_t timeout_ms);
+wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm);
+
+/**
+ * @brief Open a TCP or UDP socket to a remote host.
+ *
+ * Issues AT+P1=<type> to select transport, then AT+NCPX to open the
+ * connection.  Returns a socket identifier for use with wifi_send(),
+ * wifi_recv(), and wifi_close_socket().
+ *
+ * @param[in]  handle       WifiDriver handle.
+ * @param[in]  type         WIFI_SOCKET_TCP or WIFI_SOCKET_UDP.
+ * @param[in]  remote_addr  Null-terminated IP address or hostname.
+ * @param[in]  remote_port  Remote port number.
+ * @param[out] out_socket   Receives the socket identifier on success.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NO_RESOURCE if no free
+ *         socket slot; WIFI_ERR_SOCKET if connection fails.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
+wifi_err_t wifi_open_socket(wifi_handle_t handle,
+                             wifi_socket_type_t type,
+                             const char *remote_addr,
+                             uint16_t remote_port,
+                             wifi_socket_t *out_socket);
+
+/**
+ * @brief Send data on an open socket.
+ *
+ * Issues AT+S.=<socket>,<len> followed by the data payload.
+ *
+ * @param[in] handle  WifiDriver handle.
+ * @param[in] socket  Socket identifier from wifi_open_socket().
+ * @param[in] data    Pointer to data to send.
+ * @param[in] len     Number of bytes to send.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NOT_CONNECTED if link is
+ *         down; WIFI_ERR_SOCKET if send fails.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
+wifi_err_t wifi_send(wifi_handle_t handle,
+                      wifi_socket_t socket,
+                      const uint8_t *data,
+                      size_t len);
+
+/**
+ * @brief Receive data from an open socket.
+ *
+ * Issues AT+R=<socket>,<buf_len> and reads the response payload.
+ * Blocks until data is available or timeout expires.
+ *
+ * @param[in]  handle      WifiDriver handle.
+ * @param[in]  socket      Socket identifier from wifi_open_socket().
+ * @param[out] buf         Buffer to receive data into.
+ * @param[in]  buf_len     Size of the receive buffer in bytes.
+ * @param[out] out_len     Receives the number of bytes actually read.
+ * @param[in]  timeout_ms  Maximum wait time in milliseconds.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_TIMEOUT if no data within
+ *         timeout; WIFI_ERR_SOCKET if receive fails.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
+wifi_err_t wifi_recv(wifi_handle_t handle,
+                      wifi_socket_t socket,
+                      uint8_t *buf,
+                      size_t buf_len,
+                      size_t *out_len,
+                      uint32_t timeout_ms);
+
 /**
  * @brief Close an open socket.
- * @param[in,out] handle  (description TBD)
- * @return WIFI_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ *
+ * Issues AT+NCLS=<socket> and frees the internal socket table entry.
+ *
+ * @param[in] handle  WifiDriver handle.
+ * @param[in] socket  Socket identifier from wifi_open_socket().
+ * @return WIFI_ERR_OK on success; WIFI_ERR_SOCKET if close fails.
+ * @note Threading: task-context only, may block. Not ISR-safe.
  */
-wifi_err_t wifi_close_socket(uint8_t handle);
-
-/* ------------------------------------------------------------------ */
-/* Singleton vtable interface (IWifi — LLD-D10, LLD-D13)               */
-/* ------------------------------------------------------------------ */
-
-typedef struct {
-    wifi_err_t (*init)(void);
-    wifi_err_t (*attach_datardy_callback)(wifi_datardy_cb_t cb, void *ctx);
-    wifi_err_t (*connect_ap)(const char *ssid, const char *password);
-    wifi_err_t (*disconnect_ap)(void);
-    wifi_err_t (*get_link_state)(wifi_link_state_t *state);
-    wifi_err_t (*get_rssi)(int8_t *rssi_dbm);
-    wifi_err_t (*open_socket)(wifi_socket_type_t type, const char *remote_addr,
-                              uint16_t remote_port, uint8_t *out_handle);
-    wifi_err_t (*send)(uint8_t handle, const uint8_t *data, size_t len);
-    wifi_err_t (*recv)(uint8_t handle, uint8_t *buf, size_t buf_len,
-                       size_t *out_len, uint32_t timeout_ms);
-    wifi_err_t (*close_socket)(uint8_t handle);
-} iwifi_t;
-
-/** Singleton pointer to the WifiDriver vtable (Gateway only). */
-extern const iwifi_t * const wifi_driver;
+wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket);
 
 #endif /* WIFI_DRIVER_H */
 ```
-
-**Why socket abstraction, not raw AT commands?** MqttClient and NtpClient
-need to open sockets and exchange bytes. Exposing AT commands would leak the
-ISM43362 protocol into middleware (P2 layering violation). IWifi hides all
-module-specific protocol behind a portable socket interface — if the module is
-ever replaced, only WifiDriver changes.
-
-**Why no TLS API at driver level?** The ISM43362 supports on-module TLS
-termination via AT commands (`AT+TLSCERT`, `AT+TLSKEY`). However, surfacing
-TLS at the driver layer would couple certificate management to a specific
-module. Decision: TLS is handled at the MqttClient level via a software TLS
-stack (e.g., mbedTLS over `wifi_driver->send/recv`). See WIFI-O1.
-
-### 3.2 Dependency-conformance check
-
-| Dependency | In `components.md` | Actual usage |
-|------------|-------------------|--------------|
-| SpiDriver | Yes | Yes — all SPI3 transactions via `spi_transceive()` |
-| GpioDriver | Yes | Yes — NSS, RST, WAKEUP, BOOT0 driven; DRDY read |
-| ExtiDriver | No (add) | Yes — `exti_configure()` in Phase 1, `exti_enable()` in Phase 2 |
-
-P3 (ISP): IWifi is a single interface consumed by WifiTask only (D29).
-No further split is warranted at this abstraction level.
 
 ---
 
 ## 3. Internal design
 
-### 4.1 Module structure
-
-```
-wifi_driver.h        — public API (IWifi)
-wifi_driver.c        — singleton state, AT command engine, SPI protocol,
-                       socket table, DRDY ISR handler
-```
-
-Private state:
+### 3.1 Private struct and static pool
 
 ```c
-typedef struct {
-    wifi_link_state_t   link_state;
-    int8_t              rssi_dbm;
-    bool                socket_open[WIFI_MAX_SOCKETS];
-    wifi_datardy_cb_t   datardy_cb;
-    void               *datardy_ctx;
-    bool                ready;            /* set true after successful init */
-} wifi_state_t;
+/* wifi_driver.c — internal, not visible to consumers */
 
-static wifi_state_t s_wifi;
+#define WIFI_MAX_INSTANCES       1u
+#define WIFI_AT_BUF_SIZE       512u
+#define WIFI_DRDY_TIMEOUT_MS   100u   /**< DRDY assert wait (WIFI-O5). */
+#define WIFI_RESP_TIMEOUT_MS  5000u   /**< AT response wait (WIFI-O5). */
+
+struct wifi_inst {
+    /* Injected dependencies */
+    spi_handle_t    spi;
+    gpio_handle_t   nss;
+    gpio_handle_t   drdy;
+    gpio_handle_t   rst;
+    gpio_handle_t   wakeup;
+    gpio_handle_t   boot0;
+
+    /* Runtime state */
+    wifi_link_state_t link_state;
+    int8_t            rssi_dbm;
+    bool              socket_open[WIFI_MAX_SOCKETS];
+    wifi_datardy_cb_t datardy_cb;
+    void             *datardy_ctx;
+    bool              ready;
+    bool              in_use;
+
+    /* AT command working buffer */
+    char              at_buf[WIFI_AT_BUF_SIZE];
+};
+
+static struct wifi_inst g_pool[WIFI_MAX_INSTANCES];
+static uint8_t          g_count;
 ```
 
-### 4.2 SPI protocol — ISM43362 transaction model
+### 3.2 SPI protocol — ISM43362 transaction model
 
 The ISM43362 uses a custom half-duplex SPI handshake with DRDY as a
-flow-control signal. **SPI frame size is 16 bits** (two bytes per
-transaction). All AT command data is sent and received in 16-bit words.
+flow-control signal. **SPI frame size is 16 bits** — all AT command
+data is sent and received in 16-bit words.
 
 **Send transaction (AT command → module):**
 
 ```
-1. Assert NSS low (GpioDriver)
+1. Assert NSS low (via gpio_write on nss handle)
 2. Wait for DRDY high (poll or notification) — max WIFI_DRDY_TIMEOUT_MS
-3. Send command bytes in 16-bit chunks:
+3. Send command bytes as 16-bit words via spi_transceive():
      - If command length is odd, append 0x0A (LF) as padding byte
 4. Deassert NSS high
 5. Wait for DRDY low (module acknowledged receipt)
@@ -258,80 +417,84 @@ transaction). All AT command data is sent and received in 16-bit words.
 
 ```
 7. Assert NSS low
-8. Read 16-bit chunks until:
+8. Read 16-bit words via spi_transceive(tx_buf=NULL) until:
      a. DRDY goes low (end of response), OR
      b. Buffer is full
 9. Deassert NSS high
 10. Parse response: look for "\r\nOK\r\n" or "\r\nERROR\r\n"
 ```
 
-**Why 16-bit SPI frames?** The ISM43362 SPI protocol specification requires
-16-bit data frames. This is a hardware constraint of the module. See
-WIFI-O2: SpiDriver must be configured for DS=1111 (16-bit), FRXTH=0 — this
-conflicts with the FRXTH=1 setting recorded in `spi-driver.md`, which assumed
-8-bit frames.
-
-### 4.3 Internal AT command engine
-
-A private helper handles the full send-receive cycle:
+### 3.3 Internal AT command engine
 
 ```c
-/*
- * prv_at_command() — internal, not in public header.
- * Sends an AT command string and reads the response into resp_buf.
+/**
+ * @brief Send an AT command and read the response.
+ *
+ * Handles the full send/receive SPI cycle with DRDY handshake.
  * Returns WIFI_ERR_OK if response contains "\r\nOK\r\n".
  * Returns WIFI_ERR_MODULE if response contains "ERROR".
  * Returns WIFI_ERR_TIMEOUT on DRDY timeout.
+ *
+ * @param[in]  inst         WifiDriver instance.
+ * @param[in]  cmd          Null-terminated AT command string.
+ * @param[out] resp_buf     Buffer to receive the response.
+ * @param[in]  resp_buf_len Size of the response buffer.
+ * @return wifi_err_t status.
  */
-static wifi_err_t prv_at_command(const char *cmd,
+static wifi_err_t prv_at_command(struct wifi_inst *inst,
+                                  const char *cmd,
                                   char *resp_buf,
                                   size_t resp_buf_len);
 ```
 
-All public API functions call `prv_at_command()` internally. Examples:
+AT command mapping:
 
-| Public API call | AT command sent |
-|-----------------|----------------|
-| `wifi_connect_ap(ssid, pwd)` | `AT+WC=<ssid>,<pwd>,0\r` |
-| `wifi_disconnect_ap()` | `AT+WD\r` |
-| `wifi_get_rssi()` | `AT+WRSSI\r` |
-| `wifi_open_socket(TCP, host, port, &h)` | `AT+P1=0\r` (TCP) + `AT+NCPX=0,<host>,<port>,0\r` |
-| `wifi_open_socket(UDP, ip, port, &h)` | `AT+P1=1\r` (UDP) + `AT+NCPX=<id>,<ip>,<port>,1\r` |
-| `wifi_send(h, data, len)` | `AT+S.=<h>,<len>\r` + data payload |
-| `wifi_recv(h, buf, buf_len, ...)` | `AT+R=<h>,<len>\r` |
-| `wifi_close_socket(h)` | `AT+NCLS=<h>\r` |
+| Public API | AT command |
+|---|---|
+| `wifi_create` (handshake) | `AT\r` |
+| `wifi_create` (version) | `AT+GMR\r` |
+| `wifi_connect_ap` | `AT+WC=<ssid>,<pwd>,0\r` |
+| `wifi_disconnect_ap` | `AT+WD\r` |
+| `wifi_get_rssi` | `AT+WRSSI\r` |
+| `wifi_open_socket(TCP)` | `AT+P1=0\r` + `AT+NCPX=<id>,<host>,<port>,0\r` |
+| `wifi_open_socket(UDP)` | `AT+P1=1\r` + `AT+NCPX=<id>,<host>,<port>,1\r` |
+| `wifi_send` | `AT+S.=<id>,<len>\r` + payload |
+| `wifi_recv` | `AT+R=<id>,<len>\r` |
+| `wifi_close_socket` | `AT+NCLS=<id>\r` |
 
-**Firmware version check in `wifi_init()`:**
+### 3.4 FRXTH — ISM43362 16-bit SPI requirement
 
-```c
-prv_at_command("AT+GMR\r", resp_buf, sizeof(resp_buf));
-/* Check resp_buf contains "C3.5.2.3" — if not, return WIFI_ERR_FIRMWARE */
-```
+The ISM43362 requires 16-bit SPI frames. SpiDriver must be configured
+with DS=1111 and FRXTH=0 (resolved in spi-driver.md v0.2, SPID-O1).
+WifiDriver does not configure SPI registers directly — this is
+SpiDriver's responsibility.
 
-Per UM2153 §7.11.3, firmware must be C3.5.2.3.BETA9 for FCC/CE compliance.
-Initialisation fails immediately if the wrong firmware is detected, rather
-than silently operating out of compliance.
+### 3.5 DRDY ISR design
 
-### 4.4 DRDY ISR design
-
-The DATARDY line (EXTI1) fires when the module has data available or has
-accepted a command. The ISR calls the registered callback:
+The DATARDY line (PE1, EXTI1) fires when the module has data available
+or has accepted a command.
 
 ```c
 /* In stm32l4xx_it.c */
-void EXTI1_IRQHandler(void) {
-    if (EXTI->PR1 & (1U << 1U)) {
-        exti_clear_pending(1U);    /* clear pending */
+void EXTI1_IRQHandler(void)
+{
+    if (EXTI->PR1 & (1u << 1u))
+    {
+        exti_clear_pending(1u);  /* clear pending — via ExtiDriver */
         wifi_datardy_irq_handler();
     }
 }
 ```
 
 ```c
-/* wifi_driver.c — internal */
-void wifi_datardy_irq_handler(void) {
-    if (s_wifi.datardy_cb != NULL) {
-        s_wifi.datardy_cb(s_wifi.datardy_ctx);
+/* wifi_driver.c — called from ISR context */
+void wifi_datardy_irq_handler(void)
+{
+    /* g_pool[0] is safe here: single instance, single ISR. */
+    struct wifi_inst *inst = &g_pool[0];
+    if (inst->datardy_cb != NULL)
+    {
+        inst->datardy_cb(inst->datardy_ctx);
     }
 }
 ```
@@ -339,7 +502,8 @@ void wifi_datardy_irq_handler(void) {
 WifiTask registers:
 
 ```c
-static void prv_wifi_datardy_cb(void *ctx) {
+static void prv_wifi_datardy_cb(void *ctx)
+{
     TaskHandle_t task = (TaskHandle_t)ctx;
     BaseType_t yield = pdFALSE;
     xTaskNotifyFromISR(task, WIFI_TASK_DATARDY_BIT, eSetBits, &yield);
@@ -347,317 +511,306 @@ static void prv_wifi_datardy_cb(void *ctx) {
 }
 ```
 
-Inside `prv_at_command()`, DRDY wait steps use `xTaskNotifyWait()` on
-`WIFI_TASK_DATARDY_BIT` with a timeout, rather than busy-polling.
-This is correct because `prv_at_command()` always executes inside WifiTask
-context (D29 — no other task calls WifiDriver directly).
+Inside `prv_at_command()`, DRDY wait steps use `xTaskNotifyWait()` with
+a timeout (post-scheduler) or bounded busy-poll (pre-scheduler during
+`wifi_create()`). The mode is determined by whether a callback has been
+registered.
 
-**Why polling is wrong here:** DRDY response latency can be 10–500 ms
-depending on the AT command. Busy-polling for 500 ms in a task blocks the
-entire FreeRTOS CPU budget and starves lower-priority tasks. Notification
-wait yields the CPU until DRDY fires.
+### 3.6 Two-phase init rationale
 
-### 4.5 Two-phase init rationale
+**Phase 1 — `wifi_create()` (pre-scheduler):**
 
-Same as Group B sensors: DRDY callback stores a task handle that only
-exists post-scheduler.
-
-**Phase 1 — `wifi_init()` (pre-scheduler):**
-1. Configure BOOT0 GPIO → low (normal boot mode, not firmware update mode).
+1. Drive BOOT0 low (normal boot mode, not firmware update).
 2. Assert RST low → delay 10 ms → deassert RST high (hardware reset).
-3. Wait 500 ms for module boot (blocking delay — pre-scheduler, acceptable).
-4. Configure WAKEUP GPIO → high (normal operation, not power-save).
-5. Configure NSS GPIO → high (deasserted, idle).
-6. Configure DRDY GPIO → input via GpioDriver (no pull). Call `exti_configure(1, EXTI_PORT_X, EXTI_EDGE_RISING)` via ExtiDriver (port X to be confirmed per WIFI-O3).
-7. Call `prv_at_command("AT\r", ...)` in polling mode (no DRDY ISR yet)
-   to verify module is alive.
-8. Call `prv_at_command("AT+GMR\r", ...)` — check firmware version.
-9. Set `s_wifi.ready = true`.
+3. Wait 500 ms for module boot (blocking delay via `cpu_delay_ms()`).
+4. Drive WAKEUP high (normal operation).
+5. Drive NSS high (deasserted, idle).
+6. Configure DRDY line: `exti_configure(1u, EXTI_PORT_E, EXTI_EDGE_RISING)`.
+   Does not enable the interrupt — only maps PE1 to EXTI1 and sets the
+   trigger edge (see `exti-driver.md`).
+7. AT handshake in polling mode: `prv_at_command("AT\r", ...)`.
+8. Firmware version check: `prv_at_command("AT+GMR\r", ...)` — must
+   contain "C3.5.2.3" (per UM2153 §7.11.3 FCC/CE compliance).
+9. Set `inst->ready = true`.
 
-**Phase 2 — `wifi_attach_datardy_callback()` (post-scheduler, WifiTask):**
-1. Store callback and context.
-2. Enable EXTI1 interrupt (EXTI_IMR, NVIC).
+**Phase 2 — `wifi_attach_datardy_callback()` (post-scheduler):**
 
-Polling mode for Phase 1: before the callback is registered, DRDY wait
-steps use a short busy-poll loop (≤ 500 ms per step, bounded). This is
-acceptable only during the boot sequence before the scheduler starts.
+1. Store callback and context in instance.
+2. Enable EXTI1 interrupt: `exti_enable(1u, WIFI_EXTI_NVIC_PRIORITY)`.
 
-### 4.6 Socket table management
+### 3.7 Socket table management
 
-The ISM43362 supports up to 4 concurrent sockets (TCP or UDP). WifiDriver
-tracks open sockets in `s_wifi.socket_open[WIFI_MAX_SOCKETS]`. The same table
-covers both transports — the ISM43362 addresses all sockets by numeric ID.
+The ISM43362 supports up to 4 concurrent sockets (TCP or UDP).
+`inst->socket_open[WIFI_MAX_SOCKETS]` tracks allocation.
 
-`wifi_open_socket()` selects the transport type via the P1 AT command, scans
-the table for the first free slot, passes the slot index to NCPX, and returns
-the `out_handle` to the caller. `wifi_close_socket()` clears the entry.
+`wifi_open_socket()` selects transport via P1, scans for first free
+slot, passes the slot index to NCPX, and returns the slot as
+`out_socket`. `wifi_close_socket()` issues NCLS and clears the entry.
+
+### 3.8 Test reset hook
+
+```c
+#ifdef TEST
+void wifi_reset_for_test(void)
+{
+    memset(g_pool, 0, sizeof(g_pool));
+    g_count = 0u;
+}
+#endif
+```
 
 ---
-
-
-### Synchronisation
-
-Caller serialises. The driver holds no FreeRTOS synchronisation primitives. All entry points are intended to be called from a single task context or from `main()` before the scheduler starts. Concurrent access from multiple tasks is not safe unless the caller provides a mutex.
-
-### wifi_init
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_attach_datardy_callback
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_connect_ap
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_disconnect_ap
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_get_link_state
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_get_rssi
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_send
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### wifi_close_socket
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### Principles applied
-
-- **P1 (Strict directional layering).** Depends only on ISpi and GpioDriver (wakeup/flow-control pins); no upward dependencies.
-- **P2 (Dependency Inversion).** Exposes `iwifi_t` vtable (IWifi); MqttClient and NtpClient depend on the interface rather than the concrete driver.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Static socket table bounded by `WIFI_MAX_SOCKETS`; AT command buffer statically allocated; no heap.
-- **P6 (Responsibility traces to requirements).** Connect, socket open/close, send/receive functions trace to REQ-NF-206 / REQ-NF-216 / REQ-NF-300-305 connectivity requirements.
-- **P8 (Total error propagation, no silent failures).** `wifi_err_t` on all operations; AT command timeout returns error; module reset on unrecoverable error.
-- **P9 (BARR-C coding standard).** IP addresses as `uint8_t[4]`; port numbers `uint16_t`; no floating-point.
-- **P10 (Naming conventions).** Prefix `wifi_`; interface `IWifi` -> `iwifi_t`; errors `WIFI_ERR_*`.
-
 
 ## 4. Hardware contract
 
-### 5.1 SPI bus
+### 4.1 SPI bus
 
 | Parameter | Value | Source |
-|-----------|-------|--------|
+|---|---|---|
 | Peripheral | SPI3 | UM2153 §7.11.3 |
-| SCK | PC10 | UM2153 Fig. 26 → INTERNAL-SPI3_SCK |
-| MISO | PC11 | UM2153 Fig. 26 → INTERNAL-SPI3_MISO |
-| MOSI | PC12 | UM2153 Fig. 26 → INTERNAL-SPI3_MOSI |
-| Frame size | 16 bits (DS=1111 in SPI_CR2) | ISM43362 SPI protocol requirement |
-| FRXTH | 0 (RXNE set when ≥ 16 bits in FIFO) | Required for 16-bit frames (WIFI-O2) |
+| SCK | PC10 (AF6) | UM2153 Table 11, pin 78 |
+| MISO | PC11 (AF6) | UM2153 Table 11, pin 79 |
+| MOSI | PC12 (AF6) | UM2153 Table 11, pin 80 |
+| Frame size | 16 bits (DS=1111) | ISM43362 SPI protocol |
+| FRXTH | 0 | Required for 16-bit frames |
 | Mode | CPOL=0, CPHA=0 (Mode 0) | ISM43362 datasheet |
-| Bit order | MSB first | ISM43362 datasheet |
-| Clock speed | ≤ 20 MHz | ISM43362 max SPI clock |
+| Clock speed | 10 MHz (BR=010, PCLK1/8) | SPI companion §4.2 |
 
-### 5.2 GPIO lines
+### 4.2 GPIO lines — CONFIRMED
 
-| Signal | MCU pin | Direction | Active | Source |
-|--------|---------|-----------|--------|--------|
-| NSS (CSN) | To verify (WIFI-O3) | Output | Low | UM2153 Fig. 26: ISM43362-SPI3_CSN |
-| DRDY | EXTI1 — port to verify (WIFI-O3) | Input | High | UM2153 Fig. 26: ISM43362-DRDY_EXTI1 |
-| RST | To verify (WIFI-O3) | Output | Low | UM2153 Fig. 26: ISM43362-RST |
-| WAKEUP | To verify (WIFI-O3) | Output | High | UM2153 Fig. 26: ISM43362-WAKEUP |
-| BOOT0 | To verify (WIFI-O3) | Output | High = firmware update; Low = normal | UM2153 Fig. 26: ISM43362-BOOT0 |
+All 5 ISM43362 control lines confirmed from UM2153 Table 11:
 
-All GPIO pins confirmed from schematic signal labels (Fig. 26); exact
-MCU port letters must be verified against UM2153 Appendix A I/O table
-(WIFI-O3). This is a critical-path item — GpioDriver calls and EXTI
-configuration cannot be coded without it.
+| Signal | MCU pin | Direction | Active | UM2153 ref |
+|---|---|---|---|---|
+| NSS (CSN) | PE0 | Output | Low | Table 11, pin 97 |
+| DRDY | PE1 | Input (EXTI1, rising edge) | High | Table 11, pin 98 |
+| RST | PE8 | Output | Low (reset) | Table 11, pin 39 |
+| BOOT0 | PB12 | Output | Low = normal; High = FW update | Table 11, pin 51 |
+| WAKEUP | PB13 | Output | High (active) | Table 11, pin 52 |
 
-### 5.3 Power rail
+### 4.3 Power rail
 
-The ISM43362 is powered from the 3V3_WIFI regulated rail (LT1963EST-3.3
-regulator, Fig. 26). This rail powers only the WiFi module. No firmware
-action is required to enable it; it is controlled by hardware.
+The ISM43362 is powered from the 3V3_WIFI regulated rail (LT1963EST-3.3,
+Fig. 26). No firmware action required to enable it.
+
+### 4.4 NVIC
+
+EXTI1 (PE1 DRDY line) must have priority ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY`
+since the callback uses `xTaskNotifyFromISR()`. Priority is set during
+`wifi_attach_datardy_callback()` via `exti_enable(1u, WIFI_EXTI_NVIC_PRIORITY)`
+— ExtiDriver owns the NVIC priority/enable call for the shared EXTI1_IRQn
+vector; WifiDriver never touches NVIC registers directly.
 
 ---
-
-### Registers
-
-N/A — the ISM43362 Wi-Fi module communicates over SPI. All SPI peripheral register access is delegated to SpiDriver. WifiDriver constructs AT-command payloads and calls `spi_transceive()`; it does not touch `SPI3->CR1`, `SPI3->DR`, or related registers directly.
-
-### Pins
-
-The ISM43362 GPIO control lines (NSS, DRDY, BOOT0, RST) are accessed via GpioDriver (`gpio_write_pin`, `gpio_read_pin`). Pin assignments are in §4.2 above (GPIO lines table).
-
-### Clocks
-
-N/A — SPI3 clock is enabled by SpiDriver (`RCC->APB1ENR1 |= RCC_APB1ENR1_SPI3EN`). GPIO clocks for the control lines are enabled by GpioDriver. No additional clock enable is required by this companion.
-
-### NVIC
-
-The DRDY pin (PE1, EXTI1) signals that the ISM43362 has data to send. The ISR (`EXTI1_IRQHandler`) is registered by the caller via ExtiDriver and sets `s_wifi.datardy_cb`. NVIC priority is assigned by the caller; must be ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` if the callback notifies a FreeRTOS task (lld.md §6.3).
-
 
 ## 5. Sequence integration
 
-### TCP code path — MQTT cloud publish (SD-03 reference, LLD-D13)
+### 5.1 TCP code path — MQTT cloud publish (SD-03)
 
 ```
-MqttClient (inside CloudPublisherTask)
-  → calls WifiTask API (IWifi facade, routed via WifiTask per D29)
-      → wifi_driver->open_socket(WIFI_SOCKET_TCP, broker_ip, 8883, &h)
-          → AT+P1=0\r (TCP) → AT+NCPX=0,<ip>,8883,0\r → OK → h=0
-      → wifi_driver->send(h, mqtt_bytes, len)
-          → AT+S.=0,<len>\r + payload → OK
-      → wifi_driver->recv(h, buf, buf_len, &rcvd, timeout_ms)
-          → AT+R=0,<len>\r → payload
-      → wifi_driver->close_socket(h)
-          → AT+NCLS=0\r → OK
+MqttClient (routed via WifiTask per D29)
+  → wifi_open_socket(handle, WIFI_SOCKET_TCP, broker_ip, 8883, &sock)
+      → AT+P1=0 → AT+NCPX=0,<ip>,8883,0 → OK → sock=0
+  → wifi_send(handle, sock, mqtt_bytes, len)
+      → AT+S.=0,<len> + payload → OK
+  → wifi_recv(handle, sock, buf, buf_len, &rcvd, timeout_ms)
+      → AT+R=0,<len> → payload
+  → wifi_close_socket(handle, sock)
+      → AT+NCLS=0 → OK
 ```
 
-### UDP code path — NTP time sync (SD-09 reference, LLD-D13)
+### 5.2 UDP code path — NTP time sync (SD-09)
 
 ```
-NtpClient (inside TimeServiceTask)
-  → calls WifiTask API (IWifi facade, routed via WifiTask per D29)
-      → wifi_driver->open_socket(WIFI_SOCKET_UDP, ntp_server_ip, 123, &h)
-          → AT+P1=1\r (UDP) → AT+NCPX=<id>,<ip>,123,1\r → OK → h=<id>
-      → wifi_driver->send(h, ntp_request_48_bytes, 48)
-          → AT+S.=<h>,48\r + request payload → OK
-      → wifi_driver->recv(h, ntp_response_buf, 48, &rcvd, 1000)
-          → AT+R=<h>,48\r → 48-byte NTP response
-      → wifi_driver->close_socket(h)
-          → AT+NCLS=<h>\r → OK
+NtpClient (routed via WifiTask per D29)
+  → wifi_open_socket(handle, WIFI_SOCKET_UDP, ntp_ip, 123, &sock)
+      → AT+P1=1 → AT+NCPX=<id>,<ip>,123,1 → OK
+  → wifi_send(handle, sock, ntp_request, 48)
+      → AT+S.=<id>,48 + payload → OK
+  → wifi_recv(handle, sock, ntp_response, 48, &rcvd, 1000)
+      → AT+R=<id>,48 → 48-byte response
+  → wifi_close_socket(handle, sock)
+      → AT+NCLS=<id> → OK
 ```
 
-### Init sequence
+### 5.3 Init sequence
 
 ```
 [Pre-scheduler — board_init()]
-  wifi_init()
+  gpio_create(PE0/PE1/PE8/PB12/PB13 configs) → GPIO handles
+  spi_create(SPI3 config) → SPI handle
+  wifi_create({spi, nss, drdy, rst, wakeup, boot0}) → WiFi handle
     → BOOT0 low, RST pulse, 500 ms boot wait
-    → WAKEUP high, NSS high
-    → polling AT handshake: "AT\r" → check alive
-    → "AT+GMR\r" → check firmware version
-    → s_wifi.ready = true
+    → exti_configure(1, EXTI_PORT_E, EXTI_EDGE_RISING)
+    → AT handshake (polling mode)
+    → AT+GMR → firmware version check
+    → ready = true
 
-[Post-scheduler — WifiTask startup]
-  wifi_attach_datardy_callback(prv_wifi_datardy_cb, xTaskGetCurrentTaskHandle())
-    → store callback, enable EXTI1
+[Post-scheduler — WifiTask init]
+  wifi_attach_datardy_callback(handle, prv_cb, xTaskGetCurrentTaskHandle())
+    → store callback, exti_enable(1, WIFI_EXTI_NVIC_PRIORITY)
 
-[WifiTask main loop — on CloudPublisher request]
-  wifi_connect_ap(ssid, pwd)   /* at startup or on reconnect */
-  wifi_tcp_connect(host, port, &socket_id)
-  [pass socket_id to MqttClient]
+[WifiTask main loop]
+  wifi_connect_ap(handle, ssid, pwd)
+  wifi_open_socket(handle, TCP, host, port, &sock)
+  [pass sock to MqttClient]
 ```
 
-### WifiTask API boundary (D29)
+### 5.4 SD trace
 
-CloudPublisherTask, TimeServiceTask, and UpdateServiceTask do not call
-WifiDriver directly. They post requests to WifiTask via a dedicated queue
-or direct-to-task API (exact IPC defined at LLD WifiTask companion stage).
-WifiTask serialises all calls to WifiDriver. This eliminates the need for
-any mutex on the SPI bus and matches the ISR-to-fixed-task-handle contract
-(`xTaskNotifyFromISR` requires a known task handle at compile time).
-
----
-
-### SD trace
-
-| SD | Component role | Key function |
+| SD | Role | Key functions |
 |---|---|---|
-| SD-03 | SD-03a/SD-03b: `MqttClient` calls `wifi_driver_send()` / `wifi_driver_receive()` to publish telemetry and health frames to AWS IoT Core | `wifi_driver_send()`, `wifi_driver_receive()` |
-| SD-04 | SD-04a: `MqttClient` uses `WifiDriver` for store-and-forward MQTT publish (cloud reconnect). SD-04b: same for drain loop | `wifi_driver_send()`, `wifi_driver_receive()` |
-| SD-05 | Alarm MQTT publish travels via `MqttClient` → `WifiDriver` to cloud | `wifi_driver_send()` |
-| SD-09 | `NtpClient` calls `wifi_driver_open_socket(WIFI_SOCKET_UDP)` then `wifi_driver_send()` / `wifi_driver_receive()` for the NTP UDP query | `wifi_driver_open_socket()`, `wifi_driver_send()`, `wifi_driver_receive()` |
+| SD-03 | MQTT publish via TCP | `wifi_send()`, `wifi_recv()` |
+| SD-04 | Store-and-forward reconnect | `wifi_send()`, `wifi_recv()` |
+| SD-05 | Alarm MQTT publish | `wifi_send()` |
+| SD-09 | NTP UDP query | `wifi_open_socket(UDP)`, `wifi_send()`, `wifi_recv()` |
 
 ---
 
 ## 6. Error and fault behaviour
 
-All public functions return `wifi_err_t`; callers must not ignore non-OK returns.
-No retry is performed by the driver — NtpClient / MqttClient apply retry at the
-protocol level.  NSS is always deasserted on any error path to leave the SPI bus
-in a known idle state.
+All public functions return `wifi_err_t`. No retry by the driver — consumers
+apply protocol-level retry. NSS is always deasserted on any error path.
 
-| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
-|---|---|---|---|---|---|
-| `WIFI_ERR_NOT_INIT` | Function called before `wifi_init()` succeeded | Return error; no hardware interaction | Non-OK return | No retry — programming error; boot sequence must call `wifi_init()` first | Caller logs at ERROR via ILogger |
-| `WIFI_ERR_SPI` | `spi_transceive()` returned a non-OK code | Return error; NSS deasserted | Non-OK return | No retry by driver — caller (NtpClient/MqttClient) may retry the enclosing operation | Caller logs at WARN via ILogger; repeated failures surface as `WIFI_ERR_TIMEOUT` or `WIFI_ERR_MODULE` |
-| `WIFI_ERR_MODULE` | AT command response contained "ERROR" | Return error | Non-OK return | No retry by driver — `wifi_connect_ap()` caller (NtpClient setup path) may retry with exponential back-off | Caller logs at WARN via ILogger |
-| `WIFI_ERR_TIMEOUT` | DRDY or response wait timed out | Return error; NSS deasserted | Non-OK return | No retry by driver — caller applies back-off | Caller logs at WARN via ILogger |
-| `WIFI_ERR_NOT_CONNECTED` | `wifi_send()` called when `s_wifi.link_state == DOWN` | Return error; no SPI interaction | Non-OK return | No retry — caller must wait for link to recover (driven by `wifi_connect_ap()` reconnect) | Caller logs at DEBUG via ILogger (expected transient) |
-| `WIFI_ERR_SOCKET` | `wifi_open_socket()`, `wifi_send()`, or `wifi_recv()` failed at the ISM43362 socket layer | Return error | Non-OK return | No retry by driver — caller closes the socket and re-connects | Caller logs at WARN via ILogger; MqttClient increments `stats.socket_errors` |
-| `WIFI_ERR_INVALID_ARG` | Null pointer or out-of-range argument | Return error; no hardware interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
-| `WIFI_ERR_FIRMWARE` | ISM43362 firmware version mismatch detected at init | Return error; init aborted | Non-OK return | No retry — operator must update the WiFi module firmware | Caller logs at ERROR via ILogger; system proceeds but WiFi-dependent paths fail |
+| Error | Cause | Behaviour |
+|---|---|---|
+| `WIFI_ERR_NOT_INIT` | Called before `wifi_create()` | Return immediately, no HW access |
+| `WIFI_ERR_SPI` | `spi_transceive()` failed | NSS deasserted, return error |
+| `WIFI_ERR_MODULE` | AT response contains "ERROR" | Return error |
+| `WIFI_ERR_TIMEOUT` | DRDY or response wait expired | NSS deasserted, return error |
+| `WIFI_ERR_NOT_CONNECTED` | Send/recv with link DOWN | Return immediately, no SPI |
+| `WIFI_ERR_SOCKET` | Socket operation failed at module | Return error |
+| `WIFI_ERR_INVALID_ARG` | Out-of-range argument | Return immediately |
+| `WIFI_ERR_FIRMWARE` | Version mismatch at init | Init aborted, system runs without WiFi |
+| `WIFI_ERR_NULL_PTR` | Required pointer is NULL | Return immediately |
+| `WIFI_ERR_NO_RESOURCE` | Pool or socket table full | Return immediately |
 
+---
 
-## 7. Unit-test plan
+## 7. Principles applied
 
-WifiDriver is the hardest driver to unit-test on the host because the AT
-command engine depends on a request-response SPI cycle with DRDY timing.
-The test strategy uses a two-layer approach.
+- **P1 (Strict directional layering).** Depends only on SpiDriver and GpioDriver (both driver layer); no middleware, no application.
+- **P2 (DIP).** Consumers (MqttClient, NtpClient — middleware) depend on the `wifi_handle_t` abstraction, not on the concrete implementation. The opaque handle type achieves DIP without a vtable.
+- **P5 (Bounded resources).** Static pool of 1 instance; socket table bounded by `WIFI_MAX_SOCKETS`; AT buffer statically allocated; no heap.
+- **P6 (Traces to requirements).** Connect, socket, send/recv trace to REQ-CC-050, CON-001.
+- **P8 (Total error propagation).** `wifi_err_t` on all operations; AT timeouts return error; NSS deasserted on every error path.
+- **P9 (BARR-C).** Fixed-width types; `const` on read-only pointers; braces on all control flow.
+- **P10 (Naming).** Prefix `wifi_`; handle `wifi_handle_t`; socket `wifi_socket_t`; errors `WIFI_ERR_*`.
+
+---
+
+## 8. Synchronisation
+
+Caller serialises. WifiTask is the sole caller per D29. The driver holds
+no FreeRTOS synchronisation primitives. `wifi_create()` runs before the
+scheduler. All post-scheduler calls run in WifiTask context. Concurrent
+access from other tasks is forbidden — they route through WifiTask's
+request queue (designed in the WifiTask middleware companion, WIFI-O4).
+
+---
+
+## 9. Unit-test plan
+
+Test file: `tests/gateway/drivers/wifi_driver/test_wifi_driver.c`
 
 **Layer 1 — AT response parser (host, no hardware):**
-Test `prv_at_command()` response parsing in isolation by injecting mock
-response strings directly into the parser. No SPI or DRDY involved.
 
-| Test ID | Scenario | Input | Expected |
-|---------|----------|-------|----------|
-| WIFI-T01 | OK response | `"\r\nOK\r\n"` | Returns `WIFI_ERR_OK` |
-| WIFI-T02 | ERROR response | `"\r\nERROR\r\n"` | Returns `WIFI_ERR_MODULE` |
-| WIFI-T03 | Truncated response (buffer full) | 512-byte string, no OK/ERROR | Returns `WIFI_ERR_TIMEOUT` |
-| WIFI-T04 | RSSI parse | `"+WRSSI:-67\r\nOK\r\n"` | `rssi_dbm = -67` |
-| WIFI-T05 | Firmware version match | `"C3.5.2.3.BETA9\r\nOK\r\n"` | `WIFI_ERR_OK` |
-| WIFI-T06 | Firmware version mismatch | `"C3.5.1.0\r\nOK\r\n"` | `WIFI_ERR_FIRMWARE` |
+| ID | Scenario | Expected |
+|---|---|---|
+| WIFI-T01 | OK response `"\r\nOK\r\n"` | Returns `WIFI_ERR_OK` |
+| WIFI-T02 | ERROR response `"\r\nERROR\r\n"` | Returns `WIFI_ERR_MODULE` |
+| WIFI-T03 | Truncated response (buffer full, no OK/ERROR) | Returns `WIFI_ERR_TIMEOUT` |
+| WIFI-T04 | RSSI parse `"+WRSSI:-67\r\nOK\r\n"` | `rssi_dbm = -67` |
+| WIFI-T05 | Firmware version match | Returns `WIFI_ERR_OK` |
+| WIFI-T06 | Firmware version mismatch | Returns `WIFI_ERR_FIRMWARE` |
 
-**Layer 2 — SPI transaction sequence (host, mock SPI + mock GPIO):**
-Test the full `wifi_connect_ap()` and `wifi_open_socket()` flows with mock
-SPI that returns pre-canned byte sequences and mock GPIO that simulates
-DRDY toggling.
+**Layer 2 — Full API with mock SPI + mock GPIO:**
 
-| Test ID | Scenario | Expected |
-|---------|----------|----------|
-| WIFI-T07 | `wifi_connect_ap()` nominal | SPI sequence: `AT+WC=...` → OK; `link_state = UP` |
-| WIFI-T08 | `wifi_connect_ap()` wrong SSID | SPI returns ERROR; returns `WIFI_ERR_MODULE` |
-| WIFI-T09 | `wifi_open_socket(TCP, ...)` nominal | `AT+P1=0` + `AT+NCPX=...` → OK; returns valid handle |
-| WIFI-T09b | `wifi_open_socket(UDP, ...)` nominal | `AT+P1=1` + `AT+NCPX=...` → OK; returns valid handle |
-| WIFI-T10 | `wifi_send()` with link down | No SPI transaction; returns `WIFI_ERR_NOT_CONNECTED` |
-| WIFI-T11 | DRDY timeout | Mock DRDY never goes high; returns `WIFI_ERR_TIMEOUT`; NSS deasserted |
-| WIFI-T12 | NSS deasserted on SPI error | Mock SPI fails mid-transaction; verify NSS high at exit |
+| ID | Scenario | Expected |
+|---|---|---|
+| WIFI-T07 | `wifi_create` happy path | SPI handshake sent, firmware checked, handle returned |
+| WIFI-T08 | `wifi_create` with NULL config | Returns `WIFI_ERR_NULL_PTR` |
+| WIFI-T09 | `wifi_create` pool exhaustion | Second call returns `WIFI_ERR_NO_RESOURCE` |
+| WIFI-T10 | `wifi_connect_ap` nominal | `AT+WC=...` sent, link_state = UP |
+| WIFI-T11 | `wifi_connect_ap` wrong SSID | SPI returns ERROR, returns `WIFI_ERR_MODULE` |
+| WIFI-T12 | `wifi_open_socket(TCP)` nominal | `AT+P1=0` + `AT+NCPX` sent, valid socket returned |
+| WIFI-T13 | `wifi_open_socket(UDP)` nominal | `AT+P1=1` + `AT+NCPX` sent, valid socket returned |
+| WIFI-T14 | `wifi_send` with link down | No SPI, returns `WIFI_ERR_NOT_CONNECTED` |
+| WIFI-T15 | DRDY timeout | Mock DRDY stays low, returns `WIFI_ERR_TIMEOUT`, NSS deasserted |
+| WIFI-T16 | NSS deasserted on SPI error | Mock SPI fails, verify NSS high at exit |
+| WIFI-T17 | Socket table exhaustion | Open 4 sockets, 5th returns `WIFI_ERR_NO_RESOURCE` |
+| WIFI-T18 | `wifi_close_socket` frees slot | Close socket, reopen succeeds |
 
-**Layer 3 — hardware integration (on-board):**
-Full WiFi association, TCP connect to known IP, send 64 bytes, receive
-echo — performed on the actual board during integration testing. Also: UDP
-socket open to NTP server, send 48-byte request, receive 48-byte response.
+**Layer 3 — hardware integration (on-board, deferred):**
+
+Full WiFi association, TCP/UDP send/receive on actual board.
 
 ---
 
-## 8. Open items
+## 10. Open items
 
-### Decisions
+| ID | Item | Status | Resolution |
+|---|---|---|---|
+| WIFI-O1 | TLS strategy: on-module vs mbedTLS | **Open** | Deferred to MqttClient LLD companion. WIFI-D2 defers TLS to MqttClient. Confirm CloudPublisherTask stack is sufficient for mbedTLS handshake (4–8 KB needed). |
+| WIFI-O2 | SPI FRXTH/DS conflict | **Resolved** | SPI companion v0.2 corrected to 16-bit (DS=1111, FRXTH=0). |
+| WIFI-O3 | GPIO pin assignments | **Resolved** | UM2153 Table 11: PE0=NSS, PE1=DRDY, PE8=RST, PB12=BOOT0, PB13=WAKEUP. |
+| WIFI-O4 | WifiTask API surface | **Open** | Deferred to WifiTask middleware companion. IWifi is the driver contract; the request-queue routing mechanism is designed separately. |
+| WIFI-O5 | Timeout values | **Resolved** | Baseline: DRDY_TIMEOUT=100 ms, RESP_TIMEOUT=5000 ms. Validate at integration. |
+
+---
+
+## 11. Decisions log
 
 | ID | Decision | Rationale |
-|----|----------|-----------|
-| WIFI-D1 | IWifi exposes a polymorphic socket API (TCP + UDP), not AT commands | AT commands are an ISM43362-specific detail. MqttClient and NtpClient consume a portable socket interface; replacing the WiFi module requires only WifiDriver changes. |
-| WIFI-D7 | `open_socket()` accepts a `wifi_socket_type_t` parameter; `send/recv/close_socket` serve both transports (LLD-D13) | NTP is UDP per RFC 5905 — a TCP-only IWifi cannot serve NtpClient. The ISM43362 selects socket type via the P1= AT command; one polymorphic open_socket() covers both. Future use cases (mDNS, syslog) also benefit from generic UDP. |
-| WIFI-D2 | TLS NOT handled inside WifiDriver | On-module TLS would couple certificate management to the ISM43362. mbedTLS at the MqttClient layer is portable and inspectable. Trade-off: higher MCU CPU load; acceptable given CloudPublisherTask's 8 KB stack. |
-| WIFI-D3 | Firmware version checked at init; mismatch = hard fail | Operating with wrong firmware violates FCC/CE compliance per UM2153 §7.11.3. Fail-fast is safer than silently running non-compliant. |
-| WIFI-D4 | DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2) | AT responses can take up to 500 ms. Busy-polling for this duration inside WifiTask would monopolise the CPU and starve lower-priority tasks during connects and sends. |
-| WIFI-D5 | BOOT0 held low during normal operation | BOOT0 high causes the ISM43362 to enter firmware update mode, not normal WiFi operation. Must be driven low at Phase 1 init before RST is released. |
-| WIFI-D6 | NSS deasserted on every error path | A stuck-low NSS permanently blocks the ISM43362. Ensuring NSS is high on any exit path (normal or error) is mandatory for bus recovery. |
-
-### Open items
-
-| ID | Item | Owner | Resolution path |
-|----|------|-------|-----------------|
-| WIFI-O1 | TLS strategy: on-module (AT+TLSCERT) vs mbedTLS in firmware. WIFI-D2 defers TLS to MqttClient (mbedTLS). This must be confirmed against CloudPublisherTask stack (currently 8 KB) — mbedTLS TLS handshake typically needs 4–8 KB. | Luca | Confirm at MqttClient LLD companion stage. If stack insufficient, revisit to 12 KB or evaluate on-module TLS. |
-| WIFI-O2 | SpiDriver `spi-driver.md` companion specifies FRXTH=1 (8-bit FIFO threshold). ISM43362 requires 16-bit SPI frames (DS=1111, FRXTH=0). These settings conflict. | Luca | Update `spi-driver.md` to document 16-bit mode specifically for WifiDriver. SpiDriver is a singleton used exclusively by WifiDriver; 16-bit mode is correct. Commit `docs: correct SpiDriver frame size to 16-bit for ISM43362`. |
-| WIFI-O3 | Exact MCU port/pin assignments for all 5 GPIO lines (NSS, DRDY, RST, WAKEUP, BOOT0) are not yet confirmed. Labels available from Fig. 26 (signal names); port letters require Appendix A I/O table cross-check. | Luca | Verify against UM2153 Appendix A before coding GpioDriver init calls and EXTI1 configuration. Critical-path blocker for implementation. |
-| WIFI-O4 | WifiTask API surface (how CloudPublisherTask, TimeServiceTask, UpdateServiceTask route WiFi I/O through WifiTask per D29) is not designed in this companion — it belongs to the WifiTask LLD companion at the middleware/application layer. | Luca | Design in WifiTask companion (post-driver-layer LLD). For now, IWifi is the contract; the routing mechanism is deferred. |
-| WIFI-O5 | WIFI_DRDY_TIMEOUT_MS and WIFI_RESP_TIMEOUT_MS values are not defined. These bound DRDY wait and AT response wait respectively. | Luca | Baseline values: DRDY_TIMEOUT = 100 ms, RESP_TIMEOUT = 5000 ms. Validate at integration; adjust for observed module latency on association and socket operations. |
+|---|---|---|
+| WIFI-D1 | IWifi exposes a socket API (TCP + UDP), not AT commands | AT commands are ISM43362-specific. MqttClient and NtpClient consume a portable socket interface; replacing the WiFi module requires only WifiDriver changes. |
+| WIFI-D2 | TLS NOT handled inside WifiDriver | On-module TLS couples certificate management to the ISM43362. mbedTLS at MqttClient layer is portable and inspectable. |
+| WIFI-D3 | Firmware version checked at init; mismatch = hard fail | Wrong firmware violates FCC/CE compliance per UM2153 §7.11.3. Fail-fast is safer than silent non-compliance. |
+| WIFI-D4 | DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2) | AT responses take 10–500 ms. Busy-polling would monopolise the CPU and starve lower-priority tasks. |
+| WIFI-D5 | BOOT0 held low during normal operation | BOOT0 high = firmware update mode, not normal WiFi operation. |
+| WIFI-D6 | NSS deasserted on every error path | A stuck-low NSS permanently blocks the ISM43362. |
+| WIFI-D7 | `open_socket()` accepts `wifi_socket_type_t` (TCP/UDP) | NTP requires UDP (RFC 5905). TCP-only IWifi cannot serve NtpClient. The ISM43362 selects transport via P1= AT command. |
+| WIFI-D8 | ADT pattern (opaque handle, static pool of 1) | Gateway default. Dependencies (SPI, GPIO handles) injected via config struct. |
+| WIFI-D9 | EXTI configuration owned by ExtiDriver, not GpioDriver | ExtiDriver is the sole owner of `SYSCFG_EXTICRx` and EXTI trigger/mask registers across both boards (see `exti-driver.md`, originated from WIFI-O2 root). Folding EXTI into GpioDriver would create two owners for the same shared register set once MagnetometerDriver/ImuDriver also need EXTI lines. Superseded an earlier draft of this decision that proposed a `gpio_configure_exti()` extension. |
+| WIFI-D10 | `wifi_socket_t` is a distinct typedef from `wifi_handle_t` | Avoids naming collision between driver instance handles and socket identifiers. |
 
 ---
 
-*This document is the LLD companion for WifiDriver. It is authored by
-Luca Agrippino and reviewed by the project mentor.*
+## 12. File layout
+
+```
+firmware/gateway/drivers/wifi_driver/
+├── wifi_driver.h    /* public API — opaque handle, config, error enum, socket types */
+└── wifi_driver.c    /* implementation — AT engine, SPI protocol, socket table, ISR */
+
+tests/gateway/drivers/wifi_driver/
+└── test_wifi_driver.c  /* Unity + CMock host tests */
+```
+
+---
+
+## Phase H — Readiness review
+
+| # | Check | Status |
+|---|---|---|
+| H1 | PROVIDES / USES match `components.md` exactly | PASS — PROVIDES IWifi, USES SpiDriver + GpioDriver + ExtiDriver |
+| H2 | Root SRS requirements cited and quoted | PASS — REQ-CC-050, CON-001 |
+| H3 | All public API functions have complete Doxygen | PASS — brief, param, return, note on every function |
+| H4 | ADT pattern applied (or exception documented) | PASS — ADT with pool of 1, WIFI-D8 |
+| H5 | Error enum covers all failure modes | PASS — 10 error codes, no silent failures |
+| H6 | Hardware contract specifies all pins, AF numbers, SPI config | PASS — §4.1–4.4; all from UM2153 Table 11 |
+| H7 | All critical open items resolved or have named owner | PASS — O2, O3, O5 resolved; O1, O4 deferred with owner and path |
+| H8 | Unit-test plan covers happy path + error cases | PASS — 18 test cases across 2 layers |
+| H9 | Test file path follows Gateway folder convention | PASS |
+| H10 | P1–P10 compliance reviewed | PASS — §7 |
+| H11 | No FreeRTOS dependency except EXTI ISR → xTaskNotifyFromISR | PASS — ISR-only RTOS usage, documented in §3.5 |
+| H12 | Thread safety documented | PASS — §8, caller serialises via D29 |
+| H13 | `reset_for_test` hook specified | PASS — §3.8 |
+| H14 | Decisions log complete | PASS — 10 decisions |
+| H15 | Sequence integration traces to HLD SDs | PASS — §5.4 |
+
+**Verdict: PASS — ready for implementation.**
+
+Two open items remain (WIFI-O1 TLS strategy, WIFI-O4 WifiTask API) —
+both are explicitly deferred to their respective companion documents and
+do not block WifiDriver implementation.

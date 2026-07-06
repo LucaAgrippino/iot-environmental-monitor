@@ -442,7 +442,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Provides a TCP and UDP socket API over WiFi, abstracting the ISM43362 AT-command interface (REQ-CC-050, REQ-TS-010, CON-001). Exposes link-level state (RSSI, connection status) to its consumer.
 **PROVIDES (upward):** IWifi
-**USES (downward):** SpiDriver, ExtiDriver
+**USES (downward):** SpiDriver, GpioDriver, ExtiDriver
 
 **NAME:** MagnetometerDriver
 **LAYER:** Driver
