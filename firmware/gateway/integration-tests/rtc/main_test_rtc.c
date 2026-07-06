@@ -167,11 +167,6 @@ int main(void)
     bringup_puts("RTC   : Backup-domain RTC, LSE 32.768 kHz\r\n");
     bringup_puts("============================================\r\n\r\n");
 
-    /* IMPORTANT: LSE must already be running (system clock config, before
-     * main()) for rtc_init() to succeed — see companion §4.6. If cpu_init()
-     * does not yet start LSE, rtc_init() returns RTC_ERR_LSE_NOT_READY here
-     * and this bring-up halts at TC-HW-RTC-001 until that is wired up. */
-
     /* TC-HW-RTC-001 */
     rtc_err_t rtc_err = rtc_init();
     if (rtc_err != RTC_OK)
