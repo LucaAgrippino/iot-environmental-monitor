@@ -177,6 +177,25 @@ static void bringup_fail(const char *label)
 }
 
 /* ---------------------------------------------------------------------- */
+/* EXTI1 ISR — overrides the weak default handler from the startup file.  */
+/* wifi_driver.h documents this as living in stm32l4xx_it.c, which is the */
+/* real production wiring once this code is merged into a CubeIDE        */
+/* project — but that file is CubeIDE-generated and not tracked in this   */
+/* repo, so this standalone bring-up main provides it directly, same as  */
+/* integration-tests/exti/main_test_exti.c does for ExtiDriver's own      */
+/* bring-up. Without this, wifi_attach_datardy_callback()'s exti_enable() */
+/* leaves the vector at its weak default (Default_Handler -> infinite     */
+/* loop), which fires on DRDY's first real rising edge after that point   */
+/* — in practice, the first AT command sent from the post-scheduler task. */
+/* ---------------------------------------------------------------------- */
+
+void EXTI1_IRQHandler(void)
+{
+    exti_clear_pending(WIFI_DRDY_EXTI_LINE);
+    wifi_datardy_irq_handler();
+}
+
+/* ---------------------------------------------------------------------- */
 /* DATARDY callback — this bring-up never enables real WifiTask-style      */
 /* notification plumbing (xTaskNotifyFromISR); it only proves              */
 /* wifi_attach_datardy_callback() accepts a valid callback and enables     */
