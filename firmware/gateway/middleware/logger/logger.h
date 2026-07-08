@@ -30,9 +30,17 @@
 #endif
 
 /* Caller-side scratch buffer for printf substitution in the macros. The
- * substituted message is copied (truncated) into the queue entry. */
-#define LOGGER_MESSAGE_MAX (64U)
+ * substituted message is copied (truncated) into the queue entry. Sized
+ * for longer bring-up diagnostic lines (e.g. wifi_driver's hardware
+ * integration test), which were truncating mid-word at 64. */
+#define LOGGER_MESSAGE_MAX (128U)
 #define LOGGER_MODULE_WIDTH (16U)
+
+/* Final assembled line ("[LEVEL][timestamp][module] message\r\n"). Must
+ * hold the ~36-byte prefix plus LOGGER_MESSAGE_MAX plus "\r\n" plus the
+ * null terminator. Declared here (not logger.c) so tests can bound-check
+ * against the same symbol instead of a duplicated literal. */
+#define LOGGER_OUT_BUF_MAX (200U)
 
 /* ====================================================================== */
 /* Types                                                                  */

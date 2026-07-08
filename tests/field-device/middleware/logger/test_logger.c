@@ -279,7 +279,7 @@ void test_TC_LOG_006_long_message_truncated_in_macro_buffer(void)
     TEST_ASSERT_EQUAL_STRING("\r\n",
         (const char *)&g_stub_uart_buf[g_stub_uart_len - 2U]);
     /* Line length is bounded by the output buffer. */
-    TEST_ASSERT_TRUE(g_stub_uart_len <= 128U);
+    TEST_ASSERT_TRUE(g_stub_uart_len <= LOGGER_OUT_BUF_MAX);
 }
 
 void test_TC_LOG_019_level_tag_padding_each_level(void)
