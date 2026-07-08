@@ -342,14 +342,21 @@ static void wifi_bringup_task(void *arg)
     /* TC-HW-WIFI-004 — only runs if credentials were filled in above. */
     if (sizeof(BRINGUP_WIFI_SSID) > 1U)
     {
-        if (wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD) != WIFI_ERR_OK)
+        wifi_err_t connect_err =
+            wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+        if (connect_err != WIFI_ERR_OK)
         {
+            LOG_ERROR("Wifi", "wifi_connect_ap() error code: %d", (int) connect_err);
+            bringup_log_at_diag();
             bringup_fail("TC-HW-WIFI-004  wifi_connect_ap() failed");
         }
 
         int8_t rssi_dbm = 0;
-        if (wifi_get_rssi(wifi_handle, &rssi_dbm) != WIFI_ERR_OK)
+        wifi_err_t rssi_err = wifi_get_rssi(wifi_handle, &rssi_dbm);
+        if (rssi_err != WIFI_ERR_OK)
         {
+            LOG_ERROR("Wifi", "wifi_get_rssi() error code: %d", (int) rssi_err);
+            bringup_log_at_diag();
             bringup_fail("TC-HW-WIFI-004  wifi_get_rssi() failed after association");
         }
         LOG_INFO("Wifi", "TC-HW-WIFI-004  associated, RSSI=%d dBm", (int) rssi_dbm);

@@ -124,8 +124,11 @@ WIFI_TEST_VISIBLE wifi_err_t prv_parse_response(const char *resp, size_t resp_le
 /**
  * @brief Parse a bare `CR` response: optional leading '-', then digits.
  *
- * The IWIN `CR` command returns the RSSI with no prefix/marker — just the
- * number (or "0" if not joined) followed by the usual OK terminator.
+ * The IWIN `CR` command returns the RSSI with no marker beyond the usual
+ * response framing — every IWIN response is "\r\n<data>\r\nOK\r\n..."
+ * (User Manual §1.4.2; confirmed on hardware for every response captured
+ * so far), so the bare value itself starts after that leading "\r\n", not
+ * at byte 0.
  */
 WIFI_TEST_VISIBLE wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, int8_t *out_rssi)
 {
@@ -133,6 +136,11 @@ WIFI_TEST_VISIBLE wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, i
     bool negative = false;
     int32_t value = 0;
     bool any_digit = false;
+
+    if ((resp_len >= 2u) && (resp[0] == '\r') && (resp[1] == '\n'))
+    {
+        pos = 2u;
+    }
 
     if ((pos < resp_len) && (resp[pos] == '-'))
     {
@@ -798,17 +806,34 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
-    /* Strip the trailing "\r\nOK\r\n" the module appends after the payload. */
-    size_t payload_len = resp_len;
-    const size_t ok_len = strlen(WIFI_RESP_OK_MARKER);
-    if ((payload_len >= ok_len) &&
-        (memcmp(&handle->at_buf[payload_len - ok_len], WIFI_RESP_OK_MARKER, ok_len) == 0))
+    /* Every IWIN response starts with "\r\n" before the actual data (User
+     * Manual §1.4.2) — strip it, then strip the trailing "\r\nOK\r\n" the
+     * module appends after the payload. Both confirmed on hardware. */
+    size_t payload_start = 0u;
+    if ((resp_len >= 2u) && (handle->at_buf[0] == '\r') && (handle->at_buf[1] == '\n'))
     {
-        payload_len -= ok_len;
+        payload_start = 2u;
+    }
+
+    size_t payload_len = resp_len - payload_start;
+    const size_t ok_len = strlen(WIFI_RESP_OK_MARKER);
+
+    /* The module also post-pads the whole response to an even byte count
+     * with a trailing 0x15 (datasheet §10.2) — tolerate at most one such
+     * byte after "\r\nOK\r\n" when locating where the real payload ends. */
+    size_t search_len = payload_len;
+    if ((search_len > 0u) && (handle->at_buf[payload_start + search_len - 1u] == (char) 0x15))
+    {
+        search_len -= 1u;
+    }
+    if ((search_len >= ok_len) && (memcmp(&handle->at_buf[payload_start + search_len - ok_len],
+                                          WIFI_RESP_OK_MARKER, ok_len) == 0))
+    {
+        payload_len = search_len - ok_len;
     }
 
     const size_t copy_len = (payload_len < buf_len) ? payload_len : buf_len;
-    memcpy(buf, handle->at_buf, copy_len);
+    memcpy(buf, &handle->at_buf[payload_start], copy_len);
     *out_len = copy_len;
 
     return WIFI_ERR_OK;

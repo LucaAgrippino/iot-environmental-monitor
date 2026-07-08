@@ -45,9 +45,14 @@
 #define WIFI_SECURITY_WPA2_MIXED "4"
 #define WIFI_DHCP_ENABLE "1" /**< C4= DHCP enable. */
 
-/* Response framing (User Manual §1.4.2; datasheet §10.2.1) */
+/* Response framing (User Manual §1.4.2; datasheet §10.2.1). The error
+ * marker deliberately has no trailing "\r\n": real error responses carry
+ * a description right after the word, e.g. "\r\nERROR: Unknown Error\r\n"
+ * (confirmed on hardware, and matches the "MT" example in the quick
+ * reference doc) — matching only "\r\nERROR" catches both that and the
+ * bare "\r\nERROR\r\n" form. */
 #define WIFI_RESP_OK_MARKER "\r\nOK\r\n"
-#define WIFI_RESP_ERROR_MARKER "\r\nERROR\r\n"
+#define WIFI_RESP_ERROR_MARKER "\r\nERROR"
 
 /* Required module firmware (UM2153 §7.11.3) — substring-matched against
  * the WIFI_AT_INFO response's FW Revision field. */

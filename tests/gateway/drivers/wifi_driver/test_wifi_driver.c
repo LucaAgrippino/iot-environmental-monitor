@@ -299,6 +299,16 @@ void test_WIFI_T02_parse_response_error(void)
     TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_response(resp, strlen(resp)));
 }
 
+void test_WIFI_T02b_parse_response_error_with_description(void)
+{
+    /* Real IWIN error responses carry a description right after "ERROR",
+     * not a bare "\r\nERROR\r\n" — confirmed on hardware: a failed C0
+     * (join) returned "\r\n[JOIN   ] Failed\r\nERROR: Unknown Error\r\n
+     * Usage: C0 \r\n> ". */
+    const char *resp = "\r\n[JOIN   ] Failed\r\nERROR: Unknown Error\r\nUsage: C0 \r\n> ";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_response(resp, strlen(resp)));
+}
+
 void test_WIFI_T03_parse_response_truncated(void)
 {
     const char *resp = "garbage, no marker here";
@@ -309,6 +319,17 @@ void test_WIFI_T04_parse_rssi(void)
 {
     /* IWIN "CR" response is a bare value, no "+WRSSI:" marker. */
     const char *resp = "-67\r\nOK\r\n";
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, prv_parse_rssi(resp, strlen(resp), &rssi));
+    TEST_ASSERT_EQUAL_INT8(-67, rssi);
+}
+
+void test_WIFI_T04b_parse_rssi_with_leading_crlf(void)
+{
+    /* Every IWIN response actually starts with "\r\n<data>..." (User
+     * Manual §1.4.2) — confirmed on hardware for every response captured
+     * so far. The bare value follows that delimiter, not byte 0. */
+    const char *resp = "\r\n-67\r\nOK\r\n";
     int8_t rssi = 0;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, prv_parse_rssi(resp, strlen(resp), &rssi));
     TEST_ASSERT_EQUAL_INT8(-67, rssi);
@@ -521,4 +542,61 @@ void test_WIFI_T18_close_socket_frees_slot(void)
     TEST_ASSERT_EQUAL(WIFI_ERR_OK,
                       wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &reopened));
     TEST_ASSERT_EQUAL(0u, reopened);
+}
+
+void test_WIFI_T19_recv_strips_leading_and_trailing_framing(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= (select) */
+    helper_script_at_command("\r\nOK\r\n"); /* R1= (packet size) */
+    /* Every IWIN response is "\r\n<data>\r\nOK\r\n" (User Manual §1.4.2,
+     * confirmed on hardware) — the payload is neither at byte 0 nor does
+     * it include the trailing OK marker. wifi_recv() must strip both.
+     * Even total length here (14 bytes) — no SPI pad byte involved;
+     * see WIFI_T19b for the odd-length, pad-byte case. */
+    helper_script_at_command("\r\nhello!\r\nOK\r\n"); /* R0 */
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_recv(handle, sock, buf, sizeof(buf), &out_len, 0u));
+    TEST_ASSERT_EQUAL(6u, out_len);
+    TEST_ASSERT_EQUAL_MEMORY("hello!", buf, 6u);
+}
+
+void test_WIFI_T19b_recv_strips_trailing_spi_pad_byte(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= (select) */
+    helper_script_at_command("\r\nOK\r\n"); /* R1= (packet size) */
+    /* "\r\nhello\r\nOK\r\n" is 13 bytes — odd — so helper_script_data_phase
+     * appends the same 0x15 SPI pad byte the real module appends to reach
+     * an even count (datasheet §10.2). wifi_recv() must still find "OK"
+     * and return exactly the 5-byte payload, not 6 (payload+pad). */
+    helper_script_at_command("\r\nhello\r\nOK\r\n"); /* R0 */
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_recv(handle, sock, buf, sizeof(buf), &out_len, 0u));
+    TEST_ASSERT_EQUAL(5u, out_len);
+    TEST_ASSERT_EQUAL_MEMORY("hello", buf, 5u);
 }
