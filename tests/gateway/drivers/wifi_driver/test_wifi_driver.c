@@ -11,7 +11,11 @@
  * DRDY handshake needs a precise, ordered multi-call sequence per AT
  * command: helper_script_at_command() queues exactly the DRDY levels and
  * response words prv_at_command() will consume, in the order it consumes
- * them (companion §3.2).
+ * them (companion §3.2). helper_script_boot_cursor() does the same for
+ * the post-reset boot-cursor Data Phase that wifi_create() now drains
+ * before it ever sends an AT command (datasheet §10.2.1). Response words
+ * are built in IWIN's swapped 16-bit byte order (datasheet §10.2.3), the
+ * same order the fixed prv_recv_words() expects to decode.
  *
  * Build: STM32L475xx and TEST must be defined
  *        (tests/project_gateway.yml :test_wifi_driver:). This test runs
@@ -94,25 +98,47 @@ static void rx_words_push(uint16_t word)
     s_rx_words_len++;
 }
 
-/** Queue the exact DRDY levels and response words one prv_at_command()
- *  call will consume for a given response string. */
-static void helper_script_at_command(const char *resp)
+/**
+ * @brief Queue the DRDY levels + words one prv_recv_words() call consumes.
+ *
+ * One HIGH per 16-bit word (the loop's own per-iteration DRDY check),
+ * then a final LOW to end the Data Phase. Words are built in IWIN's
+ * swapped byte order (second logical byte in the high half) to match
+ * the driver's corrected decode in prv_recv_words() — the mirror image
+ * of the datasheet's own endian example (§10.2.3).
+ */
+static void helper_script_data_phase(const char *text)
 {
-    drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* pre-send: DRDY high */
-    drdy_seq_push(GPIO_LEVEL_LOW, 1u);  /* post-send ack: DRDY low */
-    drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* response ready: DRDY high */
-
-    const size_t resp_len = strlen(resp);
-    const size_t word_count = (resp_len + 1u) / 2u;
+    const size_t text_len = strlen(text);
+    const size_t word_count = (text_len + 1u) / 2u;
 
     for (size_t i = 0u; i < word_count; i++)
     {
         drdy_seq_push(GPIO_LEVEL_HIGH, 1u);
-        const uint16_t hi = (uint8_t) resp[2u * i];
-        const uint16_t lo = ((2u * i + 1u) < resp_len) ? (uint8_t) resp[2u * i + 1u] : 0u;
-        rx_words_push((uint16_t) ((hi << 8) | lo));
+        const uint16_t first = (uint8_t) text[2u * i];
+        const uint16_t second = ((2u * i + 1u) < text_len) ? (uint8_t) text[2u * i + 1u] : 0x15u;
+        rx_words_push((uint16_t) ((second << 8) | first));
     }
-    drdy_seq_push(GPIO_LEVEL_LOW, 1u); /* end of response */
+    drdy_seq_push(GPIO_LEVEL_LOW, 1u); /* end of Data Phase */
+}
+
+/** Queue the exact DRDY levels and response words one prv_at_command()
+ *  call will consume for a given response string. */
+static void helper_script_at_command(const char *resp)
+{
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* pre-send: DRDY high (Command Phase) */
+    drdy_seq_push(GPIO_LEVEL_LOW, 1u);  /* post-send ack: DRDY low */
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* response ready: DRDY high (Data Phase) */
+    helper_script_data_phase(resp);
+}
+
+/** Queue the DRDY levels + words one prv_drain_boot_cursor() call
+ *  consumes: the leading DRDY-high satisfies its own prv_wait_drdy(true)
+ *  before the boot-cursor Data Phase itself (datasheet §10.2.1). */
+static void helper_script_boot_cursor(void)
+{
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* post-reset: DRDY high (Data Phase begins) */
+    helper_script_data_phase("\r\n> ");
 }
 
 static gpio_level_t last_write_level(gpio_port_t port, uint8_t pin)
@@ -220,8 +246,8 @@ static wifi_config_t helper_make_config(void)
 
 static wifi_handle_t helper_create_ready(void)
 {
-    helper_script_at_command("\r\nOK\r\n");
-    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n");
+    helper_script_boot_cursor();
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
 
     wifi_config_t config = helper_make_config();
     wifi_handle_t handle = NULL;

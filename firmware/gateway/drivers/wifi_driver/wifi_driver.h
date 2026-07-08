@@ -103,8 +103,9 @@ typedef struct
  * @brief Create and initialise a WifiDriver instance.
  *
  * Performs the ISM43362 hardware reset sequence (BOOT0 low → RST
- * pulse → 500 ms boot wait), sends AT handshake, and verifies
- * firmware version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
+ * pulse → 500 ms boot wait), drains the post-reset boot cursor Data
+ * Phase, sends the "I?" liveness/info command, and verifies firmware
+ * version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
  *
  * GPIO pin configuration (mode, AF, pull) must be completed by the
  * caller via gpio_configure_pin() before calling this function. This
@@ -301,19 +302,19 @@ void wifi_reset_for_test(void);
 wifi_err_t prv_parse_response(const char *resp, size_t resp_len);
 
 /**
- * @brief Parse an AT+WRSSI response of the form "+WRSSI:-67\r\nOK\r\n".
+ * @brief Parse an IWIN "CR" response: a bare RSSI value, e.g. "-67\r\nOK\r\n".
  *
  * Exposed for WIFI-T04. Not part of the public driver contract.
  *
  * @param[in]  resp      Raw response bytes.
  * @param[in]  resp_len  Number of valid bytes in resp.
  * @param[out] out_rssi  Receives the parsed RSSI in dBm.
- * @return WIFI_ERR_OK on success; WIFI_ERR_MODULE if "+WRSSI:" not found.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_MODULE if no digits found.
  */
 wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, int8_t *out_rssi);
 
 /**
- * @brief Check an AT+GMR response for the required firmware version.
+ * @brief Check an IWIN "I?" response for the required firmware version.
  *
  * Exposed for WIFI-T05/T06. Not part of the public driver contract.
  *

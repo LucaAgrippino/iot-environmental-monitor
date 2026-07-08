@@ -179,8 +179,9 @@ typedef struct {
  * @brief Create and initialise a WifiDriver instance.
  *
  * Performs the ISM43362 hardware reset sequence (BOOT0 low → RST
- * pulse → 500 ms boot wait), sends AT handshake, and verifies
- * firmware version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
+ * pulse → 500 ms boot wait), drains the post-reset boot cursor Data
+ * Phase, sends the "I?" liveness/info command, and verifies firmware
+ * version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
  *
  * GPIO pin configuration (mode, AF, pull) must be completed by the
  * caller via gpio_create() before calling this function.  This
@@ -399,15 +400,33 @@ static uint8_t          g_count;
 
 The ISM43362 uses a custom half-duplex SPI handshake with DRDY as a
 flow-control signal. **SPI frame size is 16 bits** — all AT command
-data is sent and received in 16-bit words.
+data is sent and received in 16-bit words, and the interface is
+little-endian: within each 16-bit pair, the *second* logical byte is
+clocked out first (datasheet §10.2.3 endian example: `"I?\r\x0A"` goes
+out on the wire as `0x3F 0x49 0x0A 0x0D`). Getting this backwards
+transposes every pair of characters the module sees or sends (WIFI-O6).
+
+**Boot cursor (post-reset, before any command — datasheet §10.2.1):**
+
+```
+0. After reset, the module raises DRDY to signal a Data Phase holding
+   the boot prompt "\r\n> " — NOT a Command Phase. Assert NSS low,
+   clock 0x0A on MOSI (fill byte) while reading MISO until DRDY falls,
+   then deassert NSS. Only the *next* DRDY rising edge is a genuine
+   Command Phase. Sending an AT command on the first rising edge
+   desyncs the module's phase state machine (WIFI-O6).
+```
 
 **Send transaction (AT command → module):**
 
 ```
 1. Assert NSS low (via gpio_write on nss handle)
 2. Wait for DRDY high (poll or notification) — max WIFI_DRDY_TIMEOUT_MS
-3. Send command bytes as 16-bit words via spi_transceive():
-     - If command length is odd, append 0x0A (LF) as padding byte
+3. Send command bytes as 16-bit words via spi_transceive(), each pair
+   byte-swapped per the endian note above:
+     - If command length is odd, append 0x15 (NAK) as padding byte
+       (quick reference DOC-esWiFi_AT_Command_20041.1.20 p.2 worked
+       example: "P0=0\r" pads to 0x15, NOT 0x0A)
 4. Deassert NSS high
 5. Wait for DRDY low (module acknowledged receipt)
 6. Wait for DRDY high (module response ready) — max WIFI_RESP_TIMEOUT_MS
@@ -417,9 +436,11 @@ data is sent and received in 16-bit words.
 
 ```
 7. Assert NSS low
-8. Read 16-bit words via spi_transceive(tx_buf=NULL) until:
+8. Read 16-bit words via spi_transceive(tx_buf=0x0A0A) — the host must
+   clock 0x0A on MOSI while draining a Data Phase — until:
      a. DRDY goes low (end of response), OR
      b. Buffer is full
+   Each word is unswapped per the endian note above.
 9. Deassert NSS high
 10. Parse response: look for "\r\nOK\r\n" or "\r\nERROR\r\n"
 ```
@@ -450,15 +471,15 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst,
 AT command mapping (WIFI-D12 — corrected against Inventek's own IWIN AT
 command reference, not the fictional Hayes-style commands v0.2 originally
 used; see WIFI-D12 in §11 for how that was found and why the correction
-matters):
+matters). Command codes are defined in `wifi_at_commands.h`, kept
+separate from the transport/state-machine logic in `wifi_driver.c`.
 
 The ISM43362's IWIN command set has **no "AT" attention prefix** — every
 command is `<COMMAND><=data><CR>`, e.g. `C1=mySSID\r`, not `AT+C1=mySSID\r`.
 
 | Public API | IWIN command(s) |
 |---|---|
-| `wifi_create` (handshake) | `?\r` (print-help liveness check) |
-| `wifi_create` (version) | `I?\r` (module info; response must contain "C3.5.2.3") |
+| `wifi_create` (liveness + version) | `I?\r` (module info; response must contain "C3.5.2.3"). `?\r` (print-help) is never sent — the quick reference (DOC-esWiFi_AT_Command_20041.1.20, Help Commands) marks it "Not available in SPI firmware." |
 | `wifi_connect_ap` | `C1=<ssid>\r`, `C2=<pwd>\r`, `C3=4\r` (WPA2 Mixed), `C4=1\r` (DHCP on), `C0\r` (join) — five sequential commands |
 | `wifi_disconnect_ap` | `CD\r` |
 | `wifi_get_rssi` | `CR\r` — bare response: `0` if not joined, else the RSSI value with no prefix |
@@ -766,6 +787,7 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 | WIFI-O3 | GPIO pin assignments | **Resolved** | UM2153 Table 11: PE0=NSS, PE1=DRDY, PE8=RST, PB12=BOOT0, PB13=WAKEUP. |
 | WIFI-O4 | WifiTask API surface | **Open** | Deferred to WifiTask middleware companion. IWifi is the driver contract; the request-queue routing mechanism is designed separately. |
 | WIFI-O5 | Timeout values | **Resolved** | Baseline: DRDY_TIMEOUT=100 ms, RESP_TIMEOUT=5000 ms. Validate at integration. |
+| WIFI-O6 | Hardware bring-up: `wifi_create()` timed out (~47 s vs. a ≤5.6 s bound) | **Resolved** | Root cause was not the DRDY/RESP timeout values or SYSCLK: (1) the driver never drained the post-reset boot-cursor Data Phase before sending a command, desyncing the module's phase state machine; (2) the first command sent was `?`, which the quick reference marks "Not available in SPI firmware"; (3) `prv_send_words`/`prv_recv_words` had the 16-bit endian swap backwards; (4) the odd-length command pad byte was `0x0A` instead of `0x15`. All four fixed together (see §3.2, §3.3, WIFI-D13). |
 
 ---
 
@@ -785,6 +807,7 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 | WIFI-D10 | `wifi_socket_t` is a distinct typedef from `wifi_handle_t` | Avoids naming collision between driver instance handles and socket identifiers. |
 | WIFI-D11 | `prv_at_command()` uses bounded busy-polling on the DRDY GPIO uniformly, pre- and post-scheduler; WifiDriver has no FreeRTOS dependency of its own | Supersedes WIFI-D4. `components.md`'s USES list for WifiDriver does not include FreeRTOS, and Phase H's own H11 check certifies "no FreeRTOS dependency except ISR" — WIFI-D4 contradicted that certification. Task-level notification of DATARDY events (via `xTaskNotifyFromISR` in the registered callback) remains WifiTask's responsibility, not this driver's. |
 | WIFI-D12 | AT command mapping (§3.3) corrected from a fictional Hayes-style set (`AT+WC=`, `AT+NCPX=`, `AT+S.=`, `AT+R=`, `AT+NCLS=`) to the real Inventek IWIN command set (`C1..C4`/`C0`, `P0..P6`, `S0..S3`, `R0..R3`, `CR`, `I?`, `?`) | v0.2 of this companion invented AT strings without checking them against Inventek's own documentation. Verified against `inventeksys.com/iwin/getting-started-guide/`, `/iwin/at-status-commands/`, and `/iwin/at-cmds/`, and cross-checked against UM2153 §7.11.3. The real command set has no "AT" attention prefix, and several operations (open socket, close socket) that v0.2 modelled as one combined command are actually 2–5 sequential single-purpose commands operating on whichever socket `P0=` last selected. |
+| WIFI-D13 | SPI transport layer corrected (§3.2): 16-bit words are byte-swapped per pair, the odd-length command pad byte is `0x15` not `0x0A`, the post-reset boot cursor is drained before any command, and `?` is dropped from the liveness check in favour of `I?` alone | Found while investigating WIFI-O6 against the ISM43362-M3G-L44 datasheet (DOC-DS-20023) §10.2 and the IWIN AT Command Set quick reference (DOC-esWiFi_AT_Command_20041.1.20) p.2, both of which give worked byte-level examples that v0.1 of this companion did not check the implementation against. IWIN command codes/values moved out of `wifi_driver.c` into `wifi_at_commands.h` so the transport fix and the command vocabulary are independently reviewable. |
 
 ---
 
@@ -792,8 +815,9 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 
 ```
 firmware/gateway/drivers/wifi_driver/
-├── wifi_driver.h    /* public API — opaque handle, config, error enum, socket types */
-└── wifi_driver.c    /* implementation — AT engine, SPI protocol, socket table, ISR */
+├── wifi_driver.h       /* public API — opaque handle, config, error enum, socket types */
+├── wifi_driver.c       /* implementation — AT engine, SPI protocol, socket table, ISR */
+└── wifi_at_commands.h  /* IWIN AT command codes/values — no logic, just string constants */
 
 tests/gateway/drivers/wifi_driver/
 └── test_wifi_driver.c  /* Unity + CMock host tests */

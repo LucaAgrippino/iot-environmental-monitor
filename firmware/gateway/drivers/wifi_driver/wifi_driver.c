@@ -4,8 +4,9 @@
  *        socket table, DATARDY ISR (Gateway).
  *
  * AT command set: Inventek's IWIN command set (companion §3.3, WIFI-D12),
- * verified against inventeksys.com/iwin/ — NOT a Hayes "AT+" set. Every
- * command is `<CODE>[=<value>]<CR>` with no attention prefix.
+ * verified against the IWIN AT Command Set User Manual and quick
+ * reference — NOT a Hayes "AT+" set. Every command is `<CODE>[=<value>]<CR>`
+ * with no attention prefix. Command codes live in wifi_at_commands.h.
  *
  * @note See docs/lld/drivers/wifi-driver.md for the full design specification.
  */
@@ -16,6 +17,7 @@
 #include <string.h>
 
 #include "cpu/cpu.h"
+#include "wifi_at_commands.h"
 
 #define WIFI_MAX_INSTANCES 1u
 #define WIFI_AT_BUF_SIZE 512u
@@ -24,14 +26,15 @@
 #define WIFI_RESET_PULSE_MS 10u
 #define WIFI_BOOT_WAIT_MS 500u
 #define WIFI_POLL_INTERVAL_US 100u
-#define WIFI_PAD_BYTE 0x0Au /**< LF — appended when a command has odd length. */
-#define WIFI_FIRMWARE_VERSION "C3.5.2.3"
-#define WIFI_RESP_OK_MARKER "\r\nOK\r\n"
-#define WIFI_RESP_ERROR_MARKER "\r\nERROR\r\n"
-#define WIFI_SECURITY_WPA2_MIXED "4" /**< C3= security type (IWIN: 4 = WPA2 Mixed). */
-#define WIFI_DHCP_ENABLE "1"         /**< C4= DHCP enable. */
-#define WIFI_MAX_PACKET_SIZE 1460u   /**< S1/R1/S3 packet-size ceiling (IWIN spec). */
-#define WIFI_NUMSTR_MAX 6u           /**< Fits "65535\0". */
+/** NAK — appended to an odd-length command to reach an even byte count.
+ *  Confirmed against the quick reference's worked example (P0=0\r padded
+ *  to "0P 0= 0x15\r"); NOT 0x0A as the general datasheet text suggested. */
+#define WIFI_CMD_PAD_BYTE 0x15u
+/** LF — clocked out by the host on MOSI while draining a Data Phase
+ *  (datasheet §10.2.1/§10.2.4: "clock out 0x0A until DRDY lowers"). */
+#define WIFI_READ_FILL_BYTE 0x0Au
+#define WIFI_MAX_PACKET_SIZE 1460u /**< S1/R1/S3 packet-size ceiling (IWIN spec). */
+#define WIFI_NUMSTR_MAX 6u         /**< Fits "65535\0". */
 
 struct wifi_inst
 {
@@ -183,6 +186,16 @@ static bool prv_wait_drdy(const struct wifi_inst *inst, bool want_high, uint32_t
     }
 }
 
+/**
+ * @brief Clock a byte buffer out as 16-bit SPI words, IWIN endian.
+ *
+ * The ISM43362 SPI shell is a 16-bit-wide window onto an internally
+ * byte-oriented UART core: to keep two consecutive logical bytes in
+ * their original order, the *second* byte of each pair must be clocked
+ * out first (datasheet §10.2.3 endian example: "I?\r\x0A" -> wire bytes
+ * 0x3F 0x49 0x0A 0x0D). Getting this backwards transposes every pair of
+ * characters the module receives.
+ */
 static wifi_err_t prv_send_words(struct wifi_inst *inst, const uint8_t *data, size_t len)
 {
     uint16_t word;
@@ -190,10 +203,10 @@ static wifi_err_t prv_send_words(struct wifi_inst *inst, const uint8_t *data, si
 
     while (i < len)
     {
-        const uint8_t hi = data[i];
-        const uint8_t lo = ((i + 1u) < len) ? data[i + 1u] : (uint8_t) WIFI_PAD_BYTE;
+        const uint8_t first = data[i];
+        const uint8_t second = ((i + 1u) < len) ? data[i + 1u] : (uint8_t) WIFI_CMD_PAD_BYTE;
 
-        word = (uint16_t) (((uint16_t) hi << 8) | lo);
+        word = (uint16_t) (((uint16_t) second << 8) | first);
 
         if (spi_transceive(inst->spi, &word, NULL, 1u) != SPI_ERR_OK)
         {
@@ -206,8 +219,17 @@ static wifi_err_t prv_send_words(struct wifi_inst *inst, const uint8_t *data, si
     return WIFI_ERR_OK;
 }
 
+/**
+ * @brief Drain a Data Phase: clock 0x0A on MOSI, decode IWIN-endian words.
+ *
+ * Used both for the post-reset boot cursor and for ordinary AT-command
+ * responses — in both cases the module signals a Data Phase by holding
+ * DRDY high and expects the host to keep clocking until DRDY falls
+ * (datasheet §10.2.1/§10.2.4). The unswap is the mirror of prv_send_words.
+ */
 static size_t prv_recv_words(struct wifi_inst *inst, char *resp_buf, size_t resp_buf_len)
 {
+    static const uint16_t fill_word = ((uint16_t) WIFI_READ_FILL_BYTE << 8) | WIFI_READ_FILL_BYTE;
     size_t received = 0u;
 
     while (received < resp_buf_len)
@@ -223,21 +245,48 @@ static size_t prv_recv_words(struct wifi_inst *inst, char *resp_buf, size_t resp
         }
 
         uint16_t word = 0u;
-        if (spi_transceive(inst->spi, NULL, &word, 1u) != SPI_ERR_OK)
+        if (spi_transceive(inst->spi, &fill_word, &word, 1u) != SPI_ERR_OK)
         {
             break;
         }
 
-        resp_buf[received] = (char) (word >> 8);
+        resp_buf[received] = (char) (word & 0xFFu);
         received++;
         if (received < resp_buf_len)
         {
-            resp_buf[received] = (char) (word & 0xFFu);
+            resp_buf[received] = (char) (word >> 8);
             received++;
         }
     }
 
     return received;
+}
+
+/**
+ * @brief Drain the post-reset boot prompt before issuing any AT command.
+ *
+ * After reset the module immediately raises DRDY for a Data Phase holding
+ * the boot cursor "\r\n> " — NOT a Command Phase (datasheet §10.2.1: "the
+ * SPI Host must fetch the cursor... The next rising edge of the CMD/DATA
+ * READY pin signals the Command Phase"). Sending a command on this first
+ * DRDY-high wedges the module's phase state machine before the driver
+ * ever gets a real reply, which is what produced the multi-second
+ * wifi_create() timeout on hardware.
+ */
+static wifi_err_t prv_drain_boot_cursor(struct wifi_inst *inst)
+{
+    char scratch[8];
+
+    if (!prv_wait_drdy(inst, true, WIFI_DRDY_TIMEOUT_MS))
+    {
+        return WIFI_ERR_TIMEOUT;
+    }
+
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
+    (void) prv_recv_words(inst, scratch, sizeof scratch);
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
+
+    return WIFI_ERR_OK;
 }
 
 /**
@@ -302,9 +351,9 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
  * @brief Format and send a single IWIN command: `<code>[=<value>]<CR>`.
  *
  * @param[in]  inst          WifiDriver instance.
- * @param[in]  code          Command code, e.g. "C1", "P0", "CR", "?".
+ * @param[in]  code          Command code, e.g. WIFI_AT_SET_SSID, WIFI_AT_GET_RSSI.
  * @param[in]  value         Value string for "<code>=<value>", or NULL for
- *                            a bare "<code>" command (e.g. "C0", "?").
+ *                            a bare "<code>" command (e.g. WIFI_AT_JOIN).
  * @param[out] out_resp_len  Receives the response byte count, or NULL if
  *                            the caller only needs the OK/ERROR verdict.
  */
@@ -378,16 +427,19 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
 
     (void) exti_configure(WIFI_DRDY_EXTI_LINE, EXTI_PORT_E, EXTI_EDGE_RISING);
 
-    /* "?" — liveness/handshake (IWIN "print help"). */
-    wifi_err_t err = prv_send_kv(inst, "?", NULL, NULL);
+    /* Drain the post-reset boot prompt before issuing any AT command
+     * (datasheet §10.2.1). */
+    wifi_err_t err = prv_drain_boot_cursor(inst);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
 
-    /* "I?" — module info; response must contain the required firmware rev. */
+    /* WIFI_AT_INFO ("I?") — module info and liveness check in one step.
+     * The quick-reference AT command doc marks "?" (print help) as "Not
+     * available in SPI firmware", so it is never sent here. */
     size_t resp_len = 0u;
-    err = prv_send_kv(inst, "I?", NULL, &resp_len);
+    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -442,27 +494,27 @@ wifi_err_t wifi_connect_ap(wifi_handle_t handle, const char *ssid, const char *p
     }
 
     /* C1/C2/C3/C4/C0 — SSID, password, security (WPA2 Mixed), DHCP on, join. */
-    wifi_err_t err = prv_send_kv(handle, "C1", ssid, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SSID, ssid, NULL);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, "C2", password, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_PASSPHRASE, password, NULL);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, "C3", WIFI_SECURITY_WPA2_MIXED, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_SECURITY, WIFI_SECURITY_WPA2_MIXED, NULL);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, "C4", WIFI_DHCP_ENABLE, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_DHCP, WIFI_DHCP_ENABLE, NULL);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, "C0", NULL, NULL);
+    err = prv_send_kv(handle, WIFI_AT_JOIN, NULL, NULL);
     if (err == WIFI_ERR_OK)
     {
         handle->link_state = WIFI_LINK_UP;
@@ -481,7 +533,7 @@ wifi_err_t wifi_disconnect_ap(wifi_handle_t handle)
         return WIFI_ERR_NOT_INIT;
     }
 
-    const wifi_err_t err = prv_send_kv(handle, "CD", NULL, NULL);
+    const wifi_err_t err = prv_send_kv(handle, WIFI_AT_DISCONNECT, NULL, NULL);
     if (err == WIFI_ERR_OK)
     {
         handle->link_state = WIFI_LINK_DOWN;
@@ -520,7 +572,7 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm)
     }
 
     size_t resp_len = 0u;
-    const wifi_err_t err = prv_send_kv(handle, "CR", NULL, &resp_len);
+    const wifi_err_t err = prv_send_kv(handle, WIFI_AT_GET_RSSI, NULL, &resp_len);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -572,27 +624,27 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
 
     /* P0/P1/P3/P4/P6=1 — select socket, protocol, remote host, remote port,
      * start client. There is no combined "open connection" command. */
-    wifi_err_t err = prv_send_kv(handle, "P0", slot_str, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, slot_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, "P1", protocol_str, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_PROTOCOL, protocol_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, "P3", remote_addr, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_HOST, remote_addr, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, "P4", port_str, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_PORT, port_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, "P6", "1", NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "1", NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -627,7 +679,7 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
     (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
 
     /* P0 — select socket. */
-    wifi_err_t err = prv_send_kv(handle, "P0", socket_str, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -636,7 +688,8 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
     /* S3=<len> — set packet size and send in one command; payload follows
      * the <CR> directly (no combined string formatting: payload may be
      * binary and is not null-terminated). */
-    const int header_len = snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, "S3=%u\r", (unsigned) len);
+    const int header_len =
+        snprintf(handle->at_buf, WIFI_AT_BUF_SIZE, WIFI_AT_SEND_DATA "=%u\r", (unsigned) len);
     if ((header_len < 0) || (((size_t) header_len + len) > WIFI_AT_BUF_SIZE))
     {
         return WIFI_ERR_INVALID_ARG;
@@ -676,7 +729,7 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
     (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
 
     /* P0 — select socket. */
-    wifi_err_t err = prv_send_kv(handle, "P0", socket_str, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
@@ -686,7 +739,7 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
     const size_t req_len = (buf_len < WIFI_MAX_PACKET_SIZE) ? buf_len : WIFI_MAX_PACKET_SIZE;
     char len_str[WIFI_NUMSTR_MAX];
     (void) snprintf(len_str, sizeof(len_str), "%u", (unsigned) req_len);
-    err = prv_send_kv(handle, "R1", len_str, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_RECV_PACKET_SIZE, len_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
@@ -694,7 +747,7 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
 
     /* R0 — receive one packet. */
     size_t resp_len = 0u;
-    err = prv_send_kv(handle, "R0", NULL, &resp_len);
+    err = prv_send_kv(handle, WIFI_AT_RECV_DATA, NULL, &resp_len);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
@@ -736,12 +789,12 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
 
     /* P0 — select socket, then P6=0 — stop client. There is no dedicated
      * "close" command in the IWIN set. */
-    wifi_err_t err = prv_send_kv(handle, "P0", socket_str, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, "P6", "0", NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "0", NULL);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
