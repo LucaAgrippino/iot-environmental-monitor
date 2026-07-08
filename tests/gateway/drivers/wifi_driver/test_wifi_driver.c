@@ -247,6 +247,8 @@ static wifi_config_t helper_make_config(void)
 static wifi_handle_t helper_create_ready(void)
 {
     helper_script_boot_cursor();
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u);                   /* wifi_create()'s own wait for the first
+                                                           * Command Phase, before sending I? (WIFI-O7) */
     helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
 
     wifi_config_t config = helper_make_config();

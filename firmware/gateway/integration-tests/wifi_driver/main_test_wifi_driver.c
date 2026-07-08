@@ -90,7 +90,7 @@
 /* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFI-004/005/006.            */
 /* ---------------------------------------------------------------------- */
 #define BRINGUP_WIFI_SSID "Grove Island"
-#define BRINGUP_WIFI_PASSWORD "1234"
+#define BRINGUP_WIFI_PASSWORD "island1234"
 
 /* PC running SocketTest (or any TCP/UDP listener) on the same LAN — see
  * the file header for setup instructions. Leave BRINGUP_SOCKETTEST_HOST
@@ -165,6 +165,15 @@ static void bringup_halt(void)
 
 /**
  * @brief Halt after Logger is up: log the reason, then blink via GpioDriver.
+ *
+ * Post-scheduler, this must actually yield (vTaskDelay), not busy-spin:
+ * WIFI_TASK_PRIORITY is higher than LOGGER_DRAIN_TASK_PRIORITY, so a
+ * non-yielding loop here starves the drain task forever, and every queued
+ * message — including this call's own LOG_ERROR(), and anything logged
+ * earlier in this same task that hadn't drained yet — is silently lost.
+ * Pre-scheduler (e.g. a wifi_create() failure in main()), the scheduler
+ * isn't running yet, so vTaskDelay would be invalid; fall back to the
+ * raw spin there, same as before.
  */
 static void bringup_fail(const char *label)
 {
@@ -172,8 +181,100 @@ static void bringup_fail(const char *label)
     for (;;)
     {
         (void) gpio_toggle_pin(BRINGUP_LED_PORT, BRINGUP_LED_PIN);
-        bringup_raw_spin(500000U);
+        if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+        {
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        else
+        {
+            bringup_raw_spin(500000U);
+        }
     }
+}
+
+/* ---------------------------------------------------------------------- */
+/* AT-command bring-up diagnostics (WIFI-O7 follow-up) — TEMPORARY.       */
+/* WIFI_ERR_TIMEOUT covers both a real DRDY-wait timeout and a real reply */
+/* that just didn't contain "OK"/"ERROR"; this narrows down which. The    */
+/* snapshot is shared by every prv_at_command() call inside wifi_driver.c */
+/* — I?, C1..C4/C0, P0/P1/etc. — so it's equally useful after a failed    */
+/* wifi_create() or a failed wifi_connect_ap()/wifi_open_socket()/etc.:   */
+/* it always reflects whichever AT command most recently ran.             */
+/* Remove once WIFI-O7 is closed for good.                                */
+/* ---------------------------------------------------------------------- */
+
+static const char *bringup_diag_step_name(wifi_diag_step_t step)
+{
+    switch (step)
+    {
+    case WIFI_DIAG_STEP_NONE:
+        return "NONE (reset sequence not reached)";
+    case WIFI_DIAG_STEP_BOOT_CURSOR_WAIT:
+        return "BOOT_CURSOR_WAIT (DRDY never went high after reset)";
+    case WIFI_DIAG_STEP_BOOT_CURSOR_DRAIN:
+        return "BOOT_CURSOR_DRAIN";
+    case WIFI_DIAG_STEP_COMMAND_PHASE_WAIT:
+        return "COMMAND_PHASE_WAIT (DRDY never went high again after the boot cursor)";
+    case WIFI_DIAG_STEP_INFO_WAIT_HIGH:
+        return "INFO_WAIT_HIGH (AT command pre-send DRDY wait)";
+    case WIFI_DIAG_STEP_INFO_SEND:
+        return "INFO_SEND";
+    case WIFI_DIAG_STEP_INFO_WAIT_LOW:
+        return "INFO_WAIT_LOW (AT command post-send ack wait)";
+    case WIFI_DIAG_STEP_INFO_WAIT_RESP:
+        return "INFO_WAIT_RESP (AT command response DRDY wait)";
+    case WIFI_DIAG_STEP_INFO_PARSE:
+        return "INFO_PARSE (response received, no OK/ERROR marker found)";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static void bringup_log_hex(const char *label, const uint8_t *data, size_t len)
+{
+    char hex[80];
+    size_t pos = 0U;
+
+    for (size_t i = 0U; (i < len) && ((pos + 3U) < sizeof(hex)); ++i)
+    {
+        pos += (size_t) snprintf(&hex[pos], sizeof(hex) - pos, "%02X ", data[i]);
+    }
+    hex[pos] = '\0';
+    LOG_INFO("Wifi", "%s (%u bytes): %s", label, (unsigned) len, hex);
+}
+
+/** Dumps the full buffer across several bringup_log_hex() lines — one
+ *  line can't hold more than ~20 bytes without exceeding LOGGER_MESSAGE_MAX. */
+static void bringup_log_hex_chunks(const char *label, const uint8_t *data, size_t len)
+{
+    const size_t chunk = 20U;
+
+    for (size_t offset = 0U; offset < len; offset += chunk)
+    {
+        const size_t n = ((len - offset) < chunk) ? (len - offset) : chunk;
+        char sub_label[48];
+        (void) snprintf(sub_label, sizeof(sub_label), "%s [%u..%u]", label, (unsigned) offset,
+                        (unsigned) (offset + n - 1U));
+        bringup_log_hex(sub_label, &data[offset], n);
+    }
+}
+
+/** Logs the last-run AT command's outcome: which step it reached, and the
+ *  raw response bytes (if any). Call after any wifi_driver.h call fails. */
+static void bringup_log_at_diag(void)
+{
+    const wifi_bringup_diag_t *diag = wifi_get_bringup_diag();
+
+    LOG_ERROR("Wifi", "  last step reached: %s", bringup_diag_step_name(diag->last_step));
+    LOG_INFO("Wifi", "  boot-cursor bytes drained: %u", (unsigned) diag->boot_cursor_bytes);
+
+    size_t dump_len = diag->info_resp_len;
+    if (dump_len >= sizeof(diag->info_resp_raw))
+    {
+        dump_len = sizeof(diag->info_resp_raw) - 1U;
+    }
+    LOG_INFO("Wifi", "  last AT command response: %u bytes total", (unsigned) diag->info_resp_len);
+    bringup_log_hex_chunks("  resp", (const uint8_t *) diag->info_resp_raw, dump_len);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -449,12 +550,18 @@ int main(void)
                                     .speed = GPIO_SPEED_LOW,
                                     .pull = GPIO_PULL_NONE,
                                     .alternate = 0};
+    /* Pull-down, not GPIO_PULL_NONE: an unpulled input floats to whatever
+     * stray capacitance/leakage holds it at until the module actually
+     * drives it, which the pre-reset diagnostic below showed reads as a
+     * false HIGH. That fools every "wait DRDY high" into succeeding
+     * instantly without a real signal, while every "wait DRDY low" then
+     * times out for real against a pin nothing is driving low. */
     gpio_pin_config_t drdy_config = {.port = BRINGUP_DRDY_PORT,
                                      .pin = BRINGUP_DRDY_PIN,
                                      .mode = GPIO_MODE_INPUT,
                                      .otype = GPIO_OTYPE_PUSH_PULL,
                                      .speed = GPIO_SPEED_LOW,
-                                     .pull = GPIO_PULL_NONE,
+                                     .pull = GPIO_PULL_DOWN,
                                      .alternate = 0};
     gpio_pin_config_t rst_config = {.port = BRINGUP_RST_PORT,
                                     .pin = BRINGUP_RST_PIN,
@@ -522,6 +629,7 @@ int main(void)
     if (wifi_err != WIFI_ERR_OK)
     {
         LOG_ERROR("Wifi", "wifi_create() error code: %d", (int) wifi_err);
+        bringup_log_at_diag();
         bringup_fail("TC-HW-WIFI-001c  wifi_create() failed (reset sequence, AT "
                      "handshake, or firmware version check)");
     }
