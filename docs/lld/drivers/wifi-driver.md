@@ -179,8 +179,9 @@ typedef struct {
  * @brief Create and initialise a WifiDriver instance.
  *
  * Performs the ISM43362 hardware reset sequence (BOOT0 low → RST
- * pulse → 500 ms boot wait), sends AT handshake, and verifies
- * firmware version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
+ * pulse → 500 ms boot wait), drains the post-reset boot cursor Data
+ * Phase, sends the "I?" liveness/info command, and verifies firmware
+ * version (C3.5.2.3.BETA9 required per UM2153 §7.11.3).
  *
  * GPIO pin configuration (mode, AF, pull) must be completed by the
  * caller via gpio_create() before calling this function.  This
@@ -368,6 +369,9 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket);
 #define WIFI_AT_BUF_SIZE       512u
 #define WIFI_DRDY_TIMEOUT_MS   100u   /**< DRDY assert wait (WIFI-O5). */
 #define WIFI_RESP_TIMEOUT_MS  5000u   /**< AT response wait (WIFI-O5). */
+#define WIFI_BOOT_DRDY_TIMEOUT_MS 3000u /**< Boot-only DRDY-high waits (boot cursor + first Command Phase, WIFI-O7). */
+#define WIFI_SOCKET_CONNECT_TIMEOUT_MS 15000u /**< P6=1 (Start Client) response wait, longer than WIFI_RESP_TIMEOUT_MS because it triggers a real connect over the air (WIFI-O9). */
+#define WIFI_JOIN_TIMEOUT_MS 20000u /**< C0 (join) response wait, longer than WIFI_RESP_TIMEOUT_MS because it performs a full WPA2 handshake and DHCP negotiation over the air, same class of bug as WIFI-O9 (WIFI-O14). */
 
 struct wifi_inst {
     /* Injected dependencies */
@@ -399,15 +403,33 @@ static uint8_t          g_count;
 
 The ISM43362 uses a custom half-duplex SPI handshake with DRDY as a
 flow-control signal. **SPI frame size is 16 bits** — all AT command
-data is sent and received in 16-bit words.
+data is sent and received in 16-bit words, and the interface is
+little-endian: within each 16-bit pair, the *second* logical byte is
+clocked out first (datasheet §10.2.3 endian example: `"I?\r\x0A"` goes
+out on the wire as `0x3F 0x49 0x0A 0x0D`). Getting this backwards
+transposes every pair of characters the module sees or sends (WIFI-O6).
+
+**Boot cursor (post-reset, before any command — datasheet §10.2.1):**
+
+```
+0. After reset, the module raises DRDY to signal a Data Phase holding
+   the boot prompt "\r\n> " — NOT a Command Phase. Assert NSS low,
+   clock 0x0A on MOSI (fill byte) while reading MISO until DRDY falls,
+   then deassert NSS. Only the *next* DRDY rising edge is a genuine
+   Command Phase. Sending an AT command on the first rising edge
+   desyncs the module's phase state machine (WIFI-O6).
+```
 
 **Send transaction (AT command → module):**
 
 ```
 1. Assert NSS low (via gpio_write on nss handle)
 2. Wait for DRDY high (poll or notification) — max WIFI_DRDY_TIMEOUT_MS
-3. Send command bytes as 16-bit words via spi_transceive():
-     - If command length is odd, append 0x0A (LF) as padding byte
+3. Send command bytes as 16-bit words via spi_transceive(), each pair
+   byte-swapped per the endian note above:
+     - If command length is odd, append 0x15 (NAK) as padding byte
+       (quick reference DOC-esWiFi_AT_Command_20041.1.20 p.2 worked
+       example: "P0=0\r" pads to 0x15, NOT 0x0A)
 4. Deassert NSS high
 5. Wait for DRDY low (module acknowledged receipt)
 6. Wait for DRDY high (module response ready) — max WIFI_RESP_TIMEOUT_MS
@@ -417,9 +439,11 @@ data is sent and received in 16-bit words.
 
 ```
 7. Assert NSS low
-8. Read 16-bit words via spi_transceive(tx_buf=NULL) until:
+8. Read 16-bit words via spi_transceive(tx_buf=0x0A0A) — the host must
+   clock 0x0A on MOSI while draining a Data Phase — until:
      a. DRDY goes low (end of response), OR
      b. Buffer is full
+   Each word is unswapped per the endian note above.
 9. Deassert NSS high
 10. Parse response: look for "\r\nOK\r\n" or "\r\nERROR\r\n"
 ```
@@ -447,20 +471,30 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst,
                                   size_t resp_buf_len);
 ```
 
-AT command mapping:
+AT command mapping (WIFI-D12 — corrected against Inventek's own IWIN AT
+command reference, not the fictional Hayes-style commands v0.2 originally
+used; see WIFI-D12 in §11 for how that was found and why the correction
+matters). Command codes are defined in `wifi_at_commands.h`, kept
+separate from the transport/state-machine logic in `wifi_driver.c`.
 
-| Public API | AT command |
+The ISM43362's IWIN command set has **no "AT" attention prefix** — every
+command is `<COMMAND><=data><CR>`, e.g. `C1=mySSID\r`, not `AT+C1=mySSID\r`.
+
+| Public API | IWIN command(s) |
 |---|---|
-| `wifi_create` (handshake) | `AT\r` |
-| `wifi_create` (version) | `AT+GMR\r` |
-| `wifi_connect_ap` | `AT+WC=<ssid>,<pwd>,0\r` |
-| `wifi_disconnect_ap` | `AT+WD\r` |
-| `wifi_get_rssi` | `AT+WRSSI\r` |
-| `wifi_open_socket(TCP)` | `AT+P1=0\r` + `AT+NCPX=<id>,<host>,<port>,0\r` |
-| `wifi_open_socket(UDP)` | `AT+P1=1\r` + `AT+NCPX=<id>,<host>,<port>,1\r` |
-| `wifi_send` | `AT+S.=<id>,<len>\r` + payload |
-| `wifi_recv` | `AT+R=<id>,<len>\r` |
-| `wifi_close_socket` | `AT+NCLS=<id>\r` |
+| `wifi_create` (liveness + version) | `I?\r` (module info; response must contain "C3.5.2.3"). `?\r` (print-help) is never sent — the quick reference (DOC-esWiFi_AT_Command_20041.1.20, Help Commands) marks it "Not available in SPI firmware." |
+| `wifi_connect_ap` | `C1=<ssid>\r`, `C2=<pwd>\r`, `C3=4\r` (WPA2 Mixed), `C4=1\r` (DHCP on), `C0\r` (join) — five sequential commands |
+| `wifi_disconnect_ap` | `CD\r` |
+| `wifi_get_rssi` | `CR\r` — bare response: `0` if not joined, else the RSSI value with no prefix |
+| `wifi_open_socket(TCP\|UDP)` | `P0=<slot>\r` (select), `P1=<0\|1>\r` (protocol), `P3=<host>\r`, `P4=<port>\r`, `P6=1\r` (start client) — five sequential commands; there is no combined "open connection" command |
+| `wifi_send` | `P0=<slot>\r` (select), then `S3=<len>\r` + payload |
+| `wifi_recv` | `P0=<slot>\r` (select), `R1=<len>\r` (set expected size), then `R0\r` |
+| `wifi_close_socket` | `P0=<slot>\r` (select), then `P6=0\r` (stop client) — there is no dedicated close command |
+
+Every one of these is a **separate** `prv_at_command()` round trip (send →
+wait for its own `\r\nOK\r\n`/`\r\nERROR\r\n` → proceed); the module's
+socket commands operate on whichever socket `P0=` last selected, so the
+select must precede every per-socket operation, including send/recv/close.
 
 ### 3.4 FRXTH — ISM43362 16-bit SPI requirement
 
@@ -528,8 +562,8 @@ registered.
 6. Configure DRDY line: `exti_configure(1u, EXTI_PORT_E, EXTI_EDGE_RISING)`.
    Does not enable the interrupt — only maps PE1 to EXTI1 and sets the
    trigger edge (see `exti-driver.md`).
-7. AT handshake in polling mode: `prv_at_command("AT\r", ...)`.
-8. Firmware version check: `prv_at_command("AT+GMR\r", ...)` — must
+7. AT handshake in polling mode: `prv_at_command("?\r", ...)`.
+8. Firmware version check: `prv_at_command("I?\r", ...)` — response must
    contain "C3.5.2.3" (per UM2153 §7.11.3 FCC/CE compliance).
 9. Set `inst->ready = true`.
 
@@ -720,7 +754,7 @@ Test file: `tests/gateway/drivers/wifi_driver/test_wifi_driver.c`
 | WIFI-T01 | OK response `"\r\nOK\r\n"` | Returns `WIFI_ERR_OK` |
 | WIFI-T02 | ERROR response `"\r\nERROR\r\n"` | Returns `WIFI_ERR_MODULE` |
 | WIFI-T03 | Truncated response (buffer full, no OK/ERROR) | Returns `WIFI_ERR_TIMEOUT` |
-| WIFI-T04 | RSSI parse `"+WRSSI:-67\r\nOK\r\n"` | `rssi_dbm = -67` |
+| WIFI-T04 | RSSI parse `"-67\r\nOK\r\n"` (bare value, no prefix per IWIN `CR` command) | `rssi_dbm = -67` |
 | WIFI-T05 | Firmware version match | Returns `WIFI_ERR_OK` |
 | WIFI-T06 | Firmware version mismatch | Returns `WIFI_ERR_FIRMWARE` |
 
@@ -731,10 +765,10 @@ Test file: `tests/gateway/drivers/wifi_driver/test_wifi_driver.c`
 | WIFI-T07 | `wifi_create` happy path | SPI handshake sent, firmware checked, handle returned |
 | WIFI-T08 | `wifi_create` with NULL config | Returns `WIFI_ERR_NULL_PTR` |
 | WIFI-T09 | `wifi_create` pool exhaustion | Second call returns `WIFI_ERR_NO_RESOURCE` |
-| WIFI-T10 | `wifi_connect_ap` nominal | `AT+WC=...` sent, link_state = UP |
-| WIFI-T11 | `wifi_connect_ap` wrong SSID | SPI returns ERROR, returns `WIFI_ERR_MODULE` |
-| WIFI-T12 | `wifi_open_socket(TCP)` nominal | `AT+P1=0` + `AT+NCPX` sent, valid socket returned |
-| WIFI-T13 | `wifi_open_socket(UDP)` nominal | `AT+P1=1` + `AT+NCPX` sent, valid socket returned |
+| WIFI-T10 | `wifi_connect_ap` nominal | `C1/C2/C3/C4/C0` sequence sent, link_state = UP |
+| WIFI-T11 | `wifi_connect_ap` wrong SSID | `C0` (join) returns ERROR, returns `WIFI_ERR_MODULE` |
+| WIFI-T12 | `wifi_open_socket(TCP)` nominal | `P0/P1/P3/P4/P6=1` sequence sent, valid socket returned |
+| WIFI-T13 | `wifi_open_socket(UDP)` nominal | `P0/P1/P3/P4/P6=1` sequence sent (P1=1), valid socket returned |
 | WIFI-T14 | `wifi_send` with link down | No SPI, returns `WIFI_ERR_NOT_CONNECTED` |
 | WIFI-T15 | DRDY timeout | Mock DRDY stays low, returns `WIFI_ERR_TIMEOUT`, NSS deasserted |
 | WIFI-T16 | NSS deasserted on SPI error | Mock SPI fails, verify NSS high at exit |
@@ -756,6 +790,15 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 | WIFI-O3 | GPIO pin assignments | **Resolved** | UM2153 Table 11: PE0=NSS, PE1=DRDY, PE8=RST, PB12=BOOT0, PB13=WAKEUP. |
 | WIFI-O4 | WifiTask API surface | **Open** | Deferred to WifiTask middleware companion. IWifi is the driver contract; the request-queue routing mechanism is designed separately. |
 | WIFI-O5 | Timeout values | **Resolved** | Baseline: DRDY_TIMEOUT=100 ms, RESP_TIMEOUT=5000 ms. Validate at integration. |
+| WIFI-O6 | Hardware bring-up: `wifi_create()` timed out (~47 s vs. a ≤5.6 s bound) | **Resolved** | Root cause was not the DRDY/RESP timeout values or SYSCLK: (1) the driver never drained the post-reset boot-cursor Data Phase before sending a command, desyncing the module's phase state machine; (2) the first command sent was `?`, which the quick reference marks "Not available in SPI firmware"; (3) `prv_send_words`/`prv_recv_words` had the 16-bit endian swap backwards; (4) the odd-length command pad byte was `0x0A` instead of `0x15`. All four fixed together (see §3.2, §3.3, WIFI-D13). |
+| WIFI-O7 | Hardware bring-up (follow-up to WIFI-O6): after fixing WIFI-O6, `wifi_create()` still failed at full CPU speed but succeeded whenever slowed by debugger single-stepping | **Resolved** | Three compounding issues, found incrementally with a bring-up diagnostic snapshot (`wifi_get_bringup_diag()`, TEMPORARY, see wifi_driver.h) added specifically to disambiguate this: (1) `drdy_config.pull` in the *integration test main* was `GPIO_PULL_NONE`, so DRDY floated to a false idle HIGH before the module ever drove it — a pre-reset diagnostic log line confirmed this; fixed to `GPIO_PULL_DOWN`. (2) with the float fixed, `wifi_create()` failed one step earlier than expected — the boot cursor's own DRDY-high wait — because the module needs longer than `WIFI_BOOT_WAIT_MS` (500 ms) + `WIFI_DRDY_TIMEOUT_MS` (100 ms) of real elapsed time after reset before it first asserts DRDY; fixed with a dedicated, generous `WIFI_BOOT_DRDY_TIMEOUT_MS` (3000 ms) for that wait. (3) with that fixed, the diagnostic snapshot showed the boot cursor now drains correctly (6 bytes) but `wifi_create()` still failed one step *later*: DRDY doesn't rise again for the first real Command Phase within the standard `WIFI_DRDY_TIMEOUT_MS` (100 ms) either — the same reset-settle-time phenomenon recurring at the next phase transition. Fixed by waiting on `WIFI_BOOT_DRDY_TIMEOUT_MS` at that transition too, before the first `prv_at_command()` call; `WIFI_DRDY_TIMEOUT_MS` stays untouched for steady-state per-command turnaround once the module is confirmed up. The debugger-slowed runs "worked" only because breakpoint pauses accidentally gave the module that extra real time at whichever transition was undersized at the time. |
+| WIFI-O8 | Hardware bring-up (follow-up to WIFI-O7): `wifi_create()` now succeeds, but `wifi_connect_ap()` (C0/join) and `wifi_get_rssi()` (CR) misbehaved | **Resolved** | Two independent response-parsing bugs, found from the diagnostic snapshot's raw byte dump of a real failed join: the module's actual response was `"\r\n[JOIN   ] Grove Island\r\n[JOIN   ] Failed\r\nERROR: Unknown Error\r\nUsage: C0 \r\n> "`. (1) `WIFI_RESP_ERROR_MARKER` was the bare `"\r\nERROR\r\n"`, but real error responses carry a description right after the word (matching the `MT` example in the quick reference doc) — `"\r\nERROR: Unknown Error\r\n"` never matched, so a genuine module-reported error was misclassified as `WIFI_ERR_TIMEOUT` instead of `WIFI_ERR_MODULE`. Fixed by matching only the `"\r\nERROR"` prefix. (2) `prv_parse_rssi()` assumed the bare RSSI value starts at byte 0 of the response, but every IWIN response actually starts with the same `"\r\n<data>\r\nOK\r\n"` framing (User Manual §1.4.2) — confirmed for every response captured on hardware so far — so it looked for digits at the wrong offset. Fixed by skipping a leading `"\r\n"` before parsing. (The join failure itself in the captured example was a red herring: a 4-character test password below WPA2's 8-character minimum, not a driver bug.) (3) Found proactively (not yet hardware-confirmed) by auditing for the same class of bug: `wifi_recv()` had the identical byte-0 assumption for the received payload itself — it never skipped the leading `"\r\n"`, so every received TCP/UDP packet would have been returned to the caller with two bogus leading bytes. It also assumed `"\r\nOK\r\n"` sits at the exact end of the buffer, which the datasheet's own even-byte-count SPI padding rule (a trailing `0x15` on odd-length responses) can violate. Fixed both: skip the leading `"\r\n"`, and tolerate one trailing pad byte when locating the OK marker. Added `WIFI_T19`/`WIFI_T19b` — `wifi_recv()` had no unit test coverage at all before this. |
+| WIFI-O9 | Hardware bring-up (follow-up to WIFI-O8): with association/RSSI working (TC-HW-WIFI-004 passing), `wifi_open_socket(TCP)` (TC-HW-WIFI-005) failed with `WIFI_ERR_TIMEOUT`, with SocketTest already confirmed listening on the target host/port | **Resolved** | Log timestamps placed the failure exactly `WIFI_RESP_TIMEOUT_MS` (5000 ms) after association, i.e. the DRDY-high wait after sending `P6=1` ("Start Client") never completed in time. Unlike the four commands before it in `wifi_open_socket()` (`P0`/`P1`/`P3`/`P4`, which only write local socket-slot state), `P6=1` triggers a real TCP/UDP connect over the air, which needs materially more time than a local AT-command turnaround. Fixed by giving `P6=1` its own `WIFI_SOCKET_CONNECT_TIMEOUT_MS` (15000 ms) instead of sharing `WIFI_RESP_TIMEOUT_MS` with every other command; threaded as an explicit parameter through `prv_at_command()`/`prv_send_kv()` rather than a second hidden constant, consistent with how `WIFI_DRDY_TIMEOUT_MS`/`WIFI_BOOT_DRDY_TIMEOUT_MS` are already passed explicitly at each `prv_wait_drdy()` call site. Confirmed on hardware: TC-HW-WIFI-005/006 now both open their socket successfully. |
+| WIFI-O10 | Hardware bring-up (follow-up to WIFI-O9): with sockets opening correctly, `wifi_recv()` reported a false "received 8 bytes: OK\n>" success on both TC-HW-WIFI-005 (TCP) and TC-HW-WIFI-006 (UDP) — including the UDP case, where no SocketTest listener was even running, so no real data could possibly have arrived | **Resolved** | The payload parser assumed the trailing `"\r\nOK\r\n"` marker sits at the exact end of the response (modulo one optional SPI pad byte, WIFI-O8); when `R0` returns *no* data, IWIN's response framing puts the payload's own leading `"\r\n"` and the OK marker's leading `"\r\n"` in the same two bytes rather than as two separate instances — an end-anchored search never finds the marker in that case and silently returns the raw framing bytes as if they were payload. Fixed by reusing `prv_parse_response()`'s own technique (`prv_contains()`, extended to report the match position): scan the *whole* raw buffer from byte 0 for `"\r\nOK\r\n"`, and treat the payload as everything between the response's leading `"\r\n"` and the marker's start position — clamped to zero if the marker starts at or before that point. This is robust to either exact empty-response byte layout (a bare `"\r\nOK\r\n"` or a doubled `"\r\n\r\nOK\r\n"`) and to whatever trailing bytes follow the marker (prompt, pad byte), so a further hardware capture wasn't needed to pin down the precise bytes — the fix doesn't depend on knowing them. (This entry originally also fixed `wifi_recv()` ignoring `timeout_ms` by adding a client-side polling loop; that loop caused WIFI-O11 and was replaced — see there.) |
+| WIFI-O11 | Hardware bring-up (follow-up to WIFI-O10): after fixing the parsing bug, TC-HW-WIFI-005 (TCP, no SocketTest reply typed) reported "no reply within timeout" after 9 s against a 3000 ms `wifi_recv()` budget; TC-HW-WIFI-006 (UDP) took 83 s against the same budget | **Resolved** | WIFI-O10's fix for the ignored `timeout_ms` parameter added a client-side retry loop: re-issue `P0`/`R1`/`R0` every `WIFI_RECV_POLL_INTERVAL_MS` (200 ms) until real data arrives, tracking elapsed time as `iterations × 200 ms`. That accounting only counted the explicit inter-poll sleep, not the real time each `P0`/`R1`/`R0` round trip itself took, so 15–16 loop iterations multiplied whatever each round trip cost instead of bounding total wait time. Reworked `wifi_recv()` to issue `P0`/`R1`/`R0` exactly once, giving `R0`'s own DRDY wait the caller's `timeout_ms` directly (floored at `WIFI_RESP_TIMEOUT_MS`). Confirmed on hardware: both TC-HW-WIFI-005 and TC-HW-WIFI-006 now return `WIFI_ERR_TIMEOUT` in a single, bounded ~5 s attempt (matching the `WIFI_RESP_TIMEOUT_MS` floor) instead of the previous 9 s/83 s multi-attempt totals. Root cause of the "no reply" itself (separate from this timing bug) was tracked down to the test network, not the driver — see WIFI-O12. |
+| WIFI-O12 | Hardware bring-up (follow-up to WIFI-O11): with the timeout bug fixed, `wifi_recv()` still reports `WIFI_ERR_TIMEOUT` on both TC-HW-WIFI-005/006 against a verified-listening, verified-firewalled, same-subnet echo server on the test LAN ("Grove Island") | **Resolved for the driver; Grove Island's specific network behavior left formally unexplained** | The full read on this took several rounds and one wrong turn (see WIFI-O14): the driver itself is now proven correct — TC-HW-WIFI-005 completed a full, real, end-to-end TCP round trip on a *different* network (a mobile hotspot, matching ST's own reference example's recommended test bench), including a real received reply (`"ciao"`, 5 bytes) through `wifi_recv()`. That settles the question this item exists to answer: `wifi_send()`/`wifi_recv()`/`wifi_open_socket()` work correctly against real hardware and a real peer. What remains unexplained is specifically Grove Island's behavior (a `pktmon` capture there showed the module successfully ARPing for the target seven times over ~20 s with real replies, yet zero TCP/UDP packets ever transmitted) — plausibly AP/client isolation, as originally suspected, but that specific network's behavior is no longer load-bearing for WifiDriver's correctness and isn't worth further hardware time to pin down further. |
+| WIFI-O13 | Bring-up diagnostic (not a bug) | **Infrastructure added, exercised successfully, then removed** | `wifi_open_socket()`'s `P6=1` (Start Client) response was discarded entirely (`out_resp_len` was `NULL`) — never inspected beyond the OK/ERROR classification, unlike `C0`/join where extra diagnostic text past "OK" mattered (WIFI-O8). Added `wifi_get_last_connect_response()` to capture and expose the raw text. Confirmed on hardware: the module's real P6=1 response is `"[TCP  RC] Connecting to <ip>\r\nOK\r\n> "` — richer status text than the driver's OK/ERROR classification alone, consistent with the same "extra text past OK" pattern WIFI-O8 already found for `C0`. Removed (along with `wifi_get_connection_info()`, WIFI-O12) once its diagnostic purpose was served — both were explicitly TEMPORARY bring-up scaffolding, same convention as `wifi_get_bringup_diag()`'s removal after WIFI-O7/O8. |
+| WIFI-O14 | Hardware bring-up: `wifi_connect_ap()` against a mobile hotspot (not "Grove Island") failed with `WIFI_ERR_TIMEOUT` at exactly `t=5s`, reproducing across two different hotspot SSIDs on the same phone (ruling out SSID content), a confirmed-2.4GHz band, and confirmed WPA2-Personal security | **Resolved, confirmed on hardware** | Same class of bug as WIFI-O9: `C0` (join) was still sharing the generic `WIFI_RESP_TIMEOUT_MS` (5000 ms) AT-response bound with purely-local commands like `C1`-`C4`, but `C0` performs a full WPA2 handshake *and* DHCP negotiation over the air in one round trip — the exact 5000 ms failure timing matched the timeout constant precisely, the same signature that diagnosed WIFI-O9. Fixed by giving `C0` its own `WIFI_JOIN_TIMEOUT_MS` (20000 ms) instead of sharing `WIFI_RESP_TIMEOUT_MS`. Confirmed on hardware: association against the same hotspot that previously failed at 5 s now completes at `t=8s` — inside the new budget, outside the old one, and TC-HW-WIFI-005 subsequently completed a full real TCP round trip. (A separate run against the same hotspot still timed out at the new 20 s ceiling; the working run had `RSSI=-43 dBm`, a much stronger signal, suggesting that failure was signal/range-related rather than a further driver bug — not chased further since it isn't reproducible against a strong signal.) |
 
 ---
 
@@ -766,13 +809,16 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 | WIFI-D1 | IWifi exposes a socket API (TCP + UDP), not AT commands | AT commands are ISM43362-specific. MqttClient and NtpClient consume a portable socket interface; replacing the WiFi module requires only WifiDriver changes. |
 | WIFI-D2 | TLS NOT handled inside WifiDriver | On-module TLS couples certificate management to the ISM43362. mbedTLS at MqttClient layer is portable and inspectable. |
 | WIFI-D3 | Firmware version checked at init; mismatch = hard fail | Wrong firmware violates FCC/CE compliance per UM2153 §7.11.3. Fail-fast is safer than silent non-compliance. |
-| WIFI-D4 | DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2) | AT responses take 10–500 ms. Busy-polling would monopolise the CPU and starve lower-priority tasks. |
+| WIFI-D4 | ~~DRDY wait uses `xTaskNotifyWait`, not busy-poll (post Phase 2)~~ **Superseded by WIFI-D11.** | AT responses take 10–500 ms. Busy-polling would monopolise the CPU and starve lower-priority tasks. |
 | WIFI-D5 | BOOT0 held low during normal operation | BOOT0 high = firmware update mode, not normal WiFi operation. |
 | WIFI-D6 | NSS deasserted on every error path | A stuck-low NSS permanently blocks the ISM43362. |
 | WIFI-D7 | `open_socket()` accepts `wifi_socket_type_t` (TCP/UDP) | NTP requires UDP (RFC 5905). TCP-only IWifi cannot serve NtpClient. The ISM43362 selects transport via P1= AT command. |
 | WIFI-D8 | ADT pattern (opaque handle, static pool of 1) | Gateway default. Dependencies (SPI, GPIO handles) injected via config struct. |
 | WIFI-D9 | EXTI configuration owned by ExtiDriver, not GpioDriver | ExtiDriver is the sole owner of `SYSCFG_EXTICRx` and EXTI trigger/mask registers across both boards (see `exti-driver.md`, originated from WIFI-O2 root). Folding EXTI into GpioDriver would create two owners for the same shared register set once MagnetometerDriver/ImuDriver also need EXTI lines. Superseded an earlier draft of this decision that proposed a `gpio_configure_exti()` extension. |
 | WIFI-D10 | `wifi_socket_t` is a distinct typedef from `wifi_handle_t` | Avoids naming collision between driver instance handles and socket identifiers. |
+| WIFI-D11 | `prv_at_command()` uses bounded busy-polling on the DRDY GPIO uniformly, pre- and post-scheduler; WifiDriver has no FreeRTOS dependency of its own | Supersedes WIFI-D4. `components.md`'s USES list for WifiDriver does not include FreeRTOS, and Phase H's own H11 check certifies "no FreeRTOS dependency except ISR" — WIFI-D4 contradicted that certification. Task-level notification of DATARDY events (via `xTaskNotifyFromISR` in the registered callback) remains WifiTask's responsibility, not this driver's. |
+| WIFI-D12 | AT command mapping (§3.3) corrected from a fictional Hayes-style set (`AT+WC=`, `AT+NCPX=`, `AT+S.=`, `AT+R=`, `AT+NCLS=`) to the real Inventek IWIN command set (`C1..C4`/`C0`, `P0..P6`, `S0..S3`, `R0..R3`, `CR`, `I?`, `?`) | v0.2 of this companion invented AT strings without checking them against Inventek's own documentation. Verified against `inventeksys.com/iwin/getting-started-guide/`, `/iwin/at-status-commands/`, and `/iwin/at-cmds/`, and cross-checked against UM2153 §7.11.3. The real command set has no "AT" attention prefix, and several operations (open socket, close socket) that v0.2 modelled as one combined command are actually 2–5 sequential single-purpose commands operating on whichever socket `P0=` last selected. |
+| WIFI-D13 | SPI transport layer corrected (§3.2): 16-bit words are byte-swapped per pair, the odd-length command pad byte is `0x15` not `0x0A`, the post-reset boot cursor is drained before any command, and `?` is dropped from the liveness check in favour of `I?` alone | Found while investigating WIFI-O6 against the ISM43362-M3G-L44 datasheet (DOC-DS-20023) §10.2 and the IWIN AT Command Set quick reference (DOC-esWiFi_AT_Command_20041.1.20) p.2, both of which give worked byte-level examples that v0.1 of this companion did not check the implementation against. IWIN command codes/values moved out of `wifi_driver.c` into `wifi_at_commands.h` so the transport fix and the command vocabulary are independently reviewable. |
 
 ---
 
@@ -780,8 +826,9 @@ Full WiFi association, TCP/UDP send/receive on actual board.
 
 ```
 firmware/gateway/drivers/wifi_driver/
-├── wifi_driver.h    /* public API — opaque handle, config, error enum, socket types */
-└── wifi_driver.c    /* implementation — AT engine, SPI protocol, socket table, ISR */
+├── wifi_driver.h       /* public API — opaque handle, config, error enum, socket types */
+├── wifi_driver.c       /* implementation — AT engine, SPI protocol, socket table, ISR */
+└── wifi_at_commands.h  /* IWIN AT command codes/values — no logic, just string constants */
 
 tests/gateway/drivers/wifi_driver/
 └── test_wifi_driver.c  /* Unity + CMock host tests */

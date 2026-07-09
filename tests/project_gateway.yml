@@ -39,6 +39,7 @@
   :test:
     - gateway/drivers/gpio/**
     - gateway/middleware/logger/**
+    - gateway/drivers/wifi_driver/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -72,6 +73,9 @@
   :test_logger_gw:
     - STM32L475xx
     - LOG_LEVEL_MIN=LOG_LVL_DEBUG
+    - TEST
+  :test_wifi_driver:
+    - STM32L475xx
     - TEST
 
 :cmock:

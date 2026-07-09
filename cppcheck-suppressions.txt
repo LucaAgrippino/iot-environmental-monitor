@@ -47,3 +47,13 @@ staticFunction:cpu.c
 // (DWT->CYCCNT - start) as same-expression because start was captured from the
 // same volatile address immediately before the loop.
 duplicateExpression:cpu.c
+
+// knownConditionTrueFalse:wifi_driver.c — wifi_datardy_irq_handler() NULL-checks
+// inst->datardy_cb defensively before invoking it, since the DRDY ISR could in
+// principle fire before wifi_attach_datardy_callback() has registered a callback.
+// Cppcheck's single-TU analysis conflates the assignment in
+// wifi_attach_datardy_callback() (always non-NULL, guarded by an earlier check)
+// with the BSS-zero / wifi_create()-reset default (NULL) and concludes the check
+// is redundant. It has no way to reason about call-order across the ISR boundary,
+// so this is a false positive, not a real logic error.
+knownConditionTrueFalse:wifi_driver.c

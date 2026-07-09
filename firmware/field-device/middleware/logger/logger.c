@@ -28,7 +28,7 @@
 /* ===================================================================== */
 
 #define LOGGER_QUEUE_DEPTH (16U)
-#define LOGGER_OUT_BUF_MAX (128U)
+/* LOGGER_OUT_BUF_MAX is declared in logger.h, not here — tests need it too. */
 
 #ifndef LOGGER_DRAIN_TASK_PRIORITY
 #define LOGGER_DRAIN_TASK_PRIORITY (tskIDLE_PRIORITY + 1U)
