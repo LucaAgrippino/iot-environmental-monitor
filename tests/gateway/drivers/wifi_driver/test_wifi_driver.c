@@ -600,3 +600,36 @@ void test_WIFI_T19b_recv_strips_trailing_spi_pad_byte(void)
     TEST_ASSERT_EQUAL(5u, out_len);
     TEST_ASSERT_EQUAL_MEMORY("hello", buf, 5u);
 }
+
+void test_WIFI_T20_recv_times_out_when_response_is_empty(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    /* wifi_recv() issues P0/R1/R0 exactly once (WIFI-O11: an earlier
+     * version retried this whole sequence in a client-side loop, which
+     * only multiplied an already-slow module-side wait by the retry
+     * count — up to ~28x over the caller's requested timeout on real
+     * hardware). The real module frames an empty R0 payload as
+     * "\r\nOK\r\n> " — an OK marker followed by a prompt, not sitting at
+     * the exact end of the buffer (WIFI-O10, confirmed on hardware). The
+     * old end-anchored strip returned this whole string as if it were
+     * received data; the fixed forward-scanning parser must see
+     * zero-length payload here and report WIFI_ERR_TIMEOUT, never a false
+     * WIFI_ERR_OK with framing bytes reported as received data. */
+    helper_script_at_command("\r\nOK\r\n");   /* P0= (select) */
+    helper_script_at_command("\r\nOK\r\n");   /* R1= (packet size) */
+    helper_script_at_command("\r\nOK\r\n> "); /* R0 — empty */
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_recv(handle, sock, buf, sizeof(buf), &out_len, 0u));
+}

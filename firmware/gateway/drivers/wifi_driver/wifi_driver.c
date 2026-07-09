@@ -34,6 +34,21 @@
  *  of those post-reset transitions on real hardware (WIFI-O7) — hence the
  *  separate, generous bound here. */
 #define WIFI_BOOT_DRDY_TIMEOUT_MS 3000u
+/** Start Client (P6=1) response wait, separate from WIFI_RESP_TIMEOUT_MS:
+ *  unlike the other socket-setup commands (P0/P1/P3/P4), which only write
+ *  local socket-slot state, P6=1 triggers a real TCP/UDP connect over the
+ *  air and measured well past the standard 5 s AT-response bound on real
+ *  hardware even with the peer already listening (WIFI-O9) — starting
+ *  value, to be tightened once validated further on hardware. */
+#define WIFI_SOCKET_CONNECT_TIMEOUT_MS 15000u
+/** Join (C0) response wait, separate from WIFI_RESP_TIMEOUT_MS (WIFI-O14):
+ *  same class of bug as WIFI-O9 — C0 performs a full WPA2 handshake *and*
+ *  DHCP negotiation in one AT round trip, and a mobile hotspot's DHCP
+ *  server can be slower than a dedicated router's; C0 was still sharing
+ *  the generic 5 s AT-response bound with purely-local commands like
+ *  C1-C4, and failed at exactly that 5 s mark against a phone hotspot
+ *  even though the same sequence completes within it against a router. */
+#define WIFI_JOIN_TIMEOUT_MS 20000u
 #define WIFI_POLL_INTERVAL_US 100u
 /** NAK — appended to an odd-length command to reach an even byte count.
  *  Confirmed against the quick reference's worked example (P0=0\r padded
@@ -86,7 +101,8 @@ static uint8_t g_count;
 /* Response parsing helpers                                                */
 /* ====================================================================== */
 
-static bool prv_contains(const char *haystack, size_t haystack_len, const char *needle)
+static bool prv_contains(const char *haystack, size_t haystack_len, const char *needle,
+                         size_t *out_pos)
 {
     const size_t needle_len = strlen(needle);
 
@@ -99,6 +115,10 @@ static bool prv_contains(const char *haystack, size_t haystack_len, const char *
     {
         if (memcmp(&haystack[i], needle, needle_len) == 0)
         {
+            if (out_pos != NULL)
+            {
+                *out_pos = i;
+            }
             return true;
         }
     }
@@ -107,11 +127,11 @@ static bool prv_contains(const char *haystack, size_t haystack_len, const char *
 
 WIFI_TEST_VISIBLE wifi_err_t prv_parse_response(const char *resp, size_t resp_len)
 {
-    if (prv_contains(resp, resp_len, WIFI_RESP_ERROR_MARKER))
+    if (prv_contains(resp, resp_len, WIFI_RESP_ERROR_MARKER, NULL))
     {
         return WIFI_ERR_MODULE;
     }
-    if (prv_contains(resp, resp_len, WIFI_RESP_OK_MARKER))
+    if (prv_contains(resp, resp_len, WIFI_RESP_OK_MARKER, NULL))
     {
         return WIFI_ERR_OK;
     }
@@ -163,7 +183,7 @@ WIFI_TEST_VISIBLE wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, i
 
 WIFI_TEST_VISIBLE wifi_err_t prv_check_firmware_version(const char *resp, size_t resp_len)
 {
-    if (prv_contains(resp, resp_len, WIFI_FIRMWARE_VERSION))
+    if (prv_contains(resp, resp_len, WIFI_FIRMWARE_VERSION, NULL))
     {
         return WIFI_ERR_OK;
     }
@@ -318,7 +338,8 @@ static wifi_err_t prv_drain_boot_cursor(struct wifi_inst *inst)
  * is WifiTask's responsibility, layered above this driver.
  */
 static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, size_t cmd_len,
-                                 char *resp_buf, size_t resp_buf_len, size_t *out_resp_len)
+                                 char *resp_buf, size_t resp_buf_len, size_t *out_resp_len,
+                                 uint32_t resp_timeout_ms)
 {
     if (out_resp_len != NULL)
     {
@@ -347,7 +368,7 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
         return WIFI_ERR_TIMEOUT;
     }
 
-    if (!prv_wait_drdy(inst, true, WIFI_RESP_TIMEOUT_MS))
+    if (!prv_wait_drdy(inst, true, resp_timeout_ms))
     {
         return WIFI_ERR_TIMEOUT;
     }
@@ -375,7 +396,7 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
  *                            the caller only needs the OK/ERROR verdict.
  */
 static wifi_err_t prv_send_kv(struct wifi_inst *inst, const char *code, const char *value,
-                              size_t *out_resp_len)
+                              size_t *out_resp_len, uint32_t resp_timeout_ms)
 {
     int written;
 
@@ -394,7 +415,7 @@ static wifi_err_t prv_send_kv(struct wifi_inst *inst, const char *code, const ch
     }
 
     return prv_at_command(inst, (const uint8_t *) inst->at_buf, (size_t) written, inst->at_buf,
-                          WIFI_AT_BUF_SIZE, out_resp_len);
+                          WIFI_AT_BUF_SIZE, out_resp_len, resp_timeout_ms);
 }
 
 /* ====================================================================== */
@@ -468,7 +489,7 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
      * The quick-reference AT command doc marks "?" (print help) as "Not
      * available in SPI firmware", so it is never sent here. */
     size_t resp_len = 0u;
-    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len);
+    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -523,27 +544,28 @@ wifi_err_t wifi_connect_ap(wifi_handle_t handle, const char *ssid, const char *p
     }
 
     /* C1/C2/C3/C4/C0 — SSID, password, security (WPA2 Mixed), DHCP on, join. */
-    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SSID, ssid, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SSID, ssid, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_PASSPHRASE, password, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_PASSPHRASE, password, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_SECURITY, WIFI_SECURITY_WPA2_MIXED, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_SECURITY, WIFI_SECURITY_WPA2_MIXED, NULL,
+                      WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_DHCP, WIFI_DHCP_ENABLE, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_DHCP, WIFI_DHCP_ENABLE, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return err;
     }
-    err = prv_send_kv(handle, WIFI_AT_JOIN, NULL, NULL);
+    err = prv_send_kv(handle, WIFI_AT_JOIN, NULL, NULL, WIFI_JOIN_TIMEOUT_MS);
     if (err == WIFI_ERR_OK)
     {
         handle->link_state = WIFI_LINK_UP;
@@ -562,7 +584,8 @@ wifi_err_t wifi_disconnect_ap(wifi_handle_t handle)
         return WIFI_ERR_NOT_INIT;
     }
 
-    const wifi_err_t err = prv_send_kv(handle, WIFI_AT_DISCONNECT, NULL, NULL);
+    const wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_DISCONNECT, NULL, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err == WIFI_ERR_OK)
     {
         handle->link_state = WIFI_LINK_DOWN;
@@ -601,7 +624,8 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm)
     }
 
     size_t resp_len = 0u;
-    const wifi_err_t err = prv_send_kv(handle, WIFI_AT_GET_RSSI, NULL, &resp_len);
+    const wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_GET_RSSI, NULL, &resp_len, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -653,27 +677,29 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
 
     /* P0/P1/P3/P4/P6=1 — select socket, protocol, remote host, remote port,
      * start client. There is no combined "open connection" command. */
-    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, slot_str, NULL);
+    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, slot_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_PROTOCOL, protocol_str, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_PROTOCOL, protocol_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_HOST, remote_addr, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_HOST, remote_addr, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_PORT, port_str, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_PORT, port_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "1", NULL);
+    /* P6=1 — start client. Unlike P0/P1/P3/P4 above, this triggers a real
+     * connect over the air, which needs its own generous bound (WIFI-O9). */
+    err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "1", NULL, WIFI_SOCKET_CONNECT_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -708,7 +734,8 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
     (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
 
     /* P0 — select socket. */
-    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL);
+    wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -727,7 +754,7 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
     const size_t total_len = (size_t) header_len + len;
 
     err = prv_at_command(handle, (const uint8_t *) handle->at_buf, total_len, handle->at_buf,
-                         WIFI_AT_BUF_SIZE, NULL);
+                         WIFI_AT_BUF_SIZE, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
@@ -739,8 +766,6 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
 wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, size_t buf_len,
                      size_t *out_len, uint32_t timeout_ms)
 {
-    (void) timeout_ms;
-
     if ((handle == NULL) || (buf == NULL) || (out_len == NULL))
     {
         return WIFI_ERR_NULL_PTR;
@@ -757,61 +782,86 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
     char socket_str[WIFI_NUMSTR_MAX];
     (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
 
+    const size_t req_len = (buf_len < WIFI_MAX_PACKET_SIZE) ? buf_len : WIFI_MAX_PACKET_SIZE;
+    char len_str[WIFI_NUMSTR_MAX];
+    (void) snprintf(len_str, sizeof(len_str), "%u", (unsigned) req_len);
+
     /* P0 — select socket. */
-    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL);
+    wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
     /* R1 — expected packet size, capped at the IWIN maximum. */
-    const size_t req_len = (buf_len < WIFI_MAX_PACKET_SIZE) ? buf_len : WIFI_MAX_PACKET_SIZE;
-    char len_str[WIFI_NUMSTR_MAX];
-    (void) snprintf(len_str, sizeof(len_str), "%u", (unsigned) req_len);
-    err = prv_send_kv(handle, WIFI_AT_SET_RECV_PACKET_SIZE, len_str, NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_RECV_PACKET_SIZE, len_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
-    /* R0 — receive one packet. */
+    /* R0 — receive one packet. Measured on hardware (WIFI-O11): when
+     * nothing has arrived yet, DRDY does not rise quickly with an
+     * immediate empty response — the module holds off for a real,
+     * sometimes multi-second wait (much longer for UDP than TCP in
+     * testing) before responding at all. So the "blocks until data is
+     * available or timeout expires" contract this function documents is
+     * actually satisfied module-side by R0 itself, not by polling from
+     * the driver: an earlier version of this function retried the whole
+     * P0/R1/R0 sequence in a client-side loop, which only multiplied that
+     * already-slow module-side wait by the retry count (observed ~28x
+     * over the caller's requested timeout_ms on UDP). Give R0's own DRDY
+     * wait the caller's timeout_ms directly, floored at
+     * WIFI_RESP_TIMEOUT_MS so a small/zero timeout_ms still gets a normal
+     * AT-turnaround allowance rather than an unrealistically tight bound. */
+    const uint32_t recv_timeout_ms =
+        (timeout_ms > WIFI_RESP_TIMEOUT_MS) ? timeout_ms : WIFI_RESP_TIMEOUT_MS;
     size_t resp_len = 0u;
-    err = prv_send_kv(handle, WIFI_AT_RECV_DATA, NULL, &resp_len);
+    err = prv_send_kv(handle, WIFI_AT_RECV_DATA, NULL, &resp_len, recv_timeout_ms);
     if (err != WIFI_ERR_OK)
     {
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
     /* Every IWIN response starts with "\r\n" before the actual data (User
-     * Manual §1.4.2) — strip it, then strip the trailing "\r\nOK\r\n" the
-     * module appends after the payload. Both confirmed on hardware. */
+     * Manual §1.4.2), then ends with "\r\nOK\r\n" — but when the payload
+     * is empty, that leading "\r\n" and the OK marker's own leading
+     * "\r\n" are the same two bytes, not two separate instances, and IWIN
+     * may append arbitrary trailing bytes (a prompt, a pad byte) after
+     * "OK\r\n" too. So: locate the marker's *start position* by scanning
+     * the whole raw buffer from byte 0 — the same technique
+     * prv_parse_response() already uses to detect it — rather than
+     * assuming a fixed byte layout on either side of it (WIFI-O10; an
+     * end-anchored search previously returned the empty-payload framing
+     * itself as if it were real received data). Whatever follows the
+     * marker is always discarded; if the marker starts at or before
+     * payload_start, the payload is empty. */
     size_t payload_start = 0u;
     if ((resp_len >= 2u) && (handle->at_buf[0] == '\r') && (handle->at_buf[1] == '\n'))
     {
         payload_start = 2u;
     }
 
-    size_t payload_len = resp_len - payload_start;
-    const size_t ok_len = strlen(WIFI_RESP_OK_MARKER);
-
-    /* The module also post-pads the whole response to an even byte count
-     * with a trailing 0x15 (datasheet §10.2) — tolerate at most one such
-     * byte after "\r\nOK\r\n" when locating where the real payload ends. */
-    size_t search_len = payload_len;
-    if ((search_len > 0u) && (handle->at_buf[payload_start + search_len - 1u] == (char) 0x15))
+    size_t marker_pos = 0u;
+    size_t payload_len;
+    if (prv_contains(handle->at_buf, resp_len, WIFI_RESP_OK_MARKER, &marker_pos))
     {
-        search_len -= 1u;
+        payload_len = (marker_pos > payload_start) ? (marker_pos - payload_start) : 0u;
     }
-    if ((search_len >= ok_len) && (memcmp(&handle->at_buf[payload_start + search_len - ok_len],
-                                          WIFI_RESP_OK_MARKER, ok_len) == 0))
+    else
     {
-        payload_len = search_len - ok_len;
+        payload_len = resp_len - payload_start;
+    }
+
+    if (payload_len == 0u)
+    {
+        return WIFI_ERR_TIMEOUT;
     }
 
     const size_t copy_len = (payload_len < buf_len) ? payload_len : buf_len;
     memcpy(buf, &handle->at_buf[payload_start], copy_len);
     *out_len = copy_len;
-
     return WIFI_ERR_OK;
 }
 
@@ -835,12 +885,13 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
 
     /* P0 — select socket, then P6=0 — stop client. There is no dedicated
      * "close" command in the IWIN set. */
-    wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL);
+    wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
     }
-    err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "0", NULL);
+    err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "0", NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
         return WIFI_ERR_SOCKET;
