@@ -57,3 +57,12 @@ duplicateExpression:cpu.c
 // is redundant. It has no way to reason about call-order across the ISR boundary,
 // so this is a false positive, not a real logic error.
 knownConditionTrueFalse:wifi_driver.c
+
+// constParameterCallback:mqtt_client.c — prv_event_callback()'s signature must
+// match coreMQTT's MQTTEventCallback_t typedef exactly (non-const
+// MQTTDeserializedInfo_t *) to type-check as a function pointer passed to
+// MQTT_Init(). Cppcheck's own message already notes the parameter "seems to be
+// a callback function" and that constifying it would need a matching cast at
+// every call site — that external, vendored typedef is the actual constraint,
+// not an oversight in this file.
+constParameterCallback:mqtt_client.c

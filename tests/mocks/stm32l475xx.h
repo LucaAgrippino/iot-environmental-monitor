@@ -127,6 +127,32 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_BDCR_BDRST_Pos    (16U)
 #define RCC_BDCR_BDRST        (1UL << RCC_BDCR_BDRST_Pos)
 
+/* --- AHB2ENR bits (MqttClient RNG entropy source) ---------------------- */
+#define RCC_AHB2ENR_RNGEN_Pos (18U)
+#define RCC_AHB2ENR_RNGEN     (1UL << RCC_AHB2ENR_RNGEN_Pos)
+
+/* ====================================================================== */
+/* §RNG — True Random Number Generator (L4)                               */
+/* Owner: MqttClient (prv_entropy_poll() — mbedTLS entropy source).       */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t CR; /**< RNG control register, Address offset: 0x00 */
+    volatile uint32_t SR; /**< RNG status register,  Address offset: 0x04 */
+    volatile uint32_t DR; /**< RNG data register,    Address offset: 0x08 */
+} RNG_TypeDef;
+
+extern RNG_TypeDef g_mock_rng;
+
+#define RNG (&g_mock_rng)
+
+#define RNG_CR_RNGEN_Pos (2U)
+#define RNG_CR_RNGEN     (1UL << RNG_CR_RNGEN_Pos)
+
+#define RNG_SR_DRDY_Pos (0U)
+#define RNG_SR_DRDY     (1UL << RNG_SR_DRDY_Pos)
+
 /* ====================================================================== */
 /* §PWR — Power control (CpuDriver)                                       */
 /* ====================================================================== */
