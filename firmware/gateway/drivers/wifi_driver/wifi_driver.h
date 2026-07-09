@@ -274,48 +274,6 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
  */
 wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket);
 
-/* ====================================================================== */
-/* Bring-up diagnostics (WIFI-O7 follow-up) — TEMPORARY, not part of the   */
-/* stable API. wifi_create() can fail with WIFI_ERR_TIMEOUT for two very  */
-/* different reasons the single error code can't distinguish: a real      */
-/* DRDY-wait timeout, or prv_parse_response() finding neither "\r\nOK\r\n" */
-/* nor "\r\nERROR\r\n" in bytes that were actually received. Call         */
-/* wifi_get_bringup_diag() after a failed wifi_create() to see which step */
-/* it reached and what (if anything) came back. Remove once WIFI-O7 is    */
-/* closed for good.                                                       */
-/* ====================================================================== */
-
-typedef enum
-{
-    WIFI_DIAG_STEP_NONE = 0, /**< wifi_create() has not started the reset sequence yet. */
-    WIFI_DIAG_STEP_BOOT_CURSOR_WAIT = 1,  /**< Waiting for DRDY high (boot cursor Data Phase). */
-    WIFI_DIAG_STEP_BOOT_CURSOR_DRAIN = 2, /**< Draining the boot cursor bytes. */
-    WIFI_DIAG_STEP_COMMAND_PHASE_WAIT =
-        3,                             /**< Waiting for DRDY high again (first Command Phase). */
-    WIFI_DIAG_STEP_INFO_WAIT_HIGH = 4, /**< "I?" — waiting for DRDY high (Command Phase). */
-    WIFI_DIAG_STEP_INFO_SEND = 5,      /**< "I?" — clocking the command bytes out. */
-    WIFI_DIAG_STEP_INFO_WAIT_LOW = 6,  /**< "I?" — waiting for DRDY low (send acknowledged). */
-    WIFI_DIAG_STEP_INFO_WAIT_RESP = 7, /**< "I?" — waiting for DRDY high (response ready). */
-    WIFI_DIAG_STEP_INFO_PARSE = 8      /**< "I?" — response received; checked for OK/ERROR. */
-} wifi_diag_step_t;
-
-typedef struct
-{
-    wifi_diag_step_t last_step; /**< Furthest step reached by the last prv_at_command() call. */
-    size_t boot_cursor_bytes;   /**< Bytes drained during the boot-cursor read. */
-    size_t info_resp_len;       /**< Bytes received for the last AT command's response. */
-    char info_resp_raw[96];     /**< Raw response bytes, best-effort (may be non-printable). */
-} wifi_bringup_diag_t;
-
-/**
- * @brief Bring-up diagnostics for the most recent wifi_create() call.
- *
- * @return Pointer to static, single-instance diagnostic state. Valid to
- *         read any time after wifi_create() returns, whether it
- *         succeeded or failed.
- */
-const wifi_bringup_diag_t *wifi_get_bringup_diag(void);
-
 /**
  * @brief DATARDY (PE1 / EXTI1) ISR entry point.
  *

@@ -76,9 +76,6 @@ struct wifi_inst
 static struct wifi_inst g_pool[WIFI_MAX_INSTANCES];
 static uint8_t g_count;
 
-/* Bring-up diagnostics (WIFI-O7 follow-up) — see wifi_driver.h. TEMPORARY. */
-static wifi_bringup_diag_t g_diag;
-
 #ifdef TEST
 #define WIFI_TEST_VISIBLE
 #else
@@ -297,15 +294,13 @@ static wifi_err_t prv_drain_boot_cursor(struct wifi_inst *inst)
 {
     char scratch[8];
 
-    g_diag.last_step = WIFI_DIAG_STEP_BOOT_CURSOR_WAIT;
     if (!prv_wait_drdy(inst, true, WIFI_BOOT_DRDY_TIMEOUT_MS))
     {
         return WIFI_ERR_TIMEOUT;
     }
 
-    g_diag.last_step = WIFI_DIAG_STEP_BOOT_CURSOR_DRAIN;
     gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
-    g_diag.boot_cursor_bytes = prv_recv_words(inst, scratch, sizeof scratch);
+    (void) prv_recv_words(inst, scratch, sizeof scratch);
     gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
 
     return WIFI_ERR_OK;
@@ -332,14 +327,12 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
 
     gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
 
-    g_diag.last_step = WIFI_DIAG_STEP_INFO_WAIT_HIGH;
     if (!prv_wait_drdy(inst, true, WIFI_DRDY_TIMEOUT_MS))
     {
         gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
         return WIFI_ERR_TIMEOUT;
     }
 
-    g_diag.last_step = WIFI_DIAG_STEP_INFO_SEND;
     const wifi_err_t send_err = prv_send_words(inst, cmd, cmd_len);
 
     gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
@@ -349,13 +342,11 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
         return send_err;
     }
 
-    g_diag.last_step = WIFI_DIAG_STEP_INFO_WAIT_LOW;
     if (!prv_wait_drdy(inst, false, WIFI_DRDY_TIMEOUT_MS))
     {
         return WIFI_ERR_TIMEOUT;
     }
 
-    g_diag.last_step = WIFI_DIAG_STEP_INFO_WAIT_RESP;
     if (!prv_wait_drdy(inst, true, WIFI_RESP_TIMEOUT_MS))
     {
         return WIFI_ERR_TIMEOUT;
@@ -369,13 +360,6 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
     {
         *out_resp_len = received;
     }
-
-    g_diag.last_step = WIFI_DIAG_STEP_INFO_PARSE;
-    g_diag.info_resp_len = received;
-    const size_t diag_copy_len =
-        (received < sizeof(g_diag.info_resp_raw)) ? received : sizeof(g_diag.info_resp_raw) - 1u;
-    memcpy(g_diag.info_resp_raw, resp_buf, diag_copy_len);
-    g_diag.info_resp_raw[diag_copy_len] = '\0';
 
     return prv_parse_response(resp_buf, received);
 }
@@ -429,8 +413,6 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
         return WIFI_ERR_NO_RESOURCE;
     }
 
-    memset(&g_diag, 0, sizeof(g_diag));
-
     struct wifi_inst *inst = &g_pool[g_count];
 
     inst->spi = config->spi;
@@ -477,7 +459,6 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
      * 100 ms afterward. Wait for it here, generously, before the first
      * command; prv_at_command()'s own (tight) pre-send wait then passes
      * near-instantly since DRDY is already high by the time it checks. */
-    g_diag.last_step = WIFI_DIAG_STEP_COMMAND_PHASE_WAIT;
     if (!prv_wait_drdy(inst, true, WIFI_BOOT_DRDY_TIMEOUT_MS))
     {
         return WIFI_ERR_TIMEOUT;
@@ -505,11 +486,6 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
 
     *handle = inst;
     return WIFI_ERR_OK;
-}
-
-const wifi_bringup_diag_t *wifi_get_bringup_diag(void)
-{
-    return &g_diag;
 }
 
 wifi_err_t wifi_attach_datardy_callback(wifi_handle_t handle, wifi_datardy_cb_t cb, void *ctx)

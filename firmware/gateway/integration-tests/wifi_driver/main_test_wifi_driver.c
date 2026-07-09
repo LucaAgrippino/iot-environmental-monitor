@@ -193,91 +193,6 @@ static void bringup_fail(const char *label)
 }
 
 /* ---------------------------------------------------------------------- */
-/* AT-command bring-up diagnostics (WIFI-O7 follow-up) — TEMPORARY.       */
-/* WIFI_ERR_TIMEOUT covers both a real DRDY-wait timeout and a real reply */
-/* that just didn't contain "OK"/"ERROR"; this narrows down which. The    */
-/* snapshot is shared by every prv_at_command() call inside wifi_driver.c */
-/* — I?, C1..C4/C0, P0/P1/etc. — so it's equally useful after a failed    */
-/* wifi_create() or a failed wifi_connect_ap()/wifi_open_socket()/etc.:   */
-/* it always reflects whichever AT command most recently ran.             */
-/* Remove once WIFI-O7 is closed for good.                                */
-/* ---------------------------------------------------------------------- */
-
-static const char *bringup_diag_step_name(wifi_diag_step_t step)
-{
-    switch (step)
-    {
-    case WIFI_DIAG_STEP_NONE:
-        return "NONE (reset sequence not reached)";
-    case WIFI_DIAG_STEP_BOOT_CURSOR_WAIT:
-        return "BOOT_CURSOR_WAIT (DRDY never went high after reset)";
-    case WIFI_DIAG_STEP_BOOT_CURSOR_DRAIN:
-        return "BOOT_CURSOR_DRAIN";
-    case WIFI_DIAG_STEP_COMMAND_PHASE_WAIT:
-        return "COMMAND_PHASE_WAIT (DRDY never went high again after the boot cursor)";
-    case WIFI_DIAG_STEP_INFO_WAIT_HIGH:
-        return "INFO_WAIT_HIGH (AT command pre-send DRDY wait)";
-    case WIFI_DIAG_STEP_INFO_SEND:
-        return "INFO_SEND";
-    case WIFI_DIAG_STEP_INFO_WAIT_LOW:
-        return "INFO_WAIT_LOW (AT command post-send ack wait)";
-    case WIFI_DIAG_STEP_INFO_WAIT_RESP:
-        return "INFO_WAIT_RESP (AT command response DRDY wait)";
-    case WIFI_DIAG_STEP_INFO_PARSE:
-        return "INFO_PARSE (response received, no OK/ERROR marker found)";
-    default:
-        return "UNKNOWN";
-    }
-}
-
-static void bringup_log_hex(const char *label, const uint8_t *data, size_t len)
-{
-    char hex[80];
-    size_t pos = 0U;
-
-    for (size_t i = 0U; (i < len) && ((pos + 3U) < sizeof(hex)); ++i)
-    {
-        pos += (size_t) snprintf(&hex[pos], sizeof(hex) - pos, "%02X ", data[i]);
-    }
-    hex[pos] = '\0';
-    LOG_INFO("Wifi", "%s (%u bytes): %s", label, (unsigned) len, hex);
-}
-
-/** Dumps the full buffer across several bringup_log_hex() lines — one
- *  line can't hold more than ~20 bytes without exceeding LOGGER_MESSAGE_MAX. */
-static void bringup_log_hex_chunks(const char *label, const uint8_t *data, size_t len)
-{
-    const size_t chunk = 20U;
-
-    for (size_t offset = 0U; offset < len; offset += chunk)
-    {
-        const size_t n = ((len - offset) < chunk) ? (len - offset) : chunk;
-        char sub_label[48];
-        (void) snprintf(sub_label, sizeof(sub_label), "%s [%u..%u]", label, (unsigned) offset,
-                        (unsigned) (offset + n - 1U));
-        bringup_log_hex(sub_label, &data[offset], n);
-    }
-}
-
-/** Logs the last-run AT command's outcome: which step it reached, and the
- *  raw response bytes (if any). Call after any wifi_driver.h call fails. */
-static void bringup_log_at_diag(void)
-{
-    const wifi_bringup_diag_t *diag = wifi_get_bringup_diag();
-
-    LOG_ERROR("Wifi", "  last step reached: %s", bringup_diag_step_name(diag->last_step));
-    LOG_INFO("Wifi", "  boot-cursor bytes drained: %u", (unsigned) diag->boot_cursor_bytes);
-
-    size_t dump_len = diag->info_resp_len;
-    if (dump_len >= sizeof(diag->info_resp_raw))
-    {
-        dump_len = sizeof(diag->info_resp_raw) - 1U;
-    }
-    LOG_INFO("Wifi", "  last AT command response: %u bytes total", (unsigned) diag->info_resp_len);
-    bringup_log_hex_chunks("  resp", (const uint8_t *) diag->info_resp_raw, dump_len);
-}
-
-/* ---------------------------------------------------------------------- */
 /* EXTI1 ISR — overrides the weak default handler from the startup file.  */
 /* wifi_driver.h documents this as living in stm32l4xx_it.c, which is the */
 /* real production wiring once this code is merged into a CubeIDE        */
@@ -347,7 +262,6 @@ static void wifi_bringup_task(void *arg)
         if (connect_err != WIFI_ERR_OK)
         {
             LOG_ERROR("Wifi", "wifi_connect_ap() error code: %d", (int) connect_err);
-            bringup_log_at_diag();
             bringup_fail("TC-HW-WIFI-004  wifi_connect_ap() failed");
         }
 
@@ -356,7 +270,6 @@ static void wifi_bringup_task(void *arg)
         if (rssi_err != WIFI_ERR_OK)
         {
             LOG_ERROR("Wifi", "wifi_get_rssi() error code: %d", (int) rssi_err);
-            bringup_log_at_diag();
             bringup_fail("TC-HW-WIFI-004  wifi_get_rssi() failed after association");
         }
         LOG_INFO("Wifi", "TC-HW-WIFI-004  associated, RSSI=%d dBm", (int) rssi_dbm);
@@ -636,7 +549,6 @@ int main(void)
     if (wifi_err != WIFI_ERR_OK)
     {
         LOG_ERROR("Wifi", "wifi_create() error code: %d", (int) wifi_err);
-        bringup_log_at_diag();
         bringup_fail("TC-HW-WIFI-001c  wifi_create() failed (reset sequence, AT "
                      "handshake, or firmware version check)");
     }
