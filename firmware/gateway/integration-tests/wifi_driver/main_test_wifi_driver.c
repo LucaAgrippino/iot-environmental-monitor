@@ -11,20 +11,33 @@
  *   4. Wire the ISM43362-M3G-L44 module (or use the on-board one on the
  *      B-L475E-IOT01A) and flash with a debugger attached.
  *   5. Optionally fill in BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD below
- *      before flashing to exercise the association + socket path.
- *   6. To exercise real data transfer (TC-HW-WIFI-005/006), run SocketTest
- *      (https://sourceforge.net/projects/sockettest/, or any TCP/UDP
- *      listener) on a PC on the same LAN as the board:
- *        - Start it in TCP server (listen) mode on BRINGUP_SOCKETTEST_TCP_PORT
- *          before flashing, to catch TC-HW-WIFI-005.
- *        - The task pauses 5 s between TC-HW-WIFI-005 and TC-HW-WIFI-006 —
- *          switch SocketTest to UDP listen mode on BRINGUP_SOCKETTEST_UDP_PORT
- *          during that pause.
- *        - Fill in BRINGUP_SOCKETTEST_HOST with the PC's LAN IP address.
- *        - Watching the bytes actually arrive in SocketTest's receive
- *          window is the point: it proves data survives the full path
- *          (WifiDriver -> ISM43362 -> real network -> PC), not just that
- *          AT commands returned OK.
+ *      before flashing to exercise the association + socket path. Same
+ *      test bench as ST's own WiFi_Client_Server example (UM2153 /
+ *      X-CUBE-WIFI1): a phone as a mobile hotspot, a second phone (or the
+ *      same one) on that hotspot running a TCP/UDP server app —
+ *      "TCP Server" (Play Store) works for TC-HW-WIFI-005, any UDP
+ *      listener app for TC-HW-WIFI-006. A dedicated router works too, but
+ *      some networks (client-isolated Wi-Fi, corporate/guest networks)
+ *      silently drop device-to-device traffic in a way no AT command can
+ *      detect — see WIFI-O12 in the companion doc.
+ *   6. To exercise real data transfer (TC-HW-WIFI-005/006):
+ *        - Start the TCP server app first (before flashing), on the port
+ *          in BRINGUP_REMOTE_TCP_PORT, and fill in BRINGUP_REMOTE_HOST
+ *          with its IP address (shown by the app).
+ *        - The task counts down out loud (LOG_INFO, one line per second)
+ *          before each connect attempt, so there's time to get the server
+ *          app running and listening on a physical phone before the
+ *          module tries to reach it — watch the serial terminal.
+ *        - Once connected and sent, wifi_recv()'s own wait
+ *          (BRINGUP_RECV_TIMEOUT_MS, default 30 s) is the reply window —
+ *          type a reply in the server app and send it within that time.
+ *        - Switch the app to UDP listen mode (or start a UDP listener)
+ *          on BRINGUP_REMOTE_UDP_PORT during the TCP->UDP countdown.
+ *        - Watching the bytes actually arrive in the app's receive
+ *          window, and a real reply come back through wifi_recv(), is
+ *          the point: it proves data survives the full path
+ *          (WifiDriver -> ISM43362 -> real network -> peer), not just
+ *          that AT commands returned OK.
  *
  * Reports through the real Logger middleware (companion:
  * docs/lld/middleware/logger.md), not raw UART — same pattern as
@@ -53,9 +66,10 @@
  *   TC-HW-WIFI-003  wifi_get_link_state() reports WIFI_LINK_DOWN pre-connect
  *   TC-HW-WIFI-004  (only if BRINGUP_WIFI_SSID is non-empty) connect to the
  *                   configured AP, read RSSI
- *   TC-HW-WIFI-005  Open a TCP socket to BRINGUP_SOCKETTEST_HOST:_TCP_PORT,
- *                   send a message, attempt to receive a reply, close
- *   TC-HW-WIFI-006  Same as 005, over UDP to BRINGUP_SOCKETTEST_UDP_PORT
+ *   TC-HW-WIFI-005  Open a TCP socket to BRINGUP_REMOTE_HOST:_TCP_PORT,
+ *                   send a message, wait (with a live countdown) for a
+ *                   reply, close
+ *   TC-HW-WIFI-006  Same as 005, over UDP to BRINGUP_REMOTE_UDP_PORT
  *
  * If cpu_init(), debug_uart_init(), or rtc_init() fail, Logger cannot be
  * trusted as the reporting channel yet — the board halts with a fast LED
@@ -89,15 +103,24 @@
 /* Fill these in before flashing to exercise the AP-connect + socket path. */
 /* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFI-004/005/006.            */
 /* ---------------------------------------------------------------------- */
-#define BRINGUP_WIFI_SSID "Grove Island"
-#define BRINGUP_WIFI_PASSWORD "island1234"
+#define BRINGUP_WIFI_SSID ""
+#define BRINGUP_WIFI_PASSWORD ""
 
-/* PC running SocketTest (or any TCP/UDP listener) on the same LAN — see
- * the file header for setup instructions. Leave BRINGUP_SOCKETTEST_HOST
+/* Peer (phone TCP/UDP server app, or any listener) on the same network —
+ * see the file header for setup instructions. Leave BRINGUP_REMOTE_HOST
  * empty to skip TC-HW-WIFI-005/006. */
-#define BRINGUP_SOCKETTEST_HOST ""
-#define BRINGUP_SOCKETTEST_TCP_PORT (5000U)
-#define BRINGUP_SOCKETTEST_UDP_PORT (5001U)
+#define BRINGUP_REMOTE_HOST ""
+#define BRINGUP_REMOTE_TCP_PORT (8080U)
+#define BRINGUP_REMOTE_UDP_PORT (8081U)
+
+/* How long wifi_recv() waits for a real reply once prompted — generous on
+ * purpose: this is how long there is to physically switch to the phone,
+ * type a reply, and send it. */
+#define BRINGUP_RECV_TIMEOUT_MS (30000U)
+/* Countdown before each connect attempt and before each recv wait, so the
+ * prompts are visible on the serial terminal with time to react instead
+ * of arriving all at once after a blocking call already timed out. */
+#define BRINGUP_COUNTDOWN_S (10U)
 
 /* ---------------------------------------------------------------------- */
 /* Board constants                                                         */
@@ -226,9 +249,96 @@ static void bringup_datardy_cb(void *ctx)
     s_datardy_calls++;
 }
 
+/**
+ * @brief Log a message once per second, counting down from
+ *        BRINGUP_COUNTDOWN_S — gives a live, visible prompt on the serial
+ *        terminal instead of a message that arrives right before (or
+ *        after) a blocking call already needed a reply.
+ *
+ * The per-second vTaskDelay() is not just pacing: WIFI_TASK_PRIORITY is
+ * higher than LOGGER_DRAIN_TASK_PRIORITY (see bringup_fail() above), so
+ * without an actual yield here every LOG_INFO() call in this task queues
+ * up and only drains to the UART once something finally blocks long
+ * enough to let the drain task run — which is exactly why prompts used to
+ * show up "all at once, already too late".
+ */
+static void bringup_countdown(const char *action)
+{
+    for (uint32_t s = BRINGUP_COUNTDOWN_S; s > 0U; s--)
+    {
+        LOG_INFO("Wifi", "%s in %u...", action, (unsigned) s);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+/**
+ * @brief Open a socket, send a hello, prompt for and wait on a reply,
+ *        close. Shared by TC-HW-WIFI-005 (TCP) and TC-HW-WIFI-006 (UDP) —
+ *        same flow, different socket type/port/payload.
+ *
+ * Every LOG_INFO() the human needs to see promptly is followed by a short
+ * vTaskDelay(), for the same drain-task-starvation reason bringup_countdown()
+ * uses a real per-second yield instead of one long delay.
+ */
+static void bringup_socket_roundtrip(wifi_handle_t wifi_handle, const char *tc_id,
+                                     wifi_socket_type_t type, uint16_t port,
+                                     const uint8_t *hello, size_t hello_len)
+{
+    const char *proto = (type == WIFI_SOCKET_TCP) ? "TCP" : "UDP";
+
+    LOG_INFO("Wifi", "%s  about to connect to %s:%u over %s", tc_id, BRINGUP_REMOTE_HOST,
+             (unsigned) port, proto);
+    LOG_INFO("Wifi", "%s  make sure your %s server/listener app is running now", tc_id, proto);
+    bringup_countdown("Connecting");
+
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    if (wifi_open_socket(wifi_handle, type, BRINGUP_REMOTE_HOST, port, &sock) != WIFI_ERR_OK)
+    {
+        LOG_ERROR("Wifi", "%s  wifi_open_socket(%s) failed", tc_id, proto);
+        bringup_fail(tc_id);
+    }
+    LOG_INFO("Wifi", "%s  socket open (id=%u)", tc_id, (unsigned) sock);
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    if (wifi_send(wifi_handle, sock, hello, hello_len) != WIFI_ERR_OK)
+    {
+        LOG_ERROR("Wifi", "%s  wifi_send() failed", tc_id);
+        bringup_fail(tc_id);
+    }
+    LOG_INFO("Wifi", "%s  sent %u bytes - check your app's receive window", tc_id,
+             (unsigned) hello_len);
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    LOG_INFO("Wifi", "%s  type a reply in the app NOW and send it", tc_id);
+    LOG_INFO("Wifi", "%s  waiting up to %u s for a reply...", tc_id,
+             (unsigned) (BRINGUP_RECV_TIMEOUT_MS / 1000U));
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    uint8_t rx_buf[64];
+    size_t rx_len = 0U;
+    wifi_err_t recv_err = wifi_recv(wifi_handle, sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len,
+                                    BRINGUP_RECV_TIMEOUT_MS);
+    if (recv_err == WIFI_ERR_OK)
+    {
+        rx_buf[rx_len] = (uint8_t) '\0';
+        LOG_INFO("Wifi", "%s  received %u bytes: %s", tc_id, (unsigned) rx_len,
+                 (const char *) rx_buf);
+    }
+    else
+    {
+        LOG_INFO("Wifi", "%s  no reply within %u s", tc_id,
+                 (unsigned) (BRINGUP_RECV_TIMEOUT_MS / 1000U));
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    (void) wifi_close_socket(wifi_handle, sock);
+    LOG_INFO("Wifi", "%s  socket closed", tc_id);
+    vTaskDelay(pdMS_TO_TICKS(200));
+}
+
 /* ---------------------------------------------------------------------- */
 /* WiFi task — Phase 2 (post-scheduler): attach callback, run TC-HW-WIFI-  */
-/* 002..004, then heartbeat.                                               */
+/* 002..006, then heartbeat.                                               */
 /* ---------------------------------------------------------------------- */
 
 static StaticTask_t s_wifi_task_tcb;
@@ -273,88 +383,25 @@ static void wifi_bringup_task(void *arg)
             bringup_fail("TC-HW-WIFI-004  wifi_get_rssi() failed after association");
         }
         LOG_INFO("Wifi", "TC-HW-WIFI-004  associated, RSSI=%d dBm", (int) rssi_dbm);
+        vTaskDelay(pdMS_TO_TICKS(200));
 
-        if (sizeof(BRINGUP_SOCKETTEST_HOST) > 1U)
+        if (sizeof(BRINGUP_REMOTE_HOST) > 1U)
         {
-            /* TC-HW-WIFI-005 — TCP round trip against SocketTest. */
-            wifi_socket_t tcp_sock = WIFI_INVALID_SOCKET;
-            if (wifi_open_socket(wifi_handle, WIFI_SOCKET_TCP, BRINGUP_SOCKETTEST_HOST,
-                                 BRINGUP_SOCKETTEST_TCP_PORT, &tcp_sock) != WIFI_ERR_OK)
-            {
-                bringup_fail("TC-HW-WIFI-005  wifi_open_socket(TCP) failed");
-            }
-            LOG_INFO("Wifi", "TC-HW-WIFI-005  TCP socket open (id=%u) - check SocketTest",
-                     (unsigned) tcp_sock);
-
             static const uint8_t tcp_hello[] = "WIFI-BRINGUP-TCP-HELLO\r\n";
-            if (wifi_send(wifi_handle, tcp_sock, tcp_hello, sizeof(tcp_hello) - 1U) != WIFI_ERR_OK)
-            {
-                bringup_fail("TC-HW-WIFI-005  wifi_send() failed");
-            }
-            LOG_INFO("Wifi", "TC-HW-WIFI-005  sent - confirm it appeared in SocketTest's window");
+            bringup_socket_roundtrip(wifi_handle, "TC-HW-WIFI-005", WIFI_SOCKET_TCP,
+                                     BRINGUP_REMOTE_TCP_PORT, tcp_hello, sizeof(tcp_hello) - 1U);
 
-            uint8_t rx_buf[64];
-            size_t rx_len = 0U;
-            wifi_err_t recv_err =
-                wifi_recv(wifi_handle, tcp_sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len, 3000U);
-            if (recv_err == WIFI_ERR_OK)
-            {
-                rx_buf[rx_len] = (uint8_t) '\0';
-                LOG_INFO("Wifi", "TC-HW-WIFI-005  received %u bytes: %s", (unsigned) rx_len,
-                         (const char *) rx_buf);
-            }
-            else
-            {
-                LOG_INFO("Wifi", "TC-HW-WIFI-005  no reply within timeout (type something in "
-                                 "SocketTest and resend to exercise this path)");
-            }
-
-            (void) wifi_close_socket(wifi_handle, tcp_sock);
-            LOG_INFO("Wifi", "TC-HW-WIFI-005  TCP socket closed");
-
-            LOG_INFO("Wifi",
-                     "Switch SocketTest to UDP listen mode on port %u now - "
-                     "5 s pause...",
-                     (unsigned) BRINGUP_SOCKETTEST_UDP_PORT);
-            vTaskDelay(pdMS_TO_TICKS(5000));
-
-            /* TC-HW-WIFI-006 — UDP round trip against SocketTest. */
-            wifi_socket_t udp_sock = WIFI_INVALID_SOCKET;
-            if (wifi_open_socket(wifi_handle, WIFI_SOCKET_UDP, BRINGUP_SOCKETTEST_HOST,
-                                 BRINGUP_SOCKETTEST_UDP_PORT, &udp_sock) != WIFI_ERR_OK)
-            {
-                bringup_fail("TC-HW-WIFI-006  wifi_open_socket(UDP) failed");
-            }
-            LOG_INFO("Wifi", "TC-HW-WIFI-006  UDP socket open (id=%u) - check SocketTest",
-                     (unsigned) udp_sock);
+            LOG_INFO("Wifi", "Switch to your UDP listener on port %u now",
+                     (unsigned) BRINGUP_REMOTE_UDP_PORT);
+            bringup_countdown("Continuing to TC-HW-WIFI-006");
 
             static const uint8_t udp_hello[] = "WIFI-BRINGUP-UDP-HELLO\r\n";
-            if (wifi_send(wifi_handle, udp_sock, udp_hello, sizeof(udp_hello) - 1U) != WIFI_ERR_OK)
-            {
-                bringup_fail("TC-HW-WIFI-006  wifi_send() failed");
-            }
-            LOG_INFO("Wifi", "TC-HW-WIFI-006  sent - confirm it appeared in SocketTest's window");
-
-            recv_err =
-                wifi_recv(wifi_handle, udp_sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len, 3000U);
-            if (recv_err == WIFI_ERR_OK)
-            {
-                rx_buf[rx_len] = (uint8_t) '\0';
-                LOG_INFO("Wifi", "TC-HW-WIFI-006  received %u bytes: %s", (unsigned) rx_len,
-                         (const char *) rx_buf);
-            }
-            else
-            {
-                LOG_INFO("Wifi", "TC-HW-WIFI-006  no reply within timeout (type something in "
-                                 "SocketTest and resend to exercise this path)");
-            }
-
-            (void) wifi_close_socket(wifi_handle, udp_sock);
-            LOG_INFO("Wifi", "TC-HW-WIFI-006  UDP socket closed");
+            bringup_socket_roundtrip(wifi_handle, "TC-HW-WIFI-006", WIFI_SOCKET_UDP,
+                                     BRINGUP_REMOTE_UDP_PORT, udp_hello, sizeof(udp_hello) - 1U);
         }
         else
         {
-            LOG_INFO("Wifi", "BRINGUP_SOCKETTEST_HOST is empty - skipping TC-HW-WIFI-005/006");
+            LOG_INFO("Wifi", "BRINGUP_REMOTE_HOST is empty - skipping TC-HW-WIFI-005/006");
         }
     }
     else
