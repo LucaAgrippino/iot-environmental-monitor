@@ -53,8 +53,41 @@
  *   TC-HW-MQTT-009  mqtt_client_get_stats() — counters logged and sanity
  *                   checked (connect_ok == 1, publishes_sent == 2,
  *                   publishes_acked == 1)
- *   TC-HW-MQTT-010  mqtt_client_disconnect() completes without invoking
+ *   TC-HW-MQTT-011  Broker-drop / reconnect resilience (MQTT-O8). Stop the
+ *                   MQTT broker when prompted; the test polls
+ *                   mqtt_client_process() until disconnect_cb fires (real
+ *                   keep-alive timeout / TCP failure, not simulated), then
+ *                   — once you restart the broker when prompted —
+ *                   reconnects. This is the hardware-only half of the
+ *                   MQTT-O8 fix: the host unit tests (MQTT-T18/T19) prove
+ *                   the *mock* WifiDriver's socket-table bookkeeping is
+ *                   correct, but only real hardware proves the ISM43362
+ *                   module itself actually frees the socket when
+ *                   wifi_close_socket() issues its P6=0 "stop client" —
+ *                   if it didn't, this reconnect would fail exactly the
+ *                   way a leaked socket slot fails on real hardware.
+ *   TC-HW-MQTT-012  WIFI_MAX_SOCKETS further disconnect/reconnect cycles,
+ *                   fully automated (broker stays up) — proves the
+ *                   module's real 4-slot socket table doesn't drift into
+ *                   exhaustion across repeated cycles, matching MQTT-T19's
+ *                   "WIFI_MAX_SOCKETS + 1 total cycles" bound (TC-HW-
+ *                   MQTT-011's abnormal cycle is the "+1").
+ *   TC-HW-MQTT-013  mqtt_client_disconnect() completes without invoking
  *                   disconnect_cb
+ *
+ * TC-HW-MQTT-011 needs a broker you can stop and restart on command while
+ * the board keeps running — this is what BRINGUP_MQTT_BROKER_ENDPOINT's
+ * local Mosquitto setup is for (a real AWS IoT Core endpoint works for
+ * every other test case, but you can't stop it on demand for this one).
+ *
+ * Note on scope: TC-HW-MQTT-011/012 validate MqttClient's resource cleanup
+ * after a *broker*-level drop, which is what MQTT-O8 fixed. They do not
+ * (and cannot, with WifiDriver as it stands today) validate recovery from
+ * a *WiFi AP*-level drop — that is WIFI-O15, an open, deferred gap: nothing
+ * in WifiDriver or this bring-up re-associates with the AP if it drops the
+ * station, so don't power off the router expecting this test to recover;
+ * it will just hang at TC-HW-MQTT-011's poll loop until you either restore
+ * the AP or reset the board.
  *
  * If cpu_init(), debug_uart_init(), or rtc_init() fail, Logger cannot be
  * trusted as the reporting channel yet — the board halts with a fast LED
@@ -95,9 +128,12 @@
  * Currently pointed at a local Mosquitto broker (not AWS IoT Core) running
  * on the dev machine's Wi-Fi adapter IP, port 8883, TLS 1.2 with a
  * self-signed test CA and mutual-auth client cert — see
- * scripts/mosquitto-test/ (or wherever this was set up) for how the
- * broker and certs below were generated. The board's WiFi AP
- * (BRINGUP_WIFI_SSID) must be the same network this IP is reachable on.
+ * local-test/mosquitto-broker/ (gitignored: contains private key material)
+ * for the cert material and start-mosquitto-tls.bat, which starts it.
+ * Ctrl+C that window (or close it) to stop it — needed interactively for
+ * TC-HW-MQTT-011/012. The board's WiFi AP (BRINGUP_WIFI_SSID) must be the
+ * same network this IP is reachable on, and must match the IP baked into
+ * the server cert's SAN (start-mosquitto-tls.bat prints it on launch).
  * Swap back to a real AWS IoT Core endpoint + provisioned certs for a
  * production-representative test. */
 #define BRINGUP_MQTT_BROKER_ENDPOINT ""
@@ -226,7 +262,10 @@ static void bringup_msg_cb(const char *topic, uint16_t topic_len, const uint8_t 
 static void bringup_disconnect_cb(void)
 {
     s_disconnect_cb_fired = true;
-    LOG_ERROR("Mqtt", "disconnect_cb fired (unexpected during TC-HW-MQTT-004..009)");
+    /* Expected during TC-HW-MQTT-011; unexpected everywhere else — each
+     * phase interprets s_disconnect_cb_fired against its own context, so
+     * this log stays neutral rather than presupposing which one applies. */
+    LOG_WARN("Mqtt", "disconnect_cb fired");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -393,16 +432,103 @@ static void mqtt_bringup_task(void *arg)
     }
     LOG_INFO("Mqtt", "TC-HW-MQTT-009  stats match expected counts - PASS");
 
-    /* TC-HW-MQTT-010 */
+    /* TC-HW-MQTT-011 (MQTT-O8 hardware validation)
+     *
+     * The host unit tests (MQTT-T18/T19) only prove the *mock* WifiDriver
+     * releases a socket-table slot on abnormal disconnect — the mock
+     * cannot prove wifi_close_socket()'s real P0/P6=0 AT sequence
+     * actually frees the socket on the physical ISM43362 module. This
+     * phase forces a genuine broker drop and proves reconnection works
+     * against real hardware: if the module-side socket weren't actually
+     * freed, the reconnect below would fail with WIFI_ERR_NO_RESOURCE
+     * surfacing as MQTT_CLIENT_ERR_CONNECT_FAIL, a failure mode the host
+     * test cannot reach. */
+    LOG_INFO("Mqtt", "TC-HW-MQTT-011  broker-drop / reconnect resilience (MQTT-O8)");
+    LOG_INFO("Mqtt", "Stop the MQTT broker now (Ctrl+C the mosquitto window).");
+    bringup_countdown("Stopping broker", 15U);
+
+    s_disconnect_cb_fired = false;
+    LOG_INFO("Mqtt", "TC-HW-MQTT-011  polling for disconnect detection (keep_alive_s=%u, so up to "
+                     "~%u s worst case)...",
+             (unsigned) BRINGUP_MQTT_KEEP_ALIVE_S,
+             (unsigned) (BRINGUP_MQTT_KEEP_ALIVE_S + (BRINGUP_MQTT_KEEP_ALIVE_S / 2U)));
+    /* Same MQTT-O7 caveat as TC-HW-MQTT-008's loop: each mqtt_client_process()
+     * call can itself take up to ~5 s, so 30 iterations gives ~150 s of
+     * headroom against the ~90 s worst-case keep-alive window above. */
+    for (uint32_t i = 0U; (i < 30U) && !s_disconnect_cb_fired; ++i)
+    {
+        LOG_INFO("Mqtt", "TC-HW-MQTT-011  poll attempt %u/30 (each may take up to ~5 s)...",
+                 (unsigned) (i + 1U));
+        (void) mqtt_client_process(mqtt_handle);
+    }
+    if (!s_disconnect_cb_fired)
+    {
+        bringup_fail("TC-HW-MQTT-011  disconnect_cb was not invoked - broker drop not detected");
+    }
+    LOG_INFO("Mqtt", "TC-HW-MQTT-011  disconnect detected, disconnect_cb fired - PASS");
+
+    LOG_INFO("Mqtt", "Restart the MQTT broker now.");
+    bringup_countdown("Restarting broker", 15U);
+
+    mqtt_client_err_t reconnect_result = mqtt_client_connect(mqtt_handle, &connect_cfg);
+    if (reconnect_result != MQTT_CLIENT_ERR_OK)
+    {
+        LOG_ERROR("Mqtt", "mqtt_client_connect() error code: %d", (int) reconnect_result);
+        bringup_fail(
+            "TC-HW-MQTT-011  reconnect failed - socket/TLS state leaked on real hardware");
+    }
+    LOG_INFO("Mqtt", "TC-HW-MQTT-011  reconnected after real broker drop - PASS (WifiDriver "
+                     "socket slot was genuinely released on the physical module)");
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    /* TC-HW-MQTT-012
+     *
+     * Broker stays up from here on — no further operator action. Cycle
+     * disconnect+reconnect WIFI_MAX_SOCKETS more times to prove the
+     * module's real 4-slot socket table doesn't drift into exhaustion
+     * across repeated cycles (mirrors MQTT-T19's "WIFI_MAX_SOCKETS + 1
+     * total cycles" bound — TC-HW-MQTT-011's abnormal cycle above is the
+     * "+1"). */
+    LOG_INFO("Mqtt", "TC-HW-MQTT-012  %u automated disconnect/reconnect cycles...",
+             (unsigned) WIFI_MAX_SOCKETS);
+    for (uint8_t cycle = 0U; cycle < WIFI_MAX_SOCKETS; ++cycle)
+    {
+        if (mqtt_client_disconnect(mqtt_handle) != MQTT_CLIENT_ERR_OK)
+        {
+            bringup_fail("TC-HW-MQTT-012  mqtt_client_disconnect() failed mid-cycle");
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+        if (mqtt_client_connect(mqtt_handle, &connect_cfg) != MQTT_CLIENT_ERR_OK)
+        {
+            LOG_ERROR("Mqtt", "TC-HW-MQTT-012  cycle %u/%u reconnect failed",
+                      (unsigned) (cycle + 1U), (unsigned) WIFI_MAX_SOCKETS);
+            bringup_fail("TC-HW-MQTT-012  socket table exhausted on real hardware");
+        }
+        LOG_INFO("Mqtt", "TC-HW-MQTT-012  cycle %u/%u OK", (unsigned) (cycle + 1U),
+                 (unsigned) WIFI_MAX_SOCKETS);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+    LOG_INFO("Mqtt", "TC-HW-MQTT-012  all cycles reconnected - PASS (no socket-table exhaustion)");
+
+    mqtt_stats_t resilience_stats;
+    if (mqtt_client_get_stats(mqtt_handle, &resilience_stats) == MQTT_CLIENT_ERR_OK)
+    {
+        LOG_INFO("Mqtt", "TC-HW-MQTT-012  stats: connect_ok=%lu reconnect_count=%lu",
+                 (unsigned long) resilience_stats.connect_ok,
+                 (unsigned long) resilience_stats.reconnect_count);
+    }
+
+    /* TC-HW-MQTT-013 */
+    s_disconnect_cb_fired = false; /* reset: TC-HW-MQTT-011 legitimately set this */
     if (mqtt_client_disconnect(mqtt_handle) != MQTT_CLIENT_ERR_OK)
     {
-        bringup_fail("TC-HW-MQTT-010  mqtt_client_disconnect() failed");
+        bringup_fail("TC-HW-MQTT-013  mqtt_client_disconnect() failed");
     }
     if (s_disconnect_cb_fired)
     {
-        bringup_fail("TC-HW-MQTT-010  disconnect_cb fired on a graceful disconnect");
+        bringup_fail("TC-HW-MQTT-013  disconnect_cb fired on a graceful disconnect");
     }
-    LOG_INFO("Mqtt", "TC-HW-MQTT-010  disconnected gracefully, disconnect_cb NOT invoked - PASS");
+    LOG_INFO("Mqtt", "TC-HW-MQTT-013  disconnected gracefully, disconnect_cb NOT invoked - PASS");
 
     LOG_INFO("Mqtt", "All automated tests complete.");
 
