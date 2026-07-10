@@ -514,6 +514,7 @@ Test file: `tests/gateway/application/cloud_publisher/test_cloud_publisher.c`
 | CP-O2 | `IModbusPoller.get_latest_fd_readings()` — confirm method exists. | **Open** | Confirm at ModbusPoller LLD. |
 | CP-O3 | Largest telemetry payload must fit within `CP_JSON_BUF_SIZE` (4096). | **Open** | Validate at integration with full sensor set. |
 | CP-O4 | `field_device_valid = false` — confirm omitting vs null for cloud consumer. | **Open** | Confirm with cloud schema design. |
+| CP-O5 | MqttClient's `msg_cb`/`disconnect_cb` are registered at `mqtt_client_create()` time, upstream of CloudPublisher's config injection — inbound command delivery (§5.5) has no real wiring yet. | **Open** | Whichever module ends up owning `mqtt_client_create()` (likely LifecycleController per boot order) must plumb the callbacks through, or CloudPublisher's config must carry a `wifi_handle_t` and call `mqtt_client_create()` itself. |
 | F-03 | `components.md` USES list needs: IConfigManager, IConfigProvider, IUpdateService, ILifecycle. | **Open** | Update `components.md`. |
 
 ---
@@ -528,6 +529,8 @@ Test file: `tests/gateway/application/cloud_publisher/test_cloud_publisher.c`
 | CP-D4 | `scratch_buf` = 4 KB, shared across all serialisers | All three publish paths run sequentially in CloudPublisherTask — no concurrency inside the task. |
 | CP-D5 | No `ICloudPublisher` interface | Top of stack; no consumer above. Public API is `cloud_publisher_create()` only. |
 | CP-D6 | Stats polling at 1 Hz, delta-computed | Avoids monotonically growing counter noise in health reports. Delta is computed inside `health_report_update_mqtt`. |
+| CP-D7 (resolved) | Connectivity gate uses `mqtt_client_is_connected()` (§5.3, matches original pseudocode) | Originally collapsed into `mqtt_client_publish()`'s own `MQTT_CLIENT_ERR_NOT_CONNECTED` return, since `is_connected()` did not exist when this module was first implemented. Resolved by adding `mqtt_client_is_connected()` to MqttClient (additive, no behaviour change to existing MqttClient callers). |
+| CP-D9 | CloudPublisher owns the MQTT connect/reconnect state machine | `mqtt_client.h` explicitly hands this responsibility to CloudPublisher ("does not own the Cloud Connectivity state machine or the reconnect timer") but no module previously called `mqtt_client_connect()` more than once — confirmed on real hardware (a stopped/restarted broker never reconnected). `config->mqtt` is now handed to CloudPublisher unconnected; the existing 1 Hz stats tick attempts the initial connect and every later reconnect via the same `prv_maybe_reconnect()` path, with a fixed backoff (`CP_RECONNECT_RETRY_PERIOD_S`, 30 s) between failed attempts. Deliberately does NOT give MqttClient its own task: MqttClient's header already documents "no thread of its own", and a new task would add RAM to an already-tight GW budget (worst case 90.4 % of 128 KB, MQTT-O1). |
 
 ---
 
