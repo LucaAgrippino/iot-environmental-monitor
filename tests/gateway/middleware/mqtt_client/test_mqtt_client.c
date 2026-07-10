@@ -1,6 +1,6 @@
 /**
  * @file test_mqtt_client.c
- * @brief Unity unit tests for MqttClient — MQTT-T01 through MQTT-T17.
+ * @brief Unity unit tests for MqttClient — MQTT-T01 through MQTT-T19.
  *
  * mbedTLS's entropy.h and ctr_drbg.h are CMock-mocked directly from the
  * real vendor headers. ssl.h, pk.h, and x509_crt.h cannot: they either
@@ -80,6 +80,12 @@ static wifi_err_t s_open_socket_result;
 static wifi_err_t s_send_result;
 static size_t s_send_call_count;
 static size_t s_send_total_bytes;
+/* Mirrors wifi_driver.c's real socket table (WIFI_MAX_SOCKETS slots): lets
+ * MQTT-T19 prove that a leaked socket slot on abnormal disconnect (MQTT-O8)
+ * would actually exhaust WifiDriver's socket table after a few reconnect
+ * cycles, not just a synthetic counter divorced from real behaviour. */
+static uint8_t s_open_sockets;
+static size_t s_close_socket_call_count;
 
 static void prv_reset_wifi_stub(void)
 {
@@ -91,6 +97,8 @@ static void prv_reset_wifi_stub(void)
     s_send_result = WIFI_ERR_OK;
     s_send_call_count = 0u;
     s_send_total_bytes = 0u;
+    s_open_sockets = 0u;
+    s_close_socket_call_count = 0u;
 }
 
 static void prv_queue_recv_bytes(const uint8_t *data, size_t len)
@@ -107,8 +115,18 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
     (void) type;
     (void) remote_addr;
     (void) remote_port;
+
+    if (s_open_socket_result != WIFI_ERR_OK)
+    {
+        return s_open_socket_result;
+    }
+    if (s_open_sockets >= WIFI_MAX_SOCKETS)
+    {
+        return WIFI_ERR_NO_RESOURCE;
+    }
+    s_open_sockets++;
     *out_socket = 0u;
-    return s_open_socket_result;
+    return WIFI_ERR_OK;
 }
 
 wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *data, size_t len)
@@ -153,6 +171,11 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
 {
     (void) handle;
     (void) socket;
+    s_close_socket_call_count++;
+    if (s_open_sockets > 0u)
+    {
+        s_open_sockets--;
+    }
     return WIFI_ERR_OK;
 }
 
@@ -534,6 +557,10 @@ void test_MQTT_T13_process_inbound_publish(void)
 void test_MQTT_T14_process_keepalive_timeout(void)
 {
     mqtt_client_handle_t handle = prv_connect_success();
+    /* mqtt_client_process()'s abnormal-disconnect path now tears down the
+     * TLS session before invoking disconnect_cb() (MQTT-O8) — these mocks
+     * must be armed or the unexpected mbedTLS calls fail the test. */
+    prv_mock_tls_teardown();
 
     /* No PINGRESP is ever queued. Call process() repeatedly, exactly as
      * CloudPublisherTask does in production (~every 100 ms) — each idle
@@ -551,6 +578,11 @@ void test_MQTT_T14_process_keepalive_timeout(void)
     }
 
     TEST_ASSERT_TRUE_MESSAGE(timed_out, "disconnect_cb was not invoked within 500 process() polls");
+    /* MQTT-O8: the WifiDriver socket must be released on this path too,
+     * not just on the graceful mqtt_client_disconnect() path — otherwise
+     * every unexpected drop leaks a socket-table slot. */
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(1u, s_close_socket_call_count,
+                                     "wifi_close_socket() was not called on keep-alive timeout");
 }
 
 /* ========================================================================
@@ -570,6 +602,90 @@ void test_MQTT_T15_disconnect_graceful(void)
     TEST_ASSERT_EQUAL(
         MQTT_CLIENT_ERR_NOT_CONNECTED,
         mqtt_client_publish(handle, "dt/iotmonitor/gw-001/telemetry", payload, 1u, MQTT_QOS_0));
+}
+
+/* ========================================================================
+ * MQTT-T18..T19 — Resource cleanup on abnormal disconnect (MQTT-O8)
+ * ==================================================================== */
+
+/** @brief A single unexpected disconnect must not prevent a subsequent
+ *         mqtt_client_connect() from succeeding — proves the WifiDriver
+ *         socket slot and TLS session are actually released on the
+ *         keep-alive-timeout path, not just marked logically disconnected. */
+void test_MQTT_T18_reconnect_after_keepalive_timeout(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    prv_mock_tls_teardown();
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    prv_queue_connack(0u);
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+
+    bool timed_out = false;
+    for (uint32_t i = 0u; (i < 500u) && !timed_out; ++i)
+    {
+        (void) mqtt_client_process(handle);
+        timed_out = s_disconnect_cb_called;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(timed_out, "disconnect_cb was not invoked");
+    TEST_ASSERT_EQUAL_UINT32(1u, s_close_socket_call_count);
+
+    s_recv_pos = 0u;
+    s_recv_len = 0u;
+    s_disconnect_cb_called = false;
+    prv_queue_connack(0u);
+    TEST_ASSERT_EQUAL_MESSAGE(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg),
+                              "reconnect failed after keep-alive timeout — socket/TLS state leaked");
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(2u, stats.connect_attempts);
+    TEST_ASSERT_EQUAL_UINT32(2u, stats.connect_ok);
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.reconnect_count);
+}
+
+/** @brief Repeated drop/reconnect cycles, one more than WifiDriver's real
+ *         socket-table depth (WIFI_MAX_SOCKETS), must all succeed. Without
+ *         releasing the socket slot on every abnormal disconnect, this
+ *         loop would start failing with ERR_CONNECT_FAIL once the table's
+ *         4 slots are all leaked (MQTT-O8) — this is the scenario that
+ *         permanently strands a device against a broker that drops the
+ *         connection more than WIFI_MAX_SOCKETS times over its uptime. */
+void test_MQTT_T19_multi_cycle_disconnect_reconnect_no_socket_exhaustion(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    prv_mock_tls_teardown();
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    const uint32_t cycles = (uint32_t) WIFI_MAX_SOCKETS + 1u;
+
+    for (uint32_t cycle = 0u; cycle < cycles; ++cycle)
+    {
+        s_recv_pos = 0u;
+        s_recv_len = 0u;
+        s_disconnect_cb_called = false;
+        prv_queue_connack(0u);
+
+        TEST_ASSERT_EQUAL_MESSAGE(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg),
+                                  "connect failed - socket table likely exhausted");
+
+        bool timed_out = false;
+        for (uint32_t i = 0u; (i < 500u) && !timed_out; ++i)
+        {
+            (void) mqtt_client_process(handle);
+            timed_out = s_disconnect_cb_called;
+        }
+        TEST_ASSERT_TRUE_MESSAGE(timed_out, "disconnect_cb was not invoked this cycle");
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(cycles, s_close_socket_call_count);
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(cycles, stats.connect_ok);
+    TEST_ASSERT_EQUAL_UINT32(cycles - 1u, stats.reconnect_count);
 }
 
 /* ========================================================================
