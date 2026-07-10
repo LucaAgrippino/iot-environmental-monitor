@@ -3,7 +3,9 @@
  * @brief Unit tests for CloudPublisher (Gateway).
  *
  * Covers CP-T01..CP-T16 as defined in
- * docs/lld/application/cloud-publisher-lld.md §13.
+ * docs/lld/application/cloud-publisher-lld.md §13, plus CP-T17/T18 (new,
+ * post-CP-D9 connect/reconnect coverage — not in the companion's original
+ * §13 table).
  *
  * Build defines (project.yml): STM32L475xx, BOARD_GATEWAY, TEST.
  *
@@ -23,11 +25,12 @@
  * spy bodies below provide those symbols instead).
  *
  * Deviations from the companion exercised here (see session report):
- *  - CP-D7: no mqtt_client_is_connected() exists on the real MqttClient
- *    API, so the connectivity gate is collapsed into mqtt_client_publish()
- *    itself. CP-T05 asserts publish() IS called (returning
- *    MQTT_CLIENT_ERR_NOT_CONNECTED) and the message still lands in SAF,
- *    rather than asserting publish() is skipped entirely.
+ *  - CP-D9 (new): mqtt_client_is_connected() now exists on MqttClient, and
+ *    CloudPublisher owns the connect/reconnect state machine (see
+ *    prv_maybe_reconnect() in cloud_publisher.c) rather than assuming an
+ *    already-connected handle. CP-T05/T08 assert publish() is NOT called
+ *    while disconnected (matching the companion's original §5.3 intent
+ *    exactly); CP-T17/T18 cover the reconnect attempt + backoff.
  *  - CP-O5: MqttClient's msg_cb is not yet wired to CloudPublisher (it is
  *    registered upstream, at mqtt_client_create() time). CP-T11/T12 use
  *    the cloud_publisher_inject_command_for_test() seam instead.
@@ -253,6 +256,23 @@ mqtt_client_err_t mqtt_client_process(mqtt_client_handle_t handle)
     return MQTT_CLIENT_ERR_OK;
 }
 
+static bool g_spy_mqtt_is_connected_return;
+bool mqtt_client_is_connected(mqtt_client_handle_t handle)
+{
+    (void) handle;
+    return g_spy_mqtt_is_connected_return;
+}
+
+static mqtt_client_err_t g_spy_mqtt_connect_return;
+static uint32_t g_spy_mqtt_connect_calls;
+mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg)
+{
+    (void) handle;
+    (void) cfg;
+    g_spy_mqtt_connect_calls++;
+    return g_spy_mqtt_connect_return;
+}
+
 /* ======================================================================= */
 /* Fixture                                                                 */
 /* ======================================================================= */
@@ -304,6 +324,10 @@ void setUp(void)
     (void) memset(&g_spy_mqtt_stats, 0, sizeof(g_spy_mqtt_stats));
     g_spy_mqtt_get_stats_calls = 0u;
     g_spy_mqtt_process_calls = 0u;
+
+    g_spy_mqtt_is_connected_return = true; /* most tests assume an already-connected broker */
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_OK;
+    g_spy_mqtt_connect_calls = 0u;
 
     (void) memset(&g_cfg, 0, sizeof(g_cfg));
     g_cfg.mqtt = (mqtt_client_handle_t) 0x1000;
@@ -376,17 +400,13 @@ void test_CP_T04_telemetry_connected(void)
 
 void test_CP_T05_telemetry_disconnected(void)
 {
-    /* CP-D7: no is_connected() query exists on the real MqttClient API,
-     * so the gate is collapsed into mqtt_client_publish() itself —
-     * publish() IS called and reports NOT_CONNECTED; the message still
-     * lands in StoreAndForward. */
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_NOT_CONNECTED;
+    g_spy_mqtt_is_connected_return = false;
     g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
 
     cloud_publisher_task_step_for_test(g_handle);
 
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/telemetry"));
 }
@@ -451,7 +471,7 @@ void test_CP_T07_alarm_connected(void)
 void test_CP_T08_alarm_disconnected(void)
 {
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_NOT_CONNECTED;
+    g_spy_mqtt_is_connected_return = false;
 
     alarm_event_t ev;
     prv_load_alarm_event(&ev);
@@ -466,6 +486,7 @@ void test_CP_T08_alarm_disconnected(void)
     g_mock_xTaskNotifyWait_next_value = TC_ALARM_PENDING;
     cloud_publisher_task_step_for_test(g_handle);
 
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_saf_enqueue_last_qos);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/alarms"));
@@ -604,6 +625,39 @@ void test_CP_T13_stats_polling(void)
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_get_stats_calls);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_update_mqtt_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_connect_calls); /* already connected — no attempt */
+}
+
+/* ======================================================================= */
+/* CP-T17..T18 (new, post-CP-D9) — connect/reconnect                      */
+/* ======================================================================= */
+
+void test_CP_T17_reconnect_attempted_when_disconnected(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_OK;
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+}
+
+void test_CP_T18_reconnect_backoff_does_not_hammer_every_tick(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle); /* 1st attempt: fails, arms backoff */
+    cloud_publisher_task_step_for_test(g_handle); /* still backing off: no retry yet */
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
 }
 
 /* ======================================================================= */
