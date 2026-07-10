@@ -635,8 +635,9 @@ void test_MQTT_T18_reconnect_after_keepalive_timeout(void)
     s_recv_len = 0u;
     s_disconnect_cb_called = false;
     prv_queue_connack(0u);
-    TEST_ASSERT_EQUAL_MESSAGE(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg),
-                              "reconnect failed after keep-alive timeout — socket/TLS state leaked");
+    TEST_ASSERT_EQUAL_MESSAGE(
+        MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg),
+        "reconnect failed after keep-alive timeout — socket/TLS state leaked");
 
     mqtt_stats_t stats;
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
@@ -725,4 +726,29 @@ void test_MQTT_T17_get_stats_matches_internal_state(void)
     TEST_ASSERT_EQUAL_UINT32(0u, stats.publish_failures);
     TEST_ASSERT_EQUAL_UINT32(0u, stats.subscribe_failures);
     TEST_ASSERT_EQUAL_UINT32(0u, stats.reconnect_count);
+}
+
+/* ========================================================================
+ * MQTT-T20..T21 — mqtt_client_is_connected()
+ * ==================================================================== */
+
+void test_MQTT_T20_is_connected_reflects_state(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+
+    prv_mock_tls_handshake(0);
+    prv_queue_connack(0u);
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+    TEST_ASSERT_TRUE(mqtt_client_is_connected(handle));
+
+    prv_mock_tls_teardown();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_disconnect(handle));
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+}
+
+void test_MQTT_T21_is_connected_null_handle(void)
+{
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(NULL));
 }
