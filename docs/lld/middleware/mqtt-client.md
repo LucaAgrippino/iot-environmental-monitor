@@ -485,6 +485,16 @@ MqttClient — CloudPublisher drives reconnect and retry strategy.
 | `MQTT_CLIENT_ERR_NOT_CONNECTED` | Publish/disconnect when not connected | Return immediately |
 | `MQTT_CLIENT_ERR_SUBSCRIBE_FAIL` | SUBACK with failure return code | `stats.subscribe_failures` incremented |
 
+**Abnormal disconnect (keep-alive timeout / recv / send failure in
+`mqtt_client_process()`).** Not a distinct error code — `mqtt_client_process()`
+still returns `MQTT_CLIENT_ERR_OK` and signals the caller via `disconnect_cb`
+instead (§9.1 SD-04). `prv_teardown_connection()` runs before `disconnect_cb`
+is invoked: TLS session freed (`prv_tls_close()`) and the WifiDriver socket
+released (`wifi_close_socket()`) — the same two resources the graceful
+`mqtt_client_disconnect()` path releases. See MQTT-O8: this was originally
+missing on this path, leaking a WifiDriver socket-table slot per unexpected
+disconnect.
+
 ---
 
 ## 11. Principles applied
@@ -537,6 +547,8 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-T15 | `mqtt_client_disconnect` graceful | Connection closed; `disconnect_cb` NOT invoked |
 | MQTT-T16 | `mqtt_client_reset_stats` | All counters zero |
 | MQTT-T17 | `mqtt_client_get_stats` copies snapshot | Stats match internal state |
+| MQTT-T18 | Reconnect after keep-alive-timeout disconnect | `wifi_close_socket()` called once before `disconnect_cb`; subsequent `mqtt_client_connect()` succeeds (MQTT-O8) |
+| MQTT-T19 | `WIFI_MAX_SOCKETS + 1` disconnect/reconnect cycles | All cycles succeed — proves no WifiDriver socket-table exhaustion (MQTT-O8) |
 
 ---
 
@@ -551,6 +563,7 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-O5 | Certificate storage partition address/format — depends on QspiFlashDriver/ConfigStore. MqttClient receives pointers only. | **Open** | Confirm at QspiFlashDriver LLD. |
 | MQTT-O6 | mbedTLS's CTR-DRBG entropy source needs a real RNG. The STM32L475's on-chip RNG peripheral requires its *kernel* clock (`RCC->CCIPR.CLK48SEL`) selected separately from its bus-clock gate (`AHB2ENR.RNGEN`) — not covered by this companion's original §8 design, which predates the concrete RNG choice, and not obvious until it hung on hardware (the poll loop waiting on `RNG->SR.DRDY` spun forever with no running kernel clock selected). | **Resolved** | Fixed in `mqtt_client.c` (`prv_configure_rng_clock()`): configures PLLSAI1 for an independent 48 MHz source (4 MHz VCO input × 48, ÷4) and selects it via `CLK48SEL`. Confirmed working on hardware. RNG has no dedicated driver in this project; this is documented as a narrow, scoped exception to register-level access from a middleware module, not a new convention. |
 | MQTT-O7 | `mqtt_client_process()` is not the fast/non-blocking ~100 ms call this companion's §7 recommended cadence assumes when idle. It calls `wifi_recv()` internally, which floors its own wait at `WIFI_RESP_TIMEOUT_MS` (5000 ms, `wifi_driver.c`) regardless of the timeout requested — so every idle poll can itself block for up to ~5 s. In production, `CloudPublisherTask` also owns telemetry timers, alarm-queue draining, and command-queue draining (§4 activation model) on the *same* task — a 5 s block on every idle `mqtt_client_process()` call stalls all of those, not just MQTT. Confirmed on hardware during bring-up (a diagnostic poll loop assuming ~100 ms/iteration measured ~5 s/iteration instead). | **Open** | Two candidate fixes, not yet chosen: (a) give WifiDriver a genuinely non-blocking "is data available" primitive instead of a floored blocking read, or (b) move `mqtt_client_process()` off `CloudPublisherTask` onto its own dedicated task. Deferred to CloudPublisher's design — do not resolve as a side effect of an unrelated change. |
+| MQTT-O8 | Robustness audit (broker-drop scenario, prompted by a review of WiFi/MQTT connection-loss handling): `mqtt_client_process()`'s abnormal-disconnect path (keep-alive timeout, `MQTTRecvFailed`, `MQTTSendFailed`) set `connected = false` and invoked `disconnect_cb()` directly, without releasing the TLS session or the underlying WifiDriver socket — unlike the graceful `mqtt_client_disconnect()` path, which released both. WifiDriver's socket table has only `WIFI_MAX_SOCKETS` (4) slots and `wifi_close_socket()` is the only thing that frees one (`wifi-driver.md` §3.7); the leaked slot meant `wifi_open_socket()` inside the *next* `mqtt_client_connect()` call permanently exhausted the table after ~4 unexpected broker drops — a realistic count over weeks of unattended field operation against a real cloud broker — leaving the device unable to reconnect to MQTT until reboot. The mbedTLS contexts were leaked too (never freed on this path). | **Resolved** | Factored the graceful-path cleanup into `prv_teardown_connection()` (`prv_tls_close()` + `wifi_close_socket()`) and call it from both `mqtt_client_disconnect()` and the abnormal-disconnect branch of `mqtt_client_process()`, before `disconnect_cb()` runs. Regression tests MQTT-T18 (single reconnect after an unexpected drop) and MQTT-T19 (`WIFI_MAX_SOCKETS + 1` disconnect/reconnect cycles) added — the WifiDriver test stub now mirrors the real socket table's finite depth so a re-leak would fail these tests, not just look clean via a `disconnect_cb`-only assertion (which is all MQTT-T14 checked before this). Companion WiFi AP-drop-level reconnection (as opposed to MQTT-session-level cleanup) is a separate, still-open gap — see `wifi-driver.md` WIFI-O15. **Confirmed on hardware** (2026-07-10, B-L475E-IOT01A against local Mosquitto): TC-HW-MQTT-011 forced a real broker drop (keep-alive timeout, `Connection lost: 4`) and reconnected cleanly; TC-HW-MQTT-012 ran 4 further automated disconnect/reconnect cycles (`connect_ok=6, reconnect_count=5`), all successful — proves `wifi_close_socket()`'s real `P0`/`P6=0` AT sequence genuinely frees the socket on the physical ISM43362, which the host-mocked MQTT-T18/T19 could not prove on their own. |
 
 ---
 
