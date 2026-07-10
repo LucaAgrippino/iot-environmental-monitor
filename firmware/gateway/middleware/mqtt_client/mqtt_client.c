@@ -30,13 +30,28 @@
 #define MQTT_CLIENT_LOG_MODULE "MqttClient"
 
 #define MQTT_CLIENT_MAX_INSTANCES 1u
-#define MQTT_PKT_BUF_SIZE 4096u        /**< See MQTT-O3. */
-#define MQTT_CONNECT_TIMEOUT_MS 10000u /**< See MQTT-O2. */
-#define MQTT_PUBACK_TIMEOUT_MS 5000u   /**< See MQTT-O4. */
+#define MQTT_PKT_BUF_SIZE 4096u /**< See MQTT-O3. */
+
+/* wifi_recv() floors its own internal wait at WIFI_RESP_TIMEOUT_MS
+ * (5000 ms, wifi_driver.c) regardless of the timeout_ms passed in — a
+ * single R0 AT round trip can itself take a real multi-second wait
+ * (WifiDriver's own WIFI-O11 finding), and retrying from a layer above
+ * (as mbedtls_ssl_handshake()'s internal WANT_READ/WANT_WRITE retry
+ * loop does here) multiplies that wait per attempt rather than
+ * shortening it. So these budgets must give the retry loop enough
+ * *attempts* at that ~5 s floor, not just a longer single wait.
+ * Confirmed on hardware (pktmon capture) during MqttClient bring-up:
+ * the broker's ServerHello + Certificate reply reached and was TCP-ACKed
+ * by the module within ~15 ms of sending ClientHello, but
+ * MQTT_CONNECT_TIMEOUT_MS's original 10 s budget allowed only 1-2
+ * underlying wifi_recv() attempts before giving up — not enough margin
+ * against that per-call floor. See MQTT-O2/O4/O6. */
+#define MQTT_CONNECT_TIMEOUT_MS 30000u /**< ~6 retries at the 5 s floor. */
+#define MQTT_PUBACK_TIMEOUT_MS 15000u  /**< ~3 retries at the 5 s floor. */
 #define MQTT_SUBACK_TIMEOUT_MS                                                                     \
-    5000u /**< Mirrors MQTT-O4 for SUBACK; not yet a                                               \
-           *  named open item — same integration-time                                            \
-           *  validation applies. */
+    15000u /**< Mirrors MQTT_PUBACK_TIMEOUT_MS; not yet a                                          \
+            *  named open item — same integration-time                                           \
+            *  validation applies. */
 
 /** Outstanding QoS 1 record slots (MQTT_InitStatefulQoS). A handful is
  *  enough headroom for this project's single in-flight publish/subscribe
@@ -44,10 +59,14 @@
 #define MQTT_OUTGOING_PUBLISH_RECORDS 4u
 #define MQTT_INCOMING_PUBLISH_RECORDS 4u
 
-/** Bounded poll timeout used by the transport-level socket calls so that
- *  mbedTLS's BIO callbacks — and, in TEST builds, the transport bypass —
- *  never block the process loop for longer than a short slice. */
-#define MQTT_TRANSPORT_POLL_TIMEOUT_MS 20u
+/** Timeout budget handed to each individual transport-level socket
+ *  call. Below WIFI_RESP_TIMEOUT_MS (5000 ms) this has no observable
+ *  effect — wifi_recv() floors to that value regardless — but it is
+ *  still the semantically-correct per-poll budget to pass (a future
+ *  WifiDriver revision, or swapping the transport, might honour it
+ *  directly), and it bounds mqtt_client_process()'s own non-blocking
+ *  contract when data genuinely is available immediately. */
+#define MQTT_TRANSPORT_POLL_TIMEOUT_MS 500u
 
 #ifdef TEST
 #define MQTT_CLIENT_TEST_VISIBLE
@@ -433,6 +452,10 @@ static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
     {
         if ((prv_get_time_ms() - start) >= MQTT_CONNECT_TIMEOUT_MS)
         {
+            LOG_ERROR(MQTT_CLIENT_LOG_MODULE,
+                      "TLS handshake timed out after %lu ms, still waiting on %s",
+                      (unsigned long) MQTT_CONNECT_TIMEOUT_MS,
+                      (ret == MBEDTLS_ERR_SSL_WANT_READ) ? "WANT_READ" : "WANT_WRITE");
             return MQTT_CLIENT_ERR_TLS_FAIL;
         }
         ret = mbedtls_ssl_handshake(&net_ctx->ssl);
