@@ -481,6 +481,25 @@ static void prv_tls_close(struct mqtt_client_inst *inst)
     mbedtls_entropy_free(&inst->net_ctx.entropy);
 }
 
+/**
+ * @brief Release the TLS session and underlying WifiDriver socket.
+ *
+ * Shared by the graceful (mqtt_client_disconnect()) and abnormal
+ * (mqtt_client_process() keep-alive/recv/send failure) teardown paths.
+ * Both must release the same two resources: WifiDriver's socket table
+ * has only WIFI_MAX_SOCKETS (4) slots, and wifi_close_socket() is the
+ * only thing that frees one (wifi_driver.c §3.7) — skipping it on the
+ * abnormal path leaks a slot per unexpected disconnect, exhausting the
+ * table after a handful of broker drops and permanently blocking
+ * reconnection until reboot (see mqtt-client.md MQTT-O8).
+ */
+static void prv_teardown_connection(struct mqtt_client_inst *inst)
+{
+    prv_tls_close(inst);
+    (void) wifi_close_socket(inst->wifi, inst->net_ctx.socket);
+    inst->connected = false;
+}
+
 /* ========================================================================
  * IMqttClient
  * ==================================================================== */
@@ -615,9 +634,7 @@ mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle)
     }
 
     (void) MQTT_Disconnect(&handle->mqtt_ctx);
-    prv_tls_close(handle);
-    (void) wifi_close_socket(handle->wifi, handle->net_ctx.socket);
-    handle->connected = false;
+    prv_teardown_connection(handle);
 
     return MQTT_CLIENT_ERR_OK;
 }
@@ -740,7 +757,9 @@ mqtt_client_err_t mqtt_client_process(mqtt_client_handle_t handle)
         (status == MQTTSendFailed))
     {
         LOG_WARN(MQTT_CLIENT_LOG_MODULE, "Connection lost: %d", (int) status);
-        handle->connected = false;
+        /* Release the socket and TLS session before notifying the caller —
+         * see prv_teardown_connection()'s doc comment (MQTT-O8). */
+        prv_teardown_connection(handle);
         if (handle->disconnect_cb != NULL)
         {
             handle->disconnect_cb();
