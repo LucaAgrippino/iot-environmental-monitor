@@ -281,6 +281,10 @@ typedef struct
     config_service_handle_t cfg_write;    /**< IConfigManager — remote config cmds. */
     update_service_handle_t update_svc;   /**< May be NULL until UpdateService LLD (CP-O1). */
     lifecycle_handle_t lifecycle;         /**< ILifecycle — restart command.        */
+    mqtt_connect_cfg_t mqtt_connect_cfg;  /**< Broker/certs — CloudPublisher owns connect/reconnect
+                                                (CP-D7/CP-D9); stored by value, pointers inside
+                                                remain caller-owned (matches mqtt_client_connect()'s
+                                                own convention). */
 } cloud_publisher_config_t;
 
 /**
@@ -289,7 +293,11 @@ typedef struct
  * Stores all dependency handles, creates the alarm queue (8 entries),
  * command queue (4 entries), FreeRTOS software timers (telemetry 60 s,
  * health 600 s, stats 1 Hz), registers the alarm callback, reads the MCU
- * unique ID as the device serial, and creates CloudPublisherTask.
+ * unique ID as the device serial, and creates CloudPublisherTask. Does
+ * NOT attempt the initial MQTT connect itself (that would block this
+ * pre-scheduler call for up to MQTT_CONNECT_TIMEOUT_MS) — the task's own
+ * 1 Hz stats tick attempts it on its first iteration, using the same
+ * connect/reconnect logic as any later drop (CP-D9).
  *
  * @param[in]  config  Injected dependencies.
  * @param[out] handle  Receives the created handle on success.

@@ -3,8 +3,11 @@
  * @brief CloudPublisher (Gateway) implementation — task, timers, queues.
  *
  * @see docs/lld/application/cloud-publisher-lld.md for the design
- *      specification this file implements, including deviations CP-D7
- *      and CP-D8 (documented where applied below).
+ *      specification this file implements, including deviation CP-D9
+ *      (documented where applied below). CP-D7 (connectivity gate) is
+ *      RESOLVED as of mqtt_client_is_connected() being added to
+ *      MqttClient — prv_enqueue_or_publish() now matches the companion's
+ *      original two-branch §5.3 pseudocode exactly.
  */
 
 #include "cloud_publisher.h"
@@ -33,6 +36,9 @@
 #define CP_TELEMETRY_PERIOD_S_DEFAULT 60u
 #define CP_HEALTH_PERIOD_S_DEFAULT 600u
 #define CP_STATS_PERIOD_MS 1000u
+
+/** CP-D9: retry backoff between failed reconnect attempts (stats ticks). */
+#define CP_RECONNECT_RETRY_PERIOD_S 30u
 
 #define CP_NOTIFY_TELEMETRY_TICK (1u << 0)
 #define CP_NOTIFY_HEALTH_TICK (1u << 1)
@@ -79,6 +85,8 @@ struct cloud_publisher_inst
     char scratch_buf[CP_JSON_BUF_SIZE];
     mqtt_stats_t last_mqtt_stats;
     char device_serial[CP_DEVICE_SERIAL_LEN];
+    mqtt_connect_cfg_t mqtt_connect_cfg; /**< CP-D9: owned here for connect()/reconnect(). */
+    uint32_t reconnect_countdown_s;      /**< CP-D9: stats ticks left before next retry. */
 
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
@@ -128,6 +136,7 @@ static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst 
 static void prv_publish_telemetry(struct cloud_publisher_inst *inst);
 static void prv_publish_health(struct cloud_publisher_inst *inst);
 static void prv_poll_stats(struct cloud_publisher_inst *inst);
+static void prv_maybe_reconnect(struct cloud_publisher_inst *inst);
 static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
@@ -172,6 +181,8 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->cfg_write = config->cfg_write;
     inst->update_svc = config->update_svc;
     inst->lifecycle = config->lifecycle;
+    inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
+    inst->reconnect_countdown_s = 0u; /* CP-D9: attempt connect on the first stats tick */
 
     (void) memset(&inst->last_mqtt_stats, 0, sizeof(inst->last_mqtt_stats));
 
@@ -275,25 +286,24 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
 }
 
 /* ===================================================================== */
-/* Connectivity gate (CP-D7)                                              */
+/* Connectivity gate                                                     */
 /*                                                                        */
-/* The companion's §5.3 pseudocode gates on mqtt_client_is_connected(),   */
-/* which does not exist on the real, already-merged MqttClient API       */
-/* (mqtt-client-v1.0). mqtt_client_publish() already returns              */
-/* MQTT_CLIENT_ERR_NOT_CONNECTED immediately when not connected, so the   */
-/* connectivity check and the publish attempt are collapsed into a       */
-/* single call — the observable behaviour (publish when possible,        */
-/* buffer to StoreAndForward otherwise) is unchanged.                     */
+/* Matches the companion's §5.3 pseudocode exactly, now that              */
+/* mqtt_client_is_connected() exists on the real MqttClient API.         */
 /* ===================================================================== */
 
 static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst *inst,
                                                     const char *topic, const uint8_t *buf,
                                                     uint32_t len, mqtt_qos_t qos)
 {
-    mqtt_client_err_t rc = mqtt_client_publish(inst->mqtt, topic, buf, len, qos);
-    if (rc == MQTT_CLIENT_ERR_OK)
+    if (mqtt_client_is_connected(inst->mqtt))
     {
-        return CP_ERR_OK;
+        mqtt_client_err_t rc = mqtt_client_publish(inst->mqtt, topic, buf, len, qos);
+        if (rc == MQTT_CLIENT_ERR_OK)
+        {
+            return CP_ERR_OK;
+        }
+        /* Publish failed while nominally connected — fall through to SAF. */
     }
 
     saf_err_t saf_rc = store_and_forward_enqueue(inst->saf, topic, buf, len, qos);
@@ -353,12 +363,59 @@ static void prv_poll_stats(struct cloud_publisher_inst *inst)
         inst->last_mqtt_stats = stats;
     }
 
-    /* CP-D8: MqttClient exposes no "just reconnected" callback, so the SAF
-     * drain (companion §5.4, normally event-driven off a state-change
-     * callback) is instead attempted once per STATS_TICK (1 Hz). Any
-     * in-flight live publish still goes through prv_enqueue_or_publish
-     * directly and does not jump this drain (REQ-BF-010 ordering). */
+    prv_maybe_reconnect(inst);
+
+    /* MqttClient exposes no "just reconnected" callback, so the SAF drain
+     * (companion §5.4, normally event-driven off a state-change callback)
+     * is instead attempted once per STATS_TICK (1 Hz) — the same tick that
+     * drives prv_maybe_reconnect() above, so a successful reconnect is
+     * followed by a drain attempt within the same cycle. Any in-flight
+     * live publish still goes through prv_enqueue_or_publish directly and
+     * does not jump this drain (REQ-BF-010 ordering). */
     prv_drain_saf(inst);
+}
+
+/**
+ * @brief CP-D9: CloudPublisher owns the connect/reconnect state machine.
+ *
+ * MqttClient runs no thread of its own and does not retry internally
+ * (mqtt_client.h: "Does not own the Cloud Connectivity state machine or
+ * the reconnect timer — those belong to CloudPublisher"). The initial
+ * connect (config->mqtt is handed to CloudPublisher unconnected) and every
+ * later reconnect after a drop both go through this single path, driven
+ * by the existing 1 Hz stats tick rather than a dedicated task — avoids
+ * both an inverted MqttClient->CloudPublisher call and the RAM cost of a
+ * new task in an already tight GW memory budget (MQTT-O1).
+ *
+ * mqtt_client_connect() blocks for up to MQTT_CONNECT_TIMEOUT_MS (10 s) on
+ * failure, so a fixed backoff (CP_RECONNECT_RETRY_PERIOD_S) prevents a
+ * persistently-down broker from re-attempting on every single tick.
+ */
+static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
+{
+    if (mqtt_client_is_connected(inst->mqtt))
+    {
+        inst->reconnect_countdown_s = 0u; /* ready to retry immediately after a future drop */
+        return;
+    }
+
+    if (inst->reconnect_countdown_s > 0u)
+    {
+        inst->reconnect_countdown_s--;
+        return;
+    }
+
+    mqtt_client_err_t rc = mqtt_client_connect(inst->mqtt, &inst->mqtt_connect_cfg);
+    if (rc == MQTT_CLIENT_ERR_OK)
+    {
+        LOG_INFO(CP_LOG_MODULE, "MQTT (re)connected");
+    }
+    else
+    {
+        LOG_WARN(CP_LOG_MODULE, "MQTT connect attempt failed (rc=%d), retry in %u s", (int) rc,
+                 CP_RECONNECT_RETRY_PERIOD_S);
+        inst->reconnect_countdown_s = CP_RECONNECT_RETRY_PERIOD_S;
+    }
 }
 
 static void prv_drain_saf(struct cloud_publisher_inst *inst)
