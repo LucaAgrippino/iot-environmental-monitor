@@ -78,6 +78,7 @@
 #include "wifi_driver/wifi_driver.h"
 
 #include "mqtt_client.h"
+#include "mqtt_topic_config.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
@@ -89,7 +90,16 @@
 #define BRINGUP_WIFI_SSID ""
 #define BRINGUP_WIFI_PASSWORD ""
 
-/* Leave BRINGUP_MQTT_BROKER_ENDPOINT empty to skip TC-HW-MQTT-003 onward. */
+/* Leave BRINGUP_MQTT_BROKER_ENDPOINT empty to skip TC-HW-MQTT-003 onward.
+ *
+ * Currently pointed at a local Mosquitto broker (not AWS IoT Core) running
+ * on the dev machine's Wi-Fi adapter IP, port 8883, TLS 1.2 with a
+ * self-signed test CA and mutual-auth client cert — see
+ * scripts/mosquitto-test/ (or wherever this was set up) for how the
+ * broker and certs below were generated. The board's WiFi AP
+ * (BRINGUP_WIFI_SSID) must be the same network this IP is reachable on.
+ * Swap back to a real AWS IoT Core endpoint + provisioned certs for a
+ * production-representative test. */
 #define BRINGUP_MQTT_BROKER_ENDPOINT ""
 #define BRINGUP_MQTT_BROKER_PORT (8883U)
 #define BRINGUP_MQTT_CLIENT_ID "gw-bringup-001"
@@ -335,14 +345,25 @@ static void mqtt_bringup_task(void *arg)
     LOG_INFO("Mqtt", "TC-HW-MQTT-007  subscribed to %s, SUBACK received", config_topic);
     vTaskDelay(pdMS_TO_TICKS(200));
 
-    /* TC-HW-MQTT-008 */
-    LOG_INFO("Mqtt", "TC-HW-MQTT-008  publish a message to %s from the AWS IoT console now",
-             config_topic);
+    /* TC-HW-MQTT-008
+     *
+     * mqtt_client_process() is NOT the fast/non-blocking ~100 ms call the
+     * companion's §7 recommended cadence assumes when idle: it calls
+     * wifi_recv() internally, which floors its own wait at
+     * WIFI_RESP_TIMEOUT_MS (5000 ms, wifi_driver.c) regardless of the
+     * timeout requested. So each idle poll here can itself take up to
+     * ~5 s -- a fixed iteration count with no per-iteration log made a
+     * working poll look identical to a genuine hang during bring-up.
+     * Logging each attempt keeps that distinguishable; the iteration
+     * count is sized for that real per-call cost (12 x ~5 s worst case
+     * =~ 60 s), not the original 100 x 100 ms assumption. */
+    LOG_INFO("Mqtt", "TC-HW-MQTT-008  publish a message to %s now", config_topic);
     bringup_countdown("Polling for inbound message", 20U);
-    for (uint32_t i = 0U; (i < 100U) && !s_msg_cb_fired; ++i)
+    for (uint32_t i = 0U; (i < 12U) && !s_msg_cb_fired; ++i)
     {
+        LOG_INFO("Mqtt", "TC-HW-MQTT-008  poll attempt %u/12 (each may take up to ~5 s)...",
+                 (unsigned) (i + 1U));
         (void) mqtt_client_process(mqtt_handle);
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
     if (s_msg_cb_fired)
     {
