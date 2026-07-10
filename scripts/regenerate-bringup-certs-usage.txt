@@ -1,0 +1,39 @@
+# Run directly (from repo root)
+.\scripts\regenerate-bringup-certs.ps1 -BrokerIp 192.168.58.145
+
+# Find your current IP first
+(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi').IPAddress
+
+# What it does
+#   1. Re-signs local-test/mosquitto-broker/server.crt with the new IP as
+#      SAN (reuses the existing CA + server.key — no new trust chain).
+#   2. Updates start-mosquitto-tls.bat's EXPECTED_IP so its own mismatch
+#      check stays in sync.
+#   3. Writes firmware/gateway/certs/bringup_certs.h with the CA/client-
+#      cert/client-key DER arrays plus BRINGUP_CERTS_BROKER_ENDPOINT, and
+#      copies the human-readable ca.crt/client.crt/client.key PEM files
+#      there too — one folder holding everything cert-related the
+#      firmware project needs. The whole folder is gitignored (contains
+#      the client's private key).
+#
+# Re-run it whenever your Wi-Fi IP changes. Both main_test_mqtt_client.c
+# and main_test_cloud_publisher.c #include "bringup_certs.h" automatically
+# when present (falls back to empty placeholders if you haven't run this
+# yet) — no manual copy-paste of DER bytes into the bring-up files.
+#
+# firmware/gateway/certs is on both Debug and Release Include paths (-I)
+# in firmware/gateway/.cproject, so bringup_certs.h resolves no matter
+# which main_test_*.c is active or where it's compiled from — no manual
+# file copying needed. (.cproject is machine-specific/gitignored, so this
+# only affects your own local checkout; re-add the include path if you
+# ever regenerate .cproject from scratch.)
+
+# Set up as a CubeIDE External Tool (prompts for the IP each run)
+#   Run -> External Tools -> External Tools Configurations... -> New "Program"
+#     Location:           C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+#     Working directory:  <path to repo root>\scripts
+#     Arguments:           -NoProfile -ExecutionPolicy Bypass -File regenerate-bringup-certs.ps1 -BrokerIp ${string_prompt:Broker IP}
+#   ${string_prompt:...} makes Eclipse pop a text box for the IP on every run.
+
+# Reminder: only server.crt is IP-specific. The CA and client cert/key never
+# change when the IP changes — this script only touches what actually needs it.

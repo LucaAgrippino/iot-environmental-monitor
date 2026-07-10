@@ -42,6 +42,11 @@ tests/build_gateway/
 # Generated firmware sources
 firmware/shared/firmware_version.h
 
+# Auto-generated bring-up certs (DER arrays + PEM copies, contains private
+# key material — regenerate via
+# local-test/mosquitto-broker/regenerate-bringup-certs.ps1)
+firmware/gateway/certs/
+
 # CubeIDE build outputs
 firmware/**/Debug/
 firmware/**/Release/
