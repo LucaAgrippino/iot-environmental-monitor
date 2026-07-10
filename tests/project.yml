@@ -27,6 +27,7 @@
     - -:../firmware/gateway/drivers/gpio/**
     - -:../firmware/**/Debug/**
     - ../firmware/gateway/middleware/mqtt_client/**
+    - ../firmware/gateway/application/**
     - ../vendor/coreMQTT/source/**
     - ../vendor/mbedtls/include/**
   :support:
@@ -134,6 +135,10 @@
     - STM32L475xx
     - MQTT_DO_NOT_USE_CUSTOM_CONFIG
     - MBEDTLS_CONFIG_FILE=\"mbedtls_config_gateway.h\"
+    - TEST
+  :test_cloud_publisher:
+    - STM32L475xx
+    - BOARD_GATEWAY
     - TEST
 
 :cmock:

@@ -107,11 +107,19 @@ extern BaseType_t g_mock_xQueueSendFromISR_return;
 extern uint32_t   g_mock_xQueueSendFromISR_call_count;
 extern uint8_t    g_mock_xQueueSendFromISR_last_item[256];
 
-/* xQueueReceive mock: pre-loaded item to deliver, configurable return */
+/* xQueueReceive mock: pre-loaded item to deliver, configurable return.
+ * g_mock_xQueueReceive_available: if set to a finite count, the mock
+ * decrements it per call and forces pdFALSE once exhausted — lets a
+ * test model "drain until empty" (one or more real deliveries, then
+ * empty) instead of returning g_mock_xQueueReceive_return forever.
+ * Default (0xFFFFFFFF, restored by mock_freertos_reset()) preserves the
+ * original always-return-the-static-value behaviour used by existing
+ * single-event-per-step tests. */
 extern BaseType_t g_mock_xQueueReceive_return;
 extern uint32_t   g_mock_xQueueReceive_call_count;
 extern uint8_t    g_mock_xQueueReceive_next_item[256];
 extern size_t     g_mock_xQueueReceive_next_item_size;
+extern uint32_t   g_mock_xQueueReceive_available;
 
 /* xSemaphoreCreateMutexStatic mock */
 extern SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
@@ -160,6 +168,25 @@ typedef enum
 extern uint32_t      g_mock_xTaskNotifyFromISR_call_count;
 extern TaskHandle_t  g_mock_xTaskNotifyFromISR_last_handle;
 extern uint32_t      g_mock_xTaskNotifyFromISR_last_value;
+
+/* xTaskNotify mock (non-ISR) */
+extern BaseType_t    g_mock_xTaskNotify_return;
+extern uint32_t      g_mock_xTaskNotify_call_count;
+extern TaskHandle_t  g_mock_xTaskNotify_last_handle;
+extern uint32_t      g_mock_xTaskNotify_last_value;
+extern eNotifyAction  g_mock_xTaskNotify_last_action;
+
+/* xTaskNotifyWait mock: delivers g_mock_xTaskNotifyWait_next_value via the
+ * notify_value_out parameter, then clears it to 0 (single-shot, like a
+ * consumed notification) unless a test re-arms it. */
+extern BaseType_t g_mock_xTaskNotifyWait_return;
+extern uint32_t   g_mock_xTaskNotifyWait_call_count;
+extern uint32_t   g_mock_xTaskNotifyWait_next_value;
+
+/* xTimerChangePeriod mock */
+extern BaseType_t g_mock_xTimerChangePeriod_return;
+extern uint32_t   g_mock_xTimerChangePeriod_call_count;
+extern TickType_t g_mock_xTimerChangePeriod_last_period;
 
 /* Reset all g_mock_* state to defaults. Call from setUp(). */
 void mock_freertos_reset(void);
@@ -211,5 +238,12 @@ uint32_t      ulTaskNotifyTake(BaseType_t clear, TickType_t wait);
 
 BaseType_t    xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
                                  eNotifyAction action, BaseType_t *woken);
+
+BaseType_t    xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action);
+BaseType_t    xTaskNotifyWait(uint32_t clear_on_entry, uint32_t clear_on_exit,
+                              uint32_t *notify_value_out, TickType_t wait);
+
+BaseType_t    xTimerChangePeriod(TimerHandle_t timer, TickType_t new_period,
+                                 TickType_t wait);
 
 #endif /* FREERTOS_H */

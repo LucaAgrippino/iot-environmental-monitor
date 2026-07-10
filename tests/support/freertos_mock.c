@@ -38,6 +38,7 @@ BaseType_t  g_mock_xQueueReceive_return;
 uint32_t    g_mock_xQueueReceive_call_count;
 uint8_t     g_mock_xQueueReceive_next_item[256];
 size_t      g_mock_xQueueReceive_next_item_size;
+uint32_t    g_mock_xQueueReceive_available;
 
 SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
 BaseType_t        g_mock_xSemaphoreTake_return;
@@ -66,6 +67,20 @@ uint32_t      g_mock_ulTaskNotifyTake_return;
 uint32_t      g_mock_xTaskNotifyFromISR_call_count;
 TaskHandle_t  g_mock_xTaskNotifyFromISR_last_handle;
 uint32_t      g_mock_xTaskNotifyFromISR_last_value;
+
+BaseType_t    g_mock_xTaskNotify_return;
+uint32_t      g_mock_xTaskNotify_call_count;
+TaskHandle_t  g_mock_xTaskNotify_last_handle;
+uint32_t      g_mock_xTaskNotify_last_value;
+eNotifyAction g_mock_xTaskNotify_last_action;
+
+BaseType_t g_mock_xTaskNotifyWait_return;
+uint32_t   g_mock_xTaskNotifyWait_call_count;
+uint32_t   g_mock_xTaskNotifyWait_next_value;
+
+BaseType_t g_mock_xTimerChangePeriod_return;
+uint32_t   g_mock_xTimerChangePeriod_call_count;
+TickType_t g_mock_xTimerChangePeriod_last_period;
 
 /* A canned non-NULL handle used as the default return value of the
  * static-create functions. Tests don't dereference it. */
@@ -105,6 +120,7 @@ void mock_freertos_reset(void)
     (void)memset(g_mock_xQueueReceive_next_item, 0,
                  sizeof(g_mock_xQueueReceive_next_item));
     g_mock_xQueueReceive_next_item_size = 0U;
+    g_mock_xQueueReceive_available      = 0xFFFFFFFFU;
 
     g_mock_xSemaphoreCreateMutexStatic_return = DUMMY_HANDLE;
     g_mock_xSemaphoreTake_return              = pdTRUE;
@@ -133,6 +149,20 @@ void mock_freertos_reset(void)
     g_mock_xTaskNotifyFromISR_call_count      = 0U;
     g_mock_xTaskNotifyFromISR_last_handle     = NULL;
     g_mock_xTaskNotifyFromISR_last_value      = 0U;
+
+    g_mock_xTaskNotify_return                 = pdTRUE;
+    g_mock_xTaskNotify_call_count             = 0U;
+    g_mock_xTaskNotify_last_handle            = NULL;
+    g_mock_xTaskNotify_last_value             = 0U;
+    g_mock_xTaskNotify_last_action            = eNoAction;
+
+    g_mock_xTaskNotifyWait_return              = pdTRUE;
+    g_mock_xTaskNotifyWait_call_count          = 0U;
+    g_mock_xTaskNotifyWait_next_value          = 0U;
+
+    g_mock_xTimerChangePeriod_return            = pdTRUE;
+    g_mock_xTimerChangePeriod_call_count        = 0U;
+    g_mock_xTimerChangePeriod_last_period        = 0U;
 }
 
 /* --------------------------------------------------------------------- */
@@ -183,6 +213,16 @@ BaseType_t xQueueReceive(QueueHandle_t q, void *out, TickType_t wait)
     (void)q;
     (void)wait;
     g_mock_xQueueReceive_call_count++;
+
+    if (g_mock_xQueueReceive_available == 0U)
+    {
+        return pdFALSE;
+    }
+    if (g_mock_xQueueReceive_available != 0xFFFFFFFFU)
+    {
+        g_mock_xQueueReceive_available--;
+    }
+
     if ((g_mock_xQueueReceive_return == pdTRUE) &&
         (out != NULL) &&
         (g_mock_xQueueReceive_next_item_size > 0U))
@@ -341,4 +381,36 @@ BaseType_t xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
         *woken = pdFALSE;
     }
     return pdTRUE;
+}
+
+BaseType_t xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action)
+{
+    g_mock_xTaskNotify_call_count++;
+    g_mock_xTaskNotify_last_handle = task;
+    g_mock_xTaskNotify_last_value  = value;
+    g_mock_xTaskNotify_last_action = action;
+    return g_mock_xTaskNotify_return;
+}
+
+BaseType_t xTaskNotifyWait(uint32_t clear_on_entry, uint32_t clear_on_exit,
+                            uint32_t *notify_value_out, TickType_t wait)
+{
+    (void)clear_on_entry;
+    (void)wait;
+    g_mock_xTaskNotifyWait_call_count++;
+    if (notify_value_out != NULL)
+    {
+        *notify_value_out = g_mock_xTaskNotifyWait_next_value;
+    }
+    g_mock_xTaskNotifyWait_next_value &= ~clear_on_exit;
+    return g_mock_xTaskNotifyWait_return;
+}
+
+BaseType_t xTimerChangePeriod(TimerHandle_t timer, TickType_t new_period, TickType_t wait)
+{
+    (void)timer;
+    (void)wait;
+    g_mock_xTimerChangePeriod_call_count++;
+    g_mock_xTimerChangePeriod_last_period = new_period;
+    return g_mock_xTimerChangePeriod_return;
 }
