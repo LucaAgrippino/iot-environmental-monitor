@@ -161,6 +161,8 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_rcc_l4.APB1ENR1 = 0;
     g_mock_rcc_l4.APB2ENR  = 0;
     g_mock_rcc_l4.BDCR     = 0;
+    g_mock_rcc_l4.PLLSAI1CFGR = 0;
+    g_mock_rcc_l4.CCIPR       = 0;
 
     /* §RNG */
     g_mock_rng.CR = 0;

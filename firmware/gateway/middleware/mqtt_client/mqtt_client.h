@@ -23,7 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wifi_driver.h"
+#include "wifi_driver/wifi_driver.h"
 
 /** @brief Opaque handle to an MqttClient instance. */
 typedef struct mqtt_client_inst *mqtt_client_handle_t;

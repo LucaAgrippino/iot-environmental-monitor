@@ -24,7 +24,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "logger.h"
+#include "logger/logger.h"
 #include "stm32l475xx.h"
 
 #define MQTT_CLIENT_LOG_MODULE "MqttClient"
@@ -117,6 +117,48 @@ static uint32_t prv_get_time_ms(void)
 }
 
 /**
+ * @brief Select and start the RNG's 48 MHz kernel clock (PLLSAI1Q).
+ *
+ * RNG->CR.RNGEN alone is not sufficient: the RNG's *kernel* clock source
+ * is a separate selection (RCC->CCIPR.CLK48SEL), distinct from the
+ * AHB2ENR peripheral bus-clock gate enabled in prv_entropy_poll(). Reset
+ * value does not select a running clock on this board, so without this,
+ * RNG->SR.DRDY never asserts and prv_entropy_poll()'s poll loop hangs
+ * forever — confirmed on hardware during MqttClient bring-up (see
+ * MQTT-O6). PLLSAI1 provides an independent 48 MHz source from the same
+ * 4 MHz VCO input CpuDriver already configures for the main PLL (cpu.c):
+ * VCO = 4 MHz x N(48) = 192 MHz, /4 (Q) = exactly 48 MHz.
+ *
+ * Idempotent: safe to call every prv_entropy_poll() invocation, but only
+ * does real work once (guarded by s_rng_clock_configured).
+ *
+ * @note Same documented middleware-register-access exception as
+ *       prv_entropy_poll() below — this is the clock-enable half of that
+ *       same RNG integration, not a new exception.
+ */
+static void prv_configure_rng_clock(void)
+{
+    static bool s_rng_clock_configured = false;
+    if (s_rng_clock_configured)
+    {
+        return;
+    }
+
+    RCC->PLLSAI1CFGR = (48U << RCC_PLLSAI1CFGR_PLLSAI1N_Pos) | RCC_PLLSAI1CFGR_PLLSAI1Q_0 |
+                       RCC_PLLSAI1CFGR_PLLSAI1QEN;
+    RCC->CR |= RCC_CR_PLLSAI1ON;
+    while ((RCC->CR & RCC_CR_PLLSAI1RDY) == 0u)
+    {
+        /* Bounded by hardware PLL lock time (~100 us typical) — same
+         * no-software-timeout rationale as prv_entropy_poll() below. */
+    }
+
+    RCC->CCIPR = (RCC->CCIPR & ~RCC_CCIPR_CLK48SEL_Msk) | RCC_CCIPR_CLK48SEL_0; /* 01 = PLLSAI1Q */
+
+    s_rng_clock_configured = true;
+}
+
+/**
  * @brief mbedTLS entropy source backed by the STM32L475 on-chip RNG.
  *
  * mbedtls_config_gateway.h defines MBEDTLS_NO_PLATFORM_ENTROPY, so
@@ -138,6 +180,7 @@ MQTT_CLIENT_TEST_VISIBLE int prv_entropy_poll(void *data, unsigned char *output,
 {
     (void) data;
 
+    prv_configure_rng_clock();
     RCC->AHB2ENR |= RCC_AHB2ENR_RNGEN;
     RNG->CR |= RNG_CR_RNGEN;
 
