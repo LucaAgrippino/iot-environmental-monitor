@@ -16,6 +16,7 @@
     - gateway/application/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
+    - gateway/middleware/mqtt_client/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -25,6 +26,9 @@
     - ../firmware/gateway/drivers/**
     - -:../firmware/gateway/drivers/gpio/**
     - -:../firmware/**/Debug/**
+    - ../firmware/gateway/middleware/mqtt_client/**
+    - ../vendor/coreMQTT/source/**
+    - ../vendor/mbedtls/include/**
   :support:
     - support
 
@@ -125,6 +129,11 @@
     - TEST
   :test_exti_driver:
     - STM32L475xx
+    - TEST
+  :test_mqtt_client:
+    - STM32L475xx
+    - MQTT_DO_NOT_USE_CUSTOM_CONFIG
+    - MBEDTLS_CONFIG_FILE=\"mbedtls_config_gateway.h\"
     - TEST
 
 :cmock:

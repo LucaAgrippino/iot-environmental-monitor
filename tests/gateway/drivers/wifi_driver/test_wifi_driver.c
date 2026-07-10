@@ -1,11 +1,11 @@
 /**
  * @file test_wifi_driver.c
- * @brief Unity unit tests for WifiDriver — WIFI-T01 through WIFI-T18.
+ * @brief Unity unit tests for WifiDriver — WIFI-T01 through WIFI-T21.
  *
  * Layer 1 (WIFI-T01..T06) calls the response-parsing helpers directly with
  * hand-built buffers; no mocks involved.
  *
- * Layer 2 (WIFI-T07..T18) mocks SpiDriver, GpioDriver, ExtiDriver, and
+ * Layer 2 (WIFI-T07..T21) mocks SpiDriver, GpioDriver, ExtiDriver, and
  * CpuDriver via CMock. gpio_read_pin and spi_transceive are driven by
  * hand-written stub callbacks (not plain CMock expectations) because the
  * DRDY handshake needs a precise, ordered multi-call sequence per AT
@@ -632,4 +632,56 @@ void test_WIFI_T20_recv_times_out_when_response_is_empty(void)
     uint8_t buf[16];
     size_t out_len = 0u;
     TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_recv(handle, sock, buf, sizeof(buf), &out_len, 0u));
+}
+
+/**
+ * @brief Pins WIFI-O15: link_state is cache-only and self-heals from
+ *        nothing. Not a fix — documents today's actual, intentional-by-
+ *        omission behaviour so a future change to it is a deliberate
+ *        decision, not an accidental regression.
+ *
+ * wifi_send()/wifi_recv() still fail correctly when the underlying AT
+ * command fails (that part already works and is covered by WIFI-T14 and
+ * friends); what this test shows is that a real AP-level drop — modelled
+ * here as the module suddenly rejecting a socket command mid-session,
+ * exactly as it would if the station were no longer associated — leaves
+ * wifi_get_link_state() reporting WIFI_LINK_UP forever afterward. Nothing
+ * in this driver re-associates; that is WifiTask's future job (WIFI-O4).
+ */
+void test_WIFI_T21_link_state_stale_after_send_recv_failure(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+
+    wifi_link_state_t state;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_link_state(handle, &state));
+    TEST_ASSERT_EQUAL(WIFI_LINK_UP, state);
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    /* Simulate the AP dropping the station mid-session: the module starts
+     * rejecting socket commands with ERROR, indistinguishable at this
+     * layer from any other module-reported failure. */
+    helper_script_at_command("\r\nOK\r\n");    /* P0= (select) still succeeds */
+    helper_script_at_command("\r\nERROR\r\n"); /* S3=<len> (send) fails */
+    const uint8_t payload[] = {0x01u, 0x02u};
+    TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET, wifi_send(handle, sock, payload, sizeof(payload)));
+
+    /* WIFI-O15: link_state was not touched by that failure and still
+     * reports UP, even though the AP has actually dropped the station. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_link_state(handle, &state));
+    TEST_ASSERT_EQUAL(WIFI_LINK_UP, state);
 }

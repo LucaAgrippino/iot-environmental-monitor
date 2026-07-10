@@ -39,6 +39,8 @@ typedef struct
     volatile uint32_t APB1ENR1; /**< APB1 peripheral clock enable register 1. */
     volatile uint32_t APB2ENR;  /**< APB2 peripheral clock enable register.   */
     volatile uint32_t BDCR;     /**< Backup domain control register (RtcDriver: LSE, RTCSEL, RTCEN). */
+    volatile uint32_t PLLSAI1CFGR; /**< PLLSAI1 configuration register (MqttClient: 48 MHz RNG clock). */
+    volatile uint32_t CCIPR;    /**< Peripherals independent clock configuration register (MqttClient: CLK48SEL). */
 } RCC_TypeDef;
 
 extern RCC_TypeDef g_mock_rcc_l4;
@@ -52,6 +54,10 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_CR_PLLON        (1UL << RCC_CR_PLLON_Pos)
 #define RCC_CR_PLLRDY_Pos   (25U)
 #define RCC_CR_PLLRDY       (1UL << RCC_CR_PLLRDY_Pos)
+#define RCC_CR_PLLSAI1ON_Pos  (26U)
+#define RCC_CR_PLLSAI1ON      (1UL << RCC_CR_PLLSAI1ON_Pos)
+#define RCC_CR_PLLSAI1RDY_Pos (27U)
+#define RCC_CR_PLLSAI1RDY     (1UL << RCC_CR_PLLSAI1RDY_Pos)
 
 /* --- RCC_CFGR bits (CpuDriver) --------------------------------------- */
 #define RCC_CFGR_SW_Pos     (0U)
@@ -126,6 +132,48 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_BDCR_RTCEN        (1UL << RCC_BDCR_RTCEN_Pos)
 #define RCC_BDCR_BDRST_Pos    (16U)
 #define RCC_BDCR_BDRST        (1UL << RCC_BDCR_BDRST_Pos)
+
+/* --- AHB2ENR bits (MqttClient RNG entropy source) ---------------------- */
+#define RCC_AHB2ENR_RNGEN_Pos (18U)
+#define RCC_AHB2ENR_RNGEN     (1UL << RCC_AHB2ENR_RNGEN_Pos)
+
+/* --- PLLSAI1CFGR bits (MqttClient — 48 MHz RNG kernel clock) ------------ */
+#define RCC_PLLSAI1CFGR_PLLSAI1N_Pos (8U)
+#define RCC_PLLSAI1CFGR_PLLSAI1N     (0x7FUL << RCC_PLLSAI1CFGR_PLLSAI1N_Pos)
+#define RCC_PLLSAI1CFGR_PLLSAI1QEN_Pos (20U)
+#define RCC_PLLSAI1CFGR_PLLSAI1QEN     (1UL << RCC_PLLSAI1CFGR_PLLSAI1QEN_Pos)
+#define RCC_PLLSAI1CFGR_PLLSAI1Q_Pos (21U)
+#define RCC_PLLSAI1CFGR_PLLSAI1Q_0   (0x1UL << RCC_PLLSAI1CFGR_PLLSAI1Q_Pos)
+#define RCC_PLLSAI1CFGR_PLLSAI1Q_1   (0x2UL << RCC_PLLSAI1CFGR_PLLSAI1Q_Pos)
+#define RCC_PLLSAI1CFGR_PLLSAI1Q_Msk (0x3UL << RCC_PLLSAI1CFGR_PLLSAI1Q_Pos)
+
+/* --- CCIPR bits (MqttClient — select PLLSAI1Q as the 48 MHz clock) ----- */
+#define RCC_CCIPR_CLK48SEL_Pos (26U)
+#define RCC_CCIPR_CLK48SEL_0   (0x1UL << RCC_CCIPR_CLK48SEL_Pos)
+#define RCC_CCIPR_CLK48SEL_1   (0x2UL << RCC_CCIPR_CLK48SEL_Pos)
+#define RCC_CCIPR_CLK48SEL_Msk (0x3UL << RCC_CCIPR_CLK48SEL_Pos)
+
+/* ====================================================================== */
+/* §RNG — True Random Number Generator (L4)                               */
+/* Owner: MqttClient (prv_entropy_poll() — mbedTLS entropy source).       */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t CR; /**< RNG control register, Address offset: 0x00 */
+    volatile uint32_t SR; /**< RNG status register,  Address offset: 0x04 */
+    volatile uint32_t DR; /**< RNG data register,    Address offset: 0x08 */
+} RNG_TypeDef;
+
+extern RNG_TypeDef g_mock_rng;
+
+#define RNG (&g_mock_rng)
+
+#define RNG_CR_RNGEN_Pos (2U)
+#define RNG_CR_RNGEN     (1UL << RNG_CR_RNGEN_Pos)
+
+#define RNG_SR_DRDY_Pos (0U)
+#define RNG_SR_DRDY     (1UL << RNG_SR_DRDY_Pos)
 
 /* ====================================================================== */
 /* §PWR — Power control (CpuDriver)                                       */

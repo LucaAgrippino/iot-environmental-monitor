@@ -29,6 +29,9 @@ Thumbs.db
 temp/
 tmp/
 
+# Local-only test infrastructure (contains private key material — never commit)
+local-test/
+
 .claude/
 
 # Ceedling / CMock generated

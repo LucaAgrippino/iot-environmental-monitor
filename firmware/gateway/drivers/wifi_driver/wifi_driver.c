@@ -20,7 +20,21 @@
 #include "wifi_at_commands.h"
 
 #define WIFI_MAX_INSTANCES 1u
-#define WIFI_AT_BUF_SIZE 512u
+/** Must comfortably exceed WIFI_MAX_PACKET_SIZE (1460, below) plus AT
+ *  framing overhead (leading "\r\n", trailing "\r\nOK\r\n", and any
+ *  trailing prompt/pad byte IWIN appends — see prv_recv_words()'s
+ *  caller). Originally 512: prv_recv_words() hard-caps its SPI read at
+ *  resp_buf_len and prv_send_kv() always passes WIFI_AT_BUF_SIZE for
+ *  that cap, so any response near or above 512 bytes (e.g. a TLS
+ *  ServerHello + Certificate flight, ~1460 bytes in a single R0
+ *  response) was silently truncated: prv_recv_words() stopped reading
+ *  and deasserted NSS mid-response, leaving the module's remaining
+ *  unclocked bytes queued and desyncing every subsequent AT exchange —
+ *  not a timing/retry issue, every retry after the first truncation
+ *  failed identically. Confirmed on hardware (pktmon capture) during
+ *  MqttClient bring-up; never caught by this driver's own bring-up test
+ *  (a ~24-byte "hello" message, well under the old 512-byte cap). */
+#define WIFI_AT_BUF_SIZE 1536u
 #define WIFI_DRDY_TIMEOUT_MS 100u  /**< DRDY assert wait (WIFI-O5). */
 #define WIFI_RESP_TIMEOUT_MS 5000u /**< AT response wait (WIFI-O5). */
 #define WIFI_RESET_PULSE_MS 10u
