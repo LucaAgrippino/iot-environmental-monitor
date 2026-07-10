@@ -639,6 +639,15 @@ mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle)
     return MQTT_CLIENT_ERR_OK;
 }
 
+bool mqtt_client_is_connected(mqtt_client_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return false;
+    }
+    return handle->connected;
+}
+
 mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *topic,
                                       const uint8_t *payload, uint32_t len, mqtt_qos_t qos)
 {

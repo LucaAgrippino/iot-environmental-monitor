@@ -159,6 +159,20 @@ mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_co
 mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle);
 
 /**
+ * @brief Query whether the MQTT connection is currently established.
+ *
+ * True from a successful mqtt_client_connect() until either a graceful
+ * mqtt_client_disconnect() or an abnormal disconnect (keep-alive timeout,
+ * TCP error, MQTT-level error — the same event that invokes
+ * disconnect_cb). Does not attempt any I/O; reads cached state only.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @return true if connected; false if handle is NULL or not connected.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
+bool mqtt_client_is_connected(mqtt_client_handle_t handle);
+
+/**
  * @brief Publish a message to a topic.
  *
  * QoS 0: fire-and-forget; returns after the frame is handed to
