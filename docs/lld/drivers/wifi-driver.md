@@ -545,10 +545,15 @@ static void prv_wifi_datardy_cb(void *ctx)
 }
 ```
 
-Inside `prv_at_command()`, DRDY wait steps use `xTaskNotifyWait()` with
-a timeout (post-scheduler) or bounded busy-poll (pre-scheduler during
-`wifi_create()`). The mode is determined by whether a callback has been
-registered.
+DRDY waits inside `prv_at_command()` are bounded busy-polls **uniformly, in
+every phase, pre- and post-scheduler** (WIFI-D11) — registering a callback
+does not change how `prv_at_command()` itself waits. WifiDriver has no
+FreeRTOS dependency of its own; the callback above only feeds
+`xTaskNotifyFromISR` for WifiTask's own use (currently reserved — see
+wifi-task.md), not for `prv_at_command()`'s internal wait loop. The earlier
+design considered here (DRDY wait switching to `xTaskNotifyWait()` once a
+callback is registered, WIFI-D4) was superseded by WIFI-D11 before
+implementation — see §11 Decisions log.
 
 ### 3.6 Two-phase init rationale
 

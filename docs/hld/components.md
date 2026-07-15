@@ -517,6 +517,12 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 ### Middleware layer
 
+**NAME:** WifiTask
+**LAYER:** Middleware
+**RESPONSIBILITY:** Serialises all access to WifiDriver as its sole owning task (D29, task-breakdown.md) — no mutex needed, ownership is by task-design instead. Queues and dispatches connect/socket/send/recv/close requests from CloudPublisherTask, TimeServiceTask, and UpdateServiceTask (REQ-CC-050, REQ-TS-010, CON-001). Also owns periodic WiFi link-liveness monitoring and reconnect-after-drop (WIFI-O15).
+**PROVIDES (upward):** IWifiTask
+**USES (downward):** WifiDriver
+
 **NAME:** Logger
 **LAYER:** Middleware
 **RESPONSIBILITY:** Formats severity-tagged log entries with timestamps and source module identifiers, and dispatches them to the configured output sinks (REQ-NF-500).
