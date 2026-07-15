@@ -41,20 +41,45 @@
  * Automated test sequence:
  *   TC-HW-CP-001  gpio_init() + spi_create() + wifi_create() all succeed
  *   TC-HW-CP-002  wifi_connect_ap() associates with BRINGUP_WIFI_SSID
- *   TC-HW-CP-003  mqtt_client_create() succeeds (unconnected — see CP-D9:
- *                 CloudPublisher now owns the connect itself)
- *   TC-HW-CP-004  cloud_publisher_create() returns CP_ERR_OK (queues,
+ *   TC-HW-CP-003  mqtt_client_create() succeeds (unconnected)
+ *   TC-HW-CP-004  mqtt_client_connect() succeeds — this bring-up task
+ *                 connects synchronously, single-task, *before* handing the
+ *                 handle to CloudPublisher. Internally this still exercises
+ *                 the new mqtt_client_connect_step() state machine (MQTT-D8):
+ *                 mqtt_client_connect() is now a thin wrapper looping it to
+ *                 completion. NOTE: this means CP-D9/CP-D10's own "CloudPub-
+ *                 lisherTask's stats tick drives the connect" behaviour is
+ *                 NOT exercised for this *initial* connect in this bring-up
+ *                 — only for any later reconnect after a drop, which is
+ *                 still solely CloudPublisherTask's job once it's running.
+ *                 Connecting here first (rather than handing over an
+ *                 unconnected handle, CP-D9's normal flow) is required so
+ *                 TC-HW-CP-005 can subscribe from this same task before
+ *                 CloudPublisherTask starts touching the handle — MqttClient
+ *                 is single-task-caller only, no locking (mqtt-client.md
+ *                 §12), so subscribing from a second task concurrently with
+ *                 CloudPublisherTask's own process()/publish() calls would
+ *                 race on the shared MQTTContext_t/socket.
+ *   TC-HW-CP-005  mqtt_client_subscribe() to the config command topic
+ *                 succeeds (still single-task, before CloudPublisherTask
+ *                 exists); publishing to it externally (e.g. mosquitto_pub)
+ *                 is then observed arriving at bringup_msg_cb() (CP-O5:
+ *                 logging stand-in only, not routed into CloudPublisher)
+ *   TC-HW-CP-006  cloud_publisher_create() returns CP_ERR_OK (queues,
  *                 timers, task all created; alarm_service_subscribe()
- *                 called on the bring-up stand-in); the first stats tick
- *                 then drives the initial MQTT connect (CP-D9)
- *   TC-HW-CP-005  telemetry timer fires; a JSON telemetry frame is
+ *                 called on the bring-up stand-in) — handle is already
+ *                 connected+subscribed, so prv_maybe_reconnect()'s first
+ *                 tick is a no-op (CP-D9's is_connected() early-return)
+ *   TC-HW-CP-007  telemetry timer fires; a JSON telemetry frame is
  *                 observed publishing on dt/iotmonitor/<serial>/telemetry
  *                 (bringup_stats_mqtt_publish spy logs each call)
- *   TC-HW-CP-006  health timer fires; a JSON health frame is observed
+ *   TC-HW-CP-008  health timer fires; a JSON health frame is observed
  *                 publishing on dt/iotmonitor/<serial>/health
- *   TC-HW-CP-007  stats timer (1 Hz) drives mqtt_client_get_stats() +
+ *   TC-HW-CP-009  stats timer (1 Hz) drives mqtt_client_get_stats() +
  *                 the bring-up health_report_update_mqtt() stand-in
- *                 without crashing, repeatedly
+ *                 without crashing, repeatedly; if the broker is dropped
+ *                 and restarted, this same tick's prv_maybe_reconnect()
+ *                 is what exercises CP-D10's ticked reconnect for real
  *
  * If cpu_init(), debug_uart_init(), or rtc_init() fail, Logger cannot be
  * trusted as the reporting channel yet — the board halts with a fast LED
@@ -77,6 +102,7 @@
 #include "wifi_driver/wifi_driver.h"
 
 #include "mqtt_client/mqtt_client.h"
+#include "mqtt_client/mqtt_topic_config.h"
 
 #include "cloud_publisher/cloud_publisher.h"
 
@@ -222,7 +248,7 @@ void alarm_service_subscribe(alarm_service_handle_t handle, alarm_event_cb_t cb,
     (void) handle;
     (void) cb;
     (void) ctx;
-    LOG_INFO("CloudPub", "TC-HW-CP-004  alarm_service_subscribe() called (stand-in, never fires)");
+    LOG_INFO("CloudPub", "TC-HW-CP-006  alarm_service_subscribe() called (stand-in, never fires)");
 }
 
 saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
@@ -263,7 +289,7 @@ void health_report_update_mqtt(health_monitor_handle_t handle, const mqtt_stats_
 {
     (void) handle;
     (void) last_stats;
-    LOG_INFO("CloudPub", "TC-HW-CP-007  stats poll: publishes_sent=%lu publish_failures=%lu",
+    LOG_INFO("CloudPub", "TC-HW-CP-009  stats poll: publishes_sent=%lu publish_failures=%lu",
              (unsigned long) stats->publishes_sent, (unsigned long) stats->publish_failures);
 }
 
@@ -359,9 +385,7 @@ static void cloud_publisher_bringup_task(void *arg)
                      "connection for this bring-up");
     }
 
-    /* TC-HW-CP-003: mqtt_client_create() only — CloudPublisher now owns
-     * the initial connect and every later reconnect (CP-D9), driven by its
-     * own 1 Hz stats tick rather than here. */
+    /* TC-HW-CP-003: mqtt_client_create() (unconnected). */
     mqtt_client_config_t mqtt_config = {
         .wifi = wifi_handle,
         .msg_cb = bringup_msg_cb,
@@ -387,7 +411,28 @@ static void cloud_publisher_bringup_task(void *arg)
         .keep_alive_s = BRINGUP_MQTT_KEEP_ALIVE_S,
     };
 
-    /* TC-HW-CP-004 */
+    /* TC-HW-CP-004: connect synchronously, single-task, before
+     * CloudPublisherTask exists — see header comment for why (MqttClient
+     * is single-task-caller only). Internally still exercises
+     * mqtt_client_connect_step() (MQTT-D8): mqtt_client_connect() is just
+     * a wrapper looping it to completion now. */
+    if (mqtt_client_connect(mqtt_handle, &connect_cfg) != MQTT_CLIENT_ERR_OK)
+    {
+        bringup_fail("TC-HW-CP-004  mqtt_client_connect() failed");
+    }
+    LOG_INFO("CloudPub", "TC-HW-CP-004  mqtt_client_connect() returned MQTT_CLIENT_ERR_OK");
+
+    /* TC-HW-CP-005: subscribe while still single-task. */
+    char config_topic[MQTT_TOPIC_MAX_LEN];
+    (void) snprintf(config_topic, sizeof(config_topic), "%s%s%s", MQTT_TOPIC_PREFIX_SUBSCRIBE,
+                    BRINGUP_MQTT_CLIENT_ID, MQTT_TOPIC_SUFFIX_CONFIG);
+    if (mqtt_client_subscribe(mqtt_handle, config_topic, MQTT_QOS_1) != MQTT_CLIENT_ERR_OK)
+    {
+        bringup_fail("TC-HW-CP-005  mqtt_client_subscribe() failed (no SUBACK or rejected)");
+    }
+    LOG_INFO("CloudPub", "TC-HW-CP-005  subscribed to %s, SUBACK received", config_topic);
+
+    /* TC-HW-CP-006 */
     cloud_publisher_config_t cp_config = {
         .mqtt = mqtt_handle,
         .sensors = (sensor_service_handle_t) 1,
@@ -405,15 +450,19 @@ static void cloud_publisher_bringup_task(void *arg)
     cloud_publisher_handle_t cp_handle = NULL;
     if (cloud_publisher_create(&cp_config, &cp_handle) != CP_ERR_OK)
     {
-        bringup_fail("TC-HW-CP-004  cloud_publisher_create() failed");
+        bringup_fail("TC-HW-CP-006  cloud_publisher_create() failed");
     }
-    LOG_INFO("CloudPub", "TC-HW-CP-004  cloud_publisher_create() returned CP_ERR_OK");
+    LOG_INFO("CloudPub", "TC-HW-CP-006  cloud_publisher_create() returned CP_ERR_OK");
 
-    /* TC-HW-CP-005/006/007: the telemetry (10 s), health (20 s) and stats
-     * (1 Hz) timers now drive CloudPublisherTask on their own — including
-     * the initial MQTT connect attempt, on the first stats tick (CP-D9).
-     * Observe the Logger UART output for the connect/publish/stats log
-     * lines above. */
+    /* TC-HW-CP-007/008/009: the telemetry (10 s), health (20 s) and stats
+     * (1 Hz) timers now drive CloudPublisherTask on their own. The handle
+     * is already connected+subscribed (TC-HW-CP-004/005 above), so the
+     * first stats tick's prv_maybe_reconnect() is a no-op (CP-D9's
+     * is_connected() early-return) — CP-D10's ticked reconnect only comes
+     * into play if the broker gets dropped and restarted later. Observe
+     * the Logger UART output for the publish/stats log lines above, and
+     * publish to the config_topic logged at TC-HW-CP-005 to see
+     * bringup_msg_cb() fire (e.g. via mosquitto_pub). */
     LOG_INFO("CloudPub", "Observing telemetry/health/stats ticks — watch the UART log...");
     for (;;)
     {
