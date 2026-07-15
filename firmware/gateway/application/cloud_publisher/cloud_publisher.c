@@ -3,9 +3,9 @@
  * @brief CloudPublisher (Gateway) implementation — task, timers, queues.
  *
  * @see docs/lld/application/cloud-publisher-lld.md for the design
- *      specification this file implements, including deviation CP-D9
- *      (documented where applied below). CP-D7 (connectivity gate) is
- *      RESOLVED as of mqtt_client_is_connected() being added to
+ *      specification this file implements, including deviations CP-D9
+ *      and CP-D10 (documented where applied below). CP-D7 (connectivity
+ *      gate) is RESOLVED as of mqtt_client_is_connected() being added to
  *      MqttClient — prv_enqueue_or_publish() now matches the companion's
  *      original two-branch §5.3 pseudocode exactly.
  */
@@ -387,9 +387,21 @@ static void prv_poll_stats(struct cloud_publisher_inst *inst)
  * both an inverted MqttClient->CloudPublisher call and the RAM cost of a
  * new task in an already tight GW memory budget (MQTT-O1).
  *
- * mqtt_client_connect() blocks for up to MQTT_CONNECT_TIMEOUT_MS (10 s) on
- * failure, so a fixed backoff (CP_RECONNECT_RETRY_PERIOD_S) prevents a
- * persistently-down broker from re-attempting on every single tick.
+ * CP-D10: calls mqtt_client_connect_step() (ticked) rather than the
+ * blocking mqtt_client_connect(). A stalled reconnect attempt previously
+ * froze this whole task — and with it telemetry, health, alarm, and
+ * command handling, all driven from the same task — for up to
+ * MQTT_CONNECT_TIMEOUT_MS in one call (confirmed on hardware: ~19 s on a
+ * TLS handshake timeout). connect_step() advances at most one bounded
+ * phase per call, resuming from where the previous stats tick left off
+ * (its progress lives on the MqttClient handle, not here) — so a stalled
+ * attempt now blocks this task for at most that one phase's own bound
+ * per tick instead of the whole sequence at once. MQTT_CLIENT_ERR_IN_PROGRESS
+ * means the sequence is still advancing: retried on the next stats tick
+ * with no backoff, since it is not a failure. The fixed backoff
+ * (CP_RECONNECT_RETRY_PERIOD_S) only arms once connect_step() reports a
+ * terminal failure, same as before — it exists so a persistently-down
+ * broker does not re-attempt the whole sequence on every single tick.
  */
 static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
 {
@@ -405,10 +417,15 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
         return;
     }
 
-    mqtt_client_err_t rc = mqtt_client_connect(inst->mqtt, &inst->mqtt_connect_cfg);
+    mqtt_client_err_t rc = mqtt_client_connect_step(inst->mqtt, &inst->mqtt_connect_cfg);
     if (rc == MQTT_CLIENT_ERR_OK)
     {
         LOG_INFO(CP_LOG_MODULE, "MQTT (re)connected");
+    }
+    else if (rc == MQTT_CLIENT_ERR_IN_PROGRESS)
+    {
+        /* Sequence still advancing (CP-D10) — call again next stats tick,
+         * no backoff; not a failure. */
     }
     else
     {
