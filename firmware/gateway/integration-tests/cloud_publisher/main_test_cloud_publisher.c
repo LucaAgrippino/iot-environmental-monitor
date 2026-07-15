@@ -40,7 +40,9 @@
  *
  * Automated test sequence:
  *   TC-HW-CP-001  gpio_init() + spi_create() + wifi_create() all succeed
- *   TC-HW-CP-002  wifi_connect_ap() associates with BRINGUP_WIFI_SSID
+ *   TC-HW-CP-002  wifitask_create() + wifitask_connect_ap() associates
+ *                 with BRINGUP_WIFI_SSID (WIFITASK-O3: routed through
+ *                 WifiTask, not WifiDriver directly)
  *   TC-HW-CP-003  mqtt_client_create() succeeds (unconnected)
  *   TC-HW-CP-004  mqtt_client_connect() succeeds — this bring-up task
  *                 connects synchronously, single-task, *before* handing the
@@ -100,6 +102,7 @@
 #include "rtc/rtc.h"
 #include "spi/spi.h"
 #include "wifi_driver/wifi_driver.h"
+#include "wifi_task/wifi_task.h"
 
 #include "mqtt_client/mqtt_client.h"
 #include "mqtt_client/mqtt_topic_config.h"
@@ -364,17 +367,30 @@ static void cloud_publisher_bringup_task(void *arg)
 {
     wifi_handle_t wifi_handle = (wifi_handle_t) arg;
 
+    /* WIFITASK-O3: WifiTask is now the sole caller of WifiDriver (D29).
+     * wifitask_create() must run in task context, post-scheduler — it
+     * registers the real DATARDY callback itself. */
+    wifitask_config_t wifitask_config = {.wifi = wifi_handle};
+    wifitask_handle_t wifitask_handle = NULL;
+    if (wifitask_create(&wifitask_config, &wifitask_handle) != WIFITASK_ERR_OK)
+    {
+        bringup_fail("TC-HW-CP-002  wifitask_create() failed");
+    }
+    LOG_INFO("CloudPub", "wifitask_create() returned WIFITASK_ERR_OK (WifiTask's own task "
+                        "is now running)");
+
     /* TC-HW-CP-002 */
     if (sizeof(BRINGUP_WIFI_SSID) <= 1U)
     {
         bringup_fail("BRINGUP_WIFI_SSID is empty - cannot continue without an AP");
     }
-    wifi_err_t connect_ap_err = wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
-    if (connect_ap_err != WIFI_ERR_OK)
+    wifitask_err_t connect_ap_err =
+        wifitask_connect_ap(wifitask_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    if (connect_ap_err != WIFITASK_ERR_OK)
     {
-        LOG_ERROR("CloudPub", "TC-HW-CP-002  wifi_connect_ap() failed, wifi_err_t=%d",
+        LOG_ERROR("CloudPub", "TC-HW-CP-002  wifitask_connect_ap() failed, wifitask_err_t=%d",
                   (int) connect_ap_err);
-        bringup_fail("TC-HW-CP-002  wifi_connect_ap() failed");
+        bringup_fail("TC-HW-CP-002  wifitask_connect_ap() failed");
     }
     LOG_INFO("CloudPub", "TC-HW-CP-002  associated with %s", BRINGUP_WIFI_SSID);
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -387,7 +403,7 @@ static void cloud_publisher_bringup_task(void *arg)
 
     /* TC-HW-CP-003: mqtt_client_create() (unconnected). */
     mqtt_client_config_t mqtt_config = {
-        .wifi = wifi_handle,
+        .wifi = wifitask_handle,
         .msg_cb = bringup_msg_cb,
         .disconnect_cb = bringup_disconnect_cb,
     };
@@ -625,10 +641,10 @@ int main(void)
     {
         bringup_fail("TC-HW-CP-001  wifi_create() failed");
     }
-    if (wifi_attach_datardy_callback(wifi_handle, NULL, NULL) != WIFI_ERR_OK)
-    {
-        LOG_ERROR("CloudPub", "wifi_attach_datardy_callback() failed (non-fatal, continuing)");
-    }
+    /* wifi_attach_datardy_callback() is no longer called directly here —
+     * WIFITASK-O3: routed through WifiTask, which registers the real
+     * DATARDY callback itself inside wifitask_create() (task-context
+     * only, so it happens in cloud_publisher_bringup_task below). */
     LOG_INFO("CloudPub", "TC-HW-CP-001  WifiDriver bring-up complete");
     LOG_INFO("CloudPub", "starting scheduler...");
 

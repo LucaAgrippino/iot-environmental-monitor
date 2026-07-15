@@ -41,7 +41,9 @@
  *
  * Automated test sequence:
  *   TC-HW-MQTT-001  gpio_init() + spi_create() + wifi_create() all succeed
- *   TC-HW-MQTT-002  wifi_connect_ap() associates with BRINGUP_WIFI_SSID
+ *   TC-HW-MQTT-002  wifitask_create() + wifitask_connect_ap() associates
+ *                   with BRINGUP_WIFI_SSID (WIFITASK-O3: routed through
+ *                   WifiTask, not WifiDriver directly)
  *   TC-HW-MQTT-003  (only if BRINGUP_MQTT_BROKER_ENDPOINT is non-empty)
  *                   mqtt_client_create() returns MQTT_CLIENT_ERR_OK
  *   TC-HW-MQTT-004  mqtt_client_connect() completes TLS handshake + CONNACK
@@ -111,6 +113,7 @@
 #include "rtc/rtc.h"
 #include "spi/spi.h"
 #include "wifi_driver/wifi_driver.h"
+#include "wifi_task/wifi_task.h"
 
 #include "mqtt_client.h"
 #include "mqtt_topic_config.h"
@@ -288,6 +291,19 @@ static void mqtt_bringup_task(void *arg)
 {
     wifi_handle_t wifi_handle = (wifi_handle_t) arg;
 
+    /* WIFITASK-O3: WifiTask is now the sole caller of WifiDriver (D29).
+     * wifitask_create() must run in task context, post-scheduler — it
+     * registers the real DATARDY callback itself (formerly the
+     * wifi_attach_datardy_callback(..., NULL, NULL) call in main()). */
+    wifitask_config_t wifitask_config = {.wifi = wifi_handle};
+    wifitask_handle_t wifitask_handle = NULL;
+    if (wifitask_create(&wifitask_config, &wifitask_handle) != WIFITASK_ERR_OK)
+    {
+        bringup_fail("TC-HW-MQTT-002  wifitask_create() failed");
+    }
+    LOG_INFO("Mqtt", "wifitask_create() returned WIFITASK_ERR_OK (WifiTask's own task is "
+                    "now running)");
+
     /* TC-HW-MQTT-002 */
     if (sizeof(BRINGUP_WIFI_SSID) <= 1U)
     {
@@ -298,11 +314,12 @@ static void mqtt_bringup_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
-    wifi_err_t wifi_err = wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
-    if (wifi_err != WIFI_ERR_OK)
+    wifitask_err_t wifi_err =
+        wifitask_connect_ap(wifitask_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    if (wifi_err != WIFITASK_ERR_OK)
     {
-        LOG_ERROR("Mqtt", "wifi_connect_ap() error code: %d", (int) wifi_err);
-        bringup_fail("TC-HW-MQTT-002  wifi_connect_ap() failed");
+        LOG_ERROR("Mqtt", "wifitask_connect_ap() error code: %d", (int) wifi_err);
+        bringup_fail("TC-HW-MQTT-002  wifitask_connect_ap() failed");
     }
     LOG_INFO("Mqtt", "TC-HW-MQTT-002  associated with %s", BRINGUP_WIFI_SSID);
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -319,7 +336,7 @@ static void mqtt_bringup_task(void *arg)
 
     /* TC-HW-MQTT-003 */
     mqtt_client_config_t mqtt_config = {
-        .wifi = wifi_handle,
+        .wifi = wifitask_handle,
         .msg_cb = bringup_msg_cb,
         .disconnect_cb = bringup_disconnect_cb,
     };
@@ -703,13 +720,11 @@ int main(void)
         LOG_ERROR("Mqtt", "wifi_create() error code: %d", (int) wifi_err);
         bringup_fail("TC-HW-MQTT-001  wifi_create() failed");
     }
-    if (wifi_attach_datardy_callback(wifi_handle, NULL, NULL) != WIFI_ERR_OK)
-    {
-        /* Not fatal to this bring-up: DRDY ISR-driven notification is not
-         * exercised here (WifiDriver always busy-polls internally per its
-         * own companion §3.5), but the call must still succeed. */
-        LOG_ERROR("Mqtt", "wifi_attach_datardy_callback() failed (non-fatal, continuing)");
-    }
+    /* wifi_attach_datardy_callback() is no longer called directly here —
+     * WIFITASK-O3: MqttClient (and this bring-up) now route all WiFi I/O
+     * through WifiTask, which registers the real DATARDY callback itself
+     * inside wifitask_create() (task-context only, so it happens in
+     * mqtt_bringup_task below, post-scheduler, not here). */
     LOG_INFO("Mqtt", "TC-HW-MQTT-001  WifiDriver bring-up complete (reset + AT handshake + "
                      "firmware check)");
     LOG_INFO("Mqtt", "starting scheduler...");
