@@ -17,6 +17,7 @@
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - gateway/middleware/mqtt_client/**
+    - gateway/middleware/wifi_task/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -27,6 +28,7 @@
     - -:../firmware/gateway/drivers/gpio/**
     - -:../firmware/**/Debug/**
     - ../firmware/gateway/middleware/mqtt_client/**
+    - ../firmware/gateway/middleware/wifi_task/**
     - ../firmware/gateway/application/**
     - ../vendor/coreMQTT/source/**
     - ../vendor/mbedtls/include/**
