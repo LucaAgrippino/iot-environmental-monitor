@@ -23,7 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wifi_driver/wifi_driver.h"
+#include "wifi_task.h"
 
 /** @brief Opaque handle to an MqttClient instance. */
 typedef struct mqtt_client_inst *mqtt_client_handle_t;
@@ -106,7 +106,7 @@ typedef struct
  */
 typedef struct
 {
-    wifi_handle_t wifi;                 /**< WifiDriver handle (injected). */
+    wifitask_handle_t wifi;              /**< WifiTask handle (injected).   */
     mqtt_message_cb_t msg_cb;           /**< Inbound message callback.     */
     mqtt_disconnect_cb_t disconnect_cb; /**< Connection-loss callback.    */
 } mqtt_client_config_t;
