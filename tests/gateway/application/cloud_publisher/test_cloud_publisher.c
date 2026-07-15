@@ -31,6 +31,12 @@
  *    already-connected handle. CP-T05/T08 assert publish() is NOT called
  *    while disconnected (matching the companion's original §5.3 intent
  *    exactly); CP-T17/T18 cover the reconnect attempt + backoff.
+ *  - CP-D10 (new): prv_maybe_reconnect() now calls the ticked
+ *    mqtt_client_connect_step() instead of the blocking
+ *    mqtt_client_connect() (see mqtt-client.md MQTT-D8) — the spy below
+ *    mocks connect_step() accordingly. CP-T17/T18 are unaffected (a
+ *    single ERR_OK or ERR_CONNECT_FAIL tick behaves the same either way);
+ *    CP-T19 covers the new ERR_IN_PROGRESS case specifically.
  *  - CP-O5: MqttClient's msg_cb is not yet wired to CloudPublisher (it is
  *    registered upstream, at mqtt_client_create() time). CP-T11/T12 use
  *    the cloud_publisher_inject_command_for_test() seam instead.
@@ -265,7 +271,8 @@ bool mqtt_client_is_connected(mqtt_client_handle_t handle)
 
 static mqtt_client_err_t g_spy_mqtt_connect_return;
 static uint32_t g_spy_mqtt_connect_calls;
-mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg)
+mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
+                                           const mqtt_connect_cfg_t *cfg)
 {
     (void) handle;
     (void) cfg;
@@ -652,12 +659,41 @@ void test_CP_T18_reconnect_backoff_does_not_hammer_every_tick(void)
     g_spy_mqtt_is_connected_return = false;
     g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
 
+    /* xTaskNotifyWait's mock clears consumed bits on exit (clear_on_exit),
+     * so the tick must be re-armed before each simulated step — otherwise
+     * steps 2/3 below would see no notification bits at all and this
+     * assertion would pass regardless of whether backoff logic works. */
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle); /* 1st attempt: fails, arms backoff */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle); /* still backing off: no retry yet */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+}
+
+void test_CP_T19_reconnect_in_progress_retries_every_tick_without_backoff(void)
+{
+    /* CP-D10: MQTT_CLIENT_ERR_IN_PROGRESS means connect_step() is mid
+     * sequence (e.g. ticking the TLS handshake), not failed — unlike
+     * CP-T18's terminal failure, this must NOT arm the backoff, so the
+     * next stats tick retries immediately and lets the sequence advance. */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_IN_PROGRESS;
+
+    /* xTaskNotifyWait's mock clears consumed bits on exit (clear_on_exit),
+     * so the tick must be re-armed before each simulated step. */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls); /* every tick, no backoff */
 }
 
 /* ======================================================================= */

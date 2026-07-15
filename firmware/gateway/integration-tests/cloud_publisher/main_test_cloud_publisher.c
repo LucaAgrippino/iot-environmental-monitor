@@ -343,8 +343,11 @@ static void cloud_publisher_bringup_task(void *arg)
     {
         bringup_fail("BRINGUP_WIFI_SSID is empty - cannot continue without an AP");
     }
-    if (wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD) != WIFI_ERR_OK)
+    wifi_err_t connect_ap_err = wifi_connect_ap(wifi_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    if (connect_ap_err != WIFI_ERR_OK)
     {
+        LOG_ERROR("CloudPub", "TC-HW-CP-002  wifi_connect_ap() failed, wifi_err_t=%d",
+                  (int) connect_ap_err);
         bringup_fail("TC-HW-CP-002  wifi_connect_ap() failed");
     }
     LOG_INFO("CloudPub", "TC-HW-CP-002  associated with %s", BRINGUP_WIFI_SSID);
