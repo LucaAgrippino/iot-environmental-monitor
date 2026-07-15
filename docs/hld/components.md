@@ -539,7 +539,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Middleware
 **RESPONSIBILITY:** Implements the MQTT client protocol over a TLS-secured connection. Maintains connection state and publish/subscribe reliability counters exposed via stats interface (REQ-CC-050, REQ-CC-060).
 **PROVIDES (upward):** IMqttClient, IMqttStats
-**USES (downward):** WifiDriver, ILogger
+**USES (downward):** IWifiTask, ILogger
 
 **NAME:** ModbusMaster
 **LAYER:** Middleware

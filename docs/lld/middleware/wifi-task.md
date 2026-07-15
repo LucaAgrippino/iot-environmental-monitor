@@ -659,7 +659,7 @@ host-only until one of those ships.
 |---|---|---|---|
 | WIFITASK-O1 | MQTT-O7 (CloudPublisherTask's 5 s idle-recv stall) is relocated, not fixed. `wifitask_recv()` still blocks the caller for up to `WIFI_RESP_TIMEOUT_MS` (5 s), same as `wifi_recv()` does today — WifiTask just changes *where* that block executes. | **Open — deliberately deferred** | A real fix needs `wifitask_try_recv()` (genuinely non-blocking, backed by a per-socket background poll inside WifiTask and the DATARDY notification bit reserved in §5.4) paired with a ticked, non-blocking extension of `mqtt_client_process()`'s recv path — mirroring `mqtt_client_connect_step()`'s (MQTT-D8) precedent, but for the steady-state path instead of just connect. Separately scoped; not attempted here (§5.2). |
 | WIFITASK-O2 | WIFI-O15's reconnect **policy** (attempt count, backoff curve, and what happens to any socket/MQTT session open at the time of an AP drop) is not pinned — only the structural owner and tick (§5.3) are. | **Open** | Needs a concrete backoff constant and a decision on whether WifiTask force-closes/invalidates open sockets on a detected drop or leaves that to the next `wifitask_send()`/`wifitask_recv()` caller to discover naturally (their own call would fail against a dead socket regardless). Revisit once a second real caller (TimeServiceTask or UpdateServiceTask) exists and this can be validated against more than one consumer's expectations. |
-| WIFITASK-O3 | MqttClient's actual code (`mqtt_client.c`) still calls `wifi_send`/`wifi_recv`/`wifi_open_socket`/`wifi_close_socket` directly, and its `components.md` USES line still says `WifiDriver`, not `WifiTask`. This document does not change either. | **Open — separately-scoped rewire required** | Deliberate: changing `components.md`'s MqttClient entry without changing the code would create a documentation/reality mismatch (this project's established discipline — see CP-O5's precedent of tracking "not yet wired" gaps explicitly). Harmless today only because CloudPublisherTask is the sole task touching WiFi; becomes a real concurrency bug the moment TimeServiceTask or UpdateServiceTask is implemented and calls WifiDriver directly from a second task — the same class of bug caught and fixed in this session's CloudPublisher bring-up harness (two tasks nearly racing on one MqttClient handle). Do not implement NtpClient or UpdateService for GW before this rewire lands. |
+| WIFITASK-O3 | MqttClient's actual code (`mqtt_client.c`) still calls `wifi_send`/`wifi_recv`/`wifi_open_socket`/`wifi_close_socket` directly, and its `components.md` USES line still says `WifiDriver`, not `WifiTask`. This document does not change either. | **Resolved** | `mqtt_client.h`/`.c` rewired: `mqtt_client_config_t.wifi` is now `wifitask_handle_t`, every call site renamed to the matching `wifitask_*()` function. The one correctness trap handled explicitly: `WIFITASK_ERR_TIMEOUT` (value 3) and `WIFI_ERR_TIMEOUT` (value 4) are numerically distinct — `mqtt_client.c`'s two recv-timeout checks (`prv_mbedtls_net_recv()`, `prv_transport_recv()`) still compare against the raw `WIFI_ERR_TIMEOUT`, not the renamed constant, with a comment at each site explaining why. `components.md`'s MqttClient entry now reads `USES (downward): IWifiTask, ILogger`. Both integration mains (`main_test_mqtt_client.c`, `main_test_cloud_publisher.c`) updated to call `wifitask_create()` post-scheduler and thread the resulting handle through. NtpClient's entry deliberately left untouched — out of scope, not implemented for GW yet. |
 | WIFITASK-O4 | `WIFI_LIVENESS_CHECK_PERIOD_MS` (30 s, §4.1) is a provisional placeholder, not validated against any requirement or field data. | **Open** | Revisit once real hardware bring-up data exists for how quickly a dropped AP is actually noticed via `wifi_get_rssi()` failure vs. a genuine multi-minute silent drop; balance against battery/RF-quiet considerations if any apply to the Gateway (currently mains-powered, so likely not a hard constraint). |
 | WIFITASK-O5 | `WIFITASK_ENQUEUE_TIMEOUT_TICKS` / `WIFITASK_REPLY_TIMEOUT_TICKS` (§4.2) are referenced but not yet assigned concrete values in this document. | **Open** | Reply timeout must exceed the longest possible dispatched operation's own worst case (`WIFI_JOIN_TIMEOUT_MS` = 20 s is the longest, from `wifi-driver.md` §3.1) plus queueing delay for up to 2 other callers ahead in line — needs a concrete sum, not "generously large," to avoid a caller timing out on a request that actually succeeded. Enqueue timeout can be much shorter (bounds how long a caller waits just to get *into* the queue, not for a reply). |
 
@@ -711,16 +711,17 @@ tests/gateway/middleware/wifi_task/
 | H14 | Decisions log complete | PASS — 6 decisions |
 | H15 | Sequence integration traces to HLD SDs | PASS — §6, SD-03/SD-04/SD-09 |
 
-**Verdict: PASS — ready for implementation**, with the explicit understanding
-that WIFITASK-O3 (the MqttClient rewire) is a **prerequisite for actually
-using** this module, not merely a follow-up nicety — until it lands,
-WifiTask can be implemented and unit-tested in isolation, but production
-code still calls WifiDriver directly and D29's concurrency guarantee remains
-aspirational rather than real.
+**Verdict: PASS — ready for implementation.** WIFITASK-O3 (the MqttClient
+rewire) has since landed: `mqtt_client.c` now routes exclusively through
+`wifitask_*()`, so D29's sole-ownership guarantee is real in code, not just
+aspirational, for the one real caller that exists today (CloudPublisherTask).
+It remains a prerequisite for NtpClient/UpdateService specifically, since
+neither is implemented for GW yet — the same rewire (or an equivalent one
+scoped to those modules) still needs to happen before either is built.
 
-Five open items remain (WIFITASK-O1 MQTT-O7 relocation-not-fix, WIFITASK-O2
-reconnect policy, WIFITASK-O3 MqttClient rewire, WIFITASK-O4 liveness
-period, WIFITASK-O5 timeout constants) — none block *this* document's
-implementation-readiness; all are scoped follow-ups with a stated path
-forward, consistent with how `wifi-driver.md` and `mqtt-client.md` each
-carried open items past their own Phase H sign-off.
+Four open items remain (WIFITASK-O1 MQTT-O7 relocation-not-fix, WIFITASK-O2
+reconnect policy, WIFITASK-O4 liveness period, WIFITASK-O5 timeout
+constants) — none block *this* document's implementation-readiness; all are
+scoped follow-ups with a stated path forward, consistent with how
+`wifi-driver.md` and `mqtt-client.md` each carried open items past their
+own Phase H sign-off.
