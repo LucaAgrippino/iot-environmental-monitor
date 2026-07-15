@@ -39,6 +39,7 @@ typedef enum
     MQTT_CLIENT_ERR_NOT_CONNECTED = 6,
     MQTT_CLIENT_ERR_TLS_FAIL = 7,
     MQTT_CLIENT_ERR_SUBSCRIBE_FAIL = 8, /**< SUBACK with failure code.          */
+    MQTT_CLIENT_ERR_IN_PROGRESS = 9,    /**< connect_step(): more steps remain. */
 } mqtt_client_err_t;
 
 typedef enum
@@ -134,8 +135,12 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
  * auth -> MQTT CONNECT -> await CONNACK -> update stats. On failure at
  * any step: close socket, return error.
  *
- * Blocking. Timeout: MQTT_CONNECT_TIMEOUT_MS (10 s, see MQTT-O2).
- * Called by CloudPublisher when Machine 3 enters Connecting.
+ * Blocking convenience wrapper: loops mqtt_client_connect_step() to
+ * completion with no delay between steps, so its wall-clock behaviour
+ * is unchanged from before connect_step() existed (MQTT-D8) — safe for
+ * callers (e.g. hardware bring-up) that want a single synchronous call.
+ * CloudPublisher's own reconnect path calls mqtt_client_connect_step()
+ * directly instead, once per its 1 Hz stats tick.
  *
  * @param[in] handle  MqttClient handle.
  * @param[in] cfg     Connection parameters (broker, certs, keep-alive).
@@ -145,6 +150,44 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
  * @note Threading: task-context only, blocking. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg);
+
+/**
+ * @brief Advance the connect sequence by one bounded step.
+ *
+ * Same overall sequence as mqtt_client_connect() (TCP socket -> TLS
+ * handshake -> MQTT CONNECT/CONNACK), but ticked: each call does at
+ * most one phase's worth of blocking I/O and returns immediately,
+ * instead of looping internally until the whole sequence completes or
+ * fails. Internal state (which phase is in progress) persists on the
+ * handle between calls — pass the same cfg pointer on every call for a
+ * given attempt (the same instance CloudPublisher already holds
+ * long-lived per connect_cfg_t's ownership contract).
+ *
+ * Per-phase worst-case block, given WifiDriver's current (untouched)
+ * blocking transport (MQTT-D8, mqtt-client.md MQTT-O9):
+ * - TCP socket open: bounded by WifiDriver's own socket-connect ceiling
+ *   (~15 s worst case) — atomic, cannot be ticked further without a
+ *   WifiDriver change.
+ * - TLS handshake: ticked at ~1 mbedTLS handshake round per call,
+ *   bounded by WifiDriver's per-call read floor (~5 s worst case).
+ * - MQTT CONNECT/CONNACK: atomic (coreMQTT's MQTT_Connect() always
+ *   (re)sends CONNECT — cannot be resumed across calls without risking
+ *   a duplicate CONNECT on the same session), bounded by
+ *   MQTT_CONNACK_TIMEOUT_MS.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @param[in] cfg     Connection parameters (broker, certs, keep-alive).
+ * @return MQTT_CLIENT_ERR_IN_PROGRESS if the current phase advanced but
+ *         the sequence is not yet complete (call again next tick);
+ *         MQTT_CLIENT_ERR_OK once fully connected;
+ *         MQTT_CLIENT_ERR_CONNECT_FAIL / MQTT_CLIENT_ERR_TLS_FAIL on
+ *         failure at any phase (resources released, state reset so the
+ *         next call starts a fresh attempt).
+ * @note Threading: task-context only, may block up to the current
+ *       phase's own bound (see above). Not ISR-safe.
+ */
+mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
+                                           const mqtt_connect_cfg_t *cfg);
 
 /**
  * @brief Send MQTT DISCONNECT and close the TLS session.

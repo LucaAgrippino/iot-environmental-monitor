@@ -46,7 +46,26 @@
  * MQTT_CONNECT_TIMEOUT_MS's original 10 s budget allowed only 1-2
  * underlying wifi_recv() attempts before giving up — not enough margin
  * against that per-call floor. See MQTT-O2/O4/O6. */
+/** MQTT-D8: bounds the TLS_HANDSHAKE phase's wall-clock deadline in
+ *  mqtt_client_connect_step() — ticked across multiple calls (one
+ *  mbedtls_ssl_handshake() round per call) rather than looped to
+ *  completion in a single blocking call, so a stalled handshake no
+ *  longer freezes CloudPublisherTask for the full budget in one shot
+ *  (confirmed on hardware: a failed reconnect previously blocked
+ *  CloudPublisherTask for ~19 s straight, TLS handshake failing with
+ *  MBEDTLS_ERR_SSL_TIMEOUT — risks REQ-NF-113's 500 ms alarm-to-publish
+ *  bound if an alarm fires mid-reconnect). */
 #define MQTT_CONNECT_TIMEOUT_MS 30000u /**< ~6 retries at the 5 s floor. */
+/** MQTT-D8: MQTT_Connect()'s own CONNACK-wait budget. Split out from
+ *  MQTT_CONNECT_TIMEOUT_MS now that the two phases are ticked
+ *  separately: MQTT_Connect() always (re)sends CONNECT on every call,
+ *  so unlike the TLS handshake it cannot be resumed across
+ *  connect_step() ticks — it stays one atomic call, but no longer needs
+ *  to share the 30 s budget once meant to cover TLS + CONNECT combined.
+ *  CONNACK RTT observed fast (sub-second) against a live broker once
+ *  TLS is up (mirrors MQTT-O4's PUBACK/SUBACK observation); sized with
+ *  margin for the same WifiDriver read floor as everything else here. */
+#define MQTT_CONNACK_TIMEOUT_MS 10000u /**< ~2 retries at the 5 s floor. */
 #define MQTT_PUBACK_TIMEOUT_MS 15000u  /**< ~3 retries at the 5 s floor. */
 #define MQTT_SUBACK_TIMEOUT_MS                                                                     \
     15000u /**< Mirrors MQTT_PUBACK_TIMEOUT_MS; not yet a                                          \
@@ -94,6 +113,20 @@ struct NetworkContext
     wifi_socket_t socket;
 };
 
+/**
+ * @brief MQTT-D8: mqtt_client_connect_step()'s internal phase.
+ *
+ * Persisted on the instance so successive connect_step() calls resume
+ * where the previous one left off, rather than restarting the whole
+ * connect sequence.
+ */
+typedef enum
+{
+    MQTT_CONN_STATE_IDLE = 0,          /**< No attempt in progress. */
+    MQTT_CONN_STATE_TLS_HANDSHAKE = 1, /**< Socket open; TLS handshake ticking. */
+    MQTT_CONN_STATE_MQTT_CONNECT = 2,  /**< TLS complete; MQTT CONNECT/CONNACK pending. */
+} mqtt_conn_state_t;
+
 /** @brief Internal instance state — hidden from consumers (companion §8.1). */
 struct mqtt_client_inst
 {
@@ -116,6 +149,10 @@ struct mqtt_client_inst
     bool connected;
     mqtt_stats_t stats;
     bool in_use;
+
+    /* MQTT-D8: mqtt_client_connect_step() ticking state */
+    mqtt_conn_state_t connect_state;
+    uint32_t tls_handshake_deadline_ms;
 
     /* Blocking-wait bookkeeping for publish()/subscribe() */
     bool puback_received;
@@ -379,15 +416,16 @@ static void prv_event_callback(MQTTContext_t *ctx, MQTTPacketInfo_t *packet_info
 }
 
 /**
- * @brief Establish the TLS 1.2 session with X.509 mutual auth.
+ * @brief One-time TLS context setup: seed the RNG, load CA/client cert +
+ *        key (DER, pointers only — REQ-NF-302), configure the
+ *        ECDHE-RSA-AES128-GCM-SHA256 client session, and wire the BIO.
  *
- * Sequence per companion §3: seed the RNG, load CA/client cert + key
- * (DER, pointers only — REQ-NF-302), configure the ECDHE-RSA-AES128-
- * GCM-SHA256 client session, and run the handshake bounded by
- * MQTT_CONNECT_TIMEOUT_MS.
+ * No handshake I/O here — every step is local (parsing, config), so
+ * this is safe to run in full within a single connect_step() tick
+ * (MQTT-D8). The handshake itself is ticked separately by
+ * prv_tls_handshake_step().
  */
-static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
-                                         const mqtt_connect_cfg_t *cfg)
+static mqtt_client_err_t prv_tls_setup(struct mqtt_client_inst *inst, const mqtt_connect_cfg_t *cfg)
 {
     NetworkContext_t *net_ctx = &inst->net_ctx;
 
@@ -446,11 +484,31 @@ static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
     }
     mbedtls_ssl_set_bio(&net_ctx->ssl, net_ctx, prv_mbedtls_net_send, prv_mbedtls_net_recv, NULL);
 
-    uint32_t start = prv_get_time_ms();
-    int ret = mbedtls_ssl_handshake(&net_ctx->ssl);
-    while ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE))
+    return MQTT_CLIENT_ERR_OK;
+}
+
+/**
+ * @brief Advance the TLS handshake by exactly one mbedtls_ssl_handshake()
+ *        call (MQTT-D8).
+ *
+ * mbedTLS tracks handshake progress internally in net_ctx->ssl between
+ * calls, so a single external call each tick correctly resumes where
+ * the previous one left off — this is what makes the handshake
+ * tickable at all without protocol-level bookkeeping of our own.
+ * inst->tls_handshake_deadline_ms (set once when entering
+ * MQTT_CONN_STATE_TLS_HANDSHAKE) bounds the *sequence* of ticks, not
+ * any single call.
+ */
+static mqtt_client_err_t prv_tls_handshake_step(struct mqtt_client_inst *inst)
+{
+    int ret = mbedtls_ssl_handshake(&inst->net_ctx.ssl);
+    if (ret == 0)
     {
-        if ((prv_get_time_ms() - start) >= MQTT_CONNECT_TIMEOUT_MS)
+        return MQTT_CLIENT_ERR_OK;
+    }
+    if ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE))
+    {
+        if (prv_get_time_ms() >= inst->tls_handshake_deadline_ms)
         {
             LOG_ERROR(MQTT_CLIENT_LOG_MODULE,
                       "TLS handshake timed out after %lu ms, still waiting on %s",
@@ -458,15 +516,11 @@ static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
                       (ret == MBEDTLS_ERR_SSL_WANT_READ) ? "WANT_READ" : "WANT_WRITE");
             return MQTT_CLIENT_ERR_TLS_FAIL;
         }
-        ret = mbedtls_ssl_handshake(&net_ctx->ssl);
-    }
-    if (ret != 0)
-    {
-        LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "TLS handshake failed: -0x%04x", (unsigned int) -ret);
-        return MQTT_CLIENT_ERR_TLS_FAIL;
+        return MQTT_CLIENT_ERR_IN_PROGRESS;
     }
 
-    return MQTT_CLIENT_ERR_OK;
+    LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "TLS handshake failed: -0x%04x", (unsigned int) -ret);
+    return MQTT_CLIENT_ERR_TLS_FAIL;
 }
 
 static void prv_tls_close(struct mqtt_client_inst *inst)
@@ -531,17 +585,25 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
     return MQTT_CLIENT_ERR_OK;
 }
 
-mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg)
+/**
+ * @brief MQTT_CONN_STATE_IDLE tick: open the TCP socket and run one-time
+ *        TLS context setup (MQTT-D8).
+ *
+ * Atomic — wifi_open_socket() bundles several AT commands with no way
+ * to report partial progress (mqtt-client.md MQTT-O9) — but TLS setup
+ * itself is local/non-blocking, so folding it into the same tick costs
+ * nothing extra. Transitions to MQTT_CONN_STATE_TLS_HANDSHAKE on
+ * success; the first actual mbedtls_ssl_handshake() call happens on the
+ * *next* tick, keeping this tick's own worst-case block to
+ * wifi_open_socket() alone.
+ */
+static mqtt_client_err_t prv_connect_step_idle(struct mqtt_client_inst *inst,
+                                               const mqtt_connect_cfg_t *cfg)
 {
-    if ((handle == NULL) || (cfg == NULL))
-    {
-        return MQTT_CLIENT_ERR_NULL_PTR;
-    }
-
-    handle->stats.connect_attempts++;
+    inst->stats.connect_attempts++;
 
     wifi_socket_t socket;
-    wifi_err_t wifi_status = wifi_open_socket(handle->wifi, WIFI_SOCKET_TCP, cfg->broker_endpoint,
+    wifi_err_t wifi_status = wifi_open_socket(inst->wifi, WIFI_SOCKET_TCP, cfg->broker_endpoint,
                                               cfg->broker_port, &socket);
     if (wifi_status != WIFI_ERR_OK)
     {
@@ -549,47 +611,89 @@ mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_co
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
-    handle->net_ctx.wifi = handle->wifi;
-    handle->net_ctx.socket = socket;
+    inst->net_ctx.wifi = inst->wifi;
+    inst->net_ctx.socket = socket;
 
-    mqtt_client_err_t tls_result = prv_tls_connect(handle, cfg);
+    mqtt_client_err_t tls_result = prv_tls_setup(inst, cfg);
     if (tls_result != MQTT_CLIENT_ERR_OK)
     {
-        /* Safe even on a partially-completed handshake: every mbedTLS
-         * context reached its _init() call before any step that can fail,
-         * and mbedTLS guarantees _free() is safe on an _init()'d context
-         * regardless of how much setup completed after that. Skipping this
-         * would leave stale TLS state behind for the next connect attempt. */
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        /* Safe even on a partially-completed setup: every mbedTLS context
+         * reached its _init() call before any step that can fail, and
+         * mbedTLS guarantees _free() is safe on an _init()'d context
+         * regardless of how much setup completed after that. */
+        prv_tls_close(inst);
+        (void) wifi_close_socket(inst->wifi, socket);
         return tls_result;
     }
 
+    inst->tls_handshake_deadline_ms = prv_get_time_ms() + MQTT_CONNECT_TIMEOUT_MS;
+    inst->connect_state = MQTT_CONN_STATE_TLS_HANDSHAKE;
+    return MQTT_CLIENT_ERR_IN_PROGRESS;
+}
+
+/**
+ * @brief MQTT_CONN_STATE_TLS_HANDSHAKE tick (MQTT-D8).
+ *
+ * On handshake completion, transitions to MQTT_CONN_STATE_MQTT_CONNECT
+ * and returns IN_PROGRESS rather than falling through into that phase
+ * in the same tick — keeps every tick bounded to one phase's own
+ * blocking work.
+ */
+static mqtt_client_err_t prv_connect_step_tls_handshake(struct mqtt_client_inst *inst)
+{
+    mqtt_client_err_t status = prv_tls_handshake_step(inst);
+    if (status == MQTT_CLIENT_ERR_TLS_FAIL)
+    {
+        prv_tls_close(inst);
+        (void) wifi_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
+        return status;
+    }
+    if (status == MQTT_CLIENT_ERR_OK)
+    {
+        inst->connect_state = MQTT_CONN_STATE_MQTT_CONNECT;
+    }
+    return MQTT_CLIENT_ERR_IN_PROGRESS;
+}
+
+/**
+ * @brief MQTT_CONN_STATE_MQTT_CONNECT tick (MQTT-D8).
+ *
+ * Atomic — coreMQTT's MQTT_Connect() always (re)sends a CONNECT packet
+ * when called, so unlike the TLS handshake it cannot be resumed across
+ * ticks without risking a duplicate CONNECT on the same session. Bounded
+ * by MQTT_CONNACK_TIMEOUT_MS rather than the (now TLS-only)
+ * MQTT_CONNECT_TIMEOUT_MS.
+ */
+static mqtt_client_err_t prv_connect_step_mqtt_connect(struct mqtt_client_inst *inst,
+                                                       const mqtt_connect_cfg_t *cfg)
+{
     static const TransportInterface_t s_transport_template = {
         .recv = prv_transport_recv,
         .send = prv_transport_send,
         .writev = NULL,
     };
     TransportInterface_t transport = s_transport_template;
-    transport.pNetworkContext = &handle->net_ctx;
+    transport.pNetworkContext = &inst->net_ctx;
 
-    handle->fixed_buf.pBuffer = handle->pkt_buf;
-    handle->fixed_buf.size = MQTT_PKT_BUF_SIZE;
+    inst->fixed_buf.pBuffer = inst->pkt_buf;
+    inst->fixed_buf.size = MQTT_PKT_BUF_SIZE;
 
-    if (MQTT_Init(&handle->mqtt_ctx, &transport, prv_get_time_ms, prv_event_callback,
-                  &handle->fixed_buf) != MQTTSuccess)
+    if (MQTT_Init(&inst->mqtt_ctx, &transport, prv_get_time_ms, prv_event_callback,
+                  &inst->fixed_buf) != MQTTSuccess)
     {
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        prv_tls_close(inst);
+        (void) wifi_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
-    if (MQTT_InitStatefulQoS(&handle->mqtt_ctx, handle->outgoing_records,
-                             MQTT_OUTGOING_PUBLISH_RECORDS, handle->incoming_records,
-                             MQTT_INCOMING_PUBLISH_RECORDS) != MQTTSuccess)
+    if (MQTT_InitStatefulQoS(&inst->mqtt_ctx, inst->outgoing_records, MQTT_OUTGOING_PUBLISH_RECORDS,
+                             inst->incoming_records, MQTT_INCOMING_PUBLISH_RECORDS) != MQTTSuccess)
     {
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        prv_tls_close(inst);
+        (void) wifi_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
@@ -600,26 +704,64 @@ mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_co
     connect_info.clientIdentifierLength = (uint16_t) strlen(cfg->client_id);
 
     bool session_present = false;
-    MQTTStatus_t connect_status = MQTT_Connect(&handle->mqtt_ctx, &connect_info, NULL,
-                                               MQTT_CONNECT_TIMEOUT_MS, &session_present);
+    MQTTStatus_t connect_status = MQTT_Connect(&inst->mqtt_ctx, &connect_info, NULL,
+                                               MQTT_CONNACK_TIMEOUT_MS, &session_present);
     if (connect_status != MQTTSuccess)
     {
         LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "MQTT_Connect failed: %d", (int) connect_status);
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        prv_tls_close(inst);
+        (void) wifi_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
-    handle->connected = true;
-    handle->stats.connect_ok++;
-    if (handle->stats.connect_ok > 1u)
+    inst->connected = true;
+    inst->stats.connect_ok++;
+    if (inst->stats.connect_ok > 1u)
     {
-        handle->stats.reconnect_count++;
+        inst->stats.reconnect_count++;
     }
+    inst->connect_state = MQTT_CONN_STATE_IDLE;
 
     LOG_INFO(MQTT_CLIENT_LOG_MODULE, "Connected to %s:%u", cfg->broker_endpoint,
              (unsigned int) cfg->broker_port);
     return MQTT_CLIENT_ERR_OK;
+}
+
+mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
+                                           const mqtt_connect_cfg_t *cfg)
+{
+    if ((handle == NULL) || (cfg == NULL))
+    {
+        return MQTT_CLIENT_ERR_NULL_PTR;
+    }
+
+    switch (handle->connect_state)
+    {
+    case MQTT_CONN_STATE_TLS_HANDSHAKE:
+        return prv_connect_step_tls_handshake(handle);
+    case MQTT_CONN_STATE_MQTT_CONNECT:
+        return prv_connect_step_mqtt_connect(handle, cfg);
+    case MQTT_CONN_STATE_IDLE:
+    default:
+        return prv_connect_step_idle(handle, cfg);
+    }
+}
+
+mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg)
+{
+    if ((handle == NULL) || (cfg == NULL))
+    {
+        return MQTT_CLIENT_ERR_NULL_PTR;
+    }
+
+    mqtt_client_err_t status;
+    do
+    {
+        status = mqtt_client_connect_step(handle, cfg);
+    } while (status == MQTT_CLIENT_ERR_IN_PROGRESS);
+
+    return status;
 }
 
 mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle)
