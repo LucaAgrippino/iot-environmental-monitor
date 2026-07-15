@@ -1,6 +1,6 @@
 /**
  * @file test_mqtt_client.c
- * @brief Unity unit tests for MqttClient — MQTT-T01 through MQTT-T19.
+ * @brief Unity unit tests for MqttClient — MQTT-T01 through MQTT-T26.
  *
  * mbedTLS's entropy.h and ctr_drbg.h are CMock-mocked directly from the
  * real vendor headers. ssl.h, pk.h, and x509_crt.h cannot: they either
@@ -85,6 +85,7 @@ static size_t s_send_total_bytes;
  * would actually exhaust WifiDriver's socket table after a few reconnect
  * cycles, not just a synthetic counter divorced from real behaviour. */
 static uint8_t s_open_sockets;
+static size_t s_open_socket_call_count; /**< MQTT-T22..T24: proves a tick doesn't re-open. */
 static size_t s_close_socket_call_count;
 
 static void prv_reset_wifi_stub(void)
@@ -98,6 +99,7 @@ static void prv_reset_wifi_stub(void)
     s_send_call_count = 0u;
     s_send_total_bytes = 0u;
     s_open_sockets = 0u;
+    s_open_socket_call_count = 0u;
     s_close_socket_call_count = 0u;
 }
 
@@ -115,6 +117,8 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
     (void) type;
     (void) remote_addr;
     (void) remote_port;
+
+    s_open_socket_call_count++;
 
     if (s_open_socket_result != WIFI_ERR_OK)
     {
@@ -751,4 +755,104 @@ void test_MQTT_T20_is_connected_reflects_state(void)
 void test_MQTT_T21_is_connected_null_handle(void)
 {
     TEST_ASSERT_FALSE(mqtt_client_is_connected(NULL));
+}
+
+/* ========================================================================
+ * MQTT-T22..T26 — mqtt_client_connect_step() ticking (MQTT-D8)
+ *
+ * mqtt_client_connect() itself is exercised unmodified by MQTT-T04..T06,
+ * T18, T19 above: it is now a thin wrapper looping connect_step(), so
+ * those tests double as regression coverage that the wrapper's blocking
+ * behaviour is unchanged. The tests below exercise connect_step()
+ * directly, proving state persists across ticks instead of restarting
+ * the sequence each call.
+ * ==================================================================== */
+
+void test_MQTT_T22_connect_step_idle_tick_opens_socket_and_returns_in_progress(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0); /* setup mocks armed; handshake itself not reached this tick */
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_open_socket_call_count);
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_attempts);
+}
+
+void test_MQTT_T23_connect_step_tls_handshake_ticks_do_not_reopen_socket(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(MBEDTLS_ERR_SSL_WANT_READ);
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg)); /* IDLE */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE tick 1 */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE tick 2 */
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_open_socket_call_count);
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_attempts); /* counted once, not per tick */
+}
+
+void test_MQTT_T24_connect_step_tls_handshake_deadline_expires_across_ticks(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(MBEDTLS_ERR_SSL_WANT_READ);
+    prv_mock_tls_teardown();
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg)); /* IDLE */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE, deadline armed */
+
+    g_mock_tick_count += 30000u; /* past MQTT_CONNECT_TIMEOUT_MS, no real sleep needed */
+
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_TLS_FAIL, mqtt_client_connect_step(handle, &cfg));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_close_socket_call_count);
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+
+    /* A fresh attempt after failure starts over from IDLE, not stuck. */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg));
+    TEST_ASSERT_EQUAL_UINT32(2u, s_open_socket_call_count);
+}
+
+void test_MQTT_T25_connect_step_full_sequence_reaches_established(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    prv_queue_connack(0u);
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* IDLE -> TLS_HANDSHAKE */
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE -> MQTT_CONNECT */
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK,
+                      mqtt_client_connect_step(handle, &cfg)); /* MQTT_CONNECT -> established */
+    TEST_ASSERT_TRUE(mqtt_client_is_connected(handle));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_attempts);
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_ok);
+}
+
+void test_MQTT_T26_connect_step_null_args(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_NULL_PTR, mqtt_client_connect_step(NULL, &cfg));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_NULL_PTR, mqtt_client_connect_step(handle, NULL));
 }
