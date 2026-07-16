@@ -5,6 +5,9 @@
 # CubeIDE per-machine project files (paths and exclusions are machine-specific)
 .cproject
 .project
+# CubeIDE-generated OpenOCD debug config (per-machine, auto-regenerated —
+# see the file's own "may be overridden without any early notice" header)
+firmware/**/*.cfg
 
 # Build artifacts
 build/

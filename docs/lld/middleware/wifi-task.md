@@ -411,7 +411,8 @@ wifitask_err_t wifitask_connect_ap(wifitask_handle_t handle, const char *ssid,
     }
 
     uint32_t notified_status;
-    if (xTaskNotifyWait(0, 0xFFFFFFFFu, &notified_status, WIFITASK_REPLY_TIMEOUT_TICKS) != pdTRUE)
+    if (xTaskNotifyWaitIndexed(WIFITASK_NOTIFY_INDEX, 0, 0xFFFFFFFFu, &notified_status,
+                               WIFITASK_REPLY_TIMEOUT_TICKS) != pdTRUE)
     {
         return WIFITASK_ERR_TIMEOUT;
     }
@@ -419,6 +420,17 @@ wifitask_err_t wifitask_connect_ap(wifitask_handle_t handle, const char *ssid,
     return (wifitask_err_t) notified_status; /* actually wifi_err_t, see note below */
 }
 ```
+
+**Note on the notification index (WIFITASK-O6):** both the wait above and
+the notify-back in §4.3 use `xTaskNotifyWaitIndexed()`/`xTaskNotifyIndexed()`
+at a dedicated `WIFITASK_NOTIFY_INDEX` (1), not the plain
+`xTaskNotify()`/`xTaskNotifyWait()` default index (0). A caller task that
+also uses index 0 for its own purposes (CloudPublisher does, for its
+periodic-tick bits) could otherwise have an unrelated notification wake
+this wait early with the wrong value — confirmed on real hardware as a
+dangling-stack-pointer `HardFault` when the abandoned request's true reply
+arrived later. Requires `configTASK_NOTIFICATION_ARRAY_ENTRIES >= 2` in
+`FreeRTOSConfig.h`.
 
 **Note on the notify-value cast:** `xTaskNotify()`'s value is a 32-bit
 `uint32_t`; `wifi_err_t` fits trivially. The public function signature
@@ -448,8 +460,8 @@ static void prv_wifitask_body(void *arg)
                           pdMS_TO_TICKS(WIFI_LIVENESS_CHECK_PERIOD_MS)) == pdPASS)
         {
             req->wifi_status = prv_dispatch(inst, req);
-            (void) xTaskNotify(req->caller, (uint32_t) req->wifi_status,
-                               eSetValueWithOverwrite);
+            (void) xTaskNotifyIndexed(req->caller, WIFITASK_NOTIFY_INDEX,
+                                      (uint32_t) req->wifi_status, eSetValueWithOverwrite);
         }
         else
         {
@@ -662,6 +674,7 @@ host-only until one of those ships.
 | WIFITASK-O3 | MqttClient's actual code (`mqtt_client.c`) still calls `wifi_send`/`wifi_recv`/`wifi_open_socket`/`wifi_close_socket` directly, and its `components.md` USES line still says `WifiDriver`, not `WifiTask`. This document does not change either. | **Resolved** | `mqtt_client.h`/`.c` rewired: `mqtt_client_config_t.wifi` is now `wifitask_handle_t`, every call site renamed to the matching `wifitask_*()` function. The one correctness trap handled explicitly: `WIFITASK_ERR_TIMEOUT` (value 3) and `WIFI_ERR_TIMEOUT` (value 4) are numerically distinct — `mqtt_client.c`'s two recv-timeout checks (`prv_mbedtls_net_recv()`, `prv_transport_recv()`) still compare against the raw `WIFI_ERR_TIMEOUT`, not the renamed constant, with a comment at each site explaining why. `components.md`'s MqttClient entry now reads `USES (downward): IWifiTask, ILogger`. Both integration mains (`main_test_mqtt_client.c`, `main_test_cloud_publisher.c`) updated to call `wifitask_create()` post-scheduler and thread the resulting handle through. NtpClient's entry deliberately left untouched — out of scope, not implemented for GW yet. |
 | WIFITASK-O4 | `WIFI_LIVENESS_CHECK_PERIOD_MS` (30 s, §4.1) is a provisional placeholder, not validated against any requirement or field data. | **Open** | Revisit once real hardware bring-up data exists for how quickly a dropped AP is actually noticed via `wifi_get_rssi()` failure vs. a genuine multi-minute silent drop; balance against battery/RF-quiet considerations if any apply to the Gateway (currently mains-powered, so likely not a hard constraint). |
 | WIFITASK-O5 | `WIFITASK_ENQUEUE_TIMEOUT_TICKS` / `WIFITASK_REPLY_TIMEOUT_TICKS` (§4.2) are referenced but not yet assigned concrete values in this document. | **Open** | Reply timeout must exceed the longest possible dispatched operation's own worst case (`WIFI_JOIN_TIMEOUT_MS` = 20 s is the longest, from `wifi-driver.md` §3.1) plus queueing delay for up to 2 other callers ahead in line — needs a concrete sum, not "generously large," to avoid a caller timing out on a request that actually succeeded. Enqueue timeout can be much shorter (bounds how long a caller waits just to get *into* the queue, not for a reply). |
+| WIFITASK-O6 | The request/reply protocol (§4.2, §5.2) uses plain `xTaskNotify()`/`xTaskNotifyWait()`, which implicitly target a task's single default notification index (index 0). Any caller task that *also* uses task notifications for something else of its own on that same index — CloudPublisher does, for its periodic-tick bits — can have that unrelated notification wake `prv_submit_and_wait()`'s wait early with the wrong value. The caller then believes WifiTask already replied, abandons the still-in-flight request, and its stack frame (where the `wifitask_request_t` lives, per §4.2's design) gets reused. When WifiTask's own blocking `wifi_*()` call later actually completes and it notifies `req->caller`, it writes into a dangling stack pointer. | **Resolved** | Confirmed on real hardware during CloudPublisher bring-up (2026-07-16): intermittent `HardFault`s inside `xTaskGenericNotify`, at different call sites and different elapsed times depending on exact tick/reply timing — traced via a live debugger session (watchpoint-free, using the call stack + `req`'s own garbage field contents, which held stale fragments of unrelated log calls) to this exact race between CloudPublisher's stats-tick notify and WifiTask's reply notify sharing one notification word. Fixed by giving WifiTask's protocol its own dedicated index: `configTASK_NOTIFICATION_ARRAY_ENTRIES` raised to 2 in `FreeRTOSConfig.h`, both `prv_submit_and_wait()` and `prv_wifitask_step()` switched to `xTaskNotifyWaitIndexed()`/`xTaskNotifyIndexed()` at a new `WIFITASK_NOTIFY_INDEX` (1). Any future caller (TimeServiceTask, UpdateServiceTask) automatically gets the same isolation without needing to know about this — the index is private to WifiTask, never exposed in its public API. Covered by WIFITASK-T15/T16. |
 
 ---
 

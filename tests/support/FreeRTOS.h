@@ -169,19 +169,25 @@ extern uint32_t      g_mock_xTaskNotifyFromISR_call_count;
 extern TaskHandle_t  g_mock_xTaskNotifyFromISR_last_handle;
 extern uint32_t      g_mock_xTaskNotifyFromISR_last_value;
 
-/* xTaskNotify mock (non-ISR) */
+/* xTaskNotify mock (non-ISR). xTaskNotify()/xTaskNotifyIndexed() share this
+ * state (real FreeRTOS's plain xTaskNotify() is just xTaskNotifyIndexed()
+ * at tskDEFAULT_INDEX_TO_NOTIFY) — last_index records which index the most
+ * recent call used, for tests that care (e.g. WIFITASK-O6). */
 extern BaseType_t    g_mock_xTaskNotify_return;
 extern uint32_t      g_mock_xTaskNotify_call_count;
 extern TaskHandle_t  g_mock_xTaskNotify_last_handle;
 extern uint32_t      g_mock_xTaskNotify_last_value;
 extern eNotifyAction  g_mock_xTaskNotify_last_action;
+extern UBaseType_t    g_mock_xTaskNotify_last_index;
 
 /* xTaskNotifyWait mock: delivers g_mock_xTaskNotifyWait_next_value via the
  * notify_value_out parameter, then clears it to 0 (single-shot, like a
- * consumed notification) unless a test re-arms it. */
-extern BaseType_t g_mock_xTaskNotifyWait_return;
-extern uint32_t   g_mock_xTaskNotifyWait_call_count;
-extern uint32_t   g_mock_xTaskNotifyWait_next_value;
+ * consumed notification) unless a test re-arms it. Shared with
+ * xTaskNotifyWaitIndexed() the same way as above. */
+extern BaseType_t  g_mock_xTaskNotifyWait_return;
+extern uint32_t    g_mock_xTaskNotifyWait_call_count;
+extern uint32_t    g_mock_xTaskNotifyWait_next_value;
+extern UBaseType_t g_mock_xTaskNotifyWait_last_index;
 
 /* xTimerChangePeriod mock */
 extern BaseType_t g_mock_xTimerChangePeriod_return;
@@ -242,6 +248,12 @@ BaseType_t    xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
 BaseType_t    xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action);
 BaseType_t    xTaskNotifyWait(uint32_t clear_on_entry, uint32_t clear_on_exit,
                               uint32_t *notify_value_out, TickType_t wait);
+
+BaseType_t    xTaskNotifyIndexed(TaskHandle_t task, UBaseType_t index, uint32_t value,
+                                 eNotifyAction action);
+BaseType_t    xTaskNotifyWaitIndexed(UBaseType_t index, uint32_t clear_on_entry,
+                                     uint32_t clear_on_exit, uint32_t *notify_value_out,
+                                     TickType_t wait);
 
 BaseType_t    xTimerChangePeriod(TimerHandle_t timer, TickType_t new_period,
                                  TickType_t wait);

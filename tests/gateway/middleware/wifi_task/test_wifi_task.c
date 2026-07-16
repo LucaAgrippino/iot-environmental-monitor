@@ -460,3 +460,46 @@ void test_WIFITASK_T14_reset_for_test_clears_pool(void)
     wifitask_handle_t handle = NULL;
     TEST_ASSERT_EQUAL(WIFITASK_ERR_OK, wifitask_create(&cfg, &handle));
 }
+
+/* ========================================================================
+ * WIFITASK-T15 — WIFITASK-O6: reply protocol uses its own notification
+ * index, not the caller task's default (index 0) one.
+ *
+ * Found on real hardware: a caller task that also uses plain
+ * xTaskNotify()/xTaskNotifyWait() on index 0 for something else of its own
+ * (e.g. CloudPublisher's periodic-tick bits) could have that notification
+ * wake up prv_submit_and_wait()'s wait early with the wrong value, causing
+ * the caller to abandon an in-flight request while WifiTask was still
+ * genuinely processing it — a dangling-pointer HardFault when WifiTask
+ * later notified a caller that had already moved on. Both directions must
+ * use WIFITASK_NOTIFY_INDEX (1), never the shared default index.
+ * ==================================================================== */
+
+void test_WIFITASK_T15_wait_uses_dedicated_notify_index(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    g_mock_xQueueSend_last_item_size = sizeof(void *);
+    g_mock_xTaskNotifyWait_return = pdTRUE;
+    g_mock_xTaskNotifyWait_next_value = (uint32_t) WIFI_ERR_OK;
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK, wifitask_connect_ap(handle, "my-ssid", "my-pass"));
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotifyWait_last_index);
+}
+
+void test_WIFITASK_T16_notify_back_uses_dedicated_notify_index(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    wifitask_request_t req = {0};
+    req.op = WIFITASK_OP_CONNECT_AP;
+    req.ssid = "target-ssid";
+    req.password = "target-pass";
+    req.caller = (TaskHandle_t) 0x1234;
+    s_connect_ap_result = WIFI_ERR_OK;
+
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_last_index);
+}

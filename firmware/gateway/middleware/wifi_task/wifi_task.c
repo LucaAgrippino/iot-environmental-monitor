@@ -26,6 +26,27 @@
 
 #define WIFITASK_ENQUEUE_TIMEOUT_TICKS pdMS_TO_TICKS(1000u)
 
+/** WIFITASK-O6: dedicated task-notification index for WifiTask's own
+ * request/reply protocol (requires configTASK_NOTIFICATION_ARRAY_ENTRIES
+ * >= 2, set in FreeRTOSConfig.h). Every task has one notification word per
+ * index, and plain xTaskNotify()/xTaskNotifyWait() both implicitly target
+ * index 0 (tskDEFAULT_INDEX_TO_NOTIFY). A caller task that also uses
+ * task notifications for its own purposes on index 0 (e.g. CloudPublisher's
+ * periodic-tick bits, sent from the Timer Service task while
+ * CloudPublisherTask is blocked here waiting for WifiTask's reply) would
+ * otherwise wake this wait early with the wrong value: the caller then
+ * returns believing WifiTask replied, abandons its (still-in-flight)
+ * request, and reuses that stack memory — so when WifiTask's own blocking
+ * wifi_*() call eventually finishes and this module notifies the caller
+ * for real, it writes into a dangling stack pointer. Confirmed on real
+ * hardware: a HardFault inside xTaskGenericNotify, at different call
+ * sites and different times depending on exact tick/reply timing,
+ * eventually traced to prv_wifitask_step()'s notify racing
+ * CloudPublisher's stats-tick notify on the shared default index. Index 1
+ * gives WifiTask's protocol its own private channel, isolated from
+ * whatever else the calling task uses notifications for. */
+#define WIFITASK_NOTIFY_INDEX 1u
+
 /** WifiDriver's own worst-case timing constants are private to
  *  wifi_driver.c (wifi-driver.md §3.1) — not part of its public header,
  *  so they can't be #included here. Mirrored from the published values
@@ -121,7 +142,8 @@ static void prv_wifitask_step(struct wifitask_inst *inst)
         pdPASS)
     {
         req->wifi_status = prv_dispatch(inst, req);
-        (void) xTaskNotify(req->caller, (uint32_t) req->wifi_status, eSetValueWithOverwrite);
+        (void) xTaskNotifyIndexed(req->caller, WIFITASK_NOTIFY_INDEX, (uint32_t) req->wifi_status,
+                                  eSetValueWithOverwrite);
     }
     else
     {
@@ -162,7 +184,8 @@ static wifitask_err_t prv_submit_and_wait(wifitask_handle_t handle, wifitask_req
     }
 
     uint32_t notified_status;
-    if (xTaskNotifyWait(0u, 0xFFFFFFFFu, &notified_status, reply_timeout_ticks) != pdTRUE)
+    if (xTaskNotifyWaitIndexed(WIFITASK_NOTIFY_INDEX, 0u, 0xFFFFFFFFu, &notified_status,
+                               reply_timeout_ticks) != pdTRUE)
     {
         return WIFITASK_ERR_TIMEOUT;
     }
