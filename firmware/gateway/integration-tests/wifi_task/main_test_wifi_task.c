@@ -10,16 +10,22 @@
  *   3. Connect a serial terminal to PB6 (TX) at 115 200 8N1.
  *   4. Wire the ISM43362-M3G-L44 module (or use the on-board one on the
  *      B-L475E-IOT01A) and flash with a debugger attached.
- *   5. Optionally fill in BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD below
- *      before flashing to exercise the association + socket path. Same
+ *   5. Define BRINGUP_TEST_MODE as a compiler preprocessor symbol (CubeIDE:
+ *      Project Properties -> C/C++ Build -> Settings -> MCU GCC Compiler
+ *      -> Preprocessor -> Defined symbols; do NOT edit it into this file)
+ *      and create firmware/gateway/certs/bringup_secrets.h with your real
+ *      BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD / BRINGUP_REMOTE_HOST —
+ *      see scripts/bringup_secrets.h.example for the template.
+ *      bringup_secrets.h is gitignored and never committed; leave
+ *      BRINGUP_TEST_MODE undefined for a placeholder-only build. Same
  *      test bench as main_test_wifi_driver.c (see that file's header for
  *      the phone-hotspot + TCP/UDP server app setup) — a dedicated router
  *      works too, but some networks silently drop device-to-device
  *      traffic (WIFI-O12).
  *   6. To exercise real data transfer (TC-HW-WIFITASK-005/006): same
- *      procedure as main_test_wifi_driver.c's step 6 — start the
- *      TCP/UDP server app first, fill in BRINGUP_REMOTE_HOST, watch for
- *      the live countdown before each connect attempt.
+ *      procedure as main_test_wifi_driver.c's step 6 — start the TCP/UDP
+ *      server app first, set BRINGUP_REMOTE_HOST in bringup_secrets.h,
+ *      watch for the live countdown before each connect attempt.
  *
  * Scope: unlike main_test_wifi_driver.c (which calls wifi_* functions
  * directly, proving WifiDriver alone), this bring-up calls wifitask_*()
@@ -104,10 +110,21 @@
 /* Fill these in before flashing to exercise the AP-connect + socket path. */
 /* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFITASK-004/005/006.       */
 /* ---------------------------------------------------------------------- */
+
+/* BRINGUP_TEST_MODE must be defined as a compiler preprocessor symbol
+ * (see the header comment above) to pull real values from
+ * bringup_secrets.h (gitignored, never committed — see
+ * scripts/bringup_secrets.h.example). Leave it undefined for a
+ * placeholder-only build. */
+#ifdef BRINGUP_TEST_MODE
+#include "bringup_secrets.h"
+#else
 #define BRINGUP_WIFI_SSID ""
 #define BRINGUP_WIFI_PASSWORD ""
-
 #define BRINGUP_REMOTE_HOST ""
+#endif
+
+/* Peer TCP/UDP ports — not personal/sensitive, safe to leave hardcoded. */
 #define BRINGUP_REMOTE_TCP_PORT (8080U)
 #define BRINGUP_REMOTE_UDP_PORT (8081U)
 

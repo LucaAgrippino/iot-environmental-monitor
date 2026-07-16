@@ -11,15 +11,18 @@
  *   4. Wire the ISM43362-M3G-L44 module (or use the on-board one on the
  *      B-L475E-IOT01A) — same SPI3 + 5 control-line wiring as
  *      integration-tests/wifi_driver/main_test_wifi_driver.c.
- *   5. Define BRINGUP_TEST_MODE below and create
- *      firmware/gateway/certs/personal_data.h with your real
+ *   5. Define BRINGUP_TEST_MODE as a compiler preprocessor symbol (CubeIDE:
+ *      Project Properties -> C/C++ Build -> Settings -> MCU GCC Compiler
+ *      -> Preprocessor -> Defined symbols; do NOT edit it into this file)
+ *      and create firmware/gateway/certs/bringup_secrets.h with your real
  *      BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD — see
- *      scripts/personal_data.h.example for the template. personal_data.h
- *      is gitignored and never committed; leave BRINGUP_TEST_MODE
- *      undefined for a placeholder-only build (BRINGUP_WIFI_SSID stays
- *      empty and this bring-up halts at the "no AP" check). Separately,
- *      BRINGUP_MQTT_BROKER_ENDPOINT and the three DER cert/key arrays come
- *      from bringup_certs.h automatically — it's found via the
+ *      scripts/bringup_secrets.h.example for the template.
+ *      bringup_secrets.h is gitignored and never committed; leave
+ *      BRINGUP_TEST_MODE undefined for a placeholder-only build
+ *      (BRINGUP_WIFI_SSID stays empty and this bring-up halts at the
+ *      "no AP" check). Separately, BRINGUP_MQTT_BROKER_ENDPOINT and the
+ *      three DER cert/key arrays come from bringup_certs.h
+ *      automatically — it's found via the
  *      firmware/gateway/certs/ include path (added to .cproject), no
  *      manual copying needed; run regenerate-bringup-certs.ps1 first if it
  *      doesn't exist yet (see scripts/regenerate-bringup-certs-usage.txt),
@@ -131,13 +134,13 @@
 /* Fill these in before flashing.                                         */
 /* ---------------------------------------------------------------------- */
 
-/* Define to pull real credentials from personal_data.h (gitignored, never
- * committed — see scripts/personal_data.h.example). Leave undefined for a
+/* BRINGUP_TEST_MODE must be defined as a compiler preprocessor symbol
+ * (see the header comment above) to pull real credentials from
+ * bringup_secrets.h (gitignored, never committed — see
+ * scripts/bringup_secrets.h.example). Leave it undefined for a
  * placeholder-only build. */
-/* #define BRINGUP_TEST_MODE */
-
 #ifdef BRINGUP_TEST_MODE
-#include "personal_data.h"
+#include "bringup_secrets.h"
 #else
 #define BRINGUP_WIFI_SSID ""
 #define BRINGUP_WIFI_PASSWORD ""
