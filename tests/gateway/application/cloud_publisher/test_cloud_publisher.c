@@ -60,6 +60,7 @@
 #define TC_STATS_TICK (1u << 2)
 #define TC_ALARM_PENDING (1u << 3)
 #define TC_COMMAND_PENDING (1u << 4)
+#define TC_WIFI_RECV_READY (1u << 5) /**< Mirrors MQTT_CLIENT_WIFI_RECV_READY_BIT. */
 
 /* Mirrors CP_JSON_BUF_SIZE (private to cloud_publisher.c). */
 #define TC_JSON_BUF_SIZE 4096u
@@ -701,6 +702,46 @@ void test_CP_T19_reconnect_in_progress_retries_every_tick_without_backoff(void)
     cloud_publisher_task_step_for_test(g_handle);
 
     TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls); /* every tick, no backoff */
+}
+
+/* ======================================================================= */
+/* CP-T20..T21 (WIFITASK-O1 Phase 3) — wifi-recv-ready wake               */
+/* ======================================================================= */
+
+void test_CP_T20_wifi_recv_ready_triggers_stats_poll(void)
+{
+    /* MQTT_CLIENT_WIFI_RECV_READY_BIT (set by MqttClient via
+     * wifitask_try_recv()) must re-drive prv_poll_stats() — and with it
+     * prv_maybe_reconnect() — on its own, not just on CP_NOTIFY_STATS_TICK,
+     * or a TLS handshake that just received data sits idle until the next
+     * 1 Hz tick instead of being retried immediately. */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
+
+    g_mock_xTaskNotifyWait_next_value = TC_WIFI_RECV_READY;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_get_stats_calls);
+}
+
+void test_CP_T21_wifi_recv_ready_bit_cleared_no_busy_loop(void)
+{
+    /* CP_NOTIFY_ALL_BITS (xTaskNotifyWait's clear-on-exit mask) must
+     * include this bit. Any bit set via eSetBits wakes xTaskNotifyWait
+     * regardless of the mask, but a bit left out of the mask is never
+     * cleared from the notification word — every following wait call
+     * would then return immediately with that bit still set, a busy
+     * loop rather than a missed wake. Proven here by NOT re-arming
+     * between the two steps: a second call must see nothing pending. */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
+
+    g_mock_xTaskNotifyWait_next_value = TC_WIFI_RECV_READY;
+    cloud_publisher_task_step_for_test(g_handle);
+    g_spy_mqtt_get_stats_calls = 0u;
+    cloud_publisher_task_step_for_test(g_handle); /* no re-arm: bit must be gone */
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_get_stats_calls);
 }
 
 /* ======================================================================= */

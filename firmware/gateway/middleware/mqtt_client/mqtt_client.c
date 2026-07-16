@@ -78,13 +78,13 @@
 #define MQTT_OUTGOING_PUBLISH_RECORDS 4u
 #define MQTT_INCOMING_PUBLISH_RECORDS 4u
 
-/** Timeout budget handed to each individual transport-level socket
- *  call. Below WIFI_RESP_TIMEOUT_MS (5000 ms) this has no observable
- *  effect — wifi_recv() floors to that value regardless — but it is
- *  still the semantically-correct per-poll budget to pass (a future
- *  WifiDriver revision, or swapping the transport, might honour it
- *  directly), and it bounds mqtt_client_process()'s own non-blocking
- *  contract when data genuinely is available immediately. */
+/** Timeout budget handed to the TEST-only transport recv path
+ *  (prv_transport_recv()'s #ifdef TEST body, still wifitask_recv()-based
+ *  — the production path, prv_mbedtls_net_recv(), moved to the
+ *  non-blocking wifitask_try_recv() under WIFITASK-O1 Phase 2 and no
+ *  longer uses this constant). Below WIFI_RESP_TIMEOUT_MS (5000 ms) this
+ *  has no observable effect — wifi_recv() floors to that value regardless
+ *  — but it is still the semantically-correct per-poll budget to pass. */
 #define MQTT_TRANSPORT_POLL_TIMEOUT_MS 500u
 
 #ifdef TEST
@@ -279,30 +279,48 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char
     return MBEDTLS_ERR_SSL_WANT_WRITE;
 }
 
-/** @brief mbedTLS BIO recv callback — the lowest-level socket read. */
+/**
+ * @brief mbedTLS BIO recv callback — the lowest-level socket read.
+ *
+ * WIFITASK-O1 Phase 2: routed through wifitask_try_recv() instead of the
+ * blocking wifitask_recv(), so a TLS handshake round-trip no longer parks
+ * CloudPublisherTask for WifiTask's ~5 s worst case per call (WIFI-O11) —
+ * mbedtls_ssl_handshake() already treats MBEDTLS_ERR_SSL_WANT_READ as
+ * "not done yet, call me again next tick" (that's what already powers
+ * mqtt_client_connect_step()'s ticking, MQTT-D8), so no new state machine
+ * is needed here. MQTT_CLIENT_WIFI_RECV_READY_BIT wakes CloudPublisherTask
+ * promptly when a background attempt completes (see cloud_publisher.c's
+ * prv_task_step()) instead of leaving it to the next 1 Hz stats tick.
+ */
 MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 {
     NetworkContext_t *net_ctx = (NetworkContext_t *) ctx;
 
     size_t out_len = 0u;
-    wifitask_err_t err = wifitask_recv(net_ctx->wifi, net_ctx->socket, buf, len, &out_len,
-                                       MQTT_TRANSPORT_POLL_TIMEOUT_MS);
-    if (err == WIFITASK_ERR_OK)
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_PENDING;
+    wifitask_err_t err = wifitask_try_recv(net_ctx->wifi, net_ctx->socket, buf, len, &out_len,
+                                           MQTT_CLIENT_WIFI_RECV_READY_BIT, &poll);
+    if (err == WIFITASK_ERR_NO_RESOURCE)
     {
-        return (int) out_len;
-    }
-    /* WifiTask (a synchronous relocate) passes wifi_recv()'s own error
-     * codes through unchanged for anything past its own three request-
-     * layer codes (WIFITASK_ERR_NULL_PTR/NO_RESOURCE/TIMEOUT = 1/2/3) —
-     * this compares against the *raw WifiDriver* WIFI_ERR_TIMEOUT (4), a
-     * different value with a different meaning than WIFITASK_ERR_TIMEOUT
-     * (3, WifiTask's own queue/reply timeout). Do NOT rename this to
-     * WIFITASK_ERR_TIMEOUT — see wifi-task.md §10 WIFITASK-O3. */
-    if (err == (wifitask_err_t) WIFI_ERR_TIMEOUT)
-    {
+        /* Arm queue momentarily full — transient, retry next call. */
         return MBEDTLS_ERR_SSL_WANT_READ;
     }
-    return MBEDTLS_ERR_SSL_TIMEOUT;
+    if (err != WIFITASK_ERR_OK)
+    {
+        return MBEDTLS_ERR_SSL_TIMEOUT;
+    }
+
+    switch (poll)
+    {
+    case WIFITASK_RECV_POLL_READY:
+        return (int) out_len;
+    case WIFITASK_RECV_POLL_PENDING:
+    case WIFITASK_RECV_POLL_NONE:
+        return MBEDTLS_ERR_SSL_WANT_READ;
+    case WIFITASK_RECV_POLL_ERROR:
+    default:
+        return MBEDTLS_ERR_SSL_TIMEOUT;
+    }
 }
 
 /**
@@ -344,9 +362,13 @@ static int32_t prv_transport_recv(NetworkContext_t *net_ctx, void *buf, size_t l
     {
         return (int32_t) out_len;
     }
-    /* See prv_mbedtls_net_recv() above — this must stay the raw WifiDriver
-     * WIFI_ERR_TIMEOUT (4), not WIFITASK_ERR_TIMEOUT (3, a different
-     * condition). Do not rename. */
+    /* This must stay the raw WifiDriver WIFI_ERR_TIMEOUT (4), not
+     * WIFITASK_ERR_TIMEOUT (3, a different condition) — see wifi-task.md
+     * §10 WIFITASK-O3. TEST-only: this path still uses the blocking
+     * wifitask_recv(); the production recv (prv_mbedtls_net_recv() above)
+     * moved to wifitask_try_recv()'s poll-enum contract under
+     * WIFITASK-O1 Phase 2 and no longer compares against this value. Do
+     * not rename. */
     if (err == (wifitask_err_t) WIFI_ERR_TIMEOUT)
     {
         return 0;

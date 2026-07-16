@@ -183,6 +183,42 @@ wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uin
     return WIFITASK_ERR_OK;
 }
 
+/**
+ * @brief wifitask_try_recv() stub (WIFITASK-O1 Phase 2).
+ *
+ * Not exercised by any test today: prv_mbedtls_net_recv() (the only
+ * production call site) never runs in this suite, because mbedTLS's own
+ * handshake/read calls are CMock-mocked at a higher level (see file
+ * header) — the real bio callback body is never invoked. Provided purely
+ * so mqtt_client.c links; kept behaviorally sane against the same
+ * s_recv_buf queue as wifitask_recv() above, unlike that function, this
+ * never blocks or advances g_mock_tick_count — a real caller is expected
+ * to poll repeatedly instead.
+ */
+wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
+                                 size_t buf_len, size_t *out_len, uint32_t ready_notify_bit,
+                                 wifitask_recv_poll_t *out_poll)
+{
+    (void) handle;
+    (void) socket;
+    (void) ready_notify_bit;
+
+    if (s_recv_pos >= s_recv_len)
+    {
+        *out_len = 0u;
+        *out_poll = WIFITASK_RECV_POLL_NONE;
+        return WIFITASK_ERR_OK;
+    }
+
+    size_t avail = s_recv_len - s_recv_pos;
+    size_t n = (avail < buf_len) ? avail : buf_len;
+    memcpy(buf, &s_recv_buf[s_recv_pos], n);
+    s_recv_pos += n;
+    *out_len = n;
+    *out_poll = WIFITASK_RECV_POLL_READY;
+    return WIFITASK_ERR_OK;
+}
+
 wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t socket)
 {
     (void) handle;

@@ -35,6 +35,16 @@
 /** @brief Opaque handle to an MqttClient instance. */
 typedef struct mqtt_client_inst *mqtt_client_handle_t;
 
+/**
+ * @brief WIFITASK-O1 Phase 2/3: set by MqttClient (via wifitask_try_recv())
+ *        on CloudPublisherTask's own notification word when a background
+ *        recv attempt completes, so a TLS handshake or MQTT read blocked
+ *        mid-sequence gets re-driven the moment data actually arrives,
+ *        rather than waiting for CloudPublisher's next 1 Hz stats tick.
+ *        Bit 5 — CloudPublisher's own CP_NOTIFY_* bits occupy 0-4
+ *        (cloud_publisher.c); this must not collide with those. */
+#define MQTT_CLIENT_WIFI_RECV_READY_BIT (1u << 5)
+
 typedef enum
 {
     MQTT_CLIENT_ERR_OK = 0,

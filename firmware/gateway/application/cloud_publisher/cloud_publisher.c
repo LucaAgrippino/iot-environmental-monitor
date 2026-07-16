@@ -45,7 +45,14 @@
 #define CP_NOTIFY_STATS_TICK (1u << 2)
 #define CP_NOTIFY_ALARM_PENDING (1u << 3)
 #define CP_NOTIFY_COMMAND_PENDING (1u << 4)
-#define CP_NOTIFY_ALL_BITS 0x1Fu
+/* Bit 5 (MQTT_CLIENT_WIFI_RECV_READY_BIT, mqtt_client.h) is set by MqttClient
+ * itself, not CloudPublisher — included here so xTaskNotifyWait()'s
+ * clear-on-exit mask actually clears it (WIFITASK-O1 Phase 3). Leaving it
+ * out of this mask would still wake the task on eSetBits (any bit change
+ * unblocks xTaskNotifyWait regardless of mask), but the bit would never be
+ * cleared afterwards, so every following wait call would return
+ * immediately — a busy-loop, not a missed wake. */
+#define CP_NOTIFY_ALL_BITS (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT)
 
 #define CP_DEVICE_SERIAL_LEN 25u /**< 24 hex chars (96-bit UID) + null. */
 #define CP_TOPIC_MAX_LEN 64u
@@ -269,7 +276,14 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
         }
         (void) xTimerChangePeriod(inst->health_timer, pdMS_TO_TICKS(period_s * 1000u), 0u);
     }
-    if ((notif & CP_NOTIFY_STATS_TICK) != 0u)
+    /* WIFITASK-O1 Phase 3: also re-drive on MQTT_CLIENT_WIFI_RECV_READY_BIT,
+     * not just the 1 Hz stats tick — otherwise a TLS handshake or MQTT read
+     * that just got real data via wifitask_try_recv() (mqtt_client.c)
+     * sits idle until the next stats tick instead of being retried
+     * immediately, adding up to ~1 s of dead time per round-trip on top of
+     * WIFI-O11's own irreducible module latency. See prv_maybe_reconnect()
+     * below (CP-D9/CP-D10) for the actual retry driven here. */
+    if ((notif & (CP_NOTIFY_STATS_TICK | MQTT_CLIENT_WIFI_RECV_READY_BIT)) != 0u)
     {
         prv_poll_stats(inst);
     }
