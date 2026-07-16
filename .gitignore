@@ -44,7 +44,9 @@ firmware/shared/firmware_version.h
 
 # Auto-generated bring-up certs (DER arrays + PEM copies, contains private
 # key material — regenerate via
-# local-test/mosquitto-broker/regenerate-bringup-certs.ps1)
+# local-test/mosquitto-broker/regenerate-bringup-certs.ps1). Also holds
+# personal_data.h (real bring-up WiFi SSID/password) — see
+# scripts/personal_data.h.example for the template.
 firmware/gateway/certs/
 
 # CubeIDE build outputs

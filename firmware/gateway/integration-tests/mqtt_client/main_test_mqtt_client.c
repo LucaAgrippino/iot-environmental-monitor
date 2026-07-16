@@ -11,15 +11,20 @@
  *   4. Wire the ISM43362-M3G-L44 module (or use the on-board one on the
  *      B-L475E-IOT01A) — same SPI3 + 5 control-line wiring as
  *      integration-tests/wifi_driver/main_test_wifi_driver.c.
- *   5. Fill in BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD below to reach an
- *      access point with internet egress. BRINGUP_MQTT_BROKER_ENDPOINT and
- *      the three DER cert/key arrays come from bringup_certs.h
- *      automatically — it's found via the firmware/gateway/certs/ include
- *      path (added to .cproject), no manual copying needed; run
- *      regenerate-bringup-certs.ps1 first if it doesn't exist yet (see
- *      scripts/regenerate-bringup-certs-usage.txt), or fill BRINGUP_MQTT_*
- *      in by hand for a real AWS IoT Core "thing" instead of the local
- *      broker.
+ *   5. Define BRINGUP_TEST_MODE below and create
+ *      firmware/gateway/certs/personal_data.h with your real
+ *      BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD — see
+ *      scripts/personal_data.h.example for the template. personal_data.h
+ *      is gitignored and never committed; leave BRINGUP_TEST_MODE
+ *      undefined for a placeholder-only build (BRINGUP_WIFI_SSID stays
+ *      empty and this bring-up halts at the "no AP" check). Separately,
+ *      BRINGUP_MQTT_BROKER_ENDPOINT and the three DER cert/key arrays come
+ *      from bringup_certs.h automatically — it's found via the
+ *      firmware/gateway/certs/ include path (added to .cproject), no
+ *      manual copying needed; run regenerate-bringup-certs.ps1 first if it
+ *      doesn't exist yet (see scripts/regenerate-bringup-certs-usage.txt),
+ *      or fill BRINGUP_MQTT_* in by hand for a real AWS IoT Core "thing"
+ *      instead of the local broker.
  *   6. To exercise TC-HW-MQTT-007/008 (inbound command), use the AWS IoT
  *      Core MQTT test client (console) to publish to
  *      cmd/iotmonitor/<client_id>/config while the countdown in
@@ -125,8 +130,18 @@
 /* ---------------------------------------------------------------------- */
 /* Fill these in before flashing.                                         */
 /* ---------------------------------------------------------------------- */
+
+/* Define to pull real credentials from personal_data.h (gitignored, never
+ * committed — see scripts/personal_data.h.example). Leave undefined for a
+ * placeholder-only build. */
+/* #define BRINGUP_TEST_MODE */
+
+#ifdef BRINGUP_TEST_MODE
+#include "personal_data.h"
+#else
 #define BRINGUP_WIFI_SSID ""
 #define BRINGUP_WIFI_PASSWORD ""
+#endif
 
 /* Leave BRINGUP_MQTT_BROKER_ENDPOINT empty to skip TC-HW-MQTT-003 onward.
  *

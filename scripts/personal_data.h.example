@@ -1,0 +1,23 @@
+/**
+ * @file personal_data.h.example
+ * @brief Template for firmware/gateway/certs/personal_data.h (gitignored,
+ *        never committed).
+ *
+ * Copy this file to firmware/gateway/certs/personal_data.h and fill in
+ * real values. That folder is already on both Debug and Release Include
+ * paths in firmware/gateway/.cproject (same folder bringup_certs.h uses),
+ * so "personal_data.h" resolves with no extra project configuration.
+ *
+ * personal_data.h is only pulled into a bring-up main when that file
+ * defines BRINGUP_TEST_MODE (see the top of main_test_mqtt_client.c /
+ * main_test_cloud_publisher.c) — leave BRINGUP_TEST_MODE undefined for a
+ * placeholder-only build that never touches this file.
+ */
+
+#ifndef PERSONAL_DATA_H
+#define PERSONAL_DATA_H
+
+#define BRINGUP_WIFI_SSID     "your-network-name"
+#define BRINGUP_WIFI_PASSWORD "your-network-password"
+
+#endif /* PERSONAL_DATA_H */
