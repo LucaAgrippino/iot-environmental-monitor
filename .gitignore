@@ -44,6 +44,9 @@ tests/build_gateway/
 
 # Generated firmware sources
 firmware/shared/firmware_version.h
+# scripts/gen-panic-symbols.py output — needs a real gateway.map (a prior
+# build) to generate from; not committed, same treatment as the above.
+firmware/gateway/drivers/cpu/panic_symbols_data.c
 
 # Auto-generated bring-up certs (DER arrays + PEM copies, contains private
 # key material — regenerate via
