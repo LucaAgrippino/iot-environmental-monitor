@@ -455,21 +455,85 @@ static void prv_wifitask_body(void *arg)
 
     for (;;)
     {
-        wifitask_request_t *req = NULL;
-        if (xQueueReceive(inst->request_queue, &req,
-                          pdMS_TO_TICKS(WIFI_LIVENESS_CHECK_PERIOD_MS)) == pdPASS)
-        {
-            req->wifi_status = prv_dispatch(inst, req);
-            (void) xTaskNotifyIndexed(req->caller, WIFITASK_NOTIFY_INDEX,
-                                      (uint32_t) req->wifi_status, eSetValueWithOverwrite);
-        }
-        else
-        {
-            prv_liveness_check(inst);   /* WIFI-O15, §5.3 */
-        }
+        prv_wifitask_step(inst);   /* three-way branch since WIFITASK-O1, §4.3a */
     }
 }
 ```
+
+### 4.3a WIFITASK-O1 Phase 1 — non-blocking recv, WifiTask layer only
+
+**Status: Partially resolved.** This phase adds a genuinely non-blocking
+`wifitask_try_recv()` so a caller doesn't have to block for `wifi_recv()`'s
+real worst case (~5 s, `WIFITASK_WIFI_RESP_TIMEOUT_MS`) — but see the
+honest scope note at the end of this subsection before assuming it makes
+anything *faster*. WifiDriver (`wifi_recv()` itself, WIFI-D11) is
+untouched; the async boundary sits entirely here.
+
+**A per-instance recv "slot"**, owned exclusively by WifiTask's own task
+(the only writer of its state — `wifitask_try_recv()` callers only ever
+read the `DONE`-state fields and send arm requests through a queue, never
+mutate the slot directly, so there is no cross-task synchronisation to get
+wrong):
+
+```
+IDLE --(arm request)--> ARMED --(main queue empty)--> IN_FLIGHT
+                                                            |
+                                                    wifi_recv() returns
+                                                            |
+                                                            v
+DONE <---------------------------------------------------(finished)
+ |
+ +--(next try_recv() call: copies out, sends a fresh arm request)--> ARMED
+```
+
+One slot for this phase (matches "one outstanding request per caller",
+§2 — still true; CloudPublisherTask is the only real caller today).
+Extending to `WIFI_MAX_SOCKETS` concurrent slots is a documented future
+item (§10), not needed yet.
+
+**A second, value-typed queue** (`recv_arm_queue`, depth 2,
+`wifitask_recv_arm_t` — socket/caller/notify-bit, no pointers) carries arm
+requests. Deliberately *not* the existing `request_queue`, which only
+ever carries a pointer into the caller's own stack frame — safe there only
+because that caller stays blocked the whole time (§4.2). A non-blocking
+caller returns immediately, so reusing that pattern here would recreate
+exactly the dangling-pointer bug class WIFITASK-O6 (§10) fixed, via a
+different mechanism.
+
+**`prv_wifitask_step()` gains a third branch.** Every step, in order:
+check the arm queue (non-blocking) and (re)arm the slot if it's currently
+`IDLE`/`DONE` (an `ARMED`/`IN_FLIGHT` slot only gets its owner/notify-bit
+refreshed — an attempt already in progress is never interrupted); then
+check the main `request_queue` with a *short* wait
+(`WIFITASK_RECV_ARM_POLL_TICKS`, 100 ms) whenever the slot is active,
+instead of the normal long liveness-check wait, so a re-arm sent right
+after a pickup doesn't sit unnoticed for up to 30 s; a real request here
+always takes priority over a pending recv attempt in the same step. Only
+if the main queue is genuinely empty *and* the slot is `ARMED` does
+WifiTask run one full `wifi_recv()` attempt (unchanged, still up to ~5 s),
+mark the slot `DONE`, and wake the owner via `xTaskNotify()` on the
+owner's **own default index (0)** with the caller-chosen bit —
+deliberately not `WIFITASK_NOTIFY_INDEX` (1, §10 WIFITASK-O6) — a
+separate channel from WifiTask's own reply protocol, covered directly by
+WIFITASK-T18.
+
+**Why every `wifitask_try_recv()` call re-sends an arm request, not just
+the first one:** the send is asynchronous (WifiTask hasn't necessarily
+processed it before the caller's own pickup check runs immediately
+after), so that check always sees the slot as it was *before* this call's
+own arm takes effect — which is exactly what makes "pick up a `DONE`
+result, then be automatically re-armed for the next poll" work correctly
+without the caller and WifiTask needing any further coordination.
+
+**Honest scope note, not to be missed:** this phase fixes CloudPublisherTask
+(or any future caller) being synchronously parked inside `wifitask_recv()`
+for the whole TLS-handshake-tick duration — it does **not** reduce that
+duration. `WIFI_RESP_TIMEOUT_MS`'s 5 s floor is real ISM43362 module-side
+response latency (WIFI-O11), not driver polling waste; WifiDriver's own
+`wifi_recv()` call inside `prv_recv_slot_attempt()` still takes just as
+long as before. See §10, WIFITASK-O1, for the remaining phases (MqttClient
+rewire, CloudPublisher wake-bit, hardware wall-clock-parity validation)
+that actually connect this to the original 30 s-connect complaint.
 
 ### 4.4 Test reset hook
 
@@ -513,7 +577,8 @@ Two shapes were considered for the request API:
   alarm queue (REQ-NF-113, ≤500 ms) even during a stalled WiFi op — a real
   fix for MQTT-O7.
 
-(A) was chosen for this increment. (B) requires MqttClient's *entire*
+(A) was chosen for this increment, and remains the default for every
+`wifitask_*()` call *except* recv. (B) requires MqttClient's *entire*
 steady-state I/O surface (`process()`/`send()`/`recv()`, not just connect)
 to become a ticked, non-blocking state machine — the same pattern this
 session's `mqtt_client_connect_step()` (MQTT-D8) already proved out for the
@@ -522,11 +587,17 @@ second module's rework riding on top of a module that doesn't exist yet;
 scoping it into WifiTask's first LLD would repeat the mistake WIFI-D11
 explicitly avoided (improvising one module's design inside another). (A)
 fully resolves D29 and gives WIFI-O15 a real owner; it does not resolve
-MQTT-O7, which stays open (§10) with a concrete, narrower path forward
-already sketched: WifiTask running a background recv-poll per socket
-(backed by the DATARDY notification bit reserved in §5.4) and exposing a
-genuinely non-blocking `wifitask_try_recv()`, paired with a future,
-separately-scoped tick added to `mqtt_client_process()`.
+MQTT-O7 by itself.
+
+**Update (WIFITASK-O1 Phase 1):** the "concrete, narrower path forward"
+this subsection used to just sketch is now real — `wifitask_try_recv()`
+exists (§4.3a), a non-blocking sibling to the still-blocking
+`wifitask_recv()` above, giving *recv specifically* the (B) shape while
+every other operation stays (A). It notably does **not** use the DATARDY
+bit reserved in §5.4 — that reservation is still just a reservation.
+MqttClient does not call `wifitask_try_recv()` yet (Phase 2, §10) — until
+it does, MQTT-O7 is unaffected by this phase; WifiTask having the
+capability doesn't help until MqttClient uses it.
 
 ### 5.3 WIFI-O15 — AP-drop detection and reconnect
 
@@ -653,6 +724,20 @@ Test file: `tests/gateway/middleware/wifi_task/test_wifi_task.c`
 | WIFITASK-T12 | Liveness probe fails — reconnect attempted | Mock `wifi_connect_ap()` called following the failed `wifi_get_rssi()` |
 | WIFITASK-T13 | `wifitask_reset_for_test()` clears the pool | A prior instance's handle is no longer valid after reset |
 
+*(T14-T16 cover `wifitask_reset_for_test()`'s pool-clear edge case and
+WIFITASK-O6's notification-index regression — see the test file directly,
+this table's numbering has drifted from the file's own T01-T20 sequence
+over several sessions and is not being fully reconciled here.)*
+
+**WIFITASK-O1 Phase 1 — `wifitask_try_recv()` (§4.3a):**
+
+| ID | Scenario | Expected |
+|---|---|---|
+| WIFITASK-T17 | `wifitask_try_recv()` on a fresh, never-armed socket | Returns immediately with `WIFITASK_RECV_POLL_PENDING`, no `wifi_recv()` call yet |
+| WIFITASK-T18 | Arm via the arm queue, one step, then pick up | Exactly one `wifi_recv()` call; owner woken via plain `xTaskNotify()` on index 0 (not `WIFITASK_NOTIFY_INDEX`, WIFITASK-O6) with the caller-chosen bit; a subsequent `wifitask_try_recv()` returns `READY` with the right `out_len` |
+| WIFITASK-T19 | Background attempt resolves to `WIFI_ERR_TIMEOUT` | Pickup reports `WIFITASK_RECV_POLL_NONE`, not `ERROR` — "no data yet" isn't a failure; `ready_notify_bit == 0` confirms the wake is opt-in |
+| WIFITASK-T20 | A real request and an armed recv slot both pending in the same step | The real request dispatches; the recv attempt is deferred to a later step, not run alongside it (ordering, not starvation either direction) |
+
 **Layer 2 — hardware integration (on-board, deferred):**
 
 Full multi-caller exercise against a real ISM43362 — at minimum, one
@@ -669,7 +754,7 @@ host-only until one of those ships.
 
 | ID | Item | Status | Resolution |
 |---|---|---|---|
-| WIFITASK-O1 | MQTT-O7 (CloudPublisherTask's 5 s idle-recv stall) is relocated, not fixed. `wifitask_recv()` still blocks the caller for up to `WIFI_RESP_TIMEOUT_MS` (5 s), same as `wifi_recv()` does today — WifiTask just changes *where* that block executes. | **Open — deliberately deferred** | A real fix needs `wifitask_try_recv()` (genuinely non-blocking, backed by a per-socket background poll inside WifiTask and the DATARDY notification bit reserved in §5.4) paired with a ticked, non-blocking extension of `mqtt_client_process()`'s recv path — mirroring `mqtt_client_connect_step()`'s (MQTT-D8) precedent, but for the steady-state path instead of just connect. Separately scoped; not attempted here (§5.2). |
+| WIFITASK-O1 | MQTT-O7 (CloudPublisherTask's 5 s idle-recv stall) is relocated, not fixed. `wifitask_recv()` still blocks the caller for up to `WIFI_RESP_TIMEOUT_MS` (5 s), same as `wifi_recv()` does today — WifiTask just changes *where* that block executes. | **Partially resolved — Phase 1 of 5 shipped** | Phase 1 (WifiTask layer only, §4.3a): `wifitask_try_recv()` — genuinely non-blocking, backed by a per-slot background poll inside WifiTask, existing alongside the unchanged `wifitask_recv()`. Covered by WIFITASK-T17..T20. **Remaining, in order:** Phase 2 — rewire `mqtt_client.c`'s `prv_mbedtls_net_recv()` to call `wifitask_try_recv()` (the *only* real production call site; `prv_transport_recv()`'s production body already calls `mbedtls_ssl_read()`, not WifiTask directly), no new state machine needed since `mbedtls_ssl_handshake()` already tolerates `WANT_READ`. Phase 3 — CloudPublisher threads a new `CP_NOTIFY_WIFI_RECV_READY` bit through as `wifitask_try_recv()`'s `ready_notify_bit`, and `prv_maybe_reconnect()`'s trigger is checked/adjusted so the wake actually re-drives an in-progress reconnect promptly (**required**, not optional — without it, pacing falls back to the 1 Hz stats tick alone, which could add up to ~6 s of *extra* dead time across a 6-round handshake versus today, a regression). Phase 4 — hardware validation: TC-HW-WIFITASK-alarm-latency (REQ-NF-113 stays ≤500 ms during an in-flight reconnect), TC-HW-WIFITASK-wallclock-parity (**no regression** against the current ~30 s baseline — not claiming improvement, see below), TC-HW-WIFITASK-data-integrity. Phase 5 (deferred, not currently planned) — internal unification of `wifitask_recv()` on top of `wifitask_try_recv()`; a complementary, separately-scoped DATARDY-notification-based wait inside WifiDriver itself (frees the CPU during WifiTask's own ~5 s attempt, for tasks *other* than the caller — a different axis from this item, not a superset of it; not bundled here, same precedent as CP-D10/MQTT-O9 declining a WifiDriver touch inside an adjacent fix). **Explicitly does not, and Phase 4's wallclock-parity test exists specifically to confirm this claim holds**: reduce the ~30 s TLS-handshake wall-clock time itself — that floor is real ISM43362 module-side AT-command response latency (this item's own first row, WIFI-O11), not driver-side polling waste; nothing in any phase here changes the module's own behaviour. |
 | WIFITASK-O2 | WIFI-O15's reconnect **policy** (attempt count, backoff curve, and what happens to any socket/MQTT session open at the time of an AP drop) is not pinned — only the structural owner and tick (§5.3) are. | **Open** | Needs a concrete backoff constant and a decision on whether WifiTask force-closes/invalidates open sockets on a detected drop or leaves that to the next `wifitask_send()`/`wifitask_recv()` caller to discover naturally (their own call would fail against a dead socket regardless). Revisit once a second real caller (TimeServiceTask or UpdateServiceTask) exists and this can be validated against more than one consumer's expectations. |
 | WIFITASK-O3 | MqttClient's actual code (`mqtt_client.c`) still calls `wifi_send`/`wifi_recv`/`wifi_open_socket`/`wifi_close_socket` directly, and its `components.md` USES line still says `WifiDriver`, not `WifiTask`. This document does not change either. | **Resolved** | `mqtt_client.h`/`.c` rewired: `mqtt_client_config_t.wifi` is now `wifitask_handle_t`, every call site renamed to the matching `wifitask_*()` function. The one correctness trap handled explicitly: `WIFITASK_ERR_TIMEOUT` (value 3) and `WIFI_ERR_TIMEOUT` (value 4) are numerically distinct — `mqtt_client.c`'s two recv-timeout checks (`prv_mbedtls_net_recv()`, `prv_transport_recv()`) still compare against the raw `WIFI_ERR_TIMEOUT`, not the renamed constant, with a comment at each site explaining why. `components.md`'s MqttClient entry now reads `USES (downward): IWifiTask, ILogger`. Both integration mains (`main_test_mqtt_client.c`, `main_test_cloud_publisher.c`) updated to call `wifitask_create()` post-scheduler and thread the resulting handle through. NtpClient's entry deliberately left untouched — out of scope, not implemented for GW yet. |
 | WIFITASK-O4 | `WIFI_LIVENESS_CHECK_PERIOD_MS` (30 s, §4.1) is a provisional placeholder, not validated against any requirement or field data. | **Open** | Revisit once real hardware bring-up data exists for how quickly a dropped AP is actually noticed via `wifi_get_rssi()` failure vs. a genuine multi-minute silent drop; balance against battery/RF-quiet considerations if any apply to the Gateway (currently mains-powered, so likely not a hard constraint). |

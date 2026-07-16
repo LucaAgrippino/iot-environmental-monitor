@@ -121,6 +121,29 @@ extern uint8_t    g_mock_xQueueReceive_next_item[256];
 extern size_t     g_mock_xQueueReceive_next_item_size;
 extern uint32_t   g_mock_xQueueReceive_available;
 
+/* Second-queue variants of the two blocks above. xQueueCreateStatic()
+ * returns a handle derived from the caller's own StaticQueue_t control
+ * block (real FreeRTOS does the same — the control block *is* the queue
+ * object), so distinct queues created by the same module (e.g. WifiTask's
+ * request_queue + a second, non-blocking arm queue) get genuinely distinct
+ * handles. The *first* handle any test sees routes through the "_2"-less
+ * globals above (preserving every existing single-queue test unchanged);
+ * the first *different* handle routes through these "_2" globals instead.
+ * Only two queues are distinguishable this way — sufficient for every
+ * module today; a third queue in the same test would silently alias onto
+ * whichever of the two it doesn't match by literal pointer equality re-use
+ * order, so don't reach for a third without extending this further. */
+extern BaseType_t g_mock_xQueueSend2_return;
+extern uint32_t   g_mock_xQueueSend2_call_count;
+extern uint8_t    g_mock_xQueueSend2_last_item[256];
+extern size_t     g_mock_xQueueSend2_last_item_size;
+
+extern BaseType_t g_mock_xQueueReceive2_return;
+extern uint32_t   g_mock_xQueueReceive2_call_count;
+extern uint8_t    g_mock_xQueueReceive2_next_item[256];
+extern size_t     g_mock_xQueueReceive2_next_item_size;
+extern uint32_t   g_mock_xQueueReceive2_available;
+
 /* xSemaphoreCreateMutexStatic mock */
 extern SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
 

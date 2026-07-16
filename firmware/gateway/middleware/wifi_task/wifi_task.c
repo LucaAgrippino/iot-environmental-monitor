@@ -65,17 +65,61 @@
 #define WIFITASK_REPLY_TIMEOUT_TICKS(op_worst_case_ms) \
     pdMS_TO_TICKS((op_worst_case_ms) + WIFITASK_QUEUE_MARGIN_MS)
 
+/** WIFITASK-O1 Phase 1: non-blocking recv, WifiTask layer only (see
+ *  docs/lld/middleware/wifi-task.md §4/§5.2/§10). wifi_recv()'s own
+ *  WIFI_MAX_PACKET_SIZE (private to wifi_driver.c) mirrored the same way
+ *  the timing constants above already are. */
+#define WIFITASK_WIFI_MAX_PACKET_SIZE 1460u
+#define WIFITASK_RECV_ARM_QUEUE_DEPTH 2u
+/** How often prv_wifitask_step() re-checks the arm queue / main queue
+ *  while a recv slot is active (ARMED/IN_FLIGHT/DONE) instead of sleeping
+ *  the full WIFI_LIVENESS_CHECK_PERIOD_MS — otherwise a caller's re-arm
+ *  (sent after picking up a DONE result) could sit unnoticed for up to
+ *  30 s. Only applies while a socket is actually being polled; IDLE goes
+ *  back to the normal long liveness-check cadence. */
+#define WIFITASK_RECV_ARM_POLL_TICKS pdMS_TO_TICKS(100u)
+
 /* wifitask_op_t and wifitask_request_t are defined in wifi_task.h, not
  * here — tests construct wifitask_request_t directly to drive
  * wifitask_step_for_test() (companion §9, Layer 2 dispatch tests), since
  * there is no real scheduler in host tests to interleave a public
  * wrapper's enqueue with WifiTask's own dispatch. */
 
+/** WIFITASK-O1 Phase 1: one background recv "slot" per instance, owned
+ * exclusively by WifiTask's own task (the only writer of state/socket/
+ * scratch* — try_recv() callers only ever read the DONE-state fields and
+ * send arm requests through the queue, never mutate this directly, so
+ * there is no cross-task synchronisation to get wrong here). Scoped to
+ * one slot for this phase, matching "one outstanding request per caller"
+ * (companion §2) — still true today, CloudPublisherTask is the only real
+ * caller. Extending to WIFI_MAX_SOCKETS concurrent slots is a documented
+ * future item (companion §10), not needed yet. */
+typedef enum
+{
+    WIFITASK_RECV_SLOT_IDLE = 0,
+    WIFITASK_RECV_SLOT_ARMED,
+    WIFITASK_RECV_SLOT_IN_FLIGHT,
+    WIFITASK_RECV_SLOT_DONE,
+} wifitask_recv_slot_state_t;
+
+typedef struct
+{
+    wifitask_recv_slot_state_t state;
+    wifi_socket_t socket;
+    TaskHandle_t owner;
+    uint32_t ready_notify_bit;
+    uint8_t scratch[WIFITASK_WIFI_MAX_PACKET_SIZE];
+    size_t scratch_len;
+    wifi_err_t outcome;
+} wifitask_recv_slot_t;
+
 struct wifitask_inst
 {
     wifi_handle_t wifi;
     TaskHandle_t task_handle;
     QueueHandle_t request_queue;
+    QueueHandle_t recv_arm_queue;
+    wifitask_recv_slot_t recv_slot;
     wifi_link_state_t last_known_link_state;
     bool in_use;
 };
@@ -87,6 +131,8 @@ static StaticTask_t s_wifitask_tcb;
 static StackType_t s_wifitask_stack[WIFITASK_TASK_STACK_WORDS];
 static StaticQueue_t s_request_queue_ctrl;
 static uint8_t s_request_queue_storage[WIFITASK_QUEUE_DEPTH * sizeof(wifitask_request_t *)];
+static StaticQueue_t s_recv_arm_queue_ctrl;
+static uint8_t s_recv_arm_queue_storage[WIFITASK_RECV_ARM_QUEUE_DEPTH * sizeof(wifitask_recv_arm_t)];
 
 static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *req)
 {
@@ -135,20 +181,81 @@ static void prv_liveness_check(struct wifitask_inst *inst)
     }
 }
 
+/**
+ * @brief Run one full wifi_recv() attempt for the armed slot (WIFITASK-O1
+ * Phase 1). Still blocks WifiTask's own task for up to
+ * WIFITASK_WIFI_RESP_TIMEOUT_MS — the point of this feature is freeing
+ * the *caller* from that block, not WifiTask itself (see the plan's
+ * honest wall-clock-vs-responsiveness distinction; WifiDriver's own
+ * blocking wait, WIFI-D11, is untouched).
+ */
+static void prv_recv_slot_attempt(struct wifitask_inst *inst)
+{
+    inst->recv_slot.state = WIFITASK_RECV_SLOT_IN_FLIGHT;
+
+    size_t out_len = 0u;
+    wifi_err_t err = wifi_recv(inst->wifi, inst->recv_slot.socket, inst->recv_slot.scratch,
+                               sizeof(inst->recv_slot.scratch), &out_len,
+                               WIFITASK_WIFI_RESP_TIMEOUT_MS);
+
+    inst->recv_slot.scratch_len = out_len;
+    inst->recv_slot.outcome = err;
+    inst->recv_slot.state = WIFITASK_RECV_SLOT_DONE;
+
+    if (inst->recv_slot.ready_notify_bit != 0u)
+    {
+        (void) xTaskNotify(inst->recv_slot.owner, inst->recv_slot.ready_notify_bit, eSetBits);
+    }
+}
+
 static void prv_wifitask_step(struct wifitask_inst *inst)
 {
+    /* Non-blocking arm-queue check, every step — see wifitask_try_recv():
+     * every call re-sends an arm request, which this handles idempotently
+     * (only actually (re)arms from IDLE/DONE; ARMED/IN_FLIGHT just gets
+     * its owner/notify-bit refreshed, an in-progress attempt is never
+     * interrupted). This is what makes "pick up, then automatically
+     * re-armed for the next poll" work without the caller and WifiTask
+     * needing to coordinate anything beyond this queue. */
+    wifitask_recv_arm_t arm;
+    if (xQueueReceive(inst->recv_arm_queue, &arm, 0u) == pdPASS)
+    {
+        if ((inst->recv_slot.state == WIFITASK_RECV_SLOT_IDLE) ||
+            (inst->recv_slot.state == WIFITASK_RECV_SLOT_DONE))
+        {
+            inst->recv_slot.socket = arm.socket;
+            inst->recv_slot.state = WIFITASK_RECV_SLOT_ARMED;
+        }
+        inst->recv_slot.owner = arm.caller;
+        inst->recv_slot.ready_notify_bit = arm.ready_notify_bit;
+    }
+
+    /* While a slot is active, stay responsive to arm-queue traffic instead
+     * of sleeping the full liveness-check period — see
+     * WIFITASK_RECV_ARM_POLL_TICKS's own comment. IDLE (no socket being
+     * polled at all) keeps today's unchanged long-wait cadence. */
+    TickType_t wait_ticks = (inst->recv_slot.state != WIFITASK_RECV_SLOT_IDLE)
+                                ? WIFITASK_RECV_ARM_POLL_TICKS
+                                : pdMS_TO_TICKS(WIFI_LIVENESS_CHECK_PERIOD_MS);
+
     wifitask_request_t *req = NULL;
-    if (xQueueReceive(inst->request_queue, &req, pdMS_TO_TICKS(WIFI_LIVENESS_CHECK_PERIOD_MS)) ==
-        pdPASS)
+    if (xQueueReceive(inst->request_queue, &req, wait_ticks) == pdPASS)
     {
         req->wifi_status = prv_dispatch(inst, req);
         (void) xTaskNotifyIndexed(req->caller, WIFITASK_NOTIFY_INDEX, (uint32_t) req->wifi_status,
                                   eSetValueWithOverwrite);
     }
-    else
+    else if (inst->recv_slot.state == WIFITASK_RECV_SLOT_ARMED)
+    {
+        prv_recv_slot_attempt(inst);
+    }
+    else if (inst->recv_slot.state == WIFITASK_RECV_SLOT_IDLE)
     {
         prv_liveness_check(inst);
     }
+    /* else: DONE, awaiting owner pickup, or IN_FLIGHT (can't happen here —
+     * prv_recv_slot_attempt() runs to completion within one step, never
+     * left IN_FLIGHT across steps) — nothing to do this step. */
 }
 
 static void prv_wifitask_body(void *arg)
@@ -217,6 +324,17 @@ wifitask_err_t wifitask_create(const wifitask_config_t *config, wifitask_handle_
     inst->request_queue = xQueueCreateStatic(WIFITASK_QUEUE_DEPTH,
                                              (UBaseType_t) sizeof(wifitask_request_t *),
                                              s_request_queue_storage, &s_request_queue_ctrl);
+
+    /* WIFITASK-O1 Phase 1: second, value-typed queue for wifitask_try_recv()
+     * arm requests — deliberately separate from request_queue above, which
+     * only carries pointers into a caller's own stack frame (safe only
+     * because that caller stays blocked the whole time). A non-blocking
+     * caller returns immediately, so this queue must never hold a pointer
+     * to memory that might already be gone by the time WifiTask reads it. */
+    inst->recv_arm_queue = xQueueCreateStatic(WIFITASK_RECV_ARM_QUEUE_DEPTH,
+                                              (UBaseType_t) sizeof(wifitask_recv_arm_t),
+                                              s_recv_arm_queue_storage, &s_recv_arm_queue_ctrl);
+    inst->recv_slot.state = WIFITASK_RECV_SLOT_IDLE;
 
     inst->task_handle = xTaskCreateStatic(prv_wifitask_body, "WifiTask", WIFITASK_TASK_STACK_WORDS,
                                           inst, WIFITASK_TASK_PRIORITY, s_wifitask_stack,
@@ -354,6 +472,57 @@ wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uin
         *out_len = req.rx_len;
     }
     return rc;
+}
+
+wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
+                                 size_t buf_len, size_t *out_len, uint32_t ready_notify_bit,
+                                 wifitask_recv_poll_t *out_poll)
+{
+    if ((handle == NULL) || (buf == NULL) || (out_len == NULL) || (out_poll == NULL))
+    {
+        return WIFITASK_ERR_NULL_PTR;
+    }
+
+    /* Every call re-sends an arm request — see prv_wifitask_step()'s own
+     * comment for why this is what makes "pick up, then automatically
+     * re-armed" work correctly without any extra coordination: this send
+     * is async (WifiTask hasn't necessarily processed it before the
+     * pickup check below runs), so that check always sees the slot's
+     * state as of *before* this call's own arm takes effect. */
+    wifitask_recv_arm_t arm = {
+        .socket = socket,
+        .caller = xTaskGetCurrentTaskHandle(),
+        .ready_notify_bit = ready_notify_bit,
+    };
+    if (xQueueSend(handle->recv_arm_queue, &arm, 0u) != pdPASS)
+    {
+        return WIFITASK_ERR_NO_RESOURCE;
+    }
+
+    if (handle->recv_slot.state == WIFITASK_RECV_SLOT_DONE)
+    {
+        if (handle->recv_slot.outcome == WIFI_ERR_OK)
+        {
+            size_t copy_len = (handle->recv_slot.scratch_len < buf_len) ? handle->recv_slot.scratch_len
+                                                                        : buf_len;
+            (void) memcpy(buf, handle->recv_slot.scratch, copy_len);
+            *out_len = copy_len;
+            *out_poll = WIFITASK_RECV_POLL_READY;
+        }
+        else if (handle->recv_slot.outcome == WIFI_ERR_TIMEOUT)
+        {
+            *out_poll = WIFITASK_RECV_POLL_NONE;
+        }
+        else
+        {
+            *out_poll = WIFITASK_RECV_POLL_ERROR;
+        }
+    }
+    else
+    {
+        *out_poll = WIFITASK_RECV_POLL_PENDING;
+    }
+    return WIFITASK_ERR_OK;
 }
 
 wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t socket)

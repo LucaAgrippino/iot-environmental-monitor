@@ -576,15 +576,20 @@ void test_CP_T11_inbound_config_command(void)
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
 
     const uint8_t payload[] = "{\"telemetry_interval_s\":30}";
-    g_mock_xQueueSend_last_item_size = TC_COMMAND_ENTRY_SIZE; /* enable xQueueSend capture */
+    /* command_queue is CloudPublisher's *second* xQueueCreateStatic() call
+     * (alarm_queue is first) — the shared FreeRTOS mock distinguishes the
+     * first two distinct queue handles a test touches, routing them to
+     * separate tracking globals (see tests/support/freertos_mock.c). Must
+     * use the "_2" globals here, not the plain ones. */
+    g_mock_xQueueSend2_last_item_size = TC_COMMAND_ENTRY_SIZE; /* enable xQueueSend capture */
     cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/x/config", payload,
                                             (uint32_t) sizeof(payload));
 
-    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item,
-                  g_mock_xQueueSend_last_item_size);
-    g_mock_xQueueReceive_next_item_size = g_mock_xQueueSend_last_item_size;
-    g_mock_xQueueReceive_return = pdTRUE;
-    g_mock_xQueueReceive_available = 1u;
+    (void) memcpy(g_mock_xQueueReceive2_next_item, g_mock_xQueueSend2_last_item,
+                  g_mock_xQueueSend2_last_item_size);
+    g_mock_xQueueReceive2_next_item_size = g_mock_xQueueSend2_last_item_size;
+    g_mock_xQueueReceive2_return = pdTRUE;
+    g_mock_xQueueReceive2_available = 1u;
 
     g_mock_xTaskNotifyWait_next_value = TC_COMMAND_PENDING;
     cloud_publisher_task_step_for_test(g_handle);
@@ -599,15 +604,17 @@ void test_CP_T12_inbound_unknown_topic(void)
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
 
     const uint8_t payload[] = "x";
-    g_mock_xQueueSend_last_item_size = TC_COMMAND_ENTRY_SIZE; /* enable xQueueSend capture */
+    /* command_queue is the second queue CloudPublisher creates — see the
+     * matching comment in test_CP_T11 above. */
+    g_mock_xQueueSend2_last_item_size = TC_COMMAND_ENTRY_SIZE; /* enable xQueueSend capture */
     cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/x/bogus", payload,
                                             (uint32_t) sizeof(payload));
 
-    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item,
-                  g_mock_xQueueSend_last_item_size);
-    g_mock_xQueueReceive_next_item_size = g_mock_xQueueSend_last_item_size;
-    g_mock_xQueueReceive_return = pdTRUE;
-    g_mock_xQueueReceive_available = 1u;
+    (void) memcpy(g_mock_xQueueReceive2_next_item, g_mock_xQueueSend2_last_item,
+                  g_mock_xQueueSend2_last_item_size);
+    g_mock_xQueueReceive2_next_item_size = g_mock_xQueueSend2_last_item_size;
+    g_mock_xQueueReceive2_return = pdTRUE;
+    g_mock_xQueueReceive2_available = 1u;
 
     g_mock_xTaskNotifyWait_next_value = TC_COMMAND_PENDING;
     /* Must not crash; no handler should fire. */

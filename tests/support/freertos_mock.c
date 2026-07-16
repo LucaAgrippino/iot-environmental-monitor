@@ -40,6 +40,27 @@ uint8_t     g_mock_xQueueReceive_next_item[256];
 size_t      g_mock_xQueueReceive_next_item_size;
 uint32_t    g_mock_xQueueReceive_available;
 
+BaseType_t  g_mock_xQueueSend2_return;
+uint32_t    g_mock_xQueueSend2_call_count;
+uint8_t     g_mock_xQueueSend2_last_item[256];
+size_t      g_mock_xQueueSend2_last_item_size;
+
+BaseType_t  g_mock_xQueueReceive2_return;
+uint32_t    g_mock_xQueueReceive2_call_count;
+uint8_t     g_mock_xQueueReceive2_next_item[256];
+size_t      g_mock_xQueueReceive2_next_item_size;
+uint32_t    g_mock_xQueueReceive2_available;
+
+/* Which handle is "queue 1" (routes through the plain globals above) vs.
+ * "queue 2" (routes through the "_2" globals) is fixed at *creation* time
+ * (first vs. second distinct xQueueCreateStatic() call), not first-use —
+ * this matches production code's own fixed creation order (e.g.
+ * wifitask_create() always creates request_queue before the arm queue)
+ * and stays stable regardless of which queue a test happens to touch
+ * first. Reset alongside everything else in mock_freertos_reset(). */
+static QueueHandle_t s_mock_queue1_handle;
+static QueueHandle_t s_mock_queue2_handle;
+
 SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
 BaseType_t        g_mock_xSemaphoreTake_return;
 uint32_t          g_mock_xSemaphoreTake_call_count;
@@ -124,6 +145,25 @@ void mock_freertos_reset(void)
     g_mock_xQueueReceive_next_item_size = 0U;
     g_mock_xQueueReceive_available      = 0xFFFFFFFFU;
 
+    g_mock_xQueueSend2_return            = pdTRUE;
+    g_mock_xQueueSend2_call_count        = 0U;
+    (void)memset(g_mock_xQueueSend2_last_item, 0,
+                 sizeof(g_mock_xQueueSend2_last_item));
+    g_mock_xQueueSend2_last_item_size    = 0U;
+
+    /* Defaults to pdFALSE ("empty"), unlike queue 1's pdTRUE default —
+     * most tests don't know a second queue exists at all, so the sane
+     * neutral default is "no traffic on it", not "always has an item". */
+    g_mock_xQueueReceive2_return         = pdFALSE;
+    g_mock_xQueueReceive2_call_count     = 0U;
+    (void)memset(g_mock_xQueueReceive2_next_item, 0,
+                 sizeof(g_mock_xQueueReceive2_next_item));
+    g_mock_xQueueReceive2_next_item_size = 0U;
+    g_mock_xQueueReceive2_available      = 0xFFFFFFFFU;
+
+    s_mock_queue1_handle                = NULL;
+    s_mock_queue2_handle                = NULL;
+
     g_mock_xSemaphoreCreateMutexStatic_return = DUMMY_HANDLE;
     g_mock_xSemaphoreTake_return              = pdTRUE;
     g_mock_xSemaphoreTake_call_count          = 0U;
@@ -179,15 +219,36 @@ QueueHandle_t xQueueCreateStatic(UBaseType_t length, UBaseType_t item_size,
     (void)length;
     (void)item_size;
     (void)storage;
-    (void)ctrl;
     g_mock_xQueueCreateStatic_call_count++;
-    return g_mock_xQueueCreateStatic_return;
+    /* Mirrors real FreeRTOS: the control block IS the queue object, so
+     * distinct StaticQueue_t buffers yield distinct, distinguishable
+     * handles. First distinct handle created this test = "queue 1"
+     * (plain globals below); second = "queue 2" (the "_2" globals). */
+    QueueHandle_t handle = (ctrl != NULL) ? (QueueHandle_t) ctrl : g_mock_xQueueCreateStatic_return;
+    if (s_mock_queue1_handle == NULL)
+    {
+        s_mock_queue1_handle = handle;
+    }
+    else if ((s_mock_queue2_handle == NULL) && (handle != s_mock_queue1_handle))
+    {
+        s_mock_queue2_handle = handle;
+    }
+    return handle;
 }
 
 BaseType_t xQueueSend(QueueHandle_t q, const void *item, TickType_t wait)
 {
-    (void)q;
     (void)wait;
+    if ((s_mock_queue2_handle != NULL) && (q == s_mock_queue2_handle))
+    {
+        g_mock_xQueueSend2_call_count++;
+        if ((item != NULL) && (g_mock_xQueueSend2_last_item_size > 0U))
+        {
+            (void)memcpy(g_mock_xQueueSend2_last_item, item,
+                         g_mock_xQueueSend2_last_item_size);
+        }
+        return g_mock_xQueueSend2_return;
+    }
     g_mock_xQueueSend_call_count++;
     if ((item != NULL) && (g_mock_xQueueSend_last_item_size > 0U))
     {
@@ -214,8 +275,28 @@ BaseType_t xQueueSendFromISR(QueueHandle_t q, const void *item,
 
 BaseType_t xQueueReceive(QueueHandle_t q, void *out, TickType_t wait)
 {
-    (void)q;
     (void)wait;
+
+    if ((s_mock_queue2_handle != NULL) && (q == s_mock_queue2_handle))
+    {
+        g_mock_xQueueReceive2_call_count++;
+        if (g_mock_xQueueReceive2_available == 0U)
+        {
+            return pdFALSE;
+        }
+        if (g_mock_xQueueReceive2_available != 0xFFFFFFFFU)
+        {
+            g_mock_xQueueReceive2_available--;
+        }
+        if ((g_mock_xQueueReceive2_return == pdTRUE) && (out != NULL) &&
+            (g_mock_xQueueReceive2_next_item_size > 0U))
+        {
+            (void)memcpy(out, g_mock_xQueueReceive2_next_item,
+                         g_mock_xQueueReceive2_next_item_size);
+        }
+        return g_mock_xQueueReceive2_return;
+    }
+
     g_mock_xQueueReceive_call_count++;
 
     if (g_mock_xQueueReceive_available == 0U)

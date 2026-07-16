@@ -27,7 +27,9 @@
  * Ceedling include globs only, no shared parent (unlike drivers/), so the
  * subfolder-prefixed form fails "ceedling test:all" with a missing-file
  * error. An IDE auto-import has silently "fixed" this back to the broken
- * form twice already; if you're about to change this line, don't. */
+ * form three times now in one session; if you're about to change this
+ * line, don't — check ceedling test:all passes before committing whatever
+ * touched this file. */
 #include "wifi_task.h"
 
 /** @brief Opaque handle to an MqttClient instance. */

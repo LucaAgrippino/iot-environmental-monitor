@@ -222,6 +222,20 @@ static void prv_arm_next_request(wifitask_request_t *req)
     g_mock_xQueueReceive_available = 1u;
 }
 
+/** Same idea as prv_arm_next_request(), but for the second (recv-slot arm)
+ * queue — WIFITASK-O1. request_queue is created first in wifitask_create()
+ * so it always lands on the plain g_mock_xQueueReceive_* globals; this
+ * queue, created second, lands on the "_2" globals (see freertos_mock.c).
+ * Value-typed (not a pointer), so a plain memcpy of the struct itself is
+ * enough — no lifetime concerns to model here. */
+static void prv_arm_next_recv_arm(const wifitask_recv_arm_t *arm)
+{
+    memcpy(g_mock_xQueueReceive2_next_item, arm, sizeof(*arm));
+    g_mock_xQueueReceive2_next_item_size = sizeof(*arm);
+    g_mock_xQueueReceive2_return = pdTRUE;
+    g_mock_xQueueReceive2_available = 1u;
+}
+
 /* ========================================================================
  * setUp / tearDown
  * ==================================================================== */
@@ -244,7 +258,8 @@ void test_WIFITASK_T01_create_happy_path(void)
     wifitask_handle_t handle = prv_create_default();
     TEST_ASSERT_NOT_NULL(handle);
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskCreateStatic_call_count);
-    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xQueueCreateStatic_call_count);
+    /* 2, not 1: request_queue + the WIFITASK-O1 recv-slot arm queue. */
+    TEST_ASSERT_EQUAL_UINT32(2u, g_mock_xQueueCreateStatic_call_count);
     TEST_ASSERT_EQUAL_UINT32(1u, s_attach_datardy_callback_call_count);
 }
 
@@ -502,4 +517,116 @@ void test_WIFITASK_T16_notify_back_uses_dedicated_notify_index(void)
     wifitask_step_for_test(handle);
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_last_index);
+}
+
+/* ========================================================================
+ * WIFITASK-T17..T20 — WIFITASK-O1 Phase 1: wifitask_try_recv()
+ * ==================================================================== */
+
+void test_WIFITASK_T17_try_recv_never_blocks_on_fresh_socket(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_ERROR;
+
+    /* No mock priming at all beyond create() — a fresh socket's first
+     * poll must come back cleanly (never block, never require a test to
+     * pre-arm anything just to get a sane answer). */
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 3u, buf, sizeof(buf), &out_len, 0x20u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_PENDING, poll);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_recv_call_count);
+}
+
+void test_WIFITASK_T18_arm_then_step_then_pickup_returns_ready(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    wifitask_recv_arm_t arm = {
+        .socket = 5u,
+        .caller = (TaskHandle_t) 0x9999,
+        .ready_notify_bit = 0x20u,
+    };
+    s_recv_result = WIFI_ERR_OK;
+    s_recv_out_len = 4u;
+
+    /* Main request_queue must be explicitly empty — its mock default is
+     * "always succeeds with a NULL payload" (every other test either
+     * arms a real request via prv_arm_next_request() or disables it like
+     * this; relying on the default crashes, it doesn't harmlessly no-op). */
+    g_mock_xQueueReceive_return = pdFALSE;
+
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+
+    /* One wifi_recv() attempt happened, and the owner was woken on its
+     * own default index (0) — NOT WifiTask's reply index (1, WIFITASK-O6)
+     * — with the caller-chosen bit, not eSetValueWithOverwrite. Direct
+     * regression coverage for the two notification channels staying
+     * genuinely separate. */
+    TEST_ASSERT_EQUAL_UINT32(1u, s_recv_call_count);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_PTR((TaskHandle_t) 0x9999, g_mock_xTaskNotify_last_handle);
+    TEST_ASSERT_EQUAL_UINT32(0x20u, g_mock_xTaskNotify_last_value);
+    TEST_ASSERT_EQUAL(eSetBits, g_mock_xTaskNotify_last_action);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_last_index);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_ERROR;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 5u, buf, sizeof(buf), &out_len, 0x20u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_READY, poll);
+    TEST_ASSERT_EQUAL_UINT32(4u, out_len);
+}
+
+void test_WIFITASK_T19_pickup_of_timeout_reports_none_not_error(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    wifitask_recv_arm_t arm = {
+        .socket = 2u, .caller = (TaskHandle_t) 0x1111, .ready_notify_bit = 0u,
+    };
+    s_recv_result = WIFI_ERR_TIMEOUT; /* "no data yet", not a real failure */
+    g_mock_xQueueReceive_return = pdFALSE; /* main request_queue empty — see T18 */
+
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+
+    /* ready_notify_bit == 0 above means no wake was requested — confirms
+     * the notify is opt-in, not unconditional. */
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_call_count);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_ERROR;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 2u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_NONE, poll);
+}
+
+void test_WIFITASK_T20_armed_slot_does_not_starve_a_real_request(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    /* Prime both queues at once: a real request (GET_RSSI) and a recv-slot
+     * arm for a different socket. One step must dispatch exactly one of
+     * them (the real request takes priority; the armed slot's own
+     * wifi_recv() attempt is deferred to a later step, not skipped or
+     * run alongside it in the same step). */
+    wifitask_request_t req = {.op = WIFITASK_OP_GET_RSSI};
+    s_get_rssi_result = WIFI_ERR_OK;
+    prv_arm_next_request(&req);
+
+    wifitask_recv_arm_t arm = {
+        .socket = 1u, .caller = (TaskHandle_t) 0x2222, .ready_notify_bit = 0u,
+    };
+    prv_arm_next_recv_arm(&arm);
+
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_get_rssi_call_count);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_recv_call_count);
 }

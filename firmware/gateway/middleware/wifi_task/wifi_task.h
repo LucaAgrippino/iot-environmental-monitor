@@ -101,6 +101,37 @@ typedef struct
 } wifitask_request_t;
 
 /**
+ * @brief Outcome of a wifitask_try_recv() poll (WIFITASK-O1).
+ */
+typedef enum
+{
+    WIFITASK_RECV_POLL_PENDING = 0, /**< Armed; WifiTask hasn't attempted it yet. */
+    WIFITASK_RECV_POLL_READY,       /**< buf/out_len filled in by this call.      */
+    WIFITASK_RECV_POLL_NONE,        /**< Last attempt: no data. Re-armed.         */
+    WIFITASK_RECV_POLL_ERROR,       /**< Last attempt: real error. Re-armed.      */
+} wifitask_recv_poll_t;
+
+/**
+ * @brief One "arm" request for the non-blocking recv path (WIFITASK-O1).
+ *
+ * Deliberately value-typed (no pointers into the caller's own memory,
+ * unlike wifitask_request_t) — a wifitask_try_recv() caller returns
+ * immediately, so nothing about it can be assumed to still be alive by
+ * the time WifiTask gets around to processing this. Copied by value
+ * through its own small queue. Defined here (not privately in
+ * wifi_task.c) for the same reason wifitask_request_t is: tests construct
+ * these directly to drive wifitask_step_for_test() (companion §9), since
+ * there is no real scheduler in host tests to interleave a public
+ * wrapper's enqueue with WifiTask's own dispatch.
+ */
+typedef struct
+{
+    wifi_socket_t socket;
+    TaskHandle_t caller;
+    uint32_t ready_notify_bit;
+} wifitask_recv_arm_t;
+
+/**
  * @brief WifiTask creation configuration.
  *
  * Injected dependency: the WifiDriver handle from wifi_create(), which
@@ -206,6 +237,44 @@ wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, con
  */
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
                             size_t buf_len, size_t *out_len, uint32_t timeout_ms);
+
+/**
+ * @brief Poll for received data without blocking (WIFITASK-O1, Phase 1).
+ *
+ * Never blocks more than a zero-timeout enqueue and a zero-timeout
+ * notification check — safe to call from a task that cannot afford to be
+ * parked for wifi_recv()'s real worst case (up to ~5 s per attempt,
+ * WIFITASK_WIFI_RESP_TIMEOUT_MS). The first call for a given socket
+ * arms a background attempt and returns WIFITASK_RECV_POLL_PENDING;
+ * WifiTask's own task runs one full wifi_recv() attempt per poll cycle
+ * from its own loop, re-arming automatically. A later call picks up
+ * whatever that attempt resolved to (READY with buf/out_len filled in,
+ * NONE, or ERROR) and re-arms for the next cycle. ready_notify_bit, if
+ * non-zero, is set on the calling task's own default notification index
+ * (0) — a distinct channel from WifiTask's own reply protocol on
+ * WIFITASK_NOTIFY_INDEX (1) — when a background attempt completes, so a
+ * caller blocked in its own xTaskNotifyWait() elsewhere doesn't have to
+ * poll blindly. Coexists with the unchanged, still-blocking
+ * wifitask_recv() above — this does not replace it.
+ *
+ * @param[in]  handle           WifiTask handle.
+ * @param[in]  socket           Socket to poll.
+ * @param[out] buf              Filled in only when *out_poll == READY.
+ * @param[in]  buf_len          Capacity of buf.
+ * @param[out] out_len          Bytes written to buf, only when READY.
+ * @param[in]  ready_notify_bit Bit to set on the caller's own index-0 word
+ *                              when a background attempt completes; 0 to
+ *                              skip the wake notification.
+ * @param[out] out_poll         Outcome of this specific call.
+ * @return WIFITASK_ERR_OK once *out_poll has a valid outcome (including
+ *         PENDING); WIFITASK_ERR_NULL_PTR if buf, out_len, or out_poll is
+ *         NULL; WIFITASK_ERR_NO_RESOURCE if the arm queue is momentarily
+ *         full (try again on the next poll — never blocks for it).
+ * @note Threading: task-context only, never blocks. Not ISR-safe.
+ */
+wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
+                                 size_t buf_len, size_t *out_len, uint32_t ready_notify_bit,
+                                 wifitask_recv_poll_t *out_poll);
 
 /**
  * @brief Close an open socket (routed through WifiTask).
