@@ -912,6 +912,17 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
     char socket_str[WIFI_NUMSTR_MAX];
     (void) snprintf(socket_str, sizeof(socket_str), "%u", (unsigned) socket);
 
+    /* Free the local slot up front, unconditionally: once a caller asks to
+     * close a socket it is gone as far as this driver is concerned, whether
+     * or not the module acks the teardown. This matters on a dropped
+     * connection (WIFI-O17): the P6=0 stop-client command below often fails
+     * against a peer that has already RST the TCP session, and the previous
+     * code returned early *without* clearing socket_open[socket] — leaking
+     * the slot, so a later reconnect reused a confused module socket and
+     * every wifitask_open_socket() failed with WIFI_ERR_SOCKET. Clearing
+     * first keeps the slot reusable regardless of the module's response. */
+    handle->socket_open[socket] = false;
+
     /* P0 — select socket, then P6=0 — stop client. There is no dedicated
      * "close" command in the IWIN set. */
     wifi_err_t err =
@@ -925,8 +936,6 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
     {
         return WIFI_ERR_SOCKET;
     }
-
-    handle->socket_open[socket] = false;
     return WIFI_ERR_OK;
 }
 

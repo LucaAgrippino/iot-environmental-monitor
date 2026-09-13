@@ -1,11 +1,11 @@
 /**
  * @file test_wifi_driver.c
- * @brief Unity unit tests for WifiDriver — WIFI-T01 through WIFI-T22.
+ * @brief Unity unit tests for WifiDriver — WIFI-T01 through WIFI-T23.
  *
  * Layer 1 (WIFI-T01..T06) calls the response-parsing helpers directly with
  * hand-built buffers; no mocks involved.
  *
- * Layer 2 (WIFI-T07..T22) mocks SpiDriver, GpioDriver, ExtiDriver, and
+ * Layer 2 (WIFI-T07..T23) mocks SpiDriver, GpioDriver, ExtiDriver, and
  * CpuDriver via CMock. gpio_read_pin and spi_transceive are driven by
  * hand-written stub callbacks (not plain CMock expectations) because the
  * DRDY handshake needs a precise, ordered multi-call sequence per AT
@@ -556,6 +556,39 @@ void test_WIFI_T18_close_socket_frees_slot(void)
     helper_script_at_command("\r\nOK\r\n"); /* P6=0 (stop client) */
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_close_socket(handle, sock));
 
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t reopened = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &reopened));
+    TEST_ASSERT_EQUAL(0u, reopened);
+}
+
+void test_WIFI_T23_close_socket_frees_slot_even_when_stop_client_fails(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    /* WIFI-O17: the peer has RST the connection, so the P6=0 stop-client
+     * command errors. wifi_close_socket() must still free the local slot so
+     * a reconnect can reopen it — the previous code leaked it, wedging every
+     * subsequent open with WIFI_ERR_SOCKET. */
+    helper_script_at_command("\r\nOK\r\n");            /* P0= (select) */
+    helper_script_at_command("\r\nERROR: dead\r\n");   /* P6=0 fails */
+    TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET, wifi_close_socket(handle, sock));
+
+    /* Slot must be reusable despite the failed stop-client. */
     helper_script_at_command("\r\nOK\r\n"); /* P0= */
     helper_script_at_command("\r\nOK\r\n"); /* P1= */
     helper_script_at_command("\r\nOK\r\n"); /* P3= */
