@@ -86,12 +86,42 @@
  *                 and restarted, this same tick's prv_maybe_reconnect()
  *                 is what exercises CP-D10's ticked reconnect for real
  *
+ * WIFITASK-O1 Phase 4 (wifi-task.md §10) — the non-blocking recv path
+ * under real traffic. These need the laptop side too:
+ *   TC-HW-CP-010  data-integrity (TC-HW-WIFITASK-data-integrity): run
+ *                 scripts/bringup-data-integrity.py on the broker host;
+ *                 it publishes N patterned payloads to the config topic,
+ *                 sized to straddle the module's 1460-byte R0 chunk and
+ *                 span several chunks. bringup_msg_cb() verifies every
+ *                 byte and the sequence, then logs PASS/FAIL totals —
+ *                 proves wifitask_try_recv()'s stream cursor never
+ *                 duplicates, drops or reorders a byte.
+ *   TC-HW-CP-011  alarm-latency (TC-HW-WIFITASK-alarm-latency,
+ *                 REQ-NF-113): this task fires a synthetic alarm every
+ *                 CP_BRINGUP_ALARM_PERIOD_MS through the captured
+ *                 AlarmService subscriber; CloudPublisher's outcome comes
+ *                 back through the health_report_push_event() stand-in
+ *                 (CP_HEALTH_EVENT_ALARM_PUBLISHED/BUFFERED) and the fire-
+ *                 to-outcome latency is logged and checked against 500 ms.
+ *                 Restart the broker (docker restart bringup-mosquitto)
+ *                 while it runs: alarms must keep being handled (buffered)
+ *                 within 500 ms WHILE CloudPublisherTask is ticking the
+ *                 reconnect — the exact stall WIFITASK-O1 set out to fix.
+ *   TC-HW-CP-012  wallclock-parity (TC-HW-WIFITASK-wallclock-parity):
+ *                 wall-clock of the initial connect (TC-HW-CP-004) and of
+ *                 each reconnect (first BUFFERED alarm -> reconnect_count
+ *                 increment), logged against the pre-Phase-2 ~30 s
+ *                 baseline. PASS = no regression; the point is to make a
+ *                 regression visible, not to claim an improvement.
+ *
  * If cpu_init(), debug_uart_init(), or rtc_init() fail, Logger cannot be
  * trusted as the reporting channel yet — the board halts with a fast LED
  * blink instead (same convention as main_test_mqtt_client.c).
  */
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "FreeRTOS.h"
@@ -185,6 +215,15 @@ static const uint8_t s_bringup_client_key_der[] = {0x00};
 #define CP_BRINGUP_TASK_STACK_WORDS (1024U)
 #define CP_BRINGUP_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 
+/* TC-HW-CP-011: one alarm in flight at a time — the period must exceed
+ * the 500 ms REQ-NF-113 budget so an unhandled alarm shows up as a
+ * violation, not as an overlap. */
+#define CP_BRINGUP_ALARM_PERIOD_MS (700U)
+#define CP_BRINGUP_ALARM_BUDGET_MS (500U) /**< REQ-NF-113. */
+#define CP_BRINGUP_ALARM_SUMMARY_EVERY (10U)
+/* TC-HW-CP-012: pre-Phase-2 blocking-path baseline (wifi-task.md §10). */
+#define CP_BRINGUP_CONNECT_BASELINE_MS (30000UL)
+
 /* ---------------------------------------------------------------------- */
 /* Boot-failure halt — identical convention to main_test_mqtt_client.c.   */
 /* ---------------------------------------------------------------------- */
@@ -239,6 +278,33 @@ static void bringup_fail(const char *label)
 
 static uint32_t s_bringup_publish_count;
 
+/* TC-HW-CP-011 — alarm subscriber captured from CloudPublisher, and the
+ * fire/outcome bookkeeping shared between this task (fires) and
+ * CloudPublisherTask (reports outcome via health_report_push_event()). */
+static alarm_event_cb_t s_alarm_cb;
+static void *s_alarm_ctx;
+static volatile TickType_t s_alarm_fire_tick;
+static volatile bool s_alarm_in_flight;
+static uint32_t s_alarm_fired;
+static uint32_t s_alarm_handled;
+static uint32_t s_alarm_published;
+static uint32_t s_alarm_buffered;
+static uint32_t s_alarm_over_budget;
+static uint32_t s_alarm_max_ms;
+
+/* TC-HW-CP-012 — reconnect wall-clock: first BUFFERED outcome after a
+ * PUBLISHED one marks the drop; reconnect_count moving marks recovery. */
+static volatile TickType_t s_drop_tick;
+static bool s_last_outcome_published = true;
+static uint32_t s_last_reconnect_count;
+
+/* TC-HW-CP-010 — data-integrity receiver state (see bringup_msg_cb()). */
+static uint32_t s_di_expected_seq;
+static uint32_t s_di_received;
+static uint32_t s_di_corrupt;
+static uint32_t s_di_out_of_order;
+static uint32_t s_di_bytes;
+
 sensor_reading_t sensor_service_get_latest(sensor_service_handle_t handle)
 {
     (void) handle;
@@ -262,9 +328,9 @@ modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t ha
 void alarm_service_subscribe(alarm_service_handle_t handle, alarm_event_cb_t cb, void *ctx)
 {
     (void) handle;
-    (void) cb;
-    (void) ctx;
-    LOG_INFO("CloudPub", "TC-HW-CP-006  alarm_service_subscribe() called (stand-in, never fires)");
+    s_alarm_cb = cb;
+    s_alarm_ctx = ctx;
+    LOG_INFO("CloudPub", "TC-HW-CP-006  alarm_service_subscribe() called (captured for TC-HW-CP-011)");
 }
 
 saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
@@ -307,12 +373,76 @@ void health_report_update_mqtt(health_monitor_handle_t handle, const mqtt_stats_
     (void) last_stats;
     LOG_INFO("CloudPub", "TC-HW-CP-009  stats poll: publishes_sent=%lu publish_failures=%lu",
              (unsigned long) stats->publishes_sent, (unsigned long) stats->publish_failures);
+
+    /* TC-HW-CP-012: a reconnect completed since the last poll. */
+    if (stats->reconnect_count != s_last_reconnect_count)
+    {
+        s_last_reconnect_count = stats->reconnect_count;
+        const uint32_t ms = (uint32_t) ((xTaskGetTickCount() - s_drop_tick) * portTICK_PERIOD_MS);
+        LOG_INFO("CloudPub",
+                 "TC-HW-CP-012  reconnect #%lu observed ~%lu ms drop->reconnected "
+                 "(informational: dominated by broker-down dwell + reconnect backoff "
+                 "WIFITASK-O2, not a clean handshake wall-clock — the initial connect "
+                 "above is the parity point)",
+                 (unsigned long) stats->reconnect_count, (unsigned long) ms);
+    }
 }
 
 void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t event)
 {
     (void) handle;
-    (void) event;
+    if ((event != CP_HEALTH_EVENT_ALARM_PUBLISHED) && (event != CP_HEALTH_EVENT_ALARM_BUFFERED))
+    {
+        LOG_WARN("CloudPub", "health event %d", (int) event);
+        return;
+    }
+
+    /* TC-HW-CP-011: runs in CloudPublisherTask context, right after
+     * prv_enqueue_or_publish() returned for the alarm this task fired. */
+    const TickType_t now = xTaskGetTickCount();
+    const uint32_t ms = (uint32_t) ((now - s_alarm_fire_tick) * portTICK_PERIOD_MS);
+    const bool published = (event == CP_HEALTH_EVENT_ALARM_PUBLISHED);
+    s_alarm_in_flight = false;
+    s_alarm_handled++;
+    if (published)
+    {
+        s_alarm_published++;
+    }
+    else
+    {
+        s_alarm_buffered++;
+        if (s_last_outcome_published)
+        {
+            s_drop_tick = now; /* TC-HW-CP-012: connection just went away */
+        }
+    }
+    s_last_outcome_published = published;
+    if (ms > s_alarm_max_ms)
+    {
+        s_alarm_max_ms = ms;
+    }
+    if (ms > CP_BRINGUP_ALARM_BUDGET_MS)
+    {
+        s_alarm_over_budget++;
+        LOG_ERROR("CloudPub", "TC-HW-CP-011  alarm #%lu %s after %lu ms — OVER %u ms budget",
+                  (unsigned long) s_alarm_handled, published ? "published" : "buffered",
+                  (unsigned long) ms, (unsigned) CP_BRINGUP_ALARM_BUDGET_MS);
+    }
+    else
+    {
+        LOG_INFO("CloudPub", "TC-HW-CP-011  alarm #%lu %s in %lu ms", (unsigned long) s_alarm_handled,
+                 published ? "published" : "buffered", (unsigned long) ms);
+    }
+    if ((s_alarm_handled % CP_BRINGUP_ALARM_SUMMARY_EVERY) == 0u)
+    {
+        LOG_INFO("CloudPub",
+                 "TC-HW-CP-011  summary: fired=%lu handled=%lu published=%lu buffered=%lu "
+                 "max=%lu ms over_budget=%lu -> %s",
+                 (unsigned long) s_alarm_fired, (unsigned long) s_alarm_handled,
+                 (unsigned long) s_alarm_published, (unsigned long) s_alarm_buffered,
+                 (unsigned long) s_alarm_max_ms, (unsigned long) s_alarm_over_budget,
+                 (s_alarm_over_budget == 0u) ? "PASS" : "FAIL");
+    }
 }
 
 uint32_t config_provider_get_telemetry_interval_s(config_service_handle_t handle)
@@ -357,11 +487,82 @@ void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, 
 /* stand-ins only — logging, no real routing into CloudPublisher.        */
 /* ---------------------------------------------------------------------- */
 
+/* TC-HW-CP-010 payload format (scripts/bringup-data-integrity.py):
+ *   "DI:" seq(4 digits) ":" total(4) ":" len(5) ":"   = 19-byte header
+ *   followed by exactly `len` bytes where byte i == 'A' + (i % 26).
+ * Anything not starting with "DI:" is just logged as before. */
+#define DI_HEADER_LEN (19u)
+
 static void bringup_msg_cb(const char *topic, uint16_t topic_len, const uint8_t *payload,
                            uint32_t payload_len)
 {
-    LOG_INFO("CloudPub", "inbound msg: topic='%.*s' payload_len=%u", (int) topic_len, topic,
-             (unsigned) payload_len);
+    if ((payload_len < DI_HEADER_LEN) || (memcmp(payload, "DI:", 3u) != 0))
+    {
+        LOG_INFO("CloudPub", "inbound msg: topic='%.*s' payload_len=%u", (int) topic_len, topic,
+                 (unsigned) payload_len);
+        return;
+    }
+
+    char hdr[DI_HEADER_LEN + 1u];
+    (void) memcpy(hdr, payload, DI_HEADER_LEN);
+    hdr[DI_HEADER_LEN] = '\0';
+    unsigned seq = 0u;
+    unsigned total = 0u;
+    unsigned len = 0u;
+    if (sscanf(hdr, "DI:%4u:%4u:%5u:", &seq, &total, &len) != 3)
+    {
+        s_di_corrupt++;
+        LOG_ERROR("CloudPub", "TC-HW-CP-010  unparseable header '%s'", hdr);
+        return;
+    }
+
+    bool ok = (payload_len == (DI_HEADER_LEN + len));
+    uint32_t first_bad = 0u;
+    for (uint32_t i = 0u; ok && (i < len); i++)
+    {
+        if (payload[DI_HEADER_LEN + i] != (uint8_t) ('A' + (i % 26u)))
+        {
+            ok = false;
+            first_bad = i;
+        }
+    }
+    s_di_received++;
+    s_di_bytes += payload_len;
+    if (!ok)
+    {
+        s_di_corrupt++;
+    }
+    if (seq != s_di_expected_seq)
+    {
+        s_di_out_of_order++;
+    }
+    s_di_expected_seq = seq + 1u;
+
+    if (ok)
+    {
+        LOG_INFO("CloudPub", "TC-HW-CP-010  seq=%u/%u len=%u OK", seq, total, (unsigned) payload_len);
+    }
+    else
+    {
+        LOG_ERROR("CloudPub", "TC-HW-CP-010  seq=%u/%u len=%u CORRUPT (got %u bytes, first bad @%lu)",
+                  seq, total, (unsigned) (DI_HEADER_LEN + len), (unsigned) payload_len,
+                  (unsigned long) first_bad);
+    }
+    if ((seq + 1u) == total)
+    {
+        const bool pass = (s_di_received == total) && (s_di_corrupt == 0u) &&
+                          (s_di_out_of_order == 0u);
+        LOG_INFO("CloudPub",
+                 "TC-HW-CP-010  summary: received=%lu/%u bytes=%lu corrupt=%lu out_of_order=%lu -> %s",
+                 (unsigned long) s_di_received, total, (unsigned long) s_di_bytes,
+                 (unsigned long) s_di_corrupt, (unsigned long) s_di_out_of_order,
+                 pass ? "PASS" : "FAIL");
+        s_di_expected_seq = 0u;
+        s_di_received = 0u;
+        s_di_corrupt = 0u;
+        s_di_out_of_order = 0u;
+        s_di_bytes = 0u;
+    }
 }
 
 static void bringup_disconnect_cb(void)
@@ -445,11 +646,19 @@ static void cloud_publisher_bringup_task(void *arg)
      * is single-task-caller only). Internally still exercises
      * mqtt_client_connect_step() (MQTT-D8): mqtt_client_connect() is just
      * a wrapper looping it to completion now. */
+    const TickType_t connect_t0 = xTaskGetTickCount();
     if (mqtt_client_connect(mqtt_handle, &connect_cfg) != MQTT_CLIENT_ERR_OK)
     {
         bringup_fail("TC-HW-CP-004  mqtt_client_connect() failed");
     }
     LOG_INFO("CloudPub", "TC-HW-CP-004  mqtt_client_connect() returned MQTT_CLIENT_ERR_OK");
+    {
+        const uint32_t ms = (uint32_t) ((xTaskGetTickCount() - connect_t0) * portTICK_PERIOD_MS);
+        LOG_INFO("CloudPub",
+                 "TC-HW-CP-012  initial TCP+TLS+MQTT connect wall-clock %lu ms (baseline %lu ms) %s",
+                 (unsigned long) ms, (unsigned long) CP_BRINGUP_CONNECT_BASELINE_MS,
+                 (ms <= CP_BRINGUP_CONNECT_BASELINE_MS) ? "PASS" : "FAIL (regression)");
+    }
 
     /* TC-HW-CP-005: subscribe while still single-task. */
     char config_topic[MQTT_TOPIC_MAX_LEN];
@@ -493,11 +702,42 @@ static void cloud_publisher_bringup_task(void *arg)
      * publish to the config_topic logged at TC-HW-CP-005 to see
      * bringup_msg_cb() fire (e.g. via mosquitto_pub). */
     LOG_INFO("CloudPub", "Observing telemetry/health/stats ticks — watch the UART log...");
+    if (s_alarm_cb == NULL)
+    {
+        bringup_fail("TC-HW-CP-011  CloudPublisher never subscribed to AlarmService");
+    }
+    LOG_INFO("CloudPub",
+             "TC-HW-CP-011  firing one alarm every %u ms, budget %u ms; restart the broker to "
+             "exercise the in-flight-reconnect case",
+             (unsigned) CP_BRINGUP_ALARM_PERIOD_MS, (unsigned) CP_BRINGUP_ALARM_BUDGET_MS);
     for (;;)
     {
         (void) gpio_toggle_pin(BRINGUP_LED_PORT, BRINGUP_LED_PIN);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(CP_BRINGUP_ALARM_PERIOD_MS));
         s_bringup_publish_count++;
+
+        if (s_alarm_in_flight)
+        {
+            /* The previous alarm has not come back through
+             * health_report_push_event() a full period later — that is a
+             * budget violation in its own right (CloudPublisherTask is
+             * stuck somewhere), counted here since the outcome path will
+             * never report it on time. */
+            s_alarm_over_budget++;
+            LOG_ERROR("CloudPub", "TC-HW-CP-011  alarm #%lu still unhandled after %u ms — OVER budget",
+                      (unsigned long) s_alarm_fired, (unsigned) CP_BRINGUP_ALARM_PERIOD_MS);
+        }
+        alarm_event_t ev = {
+            .alarm_type = CP_ALARM_TYPE_HIGH,
+            .measured_value_raw = (int32_t) s_alarm_fired,
+            .threshold_value_raw = (int32_t) CP_BRINGUP_ALARM_BUDGET_MS,
+            .source = CP_ALARM_SOURCE_GATEWAY,
+        };
+        (void) snprintf(ev.sensor_name, sizeof(ev.sensor_name), "bringup");
+        s_alarm_fired++;
+        s_alarm_in_flight = true;
+        s_alarm_fire_tick = xTaskGetTickCount();
+        s_alarm_cb(&ev, s_alarm_ctx); /* production: SensorTask context; here: this task */
     }
 }
 
