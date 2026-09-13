@@ -79,6 +79,19 @@
  *  back to the normal long liveness-check cadence. */
 #define WIFITASK_RECV_ARM_POLL_TICKS pdMS_TO_TICKS(100u)
 
+/** Module-side read timeout (wifi_recv() timeout_ms -> IWIN R2) for one
+ *  background recv attempt. Short on purpose (Phase 4 hardware finding,
+ *  TC-HW-CP-004): the attempt blocks WifiTask's own task, and any
+ *  wifitask_send()/open/close request from the slot's owner queues behind
+ *  it — at the old 5 s (WIFITASK_WIFI_RESP_TIMEOUT_MS) each of the TLS
+ *  handshake's client-side sends could stall 5 s behind an empty poll,
+ *  pushing the whole handshake past MqttClient's 30 s deadline. With R2
+ *  now actually set by the driver (WIFI-O16) an empty attempt returns
+ *  in ~this plus one AT turnaround, so a queued send waits at most that.
+ *  Data that arrives between attempts sits in the module's own socket
+ *  buffer, so short polls lose nothing; they only cost SPI traffic. */
+#define WIFITASK_RECV_POLL_TIMEOUT_MS 200u
+
 /* wifitask_op_t and wifitask_request_t are defined in wifi_task.h, not
  * here — tests construct wifitask_request_t directly to drive
  * wifitask_step_for_test() (companion §9, Layer 2 dispatch tests), since
@@ -86,10 +99,14 @@
  * wrapper's enqueue with WifiTask's own dispatch. */
 
 /** WIFITASK-O1 Phase 1: one background recv "slot" per instance, owned
- * exclusively by WifiTask's own task (the only writer of state/socket/
- * scratch* — try_recv() callers only ever read the DONE-state fields and
- * send arm requests through the queue, never mutate this directly, so
- * there is no cross-task synchronisation to get wrong here). Scoped to
+ * by WifiTask's own task (the only writer of state/socket/scratch/
+ * scratch_len/outcome). The one field the owner task writes is
+ * scratch_off — its consumption cursor across the DONE data (Phase 4 fix:
+ * mbedTLS reads a 5-byte record header then the body, so a DONE payload
+ * must survive several partial pickups without re-delivery). Both sides
+ * touch DONE-state fields only inside taskENTER_CRITICAL(), and WifiTask
+ * never re-arms over an OK payload until scratch_off == scratch_len, so
+ * an in-progress pickup can't be overwritten underneath. Scoped to
  * one slot for this phase, matching "one outstanding request per caller"
  * (companion §2) — still true today, CloudPublisherTask is the only real
  * caller. Extending to WIFI_MAX_SOCKETS concurrent slots is a documented
@@ -110,6 +127,7 @@ typedef struct
     uint32_t ready_notify_bit;
     uint8_t scratch[WIFITASK_WIFI_MAX_PACKET_SIZE];
     size_t scratch_len;
+    size_t scratch_off; /**< Bytes of scratch already delivered to the owner. */
     wifi_err_t outcome;
 } wifitask_recv_slot_t;
 
@@ -197,13 +215,23 @@ static void prv_recv_slot_attempt(struct wifitask_inst *inst)
     size_t out_len = 0u;
     wifi_err_t err =
         wifi_recv(inst->wifi, inst->recv_slot.socket, inst->recv_slot.scratch,
-                  sizeof(inst->recv_slot.scratch), &out_len, WIFITASK_WIFI_RESP_TIMEOUT_MS);
+                  sizeof(inst->recv_slot.scratch), &out_len, WIFITASK_RECV_POLL_TIMEOUT_MS);
 
+    taskENTER_CRITICAL();
     inst->recv_slot.scratch_len = out_len;
+    inst->recv_slot.scratch_off = 0u;
     inst->recv_slot.outcome = err;
     inst->recv_slot.state = WIFITASK_RECV_SLOT_DONE;
+    taskEXIT_CRITICAL();
 
-    if (inst->recv_slot.ready_notify_bit != 0u)
+    /* Wake the owner only when there is something to act on — data, or a
+     * real failure. An empty attempt (WIFI_ERR_TIMEOUT -> POLL_NONE) is
+     * not woken for: with the short WIFITASK_RECV_POLL_TIMEOUT_MS the
+     * owner would otherwise re-arm on every wake and the two tasks would
+     * spin at ~1/poll-timeout (observed on hardware as CloudPublisher's
+     * 1 Hz stats tick running at 4 Hz, TC-HW-CP-009). Idle re-arming is
+     * left to the owner's own periodic tick instead. */
+    if ((inst->recv_slot.ready_notify_bit != 0u) && (err != WIFI_ERR_TIMEOUT))
     {
         (void) xTaskNotify(inst->recv_slot.owner, inst->recv_slot.ready_notify_bit, eSetBits);
     }
@@ -221,14 +249,25 @@ static void prv_wifitask_step(struct wifitask_inst *inst)
     wifitask_recv_arm_t arm;
     if (xQueueReceive(inst->recv_arm_queue, &arm, 0u) == pdPASS)
     {
-        if ((inst->recv_slot.state == WIFITASK_RECV_SLOT_IDLE) ||
-            (inst->recv_slot.state == WIFITASK_RECV_SLOT_DONE))
+        /* DONE with an OK payload the owner hasn't fully consumed yet is
+         * NOT re-armable: a new attempt would overwrite scratch under a
+         * partial pickup. The arm is simply dropped — the owner re-sends
+         * one on every wifitask_try_recv() call, so the first call after
+         * it drains the payload re-arms. */
+        taskENTER_CRITICAL();
+        const bool unconsumed = (inst->recv_slot.state == WIFITASK_RECV_SLOT_DONE) &&
+                                (inst->recv_slot.outcome == WIFI_ERR_OK) &&
+                                (inst->recv_slot.scratch_off < inst->recv_slot.scratch_len);
+        if (((inst->recv_slot.state == WIFITASK_RECV_SLOT_IDLE) ||
+             (inst->recv_slot.state == WIFITASK_RECV_SLOT_DONE)) &&
+            !unconsumed)
         {
             inst->recv_slot.socket = arm.socket;
             inst->recv_slot.state = WIFITASK_RECV_SLOT_ARMED;
         }
         inst->recv_slot.owner = arm.caller;
         inst->recv_slot.ready_notify_bit = arm.ready_notify_bit;
+        taskEXIT_CRITICAL();
     }
 
     /* While a slot is active, stay responsive to arm-queue traffic instead
@@ -242,9 +281,15 @@ static void prv_wifitask_step(struct wifitask_inst *inst)
     wifitask_request_t *req = NULL;
     if (xQueueReceive(inst->request_queue, &req, wait_ticks) == pdPASS)
     {
-        req->wifi_status = prv_dispatch(inst, req);
-        (void) xTaskNotifyIndexed(req->caller, WIFITASK_NOTIFY_INDEX, (uint32_t) req->wifi_status,
-                                  eSetValueWithOverwrite);
+        /* NULL is wifitask_try_recv()'s "kick" (see there): wake only, no
+         * dispatch, no reply — the arm it accompanies is picked up at the
+         * top of the next step. */
+        if (req != NULL)
+        {
+            req->wifi_status = prv_dispatch(inst, req);
+            (void) xTaskNotifyIndexed(req->caller, WIFITASK_NOTIFY_INDEX,
+                                      (uint32_t) req->wifi_status, eSetValueWithOverwrite);
+        }
     }
     else if (inst->recv_slot.state == WIFITASK_RECV_SLOT_ARMED)
     {
@@ -336,6 +381,7 @@ wifitask_err_t wifitask_create(const wifitask_config_t *config, wifitask_handle_
         xQueueCreateStatic(WIFITASK_RECV_ARM_QUEUE_DEPTH, (UBaseType_t) sizeof(wifitask_recv_arm_t),
                            s_recv_arm_queue_storage, &s_recv_arm_queue_ctrl);
     inst->recv_slot.state = WIFITASK_RECV_SLOT_IDLE;
+    inst->recv_slot.scratch_off = 0u;
 
     inst->task_handle =
         xTaskCreateStatic(prv_wifitask_body, "WifiTask", WIFITASK_TASK_STACK_WORDS, inst,
@@ -502,15 +548,49 @@ wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket,
         return WIFITASK_ERR_NO_RESOURCE;
     }
 
+    /* Kick (Phase 4 hardware finding, TC-HW-CP-004): with the slot IDLE,
+     * prv_wifitask_step() is parked in xQueueReceive(request_queue) for
+     * the full WIFI_LIVENESS_CHECK_PERIOD_MS (30 s) and the arm queue is
+     * only polled at the top of a step — so the first arm after any idle
+     * period sat for up to 30 s, exactly MqttClient's TLS-handshake
+     * deadline. No heap and no queue sets (configUSE_QUEUE_SETS 0, no
+     * static queue-set API in this kernel), so the wake reuses the
+     * request queue: a NULL pointer is value-typed (nothing for WifiTask
+     * to dereference or reply to — none of the WIFITASK-O6 dangling-
+     * pointer class), consumed immediately, and best-effort: if the queue
+     * is full WifiTask is busy dispatching and will see the arm anyway.
+     * Non-IDLE states are already on the 100 ms arm-poll cadence. */
+    if (handle->recv_slot.state == WIFITASK_RECV_SLOT_IDLE)
+    {
+        wifitask_request_t *kick = NULL;
+        (void) xQueueSend(handle->request_queue, &kick, 0u);
+    }
+
+    /* Pickup is a stream read across the DONE payload: scratch_off is the
+     * consumption cursor, so a 5-byte record-header read followed by an
+     * N-byte body read (mbedTLS's pattern) gets consecutive bytes, never
+     * the same ones twice, and nothing past buf_len is dropped. A fully
+     * consumed OK payload reads as PENDING — the arm sent above re-arms
+     * the slot for the next attempt. */
+    taskENTER_CRITICAL();
     if (handle->recv_slot.state == WIFITASK_RECV_SLOT_DONE)
     {
         if (handle->recv_slot.outcome == WIFI_ERR_OK)
         {
-            size_t copy_len =
-                (handle->recv_slot.scratch_len < buf_len) ? handle->recv_slot.scratch_len : buf_len;
-            (void) memcpy(buf, handle->recv_slot.scratch, copy_len);
-            *out_len = copy_len;
-            *out_poll = WIFITASK_RECV_POLL_READY;
+            const size_t remaining = handle->recv_slot.scratch_len - handle->recv_slot.scratch_off;
+            if (remaining > 0u)
+            {
+                const size_t copy_len = (remaining < buf_len) ? remaining : buf_len;
+                (void) memcpy(buf, &handle->recv_slot.scratch[handle->recv_slot.scratch_off],
+                              copy_len);
+                handle->recv_slot.scratch_off += copy_len;
+                *out_len = copy_len;
+                *out_poll = WIFITASK_RECV_POLL_READY;
+            }
+            else
+            {
+                *out_poll = WIFITASK_RECV_POLL_PENDING;
+            }
         }
         else if (handle->recv_slot.outcome == WIFI_ERR_TIMEOUT)
         {
@@ -525,6 +605,7 @@ wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket,
     {
         *out_poll = WIFITASK_RECV_POLL_PENDING;
     }
+    taskEXIT_CRITICAL();
     return WIFITASK_ERR_OK;
 }
 

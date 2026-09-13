@@ -65,6 +65,7 @@ static wifi_err_t s_send_result;
 static size_t s_send_call_count;
 
 static wifi_err_t s_recv_result;
+static uint32_t s_recv_last_timeout_ms;
 static size_t s_recv_out_len;
 static size_t s_recv_call_count;
 
@@ -169,11 +170,16 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
 {
     (void) handle;
     (void) socket;
-    (void) buf;
-    (void) buf_len;
-    (void) timeout_ms;
     s_recv_call_count++;
-    *out_len = s_recv_out_len;
+    s_recv_last_timeout_ms = timeout_ms;
+    /* Deliver a recognisable byte pattern so pickup tests can check the
+     * stream cursor (T21..T23): byte i == 'A' + i. */
+    const size_t n = (s_recv_out_len < buf_len) ? s_recv_out_len : buf_len;
+    for (size_t i = 0u; i < n; i++)
+    {
+        buf[i] = (uint8_t) ('A' + (i % 26u));
+    }
+    *out_len = n;
     return s_recv_result;
 }
 
@@ -629,4 +635,140 @@ void test_WIFITASK_T20_armed_slot_does_not_starve_a_real_request(void)
 
     TEST_ASSERT_EQUAL_UINT32(1u, s_get_rssi_call_count);
     TEST_ASSERT_EQUAL_UINT32(0u, s_recv_call_count);
+}
+
+/* ====================================================================
+ * WIFITASK-T21..T25 — WIFITASK-O1 Phase 4 hardware findings (TC-HW-CP-004):
+ * the slot as shipped in Phases 1-3 never delivered a TLS handshake on
+ * real hardware. Each test below pins one of the fixes.
+ * ==================================================================== */
+
+/** Phase 4 fix 1 — the wake: WifiTask parks in xQueueReceive(request_
+ *  queue) for WIFI_LIVENESS_CHECK_PERIOD_MS (30 s) while the slot is
+ *  IDLE, and the arm queue is only polled at the top of a step, so the
+ *  first try_recv() after idle sat for up to 30 s (= MqttClient's whole
+ *  handshake deadline). try_recv() from IDLE must also send a NULL
+ *  "kick" into request_queue (queue 1 in the mock) — value-typed, so
+ *  nothing WifiTask could dereference (not the WIFITASK-O6 class). */
+void test_WIFITASK_T21_try_recv_from_idle_kicks_request_queue(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    g_mock_xQueueSend_last_item_size = sizeof(void *);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_ERROR;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 3u, buf, sizeof(buf), &out_len, 0x20u, &poll));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xQueueSend2_call_count); /* the arm */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xQueueSend_call_count);  /* the kick */
+    void *kicked = (void *) 0x1;
+    memcpy(&kicked, g_mock_xQueueSend_last_item, sizeof(kicked));
+    TEST_ASSERT_NULL(kicked);
+}
+
+/** ...and WifiTask must treat that NULL as wake-only: no dispatch, no
+ *  reply notify — the arm it accompanies is what the next step acts on. */
+void test_WIFITASK_T22_step_ignores_null_kick_without_dispatch(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    prv_arm_next_request(NULL);
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_recv_call_count);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_get_rssi_call_count);
+}
+
+/** Phase 4 fix 2 — stream semantics: mbedTLS reads a 5-byte record
+ *  header, then the body. The old pickup copied from offset 0 every call
+ *  and dropped whatever didn't fit, so the second read re-delivered the
+ *  header bytes and the rest of the record was lost. A DONE payload must
+ *  be consumed in order across calls, then read as PENDING. */
+void test_WIFITASK_T23_partial_pickups_are_consecutive_never_duplicated(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    wifitask_recv_arm_t arm = {.socket = 5u, .caller = (TaskHandle_t) 0x9999};
+    s_recv_result = WIFI_ERR_OK;
+    s_recv_out_len = 8u; /* "ABCDEFGH" */
+    g_mock_xQueueReceive_return = pdFALSE;
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_ERROR;
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK, wifitask_try_recv(handle, 5u, buf, 5u, &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_READY, poll);
+    TEST_ASSERT_EQUAL_UINT32(5u, out_len);
+    TEST_ASSERT_EQUAL_MEMORY("ABCDE", buf, 5u);
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 5u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_READY, poll);
+    TEST_ASSERT_EQUAL_UINT32(3u, out_len);
+    TEST_ASSERT_EQUAL_MEMORY("FGH", buf, 3u);
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 5u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_PENDING, poll);
+}
+
+/** ...and an arm arriving while an OK payload is still partly unconsumed
+ *  must NOT start a new attempt (it would overwrite scratch under the
+ *  owner); once fully consumed, the next arm re-arms as before. */
+void test_WIFITASK_T24_no_rearm_over_unconsumed_payload(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    wifitask_recv_arm_t arm = {.socket = 5u, .caller = (TaskHandle_t) 0x9999};
+    s_recv_result = WIFI_ERR_OK;
+    s_recv_out_len = 8u;
+    g_mock_xQueueReceive_return = pdFALSE;
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_recv_call_count);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_ERROR;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK, wifitask_try_recv(handle, 5u, buf, 5u, &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL_UINT32(5u, out_len); /* 3 of 8 still unconsumed */
+
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_recv_call_count); /* dropped, no new attempt */
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 5u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL_UINT32(3u, out_len); /* drained */
+
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+    TEST_ASSERT_EQUAL_UINT32(2u, s_recv_call_count); /* re-armed and attempted */
+}
+
+/** Phase 4 fix 3 — poll cadence: an attempt uses the short
+ *  WIFITASK_RECV_POLL_TIMEOUT_MS (module-side R2, WIFI-O16), not the 5 s
+ *  WIFITASK_WIFI_RESP_TIMEOUT_MS that queued the owner's own sends behind
+ *  each empty poll; and an empty attempt (TIMEOUT -> NONE) does not wake
+ *  the owner, or the pair would spin at 1/poll-timeout (seen on hardware
+ *  as the 1 Hz stats tick running at 4 Hz). Data still wakes it (T18). */
+void test_WIFITASK_T25_empty_attempt_is_short_and_does_not_wake_owner(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    wifitask_recv_arm_t arm = {
+        .socket = 5u, .caller = (TaskHandle_t) 0x9999, .ready_notify_bit = 0x20u,
+    };
+    s_recv_result = WIFI_ERR_TIMEOUT;
+    s_recv_out_len = 0u;
+    g_mock_xQueueReceive_return = pdFALSE;
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_recv_call_count);
+    TEST_ASSERT_TRUE(s_recv_last_timeout_ms < 1000u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_call_count);
 }

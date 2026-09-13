@@ -37,6 +37,7 @@
 #define WIFI_AT_SET_REMOTE_PORT "P4"
 #define WIFI_AT_SET_CLIENT "P6"
 #define WIFI_AT_SET_RECV_PACKET_SIZE "R1"
+#define WIFI_AT_SET_RECV_TIMEOUT "R2" /**< Read transport timeout, ms (User Manual §4.14). */
 #define WIFI_AT_RECV_DATA "R0"
 #define WIFI_AT_SEND_DATA "S3"
 

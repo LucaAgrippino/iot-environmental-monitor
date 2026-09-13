@@ -299,6 +299,8 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char
     {
         return (int) len;
     }
+    LOG_WARN(MQTT_CLIENT_LOG_MODULE, "net_send: wifitask_send(%u B) failed, err=%d", (unsigned) len,
+             (int) err);
     return MBEDTLS_ERR_SSL_WANT_WRITE;
 }
 
