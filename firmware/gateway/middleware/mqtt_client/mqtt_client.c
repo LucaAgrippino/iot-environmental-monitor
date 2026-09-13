@@ -299,21 +299,33 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char
     }
     LOG_WARN(MQTT_CLIENT_LOG_MODULE, "net_send: wifitask_send(%u B) failed, err=%d", (unsigned) len,
              (int) err);
-    /* wifitask_send() is fully blocking — it never means "would block", so a
-     * non-OK result is a genuine outcome, not a retry hint. Only a transient
-     * WifiTask queue/reply timeout (WIFITASK_ERR_TIMEOUT) is worth retrying;
-     * map it to WANT_WRITE so mbedTLS/coreMQTT re-drive the send. Any other
-     * error (a dead socket returns WIFI_ERR_SOCKET) is fatal: return a hard
-     * error so mbedtls_ssl_write() fails immediately instead of coreMQTT
-     * looping the send for up to MQTT_SEND_TIMEOUT_MS (20 s) against a socket
-     * that will never accept it. Without this, making mqtt_client_publish()
-     * non-blocking would just move the broker-drop stall from the PUBACK wait
-     * into the send loop (CP-O6). */
+
+    /* Two contexts need opposite handling of a socket error, told apart by
+     * inst->connected (net_ctx is a member of the instance, so recover it the
+     * same way prv_event_callback() recovers it from mqtt_ctx):
+     *
+     *  - Established connection (connected): a send error means the socket is
+     *    dead. Return a fatal error so mbedtls_ssl_write() fails immediately
+     *    and mqtt_client_publish() returns PUBLISH_FAIL fast (-> SAF), rather
+     *    than coreMQTT looping the send for MQTT_SEND_TIMEOUT_MS (20 s). This
+     *    is what keeps a broker drop from stalling the alarm path (CP-O6).
+     *  - Handshake in progress (not yet connected): the ISM43362 can briefly
+     *    return WIFI_ERR_SOCKET on a just-opened socket before it settles.
+     *    Return WANT_WRITE so mbedtls retries the send across connect_step()
+     *    ticks (bounded by tls_handshake_deadline_ms) instead of aborting the
+     *    whole reconnect on that transient — regression fix, 2026-09-13: the
+     *    fatal-always version failed every reconnect (broker saw ClientHello
+     *    EOF, board logged handshake -0x6800).
+     *
+     * A transient WifiTask queue/reply timeout is always retryable. */
     if (err == WIFITASK_ERR_TIMEOUT)
     {
         return MBEDTLS_ERR_SSL_WANT_WRITE;
     }
-    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+    const struct mqtt_client_inst *inst =
+        (const struct mqtt_client_inst *) ((const uint8_t *) net_ctx -
+                                           offsetof(struct mqtt_client_inst, net_ctx));
+    return inst->connected ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : MBEDTLS_ERR_SSL_WANT_WRITE;
 }
 
 /**
