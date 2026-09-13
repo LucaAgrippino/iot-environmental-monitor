@@ -156,7 +156,7 @@ wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, con
 }
 
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
-                            size_t buf_len, size_t *out_len, uint32_t timeout_ms)
+                             size_t buf_len, size_t *out_len, uint32_t timeout_ms)
 {
     (void) handle;
     (void) socket;
@@ -513,26 +513,38 @@ void test_MQTT_T07_publish_qos0(void)
     TEST_ASSERT_TRUE(s_send_call_count > 0u);
 }
 
-void test_MQTT_T08_publish_qos1_with_puback(void)
+void test_MQTT_T08_publish_qos1_acked_in_process(void)
 {
     mqtt_client_handle_t handle = prv_connect_success();
-    prv_queue_puback(1u);
 
+    /* MQTT-D13: publish() is non-blocking — it transmits and returns OK
+     * without waiting for the PUBACK, so publishes_sent == 1 but
+     * publishes_acked is still 0 immediately after. */
     const uint8_t payload[] = "ALARM";
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK,
                       mqtt_client_publish(handle, "dt/iotmonitor/gw-001/alarms", payload,
                                           sizeof(payload) - 1u, MQTT_QOS_1));
-
     mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.publishes_sent);
+    TEST_ASSERT_EQUAL_UINT32(0u, stats.publishes_acked);
+
+    /* The PUBACK is reaped off the publish path, in process(). */
+    prv_queue_puback(1u);
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_process(handle));
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
     TEST_ASSERT_EQUAL_UINT32(1u, stats.publishes_acked);
 }
 
-void test_MQTT_T09_publish_qos1_puback_timeout(void)
+void test_MQTT_T09_publish_qos1_transmit_failure(void)
 {
     mqtt_client_handle_t handle = prv_connect_success();
-    /* No PUBACK queued: every recv poll returns "no data" and advances the
-     * mock clock (see wifi_recv() stub) until MQTT_PUBACK_TIMEOUT_MS trips. */
+
+    /* MQTT-D13: a genuine transmit failure (dead socket) must still return
+     * PUBLISH_FAIL fast — this is what routes the alarm to SAF — rather than
+     * blocking. The send BIO maps a non-timeout WifiTask error to a fatal
+     * mbedTLS error, so MQTT_Publish() fails immediately. */
+    s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
 
     const uint8_t payload[] = "ALARM";
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_PUBLISH_FAIL,
@@ -542,6 +554,26 @@ void test_MQTT_T09_publish_qos1_puback_timeout(void)
     mqtt_stats_t stats;
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
     TEST_ASSERT_EQUAL_UINT32(1u, stats.publish_failures);
+    TEST_ASSERT_EQUAL_UINT32(0u, stats.publishes_sent);
+}
+
+void test_MQTT_T09b_publish_qos1_missing_puback_is_not_a_failure(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+
+    /* No PUBACK ever arrives. Non-blocking publish() must NOT treat that as
+     * a failure (that was the old blocking-timeout behaviour) — the frame
+     * was transmitted, so it counts as sent, un-acked, no failure. */
+    const uint8_t payload[] = "ALARM";
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK,
+                      mqtt_client_publish(handle, "dt/iotmonitor/gw-001/alarms", payload,
+                                          sizeof(payload) - 1u, MQTT_QOS_1));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.publishes_sent);
+    TEST_ASSERT_EQUAL_UINT32(0u, stats.publishes_acked);
+    TEST_ASSERT_EQUAL_UINT32(0u, stats.publish_failures);
 }
 
 void test_MQTT_T10_publish_not_connected(void)
@@ -768,6 +800,8 @@ void test_MQTT_T17_get_stats_matches_internal_state(void)
     const uint8_t payload[] = "x";
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_publish(handle, "dt/iotmonitor/gw-001/alarms",
                                                               payload, 1u, MQTT_QOS_1));
+    /* PUBACK reaped in process() now, not inside publish() (MQTT-D13). */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_process(handle));
 
     mqtt_stats_t stats;
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
@@ -838,7 +872,8 @@ void test_MQTT_T23_connect_step_tls_handshake_ticks_do_not_reopen_socket(void)
     prv_mock_tls_handshake(MBEDTLS_ERR_SSL_WANT_READ);
 
     mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
-    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg)); /* IDLE */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* IDLE */
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
                       mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE tick 1 */
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
@@ -858,7 +893,8 @@ void test_MQTT_T24_connect_step_tls_handshake_deadline_expires_across_ticks(void
     prv_mock_tls_teardown();
 
     mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
-    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg)); /* IDLE */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* IDLE */
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
                       mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE, deadline armed */
 

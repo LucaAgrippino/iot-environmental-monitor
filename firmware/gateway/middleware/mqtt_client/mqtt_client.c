@@ -66,11 +66,10 @@
  *  TLS is up (mirrors MQTT-O4's PUBACK/SUBACK observation); sized with
  *  margin for the same WifiDriver read floor as everything else here. */
 #define MQTT_CONNACK_TIMEOUT_MS 10000u /**< ~2 retries at the 5 s floor. */
-#define MQTT_PUBACK_TIMEOUT_MS 15000u  /**< ~3 retries at the 5 s floor. */
 #define MQTT_SUBACK_TIMEOUT_MS                                                                     \
-    15000u /**< Mirrors MQTT_PUBACK_TIMEOUT_MS; not yet a                                          \
-            *  named open item — same integration-time                                           \
-            *  validation applies. */
+    15000u /**< subscribe() still blocks for the SUBACK: it is a setup-time,                       \
+            *  single-task call (TC-HW-CP-005), not on the latency-bound                           \
+            *  alarm path. Same integration-time validation as MQTT-O4. */
 
 /** Outstanding QoS 1 record slots (MQTT_InitStatefulQoS). A handful is
  *  enough headroom for this project's single in-flight publish/subscribe
@@ -178,7 +177,6 @@ struct mqtt_client_inst
     uint32_t tls_handshake_deadline_ms;
 
     /* Blocking-wait bookkeeping for publish()/subscribe() */
-    bool puback_received;
     bool suback_received;
     MQTTSubAckStatus_t suback_status;
 };
@@ -301,7 +299,21 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char
     }
     LOG_WARN(MQTT_CLIENT_LOG_MODULE, "net_send: wifitask_send(%u B) failed, err=%d", (unsigned) len,
              (int) err);
-    return MBEDTLS_ERR_SSL_WANT_WRITE;
+    /* wifitask_send() is fully blocking — it never means "would block", so a
+     * non-OK result is a genuine outcome, not a retry hint. Only a transient
+     * WifiTask queue/reply timeout (WIFITASK_ERR_TIMEOUT) is worth retrying;
+     * map it to WANT_WRITE so mbedTLS/coreMQTT re-drive the send. Any other
+     * error (a dead socket returns WIFI_ERR_SOCKET) is fatal: return a hard
+     * error so mbedtls_ssl_write() fails immediately instead of coreMQTT
+     * looping the send for up to MQTT_SEND_TIMEOUT_MS (20 s) against a socket
+     * that will never accept it. Without this, making mqtt_client_publish()
+     * non-blocking would just move the broker-drop stall from the PUBACK wait
+     * into the send loop (CP-O6). */
+    if (err == WIFITASK_ERR_TIMEOUT)
+    {
+        return MBEDTLS_ERR_SSL_WANT_WRITE;
+    }
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 }
 
 /**
@@ -445,8 +457,9 @@ static void prv_event_callback(MQTTContext_t *ctx, MQTTPacketInfo_t *packet_info
     switch (packet_info->type)
     {
     case MQTT_PACKET_TYPE_PUBACK:
+        /* Reaped asynchronously: mqtt_client_publish() no longer waits for
+         * this (CP-O6/MQTT-D13). Runs from mqtt_client_process(). */
         inst->stats.publishes_acked++;
-        inst->puback_received = true;
         break;
 
     case MQTT_PACKET_TYPE_SUBACK:
@@ -878,39 +891,24 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
     publish_info.payloadLength = len;
 
     uint16_t packet_id = (qos == MQTT_QOS_1) ? MQTT_GetPacketId(&handle->mqtt_ctx) : 0u;
-    handle->puback_received = false;
 
+    /* Non-blocking (MQTT-D13, resolves CP-O6): transmit the PUBLISH and
+     * return as soon as the bytes are on the wire. For QoS1 the PUBACK is
+     * reaped later, off this call, in mqtt_client_process() -> MQTT_Process-
+     * Loop() -> prv_event_callback() (stats.publishes_acked). The old code
+     * blocked the single caller task up to MQTT_PUBACK_TIMEOUT_MS (15 s)
+     * waiting for the PUBACK, which pushed CloudPublisher's alarm path past
+     * REQ-NF-113's 500 ms budget and stalled ~15 s on a broker drop. A send
+     * that actually fails (dead socket -> net_send fatal error, above) still
+     * returns PUBLISH_FAIL here, so CloudPublisher routes it to SAF; only a
+     * PUBACK lost on a still-live connection goes untracked, an inherent
+     * QoS1/clean-session tail bounded by the keep-alive. */
     if (MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id) != MQTTSuccess)
     {
         handle->stats.publish_failures++;
         return MQTT_CLIENT_ERR_PUBLISH_FAIL;
     }
     handle->stats.publishes_sent++;
-
-    if (qos == MQTT_QOS_0)
-    {
-        return MQTT_CLIENT_ERR_OK;
-    }
-
-    uint32_t start = prv_get_time_ms();
-    while (!handle->puback_received)
-    {
-        (void) MQTT_ProcessLoop(&handle->mqtt_ctx);
-        if (handle->puback_received)
-        {
-            break;
-        }
-        if ((prv_get_time_ms() - start) >= MQTT_PUBACK_TIMEOUT_MS)
-        {
-            handle->stats.publish_failures++;
-            return MQTT_CLIENT_ERR_PUBLISH_FAIL;
-        }
-        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment. */
-#ifndef TEST
-        vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
-#endif
-    }
-
     return MQTT_CLIENT_ERR_OK;
 }
 

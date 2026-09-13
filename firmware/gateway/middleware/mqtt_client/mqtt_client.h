@@ -52,7 +52,7 @@ typedef enum
     MQTT_CLIENT_ERR_NULL_PTR = 2,
     MQTT_CLIENT_ERR_NO_RESOURCE = 3,
     MQTT_CLIENT_ERR_CONNECT_FAIL = 4, /**< TLS or MQTT CONNECT rejected.       */
-    MQTT_CLIENT_ERR_PUBLISH_FAIL = 5, /**< Send error or QoS 1 PUBACK timeout. */
+    MQTT_CLIENT_ERR_PUBLISH_FAIL = 5, /**< PUBLISH transmit failed (send error). */
     MQTT_CLIENT_ERR_NOT_CONNECTED = 6,
     MQTT_CLIENT_ERR_TLS_FAIL = 7,
     MQTT_CLIENT_ERR_SUBSCRIBE_FAIL = 8, /**< SUBACK with failure code.          */
@@ -69,8 +69,8 @@ typedef enum
 typedef struct
 {
     uint32_t publishes_sent;     /**< Total PUBLISH frames transmitted. */
-    uint32_t publishes_acked;    /**< QoS 1 PUBACKs received.           */
-    uint32_t publish_failures;   /**< Send errors or PUBACK timeouts.   */
+    uint32_t publishes_acked;    /**< QoS 1 PUBACKs reaped in process(). */
+    uint32_t publish_failures;   /**< PUBLISH transmit failures.        */
     uint32_t connect_attempts;   /**< Total mqtt_client_connect() calls.*/
     uint32_t connect_ok;         /**< Successful connections.           */
     uint32_t reconnect_count;    /**< Connections after the first.      */
@@ -235,10 +235,13 @@ bool mqtt_client_is_connected(mqtt_client_handle_t handle);
 /**
  * @brief Publish a message to a topic.
  *
- * QoS 0: fire-and-forget; returns after the frame is handed to
- * WifiDriver. Non-blocking.
- * QoS 1: blocks until PUBACK received or MQTT_PUBACK_TIMEOUT_MS
- * expires (5 s, see MQTT-O4).
+ * Non-blocking for both QoS levels (MQTT-D13): returns as soon as the
+ * PUBLISH frame is transmitted. For QoS 1 the PUBACK is reaped later,
+ * off this call, in mqtt_client_process() (stats.publishes_acked) — the
+ * caller is not blocked waiting for it, so a broker drop no longer stalls
+ * this call (the ~15 s PUBACK-timeout stall is gone) and the alarm path's
+ * tail latency drops — see cloud-publisher-lld.md CP-O6. A send that
+ * actually fails returns MQTT_CLIENT_ERR_PUBLISH_FAIL (route to SAF).
  *
  * Returns MQTT_CLIENT_ERR_NOT_CONNECTED immediately if not connected.
  *
@@ -247,10 +250,10 @@ bool mqtt_client_is_connected(mqtt_client_handle_t handle);
  * @param[in] payload  Message payload.
  * @param[in] len      Payload byte count.
  * @param[in] qos      MQTT_QOS_0 or MQTT_QOS_1.
- * @return MQTT_CLIENT_ERR_OK on success; MQTT_CLIENT_ERR_PUBLISH_FAIL
- *         on send error or PUBACK timeout.
- * @note Threading: task-context only. QoS 0 non-blocking; QoS 1 blocks
- *       until PUBACK or timeout. Not ISR-safe.
+ * @return MQTT_CLIENT_ERR_OK once the PUBLISH is transmitted;
+ *         MQTT_CLIENT_ERR_PUBLISH_FAIL on a transmit failure.
+ * @note Threading: task-context only, non-blocking for both QoS levels.
+ *       Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *topic,
                                       const uint8_t *payload, uint32_t len, mqtt_qos_t qos);
