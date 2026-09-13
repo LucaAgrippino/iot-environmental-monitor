@@ -709,6 +709,59 @@ void test_CP_T19_reconnect_in_progress_retries_every_tick_without_backoff(void)
     TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls); /* every tick, no backoff */
 }
 
+void test_CP_T25_reconnect_backoff_is_exponential_and_resets(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+
+    /* Each stats-tick step re-arms the tick (the notify mock clears consumed
+     * bits on exit). A failed attempt arms a backoff of B seconds; since the
+     * countdown ticks at 1 Hz that is B quiet ticks, then the next tick
+     * retries. */
+#define STEP_N(n)                                                                                  \
+    do                                                                                             \
+    {                                                                                              \
+        for (uint32_t k = 0u; k < (n); k++)                                                        \
+        {                                                                                          \
+            g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;                                     \
+            cloud_publisher_task_step_for_test(g_handle);                                          \
+        }                                                                                          \
+    } while (0)
+
+    /* 1st attempt fails immediately (countdown started at 0), arming a 2 s backoff. */
+    STEP_N(1);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+    STEP_N(2); /* 2 quiet ticks of the 2 s backoff */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+    STEP_N(1); /* 2nd attempt; fails, backoff doubles to 4 s */
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_connect_calls);
+
+    STEP_N(4); /* 4 quiet ticks of the 4 s backoff — longer than before */
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_connect_calls);
+    STEP_N(1); /* 3rd attempt; confirms the curve doubled 2 -> 4 */
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls);
+
+    /* A successful connect (is_connected true) resets the curve. */
+    g_spy_mqtt_is_connected_return = true;
+    STEP_N(1); /* connected: countdown -> 0, backoff -> MIN; no attempt */
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls);
+
+    /* Drop again: retry is immediate (countdown was reset to 0)... */
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+    STEP_N(1);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_connect_calls);
+    /* ...and the backoff is back to 2 s, not the grown value: 2 quiet, retry on 3rd. */
+    STEP_N(2);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_connect_calls);
+    STEP_N(1);
+    TEST_ASSERT_EQUAL_UINT32(5u, g_spy_mqtt_connect_calls);
+
+#undef STEP_N
+}
+
 /* ======================================================================= */
 /* CP-T20..T21 (WIFITASK-O1 Phase 3) — wifi-recv-ready wake               */
 /* ======================================================================= */

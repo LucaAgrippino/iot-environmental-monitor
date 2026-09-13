@@ -38,7 +38,15 @@
 #define CP_STATS_PERIOD_MS 1000u
 
 /** CP-D9: retry backoff between failed reconnect attempts (stats ticks). */
-#define CP_RECONNECT_RETRY_PERIOD_S 30u
+/* WIFITASK-O2 / CP-D13: reconnect backoff after a terminal connect_step()
+ * failure — exponential from MIN, doubling each consecutive failure,
+ * capped at MAX, reset to MIN on a successful connect. Bounds how hard a
+ * persistently-down broker (or a wedged AP) is re-hammered, which also
+ * spaces out the WiFi (re)associations that stress the AP. MIN is >= 2 s
+ * deliberately: the retry countdown ticks at the 1 Hz stats rate, so a
+ * 1 s floor would let a retry slip through on the very next tick. */
+#define CP_RECONNECT_BACKOFF_MIN_S 2u
+#define CP_RECONNECT_BACKOFF_MAX_S 60u
 
 #define CP_NOTIFY_TELEMETRY_TICK (1u << 0)
 #define CP_NOTIFY_HEALTH_TICK (1u << 1)
@@ -94,6 +102,7 @@ struct cloud_publisher_inst
     char device_serial[CP_DEVICE_SERIAL_LEN];
     mqtt_connect_cfg_t mqtt_connect_cfg; /**< CP-D9: owned here for connect()/reconnect(). */
     uint32_t reconnect_countdown_s;      /**< CP-D9: stats ticks left before next retry. */
+    uint32_t reconnect_backoff_s;        /**< CP-D13: current backoff, doubles per failure. */
 
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
@@ -190,6 +199,7 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->lifecycle = config->lifecycle;
     inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
     inst->reconnect_countdown_s = 0u; /* CP-D9: attempt connect on the first stats tick */
+    inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13 */
 
     (void) memset(&inst->last_mqtt_stats, 0, sizeof(inst->last_mqtt_stats));
 
@@ -418,16 +428,20 @@ static void prv_poll_stats(struct cloud_publisher_inst *inst)
  * attempt now blocks this task for at most that one phase's own bound
  * per tick instead of the whole sequence at once. MQTT_CLIENT_ERR_IN_PROGRESS
  * means the sequence is still advancing: retried on the next stats tick
- * with no backoff, since it is not a failure. The fixed backoff
- * (CP_RECONNECT_RETRY_PERIOD_S) only arms once connect_step() reports a
- * terminal failure, same as before — it exists so a persistently-down
- * broker does not re-attempt the whole sequence on every single tick.
+ * with no backoff, since it is not a failure. The backoff (CP-D13,
+ * WIFITASK-O2) only arms once connect_step() reports a terminal failure:
+ * an exponential curve from CP_RECONNECT_BACKOFF_MIN_S, doubling each
+ * consecutive failure up to CP_RECONNECT_BACKOFF_MAX_S, reset to MIN on a
+ * successful connect. It keeps a persistently-down broker from being
+ * re-hammered every tick and spaces out the WiFi re-associations that
+ * stress the AP.
  */
 static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
 {
     if (mqtt_client_is_connected(inst->mqtt))
     {
         inst->reconnect_countdown_s = 0u; /* ready to retry immediately after a future drop */
+        inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13: fresh curve next drop */
         return;
     }
 
@@ -450,8 +464,12 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
     else
     {
         LOG_WARN(CP_LOG_MODULE, "MQTT connect attempt failed (rc=%d), retry in %u s", (int) rc,
-                 CP_RECONNECT_RETRY_PERIOD_S);
-        inst->reconnect_countdown_s = CP_RECONNECT_RETRY_PERIOD_S;
+                 (unsigned) inst->reconnect_backoff_s);
+        inst->reconnect_countdown_s = inst->reconnect_backoff_s;
+        /* CP-D13: double for the next consecutive failure, capped at MAX. */
+        uint32_t next = inst->reconnect_backoff_s * 2u;
+        inst->reconnect_backoff_s =
+            (next > CP_RECONNECT_BACKOFF_MAX_S) ? CP_RECONNECT_BACKOFF_MAX_S : next;
     }
 }
 
