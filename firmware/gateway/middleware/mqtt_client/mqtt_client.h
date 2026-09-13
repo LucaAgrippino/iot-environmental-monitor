@@ -23,10 +23,27 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wifi_driver/wifi_driver.h"
+/* Must stay bare, NOT "wifi_task/wifi_task.h" — middleware/ has per-module
+ * Ceedling include globs only, no shared parent (unlike drivers/), so the
+ * subfolder-prefixed form fails "ceedling test:all" with a missing-file
+ * error. An IDE auto-import has silently "fixed" this back to the broken
+ * form three times now in one session; if you're about to change this
+ * line, don't — check ceedling test:all passes before committing whatever
+ * touched this file. */
+#include "wifi_task.h"
 
 /** @brief Opaque handle to an MqttClient instance. */
 typedef struct mqtt_client_inst *mqtt_client_handle_t;
+
+/**
+ * @brief WIFITASK-O1 Phase 2/3: set by MqttClient (via wifitask_try_recv())
+ *        on CloudPublisherTask's own notification word when a background
+ *        recv attempt completes, so a TLS handshake or MQTT read blocked
+ *        mid-sequence gets re-driven the moment data actually arrives,
+ *        rather than waiting for CloudPublisher's next 1 Hz stats tick.
+ *        Bit 5 — CloudPublisher's own CP_NOTIFY_* bits occupy 0-4
+ *        (cloud_publisher.c); this must not collide with those. */
+#define MQTT_CLIENT_WIFI_RECV_READY_BIT (1u << 5)
 
 typedef enum
 {
@@ -39,6 +56,7 @@ typedef enum
     MQTT_CLIENT_ERR_NOT_CONNECTED = 6,
     MQTT_CLIENT_ERR_TLS_FAIL = 7,
     MQTT_CLIENT_ERR_SUBSCRIBE_FAIL = 8, /**< SUBACK with failure code.          */
+    MQTT_CLIENT_ERR_IN_PROGRESS = 9,    /**< connect_step(): more steps remain. */
 } mqtt_client_err_t;
 
 typedef enum
@@ -105,7 +123,7 @@ typedef struct
  */
 typedef struct
 {
-    wifi_handle_t wifi;                 /**< WifiDriver handle (injected). */
+    wifitask_handle_t wifi;             /**< WifiTask handle (injected).   */
     mqtt_message_cb_t msg_cb;           /**< Inbound message callback.     */
     mqtt_disconnect_cb_t disconnect_cb; /**< Connection-loss callback.    */
 } mqtt_client_config_t;
@@ -134,8 +152,12 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
  * auth -> MQTT CONNECT -> await CONNACK -> update stats. On failure at
  * any step: close socket, return error.
  *
- * Blocking. Timeout: MQTT_CONNECT_TIMEOUT_MS (10 s, see MQTT-O2).
- * Called by CloudPublisher when Machine 3 enters Connecting.
+ * Blocking convenience wrapper: loops mqtt_client_connect_step() to
+ * completion with no delay between steps, so its wall-clock behaviour
+ * is unchanged from before connect_step() existed (MQTT-D8) — safe for
+ * callers (e.g. hardware bring-up) that want a single synchronous call.
+ * CloudPublisher's own reconnect path calls mqtt_client_connect_step()
+ * directly instead, once per its 1 Hz stats tick.
  *
  * @param[in] handle  MqttClient handle.
  * @param[in] cfg     Connection parameters (broker, certs, keep-alive).
@@ -145,6 +167,44 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
  * @note Threading: task-context only, blocking. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg);
+
+/**
+ * @brief Advance the connect sequence by one bounded step.
+ *
+ * Same overall sequence as mqtt_client_connect() (TCP socket -> TLS
+ * handshake -> MQTT CONNECT/CONNACK), but ticked: each call does at
+ * most one phase's worth of blocking I/O and returns immediately,
+ * instead of looping internally until the whole sequence completes or
+ * fails. Internal state (which phase is in progress) persists on the
+ * handle between calls — pass the same cfg pointer on every call for a
+ * given attempt (the same instance CloudPublisher already holds
+ * long-lived per connect_cfg_t's ownership contract).
+ *
+ * Per-phase worst-case block, given WifiDriver's current (untouched)
+ * blocking transport (MQTT-D8, mqtt-client.md MQTT-O9):
+ * - TCP socket open: bounded by WifiDriver's own socket-connect ceiling
+ *   (~15 s worst case) — atomic, cannot be ticked further without a
+ *   WifiDriver change.
+ * - TLS handshake: ticked at ~1 mbedTLS handshake round per call,
+ *   bounded by WifiDriver's per-call read floor (~5 s worst case).
+ * - MQTT CONNECT/CONNACK: atomic (coreMQTT's MQTT_Connect() always
+ *   (re)sends CONNECT — cannot be resumed across calls without risking
+ *   a duplicate CONNECT on the same session), bounded by
+ *   MQTT_CONNACK_TIMEOUT_MS.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @param[in] cfg     Connection parameters (broker, certs, keep-alive).
+ * @return MQTT_CLIENT_ERR_IN_PROGRESS if the current phase advanced but
+ *         the sequence is not yet complete (call again next tick);
+ *         MQTT_CLIENT_ERR_OK once fully connected;
+ *         MQTT_CLIENT_ERR_CONNECT_FAIL / MQTT_CLIENT_ERR_TLS_FAIL on
+ *         failure at any phase (resources released, state reset so the
+ *         next call starts a fresh attempt).
+ * @note Threading: task-context only, may block up to the current
+ *       phase's own bound (see above). Not ISR-safe.
+ */
+mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
+                                           const mqtt_connect_cfg_t *cfg);
 
 /**
  * @brief Send MQTT DISCONNECT and close the TLS session.
@@ -157,6 +217,20 @@ mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_co
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
 mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle);
+
+/**
+ * @brief Query whether the MQTT connection is currently established.
+ *
+ * True from a successful mqtt_client_connect() until either a graceful
+ * mqtt_client_disconnect() or an abnormal disconnect (keep-alive timeout,
+ * TCP error, MQTT-level error — the same event that invokes
+ * disconnect_cb). Does not attempt any I/O; reads cached state only.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @return true if connected; false if handle is NULL or not connected.
+ * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ */
+bool mqtt_client_is_connected(mqtt_client_handle_t handle);
 
 /**
  * @brief Publish a message to a topic.

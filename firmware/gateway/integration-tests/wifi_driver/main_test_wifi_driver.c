@@ -10,20 +10,23 @@
  *   3. Connect a serial terminal to PB6 (TX) at 115 200 8N1.
  *   4. Wire the ISM43362-M3G-L44 module (or use the on-board one on the
  *      B-L475E-IOT01A) and flash with a debugger attached.
- *   5. Optionally fill in BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD below
- *      before flashing to exercise the association + socket path. Same
- *      test bench as ST's own WiFi_Client_Server example (UM2153 /
- *      X-CUBE-WIFI1): a phone as a mobile hotspot, a second phone (or the
- *      same one) on that hotspot running a TCP/UDP server app —
- *      "TCP Server" (Play Store) works for TC-HW-WIFI-005, any UDP
- *      listener app for TC-HW-WIFI-006. A dedicated router works too, but
- *      some networks (client-isolated Wi-Fi, corporate/guest networks)
- *      silently drop device-to-device traffic in a way no AT command can
- *      detect — see WIFI-O12 in the companion doc.
+ *   5. Create firmware/gateway/certs/bringup_secrets.h with your real
+ *      BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD / BRINGUP_REMOTE_HOST —
+ *      see scripts/bringup_secrets.h.example for the template.
+ *      bringup_secrets.h is gitignored and never committed; without
+ *      it this is a placeholder-only build (both
+ *      stay empty). Same test bench as ST's own WiFi_Client_Server
+ *      example (UM2153 / X-CUBE-WIFI1): a phone as a mobile hotspot, a
+ *      second phone (or the same one) on that hotspot running a TCP/UDP
+ *      server app — "TCP Server" (Play Store) works for TC-HW-WIFI-005,
+ *      any UDP listener app for TC-HW-WIFI-006. A dedicated router works
+ *      too, but some networks (client-isolated Wi-Fi, corporate/guest
+ *      networks) silently drop device-to-device traffic in a way no AT
+ *      command can detect — see WIFI-O12 in the companion doc.
  *   6. To exercise real data transfer (TC-HW-WIFI-005/006):
  *        - Start the TCP server app first (before flashing), on the port
- *          in BRINGUP_REMOTE_TCP_PORT, and fill in BRINGUP_REMOTE_HOST
- *          with its IP address (shown by the app).
+ *          in BRINGUP_REMOTE_TCP_PORT, with BRINGUP_REMOTE_HOST in
+ *          bringup_secrets.h set to its IP address (shown by the app).
  *        - The task counts down out loud (LOG_INFO, one line per second)
  *          before each connect attempt, so there's time to get the server
  *          app running and listening on a physical phone before the
@@ -101,15 +104,24 @@
 
 /* ---------------------------------------------------------------------- */
 /* Fill these in before flashing to exercise the AP-connect + socket path. */
-/* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFI-004/005/006.            */
+/* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFI-004/005/006; leave      */
+/* BRINGUP_REMOTE_HOST empty to skip TC-HW-WIFI-005/006.                   */
 /* ---------------------------------------------------------------------- */
+
+/* Real values come from bringup_secrets.h (gitignored, never committed —
+ * see scripts/bringup_secrets.h.example) when the file exists; otherwise
+ * this is a placeholder-only build. Same __has_include mechanism as
+ * bringup_certs.h below, so no build-setting toggle is needed and the
+ * tracked .cproject builds cleanly on a machine without secrets (CI). */
+#if __has_include("bringup_secrets.h")
+#include "bringup_secrets.h"
+#else
 #define BRINGUP_WIFI_SSID ""
 #define BRINGUP_WIFI_PASSWORD ""
-
-/* Peer (phone TCP/UDP server app, or any listener) on the same network —
- * see the file header for setup instructions. Leave BRINGUP_REMOTE_HOST
- * empty to skip TC-HW-WIFI-005/006. */
 #define BRINGUP_REMOTE_HOST ""
+#endif
+
+/* Peer TCP/UDP ports — not personal/sensitive, safe to leave hardcoded. */
 #define BRINGUP_REMOTE_TCP_PORT (8080U)
 #define BRINGUP_REMOTE_UDP_PORT (8081U)
 

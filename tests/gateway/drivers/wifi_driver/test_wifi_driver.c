@@ -1,11 +1,11 @@
 /**
  * @file test_wifi_driver.c
- * @brief Unity unit tests for WifiDriver — WIFI-T01 through WIFI-T21.
+ * @brief Unity unit tests for WifiDriver — WIFI-T01 through WIFI-T22.
  *
  * Layer 1 (WIFI-T01..T06) calls the response-parsing helpers directly with
  * hand-built buffers; no mocks involved.
  *
- * Layer 2 (WIFI-T07..T21) mocks SpiDriver, GpioDriver, ExtiDriver, and
+ * Layer 2 (WIFI-T07..T22) mocks SpiDriver, GpioDriver, ExtiDriver, and
  * CpuDriver via CMock. gpio_read_pin and spi_transceive are driven by
  * hand-written stub callbacks (not plain CMock expectations) because the
  * DRDY handshake needs a precise, ordered multi-call sequence per AT
@@ -139,6 +139,29 @@ static void helper_script_boot_cursor(void)
 {
     drdy_seq_push(GPIO_LEVEL_HIGH, 1u); /* post-reset: DRDY high (Data Phase begins) */
     helper_script_data_phase("\r\n> ");
+}
+
+/** True if the byte string `needle` was transmitted to the module. The
+ *  capture stores each 16-bit SPI word high-byte-first, while the driver
+ *  packs the first command character into the LOW byte (prv_send_words),
+ *  so pairs are un-swapped here before searching. */
+static bool helper_tx_contains(const char *needle)
+{
+    uint8_t stream[MAX_CAPTURED_BYTES];
+    for (size_t i = 0u; (i + 1u) < s_tx_captured_len; i += 2u)
+    {
+        stream[i] = s_tx_captured[i + 1u];
+        stream[i + 1u] = s_tx_captured[i];
+    }
+    const size_t n = strlen(needle);
+    for (size_t i = 0u; (i + n) <= s_tx_captured_len; i++)
+    {
+        if (memcmp(&stream[i], needle, n) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 static gpio_level_t last_write_level(gpio_port_t port, uint8_t pin)
@@ -559,6 +582,7 @@ void test_WIFI_T19_recv_strips_leading_and_trailing_framing(void)
 
     helper_script_at_command("\r\nOK\r\n"); /* P0= (select) */
     helper_script_at_command("\r\nOK\r\n"); /* R1= (packet size) */
+    helper_script_at_command("\r\nOK\r\n"); /* R2= (read timeout) */
     /* Every IWIN response is "\r\n<data>\r\nOK\r\n" (User Manual §1.4.2,
      * confirmed on hardware) — the payload is neither at byte 0 nor does
      * it include the trailing OK marker. wifi_recv() must strip both.
@@ -588,6 +612,7 @@ void test_WIFI_T19b_recv_strips_trailing_spi_pad_byte(void)
 
     helper_script_at_command("\r\nOK\r\n"); /* P0= (select) */
     helper_script_at_command("\r\nOK\r\n"); /* R1= (packet size) */
+    helper_script_at_command("\r\nOK\r\n"); /* R2= (read timeout) */
     /* "\r\nhello\r\nOK\r\n" is 13 bytes — odd — so helper_script_data_phase
      * appends the same 0x15 SPI pad byte the real module appends to reach
      * an even count (datasheet §10.2). wifi_recv() must still find "OK"
@@ -627,11 +652,49 @@ void test_WIFI_T20_recv_times_out_when_response_is_empty(void)
      * WIFI_ERR_OK with framing bytes reported as received data. */
     helper_script_at_command("\r\nOK\r\n");   /* P0= (select) */
     helper_script_at_command("\r\nOK\r\n");   /* R1= (packet size) */
+    helper_script_at_command("\r\nOK\r\n");   /* R2= (read timeout) */
     helper_script_at_command("\r\nOK\r\n> "); /* R0 — empty */
 
     uint8_t buf[16];
     size_t out_len = 0u;
     TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_recv(handle, sock, buf, sizeof(buf), &out_len, 0u));
+}
+
+/**
+ * @brief WIFI-O16: wifi_recv() sets the module's own read transport
+ *        timeout (R2=<timeout_ms>) right before R0, so "blocks until data
+ *        or timeout" is enforced by the module rather than by whatever
+ *        power-on default it happens to have (the uncontrollable
+ *        multi-second hold-off WIFI-O11 observed). Verified on hardware:
+ *        with R2 set, WifiTask's 200 ms background poll returns in ~200 ms
+ *        instead of 5 s, which is what let TC-HW-CP-004's TLS handshake
+ *        fit inside its 30 s budget.
+ */
+void test_WIFI_T22_recv_sets_module_read_timeout_R2_before_R0(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+    s_tx_captured_len = 0u;
+
+    helper_script_at_command("\r\nOK\r\n");       /* P0= (select) */
+    helper_script_at_command("\r\nOK\r\n");       /* R1= (packet size) */
+    helper_script_at_command("\r\nOK\r\n");       /* R2= (read timeout) */
+    helper_script_at_command("\r\nhi\r\nOK\r\n"); /* R0 */
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_recv(handle, sock, buf, sizeof(buf), &out_len, 250u));
+    TEST_ASSERT_EQUAL_UINT32(2u, out_len);
+    TEST_ASSERT_TRUE(helper_tx_contains("R2=250\r"));
+    TEST_ASSERT_TRUE(helper_tx_contains("R0\r"));
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
  * @file test_mqtt_client.c
- * @brief Unity unit tests for MqttClient — MQTT-T01 through MQTT-T19.
+ * @brief Unity unit tests for MqttClient — MQTT-T01 through MQTT-T26.
  *
  * mbedTLS's entropy.h and ctr_drbg.h are CMock-mocked directly from the
  * real vendor headers. ssl.h, pk.h, and x509_crt.h cannot: they either
@@ -13,8 +13,8 @@
  * actually calls, with identical signatures — see those files for the
  * full rationale.
  *
- * WifiDriver is hand-stubbed by defining wifi_open_socket/send/recv/
- * close_socket directly against the real wifi_driver.h prototypes
+ * WifiTask is hand-stubbed by defining wifitask_open_socket/send/recv/
+ * close_socket directly against the real wifi_task.h prototypes
  * (pulled in transitively via mqtt_client.h); Logger is hand-stubbed per
  * tests/support/logger_stub.h (Ceedling auto-link avoidance — see the
  * comment above the WifiDriver stub section below, and logger_stub.h,
@@ -55,19 +55,21 @@
 #include "mqtt_client.h"
 
 /* ========================================================================
- * WifiDriver stub — inline bodies only.
+ * WifiTask stub — inline bodies only.
  *
- * mqtt_client.h's public API embeds wifi_handle_t (the injected WifiDriver
- * dependency), so it transitively #includes the real wifi_driver.h for
- * that type — unlike Logger's rtc/debug_uart dependencies, which are
- * private to logger.c and never appear in logger.h. A duplicate type
- * declaration here (the usual tests/support/<dep>_stub.h pattern) would
- * therefore collide with the real header already visible in this
- * translation unit. Only the function *bodies* are provided below,
- * against the real prototypes; Ceedling's auto-link still does not pull
- * in the real wifi_driver.c because that decision is driven by this test
- * file's own #include list, not the SUT's transitive includes — and this
- * file never writes #include "wifi_driver.h" itself.
+ * mqtt_client.h's public API embeds wifitask_handle_t (the injected
+ * WifiTask dependency, since MqttClient was rewired off WifiDriver
+ * directly — WIFITASK-O3), so it transitively #includes the real
+ * wifi_task.h for that type — unlike Logger's rtc/debug_uart
+ * dependencies, which are private to logger.c and never appear in
+ * logger.h. A duplicate type declaration here (the usual
+ * tests/support/<dep>_stub.h pattern) would therefore collide with the
+ * real header already visible in this translation unit. Only the
+ * function *bodies* are provided below, against the real prototypes;
+ * Ceedling's auto-link still does not pull in the real wifi_task.c
+ * because that decision is driven by this test file's own #include
+ * list, not the SUT's transitive includes — and this file never writes
+ * #include "wifi_task.h" itself.
  * ==================================================================== */
 
 #define MOCK_RECV_BUF_MAX 512u
@@ -75,9 +77,9 @@
 static uint8_t s_recv_buf[MOCK_RECV_BUF_MAX];
 static size_t s_recv_len;
 static size_t s_recv_pos;
-static wifi_err_t s_recv_idle_result; /* returned once the queue is drained */
-static wifi_err_t s_open_socket_result;
-static wifi_err_t s_send_result;
+static wifitask_err_t s_recv_idle_result; /* returned once the queue is drained */
+static wifitask_err_t s_open_socket_result;
+static wifitask_err_t s_send_result;
 static size_t s_send_call_count;
 static size_t s_send_total_bytes;
 /* Mirrors wifi_driver.c's real socket table (WIFI_MAX_SOCKETS slots): lets
@@ -85,6 +87,7 @@ static size_t s_send_total_bytes;
  * would actually exhaust WifiDriver's socket table after a few reconnect
  * cycles, not just a synthetic counter divorced from real behaviour. */
 static uint8_t s_open_sockets;
+static size_t s_open_socket_call_count; /**< MQTT-T22..T24: proves a tick doesn't re-open. */
 static size_t s_close_socket_call_count;
 
 static void prv_reset_wifi_stub(void)
@@ -92,12 +95,18 @@ static void prv_reset_wifi_stub(void)
     memset(s_recv_buf, 0, sizeof(s_recv_buf));
     s_recv_len = 0u;
     s_recv_pos = 0u;
-    s_recv_idle_result = WIFI_ERR_TIMEOUT;
-    s_open_socket_result = WIFI_ERR_OK;
-    s_send_result = WIFI_ERR_OK;
+    /* Raw pass-through values (see mqtt_client.c's WIFI_ERR_TIMEOUT comment
+     * at prv_mbedtls_net_recv()/prv_transport_recv()) — these simulate what
+     * WifiTask relays from WifiDriver itself, not WifiTask's own request-
+     * layer codes, so they must stay the literal WIFI_ERR_* values, not
+     * WIFITASK_ERR_* ones. */
+    s_recv_idle_result = (wifitask_err_t) WIFI_ERR_TIMEOUT;
+    s_open_socket_result = WIFITASK_ERR_OK;
+    s_send_result = WIFITASK_ERR_OK;
     s_send_call_count = 0u;
     s_send_total_bytes = 0u;
     s_open_sockets = 0u;
+    s_open_socket_call_count = 0u;
     s_close_socket_call_count = 0u;
 }
 
@@ -108,28 +117,35 @@ static void prv_queue_recv_bytes(const uint8_t *data, size_t len)
     s_recv_len += len;
 }
 
-wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const char *remote_addr,
-                            uint16_t remote_port, wifi_socket_t *out_socket)
+wifitask_err_t wifitask_open_socket(wifitask_handle_t handle, wifi_socket_type_t type,
+                                    const char *remote_addr, uint16_t remote_port,
+                                    wifi_socket_t *out_socket)
 {
     (void) handle;
     (void) type;
     (void) remote_addr;
     (void) remote_port;
 
-    if (s_open_socket_result != WIFI_ERR_OK)
+    s_open_socket_call_count++;
+
+    if (s_open_socket_result != WIFITASK_ERR_OK)
     {
         return s_open_socket_result;
     }
     if (s_open_sockets >= WIFI_MAX_SOCKETS)
     {
-        return WIFI_ERR_NO_RESOURCE;
+        /* Raw WifiDriver pass-through (socket table exhausted) — see the
+         * s_recv_idle_result comment above re: not renaming to
+         * WIFITASK_ERR_NO_RESOURCE. */
+        return (wifitask_err_t) WIFI_ERR_NO_RESOURCE;
     }
     s_open_sockets++;
     *out_socket = 0u;
-    return WIFI_ERR_OK;
+    return WIFITASK_ERR_OK;
 }
 
-wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *data, size_t len)
+wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, const uint8_t *data,
+                             size_t len)
 {
     (void) handle;
     (void) socket;
@@ -139,8 +155,8 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
     return s_send_result;
 }
 
-wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, size_t buf_len,
-                     size_t *out_len, uint32_t timeout_ms)
+wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
+                            size_t buf_len, size_t *out_len, uint32_t timeout_ms)
 {
     (void) handle;
     (void) socket;
@@ -164,10 +180,46 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
     memcpy(buf, &s_recv_buf[s_recv_pos], n);
     s_recv_pos += n;
     *out_len = n;
-    return WIFI_ERR_OK;
+    return WIFITASK_ERR_OK;
 }
 
-wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
+/**
+ * @brief wifitask_try_recv() stub (WIFITASK-O1 Phase 2).
+ *
+ * Not exercised by any test today: prv_mbedtls_net_recv() (the only
+ * production call site) never runs in this suite, because mbedTLS's own
+ * handshake/read calls are CMock-mocked at a higher level (see file
+ * header) — the real bio callback body is never invoked. Provided purely
+ * so mqtt_client.c links; kept behaviorally sane against the same
+ * s_recv_buf queue as wifitask_recv() above, unlike that function, this
+ * never blocks or advances g_mock_tick_count — a real caller is expected
+ * to poll repeatedly instead.
+ */
+wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
+                                 size_t buf_len, size_t *out_len, uint32_t ready_notify_bit,
+                                 wifitask_recv_poll_t *out_poll)
+{
+    (void) handle;
+    (void) socket;
+    (void) ready_notify_bit;
+
+    if (s_recv_pos >= s_recv_len)
+    {
+        *out_len = 0u;
+        *out_poll = WIFITASK_RECV_POLL_NONE;
+        return WIFITASK_ERR_OK;
+    }
+
+    size_t avail = s_recv_len - s_recv_pos;
+    size_t n = (avail < buf_len) ? avail : buf_len;
+    memcpy(buf, &s_recv_buf[s_recv_pos], n);
+    s_recv_pos += n;
+    *out_len = n;
+    *out_poll = WIFITASK_RECV_POLL_READY;
+    return WIFITASK_ERR_OK;
+}
+
+wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t socket)
 {
     (void) handle;
     (void) socket;
@@ -176,7 +228,7 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket)
     {
         s_open_sockets--;
     }
-    return WIFI_ERR_OK;
+    return WIFITASK_ERR_OK;
 }
 
 /* ========================================================================
@@ -299,7 +351,7 @@ static void prv_disconnect_cb(void)
 static mqtt_client_handle_t prv_create_default(void)
 {
     mqtt_client_config_t config = {
-        .wifi = (wifi_handle_t) 0x1234,
+        .wifi = (wifitask_handle_t) 0x1234,
         .msg_cb = prv_msg_cb,
         .disconnect_cb = prv_disconnect_cb,
     };
@@ -378,7 +430,7 @@ void test_MQTT_T02_create_null_config(void)
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_NULL_PTR, mqtt_client_create(NULL, &handle));
 
     mqtt_client_config_t config = {
-        .wifi = (wifi_handle_t) 0x1234,
+        .wifi = (wifitask_handle_t) 0x1234,
         .msg_cb = NULL,
         .disconnect_cb = prv_disconnect_cb,
     };
@@ -394,7 +446,7 @@ void test_MQTT_T03_create_pool_exhaustion(void)
     (void) prv_create_default(); /* MQTT_CLIENT_MAX_INSTANCES == 1 */
 
     mqtt_client_config_t config = {
-        .wifi = (wifi_handle_t) 0x1234,
+        .wifi = (wifitask_handle_t) 0x1234,
         .msg_cb = prv_msg_cb,
         .disconnect_cb = prv_disconnect_cb,
     };
@@ -635,8 +687,9 @@ void test_MQTT_T18_reconnect_after_keepalive_timeout(void)
     s_recv_len = 0u;
     s_disconnect_cb_called = false;
     prv_queue_connack(0u);
-    TEST_ASSERT_EQUAL_MESSAGE(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg),
-                              "reconnect failed after keep-alive timeout — socket/TLS state leaked");
+    TEST_ASSERT_EQUAL_MESSAGE(
+        MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg),
+        "reconnect failed after keep-alive timeout — socket/TLS state leaked");
 
     mqtt_stats_t stats;
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
@@ -725,4 +778,129 @@ void test_MQTT_T17_get_stats_matches_internal_state(void)
     TEST_ASSERT_EQUAL_UINT32(0u, stats.publish_failures);
     TEST_ASSERT_EQUAL_UINT32(0u, stats.subscribe_failures);
     TEST_ASSERT_EQUAL_UINT32(0u, stats.reconnect_count);
+}
+
+/* ========================================================================
+ * MQTT-T20..T21 — mqtt_client_is_connected()
+ * ==================================================================== */
+
+void test_MQTT_T20_is_connected_reflects_state(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+
+    prv_mock_tls_handshake(0);
+    prv_queue_connack(0u);
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+    TEST_ASSERT_TRUE(mqtt_client_is_connected(handle));
+
+    prv_mock_tls_teardown();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_disconnect(handle));
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+}
+
+void test_MQTT_T21_is_connected_null_handle(void)
+{
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(NULL));
+}
+
+/* ========================================================================
+ * MQTT-T22..T26 — mqtt_client_connect_step() ticking (MQTT-D8)
+ *
+ * mqtt_client_connect() itself is exercised unmodified by MQTT-T04..T06,
+ * T18, T19 above: it is now a thin wrapper looping connect_step(), so
+ * those tests double as regression coverage that the wrapper's blocking
+ * behaviour is unchanged. The tests below exercise connect_step()
+ * directly, proving state persists across ticks instead of restarting
+ * the sequence each call.
+ * ==================================================================== */
+
+void test_MQTT_T22_connect_step_idle_tick_opens_socket_and_returns_in_progress(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0); /* setup mocks armed; handshake itself not reached this tick */
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_open_socket_call_count);
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_attempts);
+}
+
+void test_MQTT_T23_connect_step_tls_handshake_ticks_do_not_reopen_socket(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(MBEDTLS_ERR_SSL_WANT_READ);
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg)); /* IDLE */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE tick 1 */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE tick 2 */
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_open_socket_call_count);
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_attempts); /* counted once, not per tick */
+}
+
+void test_MQTT_T24_connect_step_tls_handshake_deadline_expires_across_ticks(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(MBEDTLS_ERR_SSL_WANT_READ);
+    prv_mock_tls_teardown();
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg)); /* IDLE */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE, deadline armed */
+
+    g_mock_tick_count += 30000u; /* past MQTT_CONNECT_TIMEOUT_MS, no real sleep needed */
+
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_TLS_FAIL, mqtt_client_connect_step(handle, &cfg));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_close_socket_call_count);
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+
+    /* A fresh attempt after failure starts over from IDLE, not stuck. */
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS, mqtt_client_connect_step(handle, &cfg));
+    TEST_ASSERT_EQUAL_UINT32(2u, s_open_socket_call_count);
+}
+
+void test_MQTT_T25_connect_step_full_sequence_reaches_established(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    prv_queue_connack(0u);
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* IDLE -> TLS_HANDSHAKE */
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_IN_PROGRESS,
+                      mqtt_client_connect_step(handle, &cfg)); /* TLS_HANDSHAKE -> MQTT_CONNECT */
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK,
+                      mqtt_client_connect_step(handle, &cfg)); /* MQTT_CONNECT -> established */
+    TEST_ASSERT_TRUE(mqtt_client_is_connected(handle));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_attempts);
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.connect_ok);
+}
+
+void test_MQTT_T26_connect_step_null_args(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_NULL_PTR, mqtt_client_connect_step(NULL, &cfg));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_NULL_PTR, mqtt_client_connect_step(handle, NULL));
 }

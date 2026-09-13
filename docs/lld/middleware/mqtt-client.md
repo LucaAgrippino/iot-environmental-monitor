@@ -113,6 +113,7 @@ typedef enum {
     MQTT_CLIENT_ERR_NOT_CONNECTED  = 6,
     MQTT_CLIENT_ERR_TLS_FAIL       = 7,
     MQTT_CLIENT_ERR_SUBSCRIBE_FAIL = 8,  /**< SUBACK with failure code.             */
+    MQTT_CLIENT_ERR_IN_PROGRESS    = 9,  /**< connect_step(): more steps remain.    */
 } mqtt_client_err_t;
 
 typedef enum {
@@ -221,6 +222,29 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
  */
 mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle,
                                        const mqtt_connect_cfg_t *cfg);
+
+/**
+ * @brief Advance the connect sequence by one bounded step (MQTT-D8).
+ *
+ * Same overall sequence as mqtt_client_connect(), but ticked: at most
+ * one phase's worth of blocking I/O per call. mqtt_client_connect() is
+ * now a thin wrapper looping this function to completion — CloudPublisher
+ * calls this directly instead, once per its 1 Hz stats tick, so a
+ * stalled reconnect no longer freezes CloudPublisherTask (and the
+ * telemetry/health/alarm/command handling on the same task) for the
+ * whole sequence in one blocking call.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @param[in] cfg     Connection parameters (broker, certs, keep-alive).
+ * @return MQTT_CLIENT_ERR_IN_PROGRESS if the phase advanced but the
+ *         sequence isn't complete (call again next tick);
+ *         MQTT_CLIENT_ERR_OK once connected; MQTT_CLIENT_ERR_CONNECT_FAIL
+ *         / MQTT_CLIENT_ERR_TLS_FAIL on failure (state reset to idle).
+ * @note Threading: task-context only, may block up to the current
+ *       phase's own bound. Not ISR-safe.
+ */
+mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
+                                            const mqtt_connect_cfg_t *cfg);
 
 /**
  * @brief Send MQTT DISCONNECT and close the TLS session.
@@ -381,8 +405,17 @@ seconds. The recommended 100 ms call rate is well within this bound.
 
 #define MQTT_CLIENT_MAX_INSTANCES  1u
 #define MQTT_PKT_BUF_SIZE         4096u  /**< See MQTT-O3. */
-#define MQTT_CONNECT_TIMEOUT_MS  10000u  /**< See MQTT-O2. */
+#define MQTT_CONNECT_TIMEOUT_MS  30000u  /**< TLS handshake ticked deadline (MQTT-O2, MQTT-D8). */
+#define MQTT_CONNACK_TIMEOUT_MS  10000u  /**< MQTT_Connect()'s own atomic CONNACK wait (MQTT-D8). */
 #define MQTT_PUBACK_TIMEOUT_MS    5000u  /**< See MQTT-O4. */
+
+/** MQTT-D8: mqtt_client_connect_step()'s internal phase, persisted so
+ *  successive calls resume rather than restart the connect sequence. */
+typedef enum {
+    MQTT_CONN_STATE_IDLE = 0,          /**< No attempt in progress.              */
+    MQTT_CONN_STATE_TLS_HANDSHAKE = 1, /**< Socket open; TLS handshake ticking.  */
+    MQTT_CONN_STATE_MQTT_CONNECT = 2,  /**< TLS complete; CONNECT/CONNACK pending. */
+} mqtt_conn_state_t;
 
 struct mqtt_client_inst {
     /* Injected dependencies */
@@ -400,6 +433,10 @@ struct mqtt_client_inst {
     bool                 connected;
     mqtt_stats_t         stats;
     bool                 in_use;
+
+    /* MQTT-D8: mqtt_client_connect_step() ticking state */
+    mqtt_conn_state_t    connect_state;
+    uint32_t             tls_handshake_deadline_ms;
 };
 
 static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
@@ -549,6 +586,11 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-T17 | `mqtt_client_get_stats` copies snapshot | Stats match internal state |
 | MQTT-T18 | Reconnect after keep-alive-timeout disconnect | `wifi_close_socket()` called once before `disconnect_cb`; subsequent `mqtt_client_connect()` succeeds (MQTT-O8) |
 | MQTT-T19 | `WIFI_MAX_SOCKETS + 1` disconnect/reconnect cycles | All cycles succeed — proves no WifiDriver socket-table exhaustion (MQTT-O8) |
+| MQTT-T22 | `mqtt_client_connect_step()` IDLE tick | Opens socket, runs TLS setup, returns `ERR_IN_PROGRESS` (MQTT-D8) |
+| MQTT-T23 | Repeated TLS_HANDSHAKE ticks (WANT_READ) | Socket opened exactly once across ticks; `connect_attempts` counted once, not per tick |
+| MQTT-T24 | TLS handshake deadline expires across ticks | Returns `ERR_TLS_FAIL`, socket closed; next call starts a fresh attempt |
+| MQTT-T25 | Full step-by-step sequence | Three ticks (IDLE → TLS_HANDSHAKE → MQTT_CONNECT) reach `ERR_OK` / `is_connected() == true` |
+| MQTT-T26 | `mqtt_client_connect_step()` NULL args | Returns `ERR_NULL_PTR` |
 
 ---
 
@@ -557,13 +599,15 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | ID | Item | Status | Resolution |
 |---|---|---|---|
 | MQTT-O1 | mbedTLS RAM: ~35–50 KB. Must verify against 128 KB SRAM budget at integration. | **Open** | Verify at integration. If insufficient, evaluate reduced cipher config or on-module TLS fallback. Also now covers bounding mbedTLS's internal calloc/free usage for RSA/ECC bignum scratch space (`MBEDTLS_PLATFORM_C`, required for host-test builds) — e.g. `mbedtls_memory_buffer_alloc_init()` over a fixed static buffer. |
-| MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional 10 000 ms proved insufficient on hardware (measured ~29 s for a full mutual-auth TLS 1.2 handshake: software RSA-2048/ECDHE on the L475's 80 MHz core with no crypto accelerator, compounded by the WifiDriver read floor in MQTT-O7). Bumped to 30 000 ms. | **Open** | 29 s against a 60 s keep-alive interval is uncomfortably close — revisit once MQTT-O7 (non-blocking transport) is resolved, since that removes the dominant compounding factor. |
+| MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional 10 000 ms proved insufficient on hardware (measured ~29 s for a full mutual-auth TLS 1.2 handshake: software RSA-2048/ECDHE on the L475's 80 MHz core with no crypto accelerator, compounded by the WifiDriver read floor in MQTT-O7). Bumped to 30 000 ms. | **Open** | 29 s against a 60 s keep-alive interval is uncomfortably close. MQTT-O7 (non-blocking transport) is now resolved (WIFITASK-O1 Phase 2) — worth revisiting this constant against fresh hardware timing, though the dominant remaining factor is WIFI-O11's own ISM43362 module-side AT-command latency, not driver-side polling, so a large reduction isn't expected. Since MQTT-D8, this constant bounds only the TLS handshake phase's ticked deadline (the phase that actually produced the ~29 s measurement); `MQTT_Connect()`'s own CONNACK wait is now the separate, smaller `MQTT_CONNACK_TIMEOUT_MS` (10 000 ms). |
 | MQTT-O3 | `MQTT_PKT_BUF_SIZE` = 4096 (provisional). Must exceed largest payload. Health ~1–2 KB; OTA chunk TBD. | **Open** | Confirm max OTA chunk size at UpdateService LLD. |
 | MQTT-O4 | `MQTT_PUBACK_TIMEOUT_MS` / `MQTT_SUBACK_TIMEOUT_MS` — provisional 5000 ms bumped to 15 000 ms for the same reason as MQTT-O2 (WifiDriver's per-call read floor, MQTT-O7), even though observed PUBACK/SUBACK round trips against the local test broker were fast (well under 1 s). | **Open** | Validate against observed AWS IoT Core RTT at integration; revisit alongside MQTT-O2/O7. |
 | MQTT-O5 | Certificate storage partition address/format — depends on QspiFlashDriver/ConfigStore. MqttClient receives pointers only. | **Open** | Confirm at QspiFlashDriver LLD. |
 | MQTT-O6 | mbedTLS's CTR-DRBG entropy source needs a real RNG. The STM32L475's on-chip RNG peripheral requires its *kernel* clock (`RCC->CCIPR.CLK48SEL`) selected separately from its bus-clock gate (`AHB2ENR.RNGEN`) — not covered by this companion's original §8 design, which predates the concrete RNG choice, and not obvious until it hung on hardware (the poll loop waiting on `RNG->SR.DRDY` spun forever with no running kernel clock selected). | **Resolved** | Fixed in `mqtt_client.c` (`prv_configure_rng_clock()`): configures PLLSAI1 for an independent 48 MHz source (4 MHz VCO input × 48, ÷4) and selects it via `CLK48SEL`. Confirmed working on hardware. RNG has no dedicated driver in this project; this is documented as a narrow, scoped exception to register-level access from a middleware module, not a new convention. |
-| MQTT-O7 | `mqtt_client_process()` is not the fast/non-blocking ~100 ms call this companion's §7 recommended cadence assumes when idle. It calls `wifi_recv()` internally, which floors its own wait at `WIFI_RESP_TIMEOUT_MS` (5000 ms, `wifi_driver.c`) regardless of the timeout requested — so every idle poll can itself block for up to ~5 s. In production, `CloudPublisherTask` also owns telemetry timers, alarm-queue draining, and command-queue draining (§4 activation model) on the *same* task — a 5 s block on every idle `mqtt_client_process()` call stalls all of those, not just MQTT. Confirmed on hardware during bring-up (a diagnostic poll loop assuming ~100 ms/iteration measured ~5 s/iteration instead). | **Open** | Two candidate fixes, not yet chosen: (a) give WifiDriver a genuinely non-blocking "is data available" primitive instead of a floored blocking read, or (b) move `mqtt_client_process()` off `CloudPublisherTask` onto its own dedicated task. Deferred to CloudPublisher's design — do not resolve as a side effect of an unrelated change. |
+| MQTT-O7 | `mqtt_client_process()` is not the fast/non-blocking ~100 ms call this companion's §7 recommended cadence assumes when idle. It calls `wifi_recv()` internally, which floors its own wait at `WIFI_RESP_TIMEOUT_MS` (5000 ms, `wifi_driver.c`) regardless of the timeout requested — so every idle poll can itself block for up to ~5 s. In production, `CloudPublisherTask` also owns telemetry timers, alarm-queue draining, and command-queue draining (§4 activation model) on the *same* task — a 5 s block on every idle `mqtt_client_process()` call stalls all of those, not just MQTT. Confirmed on hardware during bring-up (a diagnostic poll loop assuming ~100 ms/iteration measured ~5 s/iteration instead). | **Resolved** (WIFITASK-O1 Phase 2, `wifi-task.md` §10) | Option (a) from this row's own candidates, implemented at the WifiTask layer rather than WifiDriver: `prv_mbedtls_net_recv()` (the mbedTLS bio callback `mqtt_client_process()`'s read path bottoms out at) now calls `wifitask_try_recv()` instead of the blocking `wifitask_recv()` — an idle poll returns `MBEDTLS_ERR_SSL_WANT_READ` immediately (mapped by `prv_transport_recv()`'s existing, unchanged production branch to coreMQTT's own "no data yet" convention, return `0`) instead of blocking for `WIFI_RESP_TIMEOUT_MS`. `CloudPublisherTask` is woken promptly when data does arrive via `MQTT_CLIENT_WIFI_RECV_READY_BIT` (`cloud-publisher-lld.md` CP-D9/D10 area) rather than parking on it. Option (b) (dedicated task) was not needed once (a) worked. Does not change `WIFI_RESP_TIMEOUT_MS` itself or any other ISM43362 module-side latency (WIFI-O11) — only removes the *idle-poll* floor. |
 | MQTT-O8 | Robustness audit (broker-drop scenario, prompted by a review of WiFi/MQTT connection-loss handling): `mqtt_client_process()`'s abnormal-disconnect path (keep-alive timeout, `MQTTRecvFailed`, `MQTTSendFailed`) set `connected = false` and invoked `disconnect_cb()` directly, without releasing the TLS session or the underlying WifiDriver socket — unlike the graceful `mqtt_client_disconnect()` path, which released both. WifiDriver's socket table has only `WIFI_MAX_SOCKETS` (4) slots and `wifi_close_socket()` is the only thing that frees one (`wifi-driver.md` §3.7); the leaked slot meant `wifi_open_socket()` inside the *next* `mqtt_client_connect()` call permanently exhausted the table after ~4 unexpected broker drops — a realistic count over weeks of unattended field operation against a real cloud broker — leaving the device unable to reconnect to MQTT until reboot. The mbedTLS contexts were leaked too (never freed on this path). | **Resolved** | Factored the graceful-path cleanup into `prv_teardown_connection()` (`prv_tls_close()` + `wifi_close_socket()`) and call it from both `mqtt_client_disconnect()` and the abnormal-disconnect branch of `mqtt_client_process()`, before `disconnect_cb()` runs. Regression tests MQTT-T18 (single reconnect after an unexpected drop) and MQTT-T19 (`WIFI_MAX_SOCKETS + 1` disconnect/reconnect cycles) added — the WifiDriver test stub now mirrors the real socket table's finite depth so a re-leak would fail these tests, not just look clean via a `disconnect_cb`-only assertion (which is all MQTT-T14 checked before this). Companion WiFi AP-drop-level reconnection (as opposed to MQTT-session-level cleanup) is a separate, still-open gap — see `wifi-driver.md` WIFI-O15. **Confirmed on hardware** (2026-07-10, B-L475E-IOT01A against local Mosquitto): TC-HW-MQTT-011 forced a real broker drop (keep-alive timeout, `Connection lost: 4`) and reconnected cleanly; TC-HW-MQTT-012 ran 4 further automated disconnect/reconnect cycles (`connect_ok=6, reconnect_count=5`), all successful — proves `wifi_close_socket()`'s real `P0`/`P6=0` AT sequence genuinely frees the socket on the physical ISM43362, which the host-mocked MQTT-T18/T19 could not prove on their own. |
+| MQTT-O9 | MQTT-D8's `mqtt_client_connect_step()` bounds *most* per-tick blocking to ~5 s (one WifiDriver read-floor round trip per TLS handshake tick), but two phases remain atomic, single-tick calls with a larger worst case: the TCP socket open (`wifi_open_socket()`, ~15 s ceiling — `WIFI_SOCKET_CONNECT_TIMEOUT_MS`, `wifi-driver.md`'s P6=1 start-client command) and the MQTT CONNECT/CONNACK exchange (`MQTT_CONNACK_TIMEOUT_MS`, 10 s). Neither can be ticked further without either a WifiDriver change (exposing `wifi_open_socket()`'s internal AT commands individually — deliberately declined for this change, see `cloud-publisher-lld.md` CP-D10) or violating the MQTT spec (`MQTT_Connect()` always (re)sends CONNECT on every call, so it cannot be resumed across ticks without risking a duplicate CONNECT on the same session). | **Open** | Accepted for now: CP-D10 still improves the worst single-tick block from ~19–30 s (whole sequence, confirmed on hardware) down to ~15 s at most (a real, meaningful bound), and the phase that actually produced the measured ~19 s stall (TLS handshake) is fully ticked. Revisit only alongside a dedicated, separately-scoped WifiDriver decision if the residual ~15 s bound proves insufficient against REQ-NF-113 in practice. |
+| MQTT-O10 | Phase 4 hardware bring-up (TC-HW-CP-004, 2026-09-13): with the I/O path fixed (wifi-task.md WIFITASK-O1 Phase 4), the TLS handshake still missed its 30 s deadline — and Mosquitto 2.x independently drops clients that haven't sent CONNECT within 30 s ("exceeded timeout"). Packet timing put the remaining cost in the client's own crypto: P-256 ECDHE ~7 s and the RSA-2048 `CertificateVerify` signature >20 s, all of mbedTLS bignum running at `-O0` in the Debug configuration with `MBEDTLS_HAVE_ASM` off. | **Resolved** | Two changes, no code: (1) `mbedtls_config_gateway.h` now enables `MBEDTLS_HAVE_ASM` (Thumb-2 multiply-accumulate inner loop in `bn_mul.h`) and `MBEDTLS_ECP_NIST_OPTIM` — both defaults in upstream's own config, zero RAM cost; (2) the gateway `.cproject` Debug configuration carries a folder-level override compiling `mbedtls-library` at `-O2` while project code stays `-O0` for debugging — required anyway, since the Thumb-2 asm does not compile at `-O0` ("impossible constraints"), and the standard CubeIDE way to do this. Flash 238 KB → 184 KB, handshake ~4 s end-to-end. The bring-up client key is RSA-2048; an EC (P-256) client identity would make `CertificateVerify` an ECDSA signature and cut the handshake further if the cloud endpoint permits it — noted, not pursued. |
 
 ---
 
@@ -578,6 +622,8 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-D5 | ADT pattern (opaque handle, static pool of 1) | Gateway default. WifiDriver handle and callbacks injected via config struct. |
 | MQTT-D6 | `mqtt_client_subscribe()` as explicit public function | Referenced in SD-06, SD-07, SD-08 for command/OTA topic subscription. Separation from connect allows CloudPublisher to control subscription timing. |
 | MQTT-D7 | `mqtt_client_publish()` blocking behaviour: QoS 0 non-blocking, QoS 1 blocking until PUBACK or timeout | QoS 0 is fire-and-forget by MQTT spec. QoS 1 must wait for PUBACK to confirm delivery — blocking is the correct model for single-threaded CloudPublisherTask. |
+| MQTT-D8 | Added `mqtt_client_connect_step()`: a ticked connect/reconnect state machine (IDLE → TLS_HANDSHAKE → MQTT_CONNECT), each call doing at most one bounded phase. `mqtt_client_connect()` is now a thin wrapper looping `connect_step()` to completion — single implementation, zero behaviour change for existing callers (hardware bring-up, all pre-existing unit tests pass unmodified). Motivated by a hardware-confirmed ~19 s freeze of `CloudPublisherTask` (and everything else on that task — telemetry, health, alarms, commands) during a single failed `mqtt_client_connect()` call, risking REQ-NF-113 (≤500 ms alarm-to-publish-queue latency) if an alarm fires mid-reconnect. Enabled by `mbedtls_ssl_handshake()` already being internally steppable (returns `WANT_READ`/`WANT_WRITE` instead of blocking to completion) — the blocking behaviour was `prv_tls_connect()`'s own wrapping loop, not mbedTLS's. Deliberately does **not** touch WifiDriver (see `cloud-publisher-lld.md` CP-D10 for the scope decision and MQTT-O9 for the residual per-tick bound this leaves open) — WifiDriver's blocking transport is an intentional, already-tagged, hardware-validated architectural boundary (`wifi-driver.md` WIFI-D11) with a documented history of regressions in this exact code path (WIFI-O9/O10/O11/O14); reworking it is its own separately-scoped decision, not bundled into this change. |
+| MQTT-D9 | `prv_mbedtls_net_recv()` (the mbedTLS bio recv callback, the sole production transport-recv call site) rewired from the blocking `wifitask_recv()` to the non-blocking `wifitask_try_recv()` (WIFITASK-O1 Phase 2), resolving MQTT-O7. Poll outcomes map onto mbedTLS's own contract: `READY`→byte count, `PENDING`/`NONE`→`MBEDTLS_ERR_SSL_WANT_READ` (mbedTLS and, above it, coreMQTT already treat this as "not done, try again" — no new state machine needed), `ERROR`→`MBEDTLS_ERR_SSL_TIMEOUT`. New `MQTT_CLIENT_WIFI_RECV_READY_BIT` (`mqtt_client.h`, bit 5) is set on the caller's notification word when a background attempt completes — owned by MqttClient (the module that actually calls `wifitask_try_recv()`), not CloudPublisher, even though CloudPublisher is the one that waits on it; CloudPublisher already includes `mqtt_client.h` so this needs no new shared header. `prv_transport_recv()`'s `#ifdef TEST` body deliberately left unchanged (still `wifitask_recv()`) — it bypasses TLS entirely for host tests injecting synthetic cleartext MQTT frames (see test file header) and has no production role, so rewriting it would only add test-mock complexity for zero production benefit. |
 
 ---
 

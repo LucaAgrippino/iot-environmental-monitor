@@ -46,7 +46,26 @@
  * MQTT_CONNECT_TIMEOUT_MS's original 10 s budget allowed only 1-2
  * underlying wifi_recv() attempts before giving up — not enough margin
  * against that per-call floor. See MQTT-O2/O4/O6. */
+/** MQTT-D8: bounds the TLS_HANDSHAKE phase's wall-clock deadline in
+ *  mqtt_client_connect_step() — ticked across multiple calls (one
+ *  mbedtls_ssl_handshake() round per call) rather than looped to
+ *  completion in a single blocking call, so a stalled handshake no
+ *  longer freezes CloudPublisherTask for the full budget in one shot
+ *  (confirmed on hardware: a failed reconnect previously blocked
+ *  CloudPublisherTask for ~19 s straight, TLS handshake failing with
+ *  MBEDTLS_ERR_SSL_TIMEOUT — risks REQ-NF-113's 500 ms alarm-to-publish
+ *  bound if an alarm fires mid-reconnect). */
 #define MQTT_CONNECT_TIMEOUT_MS 30000u /**< ~6 retries at the 5 s floor. */
+/** MQTT-D8: MQTT_Connect()'s own CONNACK-wait budget. Split out from
+ *  MQTT_CONNECT_TIMEOUT_MS now that the two phases are ticked
+ *  separately: MQTT_Connect() always (re)sends CONNECT on every call,
+ *  so unlike the TLS handshake it cannot be resumed across
+ *  connect_step() ticks — it stays one atomic call, but no longer needs
+ *  to share the 30 s budget once meant to cover TLS + CONNECT combined.
+ *  CONNACK RTT observed fast (sub-second) against a live broker once
+ *  TLS is up (mirrors MQTT-O4's PUBACK/SUBACK observation); sized with
+ *  margin for the same WifiDriver read floor as everything else here. */
+#define MQTT_CONNACK_TIMEOUT_MS 10000u /**< ~2 retries at the 5 s floor. */
 #define MQTT_PUBACK_TIMEOUT_MS 15000u  /**< ~3 retries at the 5 s floor. */
 #define MQTT_SUBACK_TIMEOUT_MS                                                                     \
     15000u /**< Mirrors MQTT_PUBACK_TIMEOUT_MS; not yet a                                          \
@@ -59,14 +78,37 @@
 #define MQTT_OUTGOING_PUBLISH_RECORDS 4u
 #define MQTT_INCOMING_PUBLISH_RECORDS 4u
 
-/** Timeout budget handed to each individual transport-level socket
- *  call. Below WIFI_RESP_TIMEOUT_MS (5000 ms) this has no observable
- *  effect — wifi_recv() floors to that value regardless — but it is
- *  still the semantically-correct per-poll budget to pass (a future
- *  WifiDriver revision, or swapping the transport, might honour it
- *  directly), and it bounds mqtt_client_process()'s own non-blocking
- *  contract when data genuinely is available immediately. */
+/** Timeout budget handed to the TEST-only transport recv path
+ *  (prv_transport_recv()'s #ifdef TEST body, still wifitask_recv()-based
+ *  — the production path, prv_mbedtls_net_recv(), moved to the
+ *  non-blocking wifitask_try_recv() under WIFITASK-O1 Phase 2 and no
+ *  longer uses this constant). Below WIFI_RESP_TIMEOUT_MS (5000 ms) this
+ *  has no observable effect — wifi_recv() floors to that value regardless
+ *  — but it is still the semantically-correct per-poll budget to pass. */
 #define MQTT_TRANSPORT_POLL_TIMEOUT_MS 500u
+
+/** WIFITASK-O1 Phase 2 regression fix: every tight "call MQTT_ProcessLoop()
+ *  (or connect_step()) until a flag/status changes or a timeout elapses"
+ *  loop in this file (mqtt_client_connect(), the QoS 1 PUBACK wait in
+ *  mqtt_client_publish(), the SUBACK wait in mqtt_client_subscribe()) used
+ *  to be implicitly paced by wifitask_recv()'s own ~5 s block per call — a
+ *  real yield point, since that wait happens inside FreeRTOS's blocking
+ *  primitives. Now that the underlying recv is wifitask_try_recv(), which
+ *  never blocks, a bare tight loop starves WifiTask of any chance to run
+ *  its own task and drain the arm queue it depends on — confirmed on
+ *  hardware as an immediate, permanent WIFITASK_ERR_NO_RESOURCE spin (arm
+ *  queue full forever, nothing ever dequeues it) in mqtt_client_connect().
+ *  The QoS 1 publish/subscribe waits have the identical shape and would
+ *  hit the same failure in production (not just bring-up) the first time
+ *  either is called after Phase 2 — fixed alongside connect() rather than
+ *  only where it was first observed. This delay is the yield point that
+ *  replaces the one lost when the per-call block went away; matches
+ *  WifiTask's own WIFITASK_RECV_ARM_POLL_TICKS cadence, so none of these
+ *  loops poll faster than WifiTask itself re-checks the arm queue.
+ *  CloudPublisher's own ticked reconnect path (prv_maybe_reconnect(), one
+ *  connect_step() call per wake) is unaffected — it already yields via
+ *  xTaskNotifyWait() between calls. */
+#define MQTT_PROCESS_LOOP_POLL_MS 100u
 
 #ifdef TEST
 #define MQTT_CLIENT_TEST_VISIBLE
@@ -90,15 +132,29 @@ struct NetworkContext
     mbedtls_pk_context client_key;
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
-    wifi_handle_t wifi;
+    wifitask_handle_t wifi;
     wifi_socket_t socket;
 };
+
+/**
+ * @brief MQTT-D8: mqtt_client_connect_step()'s internal phase.
+ *
+ * Persisted on the instance so successive connect_step() calls resume
+ * where the previous one left off, rather than restarting the whole
+ * connect sequence.
+ */
+typedef enum
+{
+    MQTT_CONN_STATE_IDLE = 0,          /**< No attempt in progress. */
+    MQTT_CONN_STATE_TLS_HANDSHAKE = 1, /**< Socket open; TLS handshake ticking. */
+    MQTT_CONN_STATE_MQTT_CONNECT = 2,  /**< TLS complete; MQTT CONNECT/CONNACK pending. */
+} mqtt_conn_state_t;
 
 /** @brief Internal instance state — hidden from consumers (companion §8.1). */
 struct mqtt_client_inst
 {
     /* Injected dependencies */
-    wifi_handle_t wifi;
+    wifitask_handle_t wifi;
     mqtt_message_cb_t msg_cb;
     mqtt_disconnect_cb_t disconnect_cb;
 
@@ -116,6 +172,10 @@ struct mqtt_client_inst
     bool connected;
     mqtt_stats_t stats;
     bool in_use;
+
+    /* MQTT-D8: mqtt_client_connect_step() ticking state */
+    mqtt_conn_state_t connect_state;
+    uint32_t tls_handshake_deadline_ms;
 
     /* Blocking-wait bookkeeping for publish()/subscribe() */
     bool puback_received;
@@ -234,31 +294,58 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char
 {
     NetworkContext_t *net_ctx = (NetworkContext_t *) ctx;
 
-    wifi_err_t err = wifi_send(net_ctx->wifi, net_ctx->socket, buf, len);
-    if (err == WIFI_ERR_OK)
+    wifitask_err_t err = wifitask_send(net_ctx->wifi, net_ctx->socket, buf, len);
+    if (err == WIFITASK_ERR_OK)
     {
         return (int) len;
     }
+    LOG_WARN(MQTT_CLIENT_LOG_MODULE, "net_send: wifitask_send(%u B) failed, err=%d", (unsigned) len,
+             (int) err);
     return MBEDTLS_ERR_SSL_WANT_WRITE;
 }
 
-/** @brief mbedTLS BIO recv callback — the lowest-level socket read. */
+/**
+ * @brief mbedTLS BIO recv callback — the lowest-level socket read.
+ *
+ * WIFITASK-O1 Phase 2: routed through wifitask_try_recv() instead of the
+ * blocking wifitask_recv(), so a TLS handshake round-trip no longer parks
+ * CloudPublisherTask for WifiTask's ~5 s worst case per call (WIFI-O11) —
+ * mbedtls_ssl_handshake() already treats MBEDTLS_ERR_SSL_WANT_READ as
+ * "not done yet, call me again next tick" (that's what already powers
+ * mqtt_client_connect_step()'s ticking, MQTT-D8), so no new state machine
+ * is needed here. MQTT_CLIENT_WIFI_RECV_READY_BIT wakes CloudPublisherTask
+ * promptly when a background attempt completes (see cloud_publisher.c's
+ * prv_task_step()) instead of leaving it to the next 1 Hz stats tick.
+ */
 MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 {
     NetworkContext_t *net_ctx = (NetworkContext_t *) ctx;
 
     size_t out_len = 0u;
-    wifi_err_t err = wifi_recv(net_ctx->wifi, net_ctx->socket, buf, len, &out_len,
-                               MQTT_TRANSPORT_POLL_TIMEOUT_MS);
-    if (err == WIFI_ERR_OK)
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_PENDING;
+    wifitask_err_t err = wifitask_try_recv(net_ctx->wifi, net_ctx->socket, buf, len, &out_len,
+                                           MQTT_CLIENT_WIFI_RECV_READY_BIT, &poll);
+    if (err == WIFITASK_ERR_NO_RESOURCE)
     {
-        return (int) out_len;
-    }
-    if (err == WIFI_ERR_TIMEOUT)
-    {
+        /* Arm queue momentarily full — transient, retry next call. */
         return MBEDTLS_ERR_SSL_WANT_READ;
     }
-    return MBEDTLS_ERR_SSL_TIMEOUT;
+    if (err != WIFITASK_ERR_OK)
+    {
+        return MBEDTLS_ERR_SSL_TIMEOUT;
+    }
+
+    switch (poll)
+    {
+    case WIFITASK_RECV_POLL_READY:
+        return (int) out_len;
+    case WIFITASK_RECV_POLL_PENDING:
+    case WIFITASK_RECV_POLL_NONE:
+        return MBEDTLS_ERR_SSL_WANT_READ;
+    case WIFITASK_RECV_POLL_ERROR:
+    default:
+        return MBEDTLS_ERR_SSL_TIMEOUT;
+    }
 }
 
 /**
@@ -273,8 +360,8 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_recv(void *ctx, unsigned char *buf,
 static int32_t prv_transport_send(NetworkContext_t *net_ctx, const void *buf, size_t len)
 {
 #ifdef TEST
-    wifi_err_t err = wifi_send(net_ctx->wifi, net_ctx->socket, (const uint8_t *) buf, len);
-    return (err == WIFI_ERR_OK) ? (int32_t) len : -1;
+    wifitask_err_t err = wifitask_send(net_ctx->wifi, net_ctx->socket, (const uint8_t *) buf, len);
+    return (err == WIFITASK_ERR_OK) ? (int32_t) len : -1;
 #else
     int ret = mbedtls_ssl_write(&net_ctx->ssl, (const unsigned char *) buf, len);
     if (ret >= 0)
@@ -294,13 +381,20 @@ static int32_t prv_transport_recv(NetworkContext_t *net_ctx, void *buf, size_t l
 {
 #ifdef TEST
     size_t out_len = 0u;
-    wifi_err_t err = wifi_recv(net_ctx->wifi, net_ctx->socket, (uint8_t *) buf, len, &out_len,
-                               MQTT_TRANSPORT_POLL_TIMEOUT_MS);
-    if (err == WIFI_ERR_OK)
+    wifitask_err_t err = wifitask_recv(net_ctx->wifi, net_ctx->socket, (uint8_t *) buf, len,
+                                       &out_len, MQTT_TRANSPORT_POLL_TIMEOUT_MS);
+    if (err == WIFITASK_ERR_OK)
     {
         return (int32_t) out_len;
     }
-    if (err == WIFI_ERR_TIMEOUT)
+    /* This must stay the raw WifiDriver WIFI_ERR_TIMEOUT (4), not
+     * WIFITASK_ERR_TIMEOUT (3, a different condition) — see wifi-task.md
+     * §10 WIFITASK-O3. TEST-only: this path still uses the blocking
+     * wifitask_recv(); the production recv (prv_mbedtls_net_recv() above)
+     * moved to wifitask_try_recv()'s poll-enum contract under
+     * WIFITASK-O1 Phase 2 and no longer compares against this value. Do
+     * not rename. */
+    if (err == (wifitask_err_t) WIFI_ERR_TIMEOUT)
     {
         return 0;
     }
@@ -379,15 +473,16 @@ static void prv_event_callback(MQTTContext_t *ctx, MQTTPacketInfo_t *packet_info
 }
 
 /**
- * @brief Establish the TLS 1.2 session with X.509 mutual auth.
+ * @brief One-time TLS context setup: seed the RNG, load CA/client cert +
+ *        key (DER, pointers only — REQ-NF-302), configure the
+ *        ECDHE-RSA-AES128-GCM-SHA256 client session, and wire the BIO.
  *
- * Sequence per companion §3: seed the RNG, load CA/client cert + key
- * (DER, pointers only — REQ-NF-302), configure the ECDHE-RSA-AES128-
- * GCM-SHA256 client session, and run the handshake bounded by
- * MQTT_CONNECT_TIMEOUT_MS.
+ * No handshake I/O here — every step is local (parsing, config), so
+ * this is safe to run in full within a single connect_step() tick
+ * (MQTT-D8). The handshake itself is ticked separately by
+ * prv_tls_handshake_step().
  */
-static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
-                                         const mqtt_connect_cfg_t *cfg)
+static mqtt_client_err_t prv_tls_setup(struct mqtt_client_inst *inst, const mqtt_connect_cfg_t *cfg)
 {
     NetworkContext_t *net_ctx = &inst->net_ctx;
 
@@ -446,11 +541,31 @@ static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
     }
     mbedtls_ssl_set_bio(&net_ctx->ssl, net_ctx, prv_mbedtls_net_send, prv_mbedtls_net_recv, NULL);
 
-    uint32_t start = prv_get_time_ms();
-    int ret = mbedtls_ssl_handshake(&net_ctx->ssl);
-    while ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE))
+    return MQTT_CLIENT_ERR_OK;
+}
+
+/**
+ * @brief Advance the TLS handshake by exactly one mbedtls_ssl_handshake()
+ *        call (MQTT-D8).
+ *
+ * mbedTLS tracks handshake progress internally in net_ctx->ssl between
+ * calls, so a single external call each tick correctly resumes where
+ * the previous one left off — this is what makes the handshake
+ * tickable at all without protocol-level bookkeeping of our own.
+ * inst->tls_handshake_deadline_ms (set once when entering
+ * MQTT_CONN_STATE_TLS_HANDSHAKE) bounds the *sequence* of ticks, not
+ * any single call.
+ */
+static mqtt_client_err_t prv_tls_handshake_step(struct mqtt_client_inst *inst)
+{
+    int ret = mbedtls_ssl_handshake(&inst->net_ctx.ssl);
+    if (ret == 0)
     {
-        if ((prv_get_time_ms() - start) >= MQTT_CONNECT_TIMEOUT_MS)
+        return MQTT_CLIENT_ERR_OK;
+    }
+    if ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE))
+    {
+        if (prv_get_time_ms() >= inst->tls_handshake_deadline_ms)
         {
             LOG_ERROR(MQTT_CLIENT_LOG_MODULE,
                       "TLS handshake timed out after %lu ms, still waiting on %s",
@@ -458,15 +573,11 @@ static mqtt_client_err_t prv_tls_connect(struct mqtt_client_inst *inst,
                       (ret == MBEDTLS_ERR_SSL_WANT_READ) ? "WANT_READ" : "WANT_WRITE");
             return MQTT_CLIENT_ERR_TLS_FAIL;
         }
-        ret = mbedtls_ssl_handshake(&net_ctx->ssl);
-    }
-    if (ret != 0)
-    {
-        LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "TLS handshake failed: -0x%04x", (unsigned int) -ret);
-        return MQTT_CLIENT_ERR_TLS_FAIL;
+        return MQTT_CLIENT_ERR_IN_PROGRESS;
     }
 
-    return MQTT_CLIENT_ERR_OK;
+    LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "TLS handshake failed: -0x%04x", (unsigned int) -ret);
+    return MQTT_CLIENT_ERR_TLS_FAIL;
 }
 
 static void prv_tls_close(struct mqtt_client_inst *inst)
@@ -487,7 +598,7 @@ static void prv_tls_close(struct mqtt_client_inst *inst)
  * Shared by the graceful (mqtt_client_disconnect()) and abnormal
  * (mqtt_client_process() keep-alive/recv/send failure) teardown paths.
  * Both must release the same two resources: WifiDriver's socket table
- * has only WIFI_MAX_SOCKETS (4) slots, and wifi_close_socket() is the
+ * has only WIFI_MAX_SOCKETS (4) slots, and wifitask_close_socket() is the
  * only thing that frees one (wifi_driver.c §3.7) — skipping it on the
  * abnormal path leaks a slot per unexpected disconnect, exhausting the
  * table after a handful of broker drops and permanently blocking
@@ -496,7 +607,7 @@ static void prv_tls_close(struct mqtt_client_inst *inst)
 static void prv_teardown_connection(struct mqtt_client_inst *inst)
 {
     prv_tls_close(inst);
-    (void) wifi_close_socket(inst->wifi, inst->net_ctx.socket);
+    (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
     inst->connected = false;
 }
 
@@ -531,65 +642,115 @@ mqtt_client_err_t mqtt_client_create(const mqtt_client_config_t *config,
     return MQTT_CLIENT_ERR_OK;
 }
 
-mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg)
+/**
+ * @brief MQTT_CONN_STATE_IDLE tick: open the TCP socket and run one-time
+ *        TLS context setup (MQTT-D8).
+ *
+ * Atomic — wifitask_open_socket() bundles several AT commands (relayed
+ * through WifiTask, still a synchronous relocate) with no way to report
+ * partial progress (mqtt-client.md MQTT-O9) — but TLS setup itself is
+ * local/non-blocking, so folding it into the same tick costs nothing
+ * extra. Transitions to MQTT_CONN_STATE_TLS_HANDSHAKE on success; the
+ * first actual mbedtls_ssl_handshake() call happens on the *next* tick,
+ * keeping this tick's own worst-case block to wifitask_open_socket() alone.
+ */
+static mqtt_client_err_t prv_connect_step_idle(struct mqtt_client_inst *inst,
+                                               const mqtt_connect_cfg_t *cfg)
 {
-    if ((handle == NULL) || (cfg == NULL))
-    {
-        return MQTT_CLIENT_ERR_NULL_PTR;
-    }
-
-    handle->stats.connect_attempts++;
+    inst->stats.connect_attempts++;
 
     wifi_socket_t socket;
-    wifi_err_t wifi_status = wifi_open_socket(handle->wifi, WIFI_SOCKET_TCP, cfg->broker_endpoint,
-                                              cfg->broker_port, &socket);
-    if (wifi_status != WIFI_ERR_OK)
+    wifitask_err_t wifi_status = wifitask_open_socket(
+        inst->wifi, WIFI_SOCKET_TCP, cfg->broker_endpoint, cfg->broker_port, &socket);
+    if (wifi_status != WIFITASK_ERR_OK)
     {
-        LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "wifi_open_socket failed: %d", (int) wifi_status);
+        LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "wifitask_open_socket failed: %d", (int) wifi_status);
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
-    handle->net_ctx.wifi = handle->wifi;
-    handle->net_ctx.socket = socket;
+    inst->net_ctx.wifi = inst->wifi;
+    inst->net_ctx.socket = socket;
 
-    mqtt_client_err_t tls_result = prv_tls_connect(handle, cfg);
+    mqtt_client_err_t tls_result = prv_tls_setup(inst, cfg);
     if (tls_result != MQTT_CLIENT_ERR_OK)
     {
-        /* Safe even on a partially-completed handshake: every mbedTLS
-         * context reached its _init() call before any step that can fail,
-         * and mbedTLS guarantees _free() is safe on an _init()'d context
-         * regardless of how much setup completed after that. Skipping this
-         * would leave stale TLS state behind for the next connect attempt. */
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        /* Safe even on a partially-completed setup: every mbedTLS context
+         * reached its _init() call before any step that can fail, and
+         * mbedTLS guarantees _free() is safe on an _init()'d context
+         * regardless of how much setup completed after that. */
+        prv_tls_close(inst);
+        (void) wifitask_close_socket(inst->wifi, socket);
         return tls_result;
     }
 
+    inst->tls_handshake_deadline_ms = prv_get_time_ms() + MQTT_CONNECT_TIMEOUT_MS;
+    inst->connect_state = MQTT_CONN_STATE_TLS_HANDSHAKE;
+    return MQTT_CLIENT_ERR_IN_PROGRESS;
+}
+
+/**
+ * @brief MQTT_CONN_STATE_TLS_HANDSHAKE tick (MQTT-D8).
+ *
+ * On handshake completion, transitions to MQTT_CONN_STATE_MQTT_CONNECT
+ * and returns IN_PROGRESS rather than falling through into that phase
+ * in the same tick — keeps every tick bounded to one phase's own
+ * blocking work.
+ */
+static mqtt_client_err_t prv_connect_step_tls_handshake(struct mqtt_client_inst *inst)
+{
+    mqtt_client_err_t status = prv_tls_handshake_step(inst);
+    if (status == MQTT_CLIENT_ERR_TLS_FAIL)
+    {
+        prv_tls_close(inst);
+        (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
+        return status;
+    }
+    if (status == MQTT_CLIENT_ERR_OK)
+    {
+        inst->connect_state = MQTT_CONN_STATE_MQTT_CONNECT;
+    }
+    return MQTT_CLIENT_ERR_IN_PROGRESS;
+}
+
+/**
+ * @brief MQTT_CONN_STATE_MQTT_CONNECT tick (MQTT-D8).
+ *
+ * Atomic — coreMQTT's MQTT_Connect() always (re)sends a CONNECT packet
+ * when called, so unlike the TLS handshake it cannot be resumed across
+ * ticks without risking a duplicate CONNECT on the same session. Bounded
+ * by MQTT_CONNACK_TIMEOUT_MS rather than the (now TLS-only)
+ * MQTT_CONNECT_TIMEOUT_MS.
+ */
+static mqtt_client_err_t prv_connect_step_mqtt_connect(struct mqtt_client_inst *inst,
+                                                       const mqtt_connect_cfg_t *cfg)
+{
     static const TransportInterface_t s_transport_template = {
         .recv = prv_transport_recv,
         .send = prv_transport_send,
         .writev = NULL,
     };
     TransportInterface_t transport = s_transport_template;
-    transport.pNetworkContext = &handle->net_ctx;
+    transport.pNetworkContext = &inst->net_ctx;
 
-    handle->fixed_buf.pBuffer = handle->pkt_buf;
-    handle->fixed_buf.size = MQTT_PKT_BUF_SIZE;
+    inst->fixed_buf.pBuffer = inst->pkt_buf;
+    inst->fixed_buf.size = MQTT_PKT_BUF_SIZE;
 
-    if (MQTT_Init(&handle->mqtt_ctx, &transport, prv_get_time_ms, prv_event_callback,
-                  &handle->fixed_buf) != MQTTSuccess)
+    if (MQTT_Init(&inst->mqtt_ctx, &transport, prv_get_time_ms, prv_event_callback,
+                  &inst->fixed_buf) != MQTTSuccess)
     {
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        prv_tls_close(inst);
+        (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
-    if (MQTT_InitStatefulQoS(&handle->mqtt_ctx, handle->outgoing_records,
-                             MQTT_OUTGOING_PUBLISH_RECORDS, handle->incoming_records,
-                             MQTT_INCOMING_PUBLISH_RECORDS) != MQTTSuccess)
+    if (MQTT_InitStatefulQoS(&inst->mqtt_ctx, inst->outgoing_records, MQTT_OUTGOING_PUBLISH_RECORDS,
+                             inst->incoming_records, MQTT_INCOMING_PUBLISH_RECORDS) != MQTTSuccess)
     {
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        prv_tls_close(inst);
+        (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
@@ -600,26 +761,75 @@ mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_co
     connect_info.clientIdentifierLength = (uint16_t) strlen(cfg->client_id);
 
     bool session_present = false;
-    MQTTStatus_t connect_status = MQTT_Connect(&handle->mqtt_ctx, &connect_info, NULL,
-                                               MQTT_CONNECT_TIMEOUT_MS, &session_present);
+    MQTTStatus_t connect_status = MQTT_Connect(&inst->mqtt_ctx, &connect_info, NULL,
+                                               MQTT_CONNACK_TIMEOUT_MS, &session_present);
     if (connect_status != MQTTSuccess)
     {
         LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "MQTT_Connect failed: %d", (int) connect_status);
-        prv_tls_close(handle);
-        (void) wifi_close_socket(handle->wifi, socket);
+        prv_tls_close(inst);
+        (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
+        inst->connect_state = MQTT_CONN_STATE_IDLE;
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 
-    handle->connected = true;
-    handle->stats.connect_ok++;
-    if (handle->stats.connect_ok > 1u)
+    inst->connected = true;
+    inst->stats.connect_ok++;
+    if (inst->stats.connect_ok > 1u)
     {
-        handle->stats.reconnect_count++;
+        inst->stats.reconnect_count++;
     }
+    inst->connect_state = MQTT_CONN_STATE_IDLE;
 
     LOG_INFO(MQTT_CLIENT_LOG_MODULE, "Connected to %s:%u", cfg->broker_endpoint,
              (unsigned int) cfg->broker_port);
     return MQTT_CLIENT_ERR_OK;
+}
+
+mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
+                                           const mqtt_connect_cfg_t *cfg)
+{
+    if ((handle == NULL) || (cfg == NULL))
+    {
+        return MQTT_CLIENT_ERR_NULL_PTR;
+    }
+
+    switch (handle->connect_state)
+    {
+    case MQTT_CONN_STATE_TLS_HANDSHAKE:
+        return prv_connect_step_tls_handshake(handle);
+    case MQTT_CONN_STATE_MQTT_CONNECT:
+        return prv_connect_step_mqtt_connect(handle, cfg);
+    case MQTT_CONN_STATE_IDLE:
+    default:
+        return prv_connect_step_idle(handle, cfg);
+    }
+}
+
+mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_connect_cfg_t *cfg)
+{
+    if ((handle == NULL) || (cfg == NULL))
+    {
+        return MQTT_CLIENT_ERR_NULL_PTR;
+    }
+
+    mqtt_client_err_t status;
+    do
+    {
+        status = mqtt_client_connect_step(handle, cfg);
+        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment — this yield is
+         * required, not cosmetic, since WIFITASK-O1 Phase 2. #ifndef TEST:
+         * no unit test drives connect_step() into more than a handful of
+         * deterministic CMock-programmed IN_PROGRESS returns, so this is
+         * never exercised host-side and needs no FreeRTOS mock. */
+#ifndef TEST
+        if (status == MQTT_CLIENT_ERR_IN_PROGRESS)
+        {
+            vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
+        }
+#endif
+    } while (status == MQTT_CLIENT_ERR_IN_PROGRESS);
+
+    return status;
 }
 
 mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle)
@@ -637,6 +847,15 @@ mqtt_client_err_t mqtt_client_disconnect(mqtt_client_handle_t handle)
     prv_teardown_connection(handle);
 
     return MQTT_CLIENT_ERR_OK;
+}
+
+bool mqtt_client_is_connected(mqtt_client_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return false;
+    }
+    return handle->connected;
 }
 
 mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *topic,
@@ -686,6 +905,10 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
             handle->stats.publish_failures++;
             return MQTT_CLIENT_ERR_PUBLISH_FAIL;
         }
+        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment. */
+#ifndef TEST
+        vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
+#endif
     }
 
     return MQTT_CLIENT_ERR_OK;
@@ -730,6 +953,10 @@ mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char 
             handle->stats.subscribe_failures++;
             return MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
         }
+        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment. */
+#ifndef TEST
+        vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
+#endif
     }
 
     if (handle->suback_status == MQTTSubAckFailure)

@@ -815,22 +815,37 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
         return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
-    /* R0 — receive one packet. Measured on hardware (WIFI-O11): when
-     * nothing has arrived yet, DRDY does not rise quickly with an
-     * immediate empty response — the module holds off for a real,
-     * sometimes multi-second wait (much longer for UDP than TCP in
-     * testing) before responding at all. So the "blocks until data is
-     * available or timeout expires" contract this function documents is
-     * actually satisfied module-side by R0 itself, not by polling from
-     * the driver: an earlier version of this function retried the whole
-     * P0/R1/R0 sequence in a client-side loop, which only multiplied that
-     * already-slow module-side wait by the retry count (observed ~28x
-     * over the caller's requested timeout_ms on UDP). Give R0's own DRDY
-     * wait the caller's timeout_ms directly, floored at
-     * WIFI_RESP_TIMEOUT_MS so a small/zero timeout_ms still gets a normal
-     * AT-turnaround allowance rather than an unrealistically tight bound. */
-    const uint32_t recv_timeout_ms =
-        (timeout_ms > WIFI_RESP_TIMEOUT_MS) ? timeout_ms : WIFI_RESP_TIMEOUT_MS;
+    /* R2 — the module's own read transport timeout (WIFI-O16). R0 does
+     * not answer an empty read immediately: the module holds the response
+     * (DRDY low) until data arrives or *its* read timeout expires, and
+     * that timeout is R2's value — never set by this driver before, so
+     * the module ran on its power-on default, which is what WIFI-O11
+     * observed as an uncontrollable "multi-second module-side wait" and
+     * papered over with a 5 s floor. ST's own reference driver
+     * (es_wifi.c, ES_WIFI_ReceiveData) issues R2=<timeout> right before
+     * R0 for exactly this reason. Setting it to the caller's timeout_ms
+     * makes the documented "blocks until data is available or timeout
+     * expires" contract actually true at the module, which is what lets
+     * WifiTask's background poll (WIFITASK-O1) use a short timeout
+     * without parking WifiTask for 5 s per empty attempt (Phase 4
+     * hardware finding: those 5 s blocks were queueing the same caller's
+     * TLS-handshake sends behind them, pushing the handshake past its
+     * 30 s deadline). */
+    char timeout_str[12];
+    (void) snprintf(timeout_str, sizeof(timeout_str), "%lu", (unsigned long) timeout_ms);
+    err = prv_send_kv(handle, WIFI_AT_SET_RECV_TIMEOUT, timeout_str, NULL, WIFI_RESP_TIMEOUT_MS);
+    if (err != WIFI_ERR_OK)
+    {
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
+    }
+
+    /* R0 — receive one packet, exactly once (WIFI-O11: an earlier
+     * client-side P0/R1/R0 retry loop multiplied the module-side wait by
+     * the retry count). R0's DRDY wait is the R2 timeout just set plus a
+     * normal AT-turnaround allowance, so an empty read returns
+     * WIFI_ERR_TIMEOUT shortly after timeout_ms rather than at a fixed
+     * 5 s floor. */
+    const uint32_t recv_timeout_ms = timeout_ms + WIFI_RESP_TIMEOUT_MS;
     size_t resp_len = 0u;
     err = prv_send_kv(handle, WIFI_AT_RECV_DATA, NULL, &resp_len, recv_timeout_ms);
     if (err != WIFI_ERR_OK)
