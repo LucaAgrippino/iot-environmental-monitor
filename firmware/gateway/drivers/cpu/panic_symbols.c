@@ -47,3 +47,14 @@ const panic_symbol_t *panic_symbol_lookup(const panic_symbol_t *table, uint32_t 
     }
     return NULL; /* addr falls in a gap between functions, or past the last one */
 }
+
+/* Weak fallback table — an empty one — so the firmware links on a fresh
+ * checkout (CI, a new machine) where panic_symbols_data.c has not been
+ * generated yet: it needs a prior build's gateway.map, so a first build
+ * cannot have it. When the generated file is present its strong
+ * definitions replace these and the decoder resolves real names; when it
+ * is absent, panic_symbol_lookup() sees count == 0 and cpu.c prints
+ * "unknown" for PC/LR instead — degraded, never a link failure. */
+__attribute__((weak)) const panic_symbol_t g_panic_symbols[] = {{0u, 0u, "", 0u}};
+__attribute__((weak)) const uint32_t g_panic_symbol_count = 0u;
+__attribute__((weak)) const char *const g_panic_files[] = {""};
