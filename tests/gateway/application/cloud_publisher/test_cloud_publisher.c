@@ -474,6 +474,9 @@ void test_CP_T07_alarm_connected(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/alarms"));
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+    /* Outcome reported through IHealthReport (the seam TC-HW-CP-011 times). */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
+    TEST_ASSERT_EQUAL(CP_HEALTH_EVENT_ALARM_PUBLISHED, g_spy_health_push_event_last);
 }
 
 void test_CP_T08_alarm_disconnected(void)
@@ -498,6 +501,8 @@ void test_CP_T08_alarm_disconnected(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_saf_enqueue_last_qos);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/alarms"));
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
+    TEST_ASSERT_EQUAL(CP_HEALTH_EVENT_ALARM_BUFFERED, g_spy_health_push_event_last);
 }
 
 void test_CP_T15_alarm_queue_full(void)

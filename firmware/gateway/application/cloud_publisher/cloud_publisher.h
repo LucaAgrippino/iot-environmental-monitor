@@ -37,6 +37,7 @@ typedef enum
     CP_ERR_SERIALISE = 4,      /**< JSON payload exceeded buffer.       */
     CP_ERR_PUBLISH_FAILED = 5, /**< MQTT publish failed; routed to SAF. */
     CP_ERR_SAF_FULL = 6,       /**< Store-and-forward buffer full.      */
+    CP_ERR_BUFFERED = 7,       /**< Not published now; queued in SAF.   */
 } cloud_publisher_err_t;
 
 /* ===================================================================== */
@@ -224,6 +225,10 @@ void health_report_update_mqtt(health_monitor_handle_t handle, const mqtt_stats_
 typedef enum
 {
     CP_HEALTH_EVENT_SAF_FULL = 0,
+    CP_HEALTH_EVENT_ALARM_PUBLISHED = 1, /**< Alarm went out on the wire now.   */
+    CP_HEALTH_EVENT_ALARM_BUFFERED = 2,  /**< Alarm queued in SAF (not connected
+                                              or publish failed); REQ-NF-113's
+                                              clock keeps running until drain. */
 } cp_health_event_t;
 #endif /* CP_HEALTH_EVENT_T_DEFINED */
 

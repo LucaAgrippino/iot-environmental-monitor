@@ -256,6 +256,20 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     uint32_t notif = 0u;
     (void) xTaskNotifyWait(0u, CP_NOTIFY_ALL_BITS, &notif, portMAX_DELAY);
 
+    /* Alarms and inbound commands run before the periodic telemetry/health
+     * publishes: all four ultimately call prv_enqueue_or_publish(), which
+     * for QoS1 blocks this single task ~350 ms on the PUBACK, so a telemetry
+     * publish handled first would push a co-woken alarm past REQ-NF-113's
+     * 500 ms budget (CP-D3; TC-HW-CP-011). This orders the co-wake case; it
+     * cannot preempt a publish already in flight (see CP-O6). */
+    if ((notif & CP_NOTIFY_ALARM_PENDING) != 0u)
+    {
+        prv_drain_alarm_queue(inst);
+    }
+    if ((notif & CP_NOTIFY_COMMAND_PENDING) != 0u)
+    {
+        prv_drain_command_queue(inst);
+    }
     if ((notif & CP_NOTIFY_TELEMETRY_TICK) != 0u)
     {
         prv_publish_telemetry(inst);
@@ -286,14 +300,6 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     if ((notif & (CP_NOTIFY_STATS_TICK | MQTT_CLIENT_WIFI_RECV_READY_BIT)) != 0u)
     {
         prv_poll_stats(inst);
-    }
-    if ((notif & CP_NOTIFY_ALARM_PENDING) != 0u)
-    {
-        prv_drain_alarm_queue(inst);
-    }
-    if ((notif & CP_NOTIFY_COMMAND_PENDING) != 0u)
-    {
-        prv_drain_command_queue(inst);
     }
 
     (void) mqtt_client_process(inst->mqtt);
@@ -328,7 +334,7 @@ static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst 
         return CP_ERR_SAF_FULL;
     }
 
-    return CP_ERR_OK; /* buffered for later delivery */
+    return CP_ERR_BUFFERED; /* queued for later delivery */
 }
 
 /* ===================================================================== */
@@ -480,8 +486,22 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
             continue;
         }
 
-        (void) prv_enqueue_or_publish(inst, inst->topic_alarms, (const uint8_t *) inst->scratch_buf,
-                                      n, MQTT_QOS_1);
+        const cloud_publisher_err_t rc = prv_enqueue_or_publish(
+            inst, inst->topic_alarms, (const uint8_t *) inst->scratch_buf, n, MQTT_QOS_1);
+        /* Outcome goes to the health report either way: PUBLISHED is the
+         * REQ-NF-113 "detection -> publish" endpoint, BUFFERED means the
+         * alarm is safe in SAF but still owes the cloud a publish. (SAF_FULL
+         * is already pushed inside prv_enqueue_or_publish().) This is also
+         * the seam the hardware bring-up times the alarm path through —
+         * TC-HW-CP-011, main_test_cloud_publisher.c. */
+        if (rc == CP_ERR_OK)
+        {
+            health_report_push_event(inst->health_write, CP_HEALTH_EVENT_ALARM_PUBLISHED);
+        }
+        else if (rc == CP_ERR_BUFFERED)
+        {
+            health_report_push_event(inst->health_write, CP_HEALTH_EVENT_ALARM_BUFFERED);
+        }
     }
 }
 
