@@ -2,9 +2,9 @@
 .vscode/
 .settings/
 *.launch
-# CubeIDE per-machine project files (paths and exclusions are machine-specific)
-.cproject
-.project
+# CubeIDE project files ARE tracked (firmware/**/.project, .cproject): CI's
+# headless build imports them, and linked resources use portable
+# ${PARENT-n-PROJECT_LOC} URIs, not absolute paths. .settings/ stays ignored.
 # CubeIDE-generated OpenOCD debug config (per-machine, auto-regenerated —
 # see the file's own "may be overridden without any early notice" header)
 firmware/**/*.cfg
