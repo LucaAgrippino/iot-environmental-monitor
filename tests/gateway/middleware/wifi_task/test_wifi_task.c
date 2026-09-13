@@ -772,3 +772,38 @@ void test_WIFITASK_T25_empty_attempt_is_short_and_does_not_wake_owner(void)
     TEST_ASSERT_TRUE(s_recv_last_timeout_ms < 1000u);
     TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_call_count);
 }
+
+/** Phase 4 hardware fix: a socket close returns the recv slot to IDLE, so a
+ *  reconnect's fresh socket does not inherit the previous socket's stale
+ *  DONE/ERROR outcome (which aborted every reconnect handshake with a
+ *  spurious POLL_ERROR -> MBEDTLS_ERR_SSL_TIMEOUT). */
+void test_WIFITASK_T26_close_socket_resets_recv_slot(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    /* Drive a background recv to a DONE/ERROR outcome on the old socket. */
+    wifitask_recv_arm_t arm = {.socket = 0u, .caller = (TaskHandle_t) 0x1234};
+    s_recv_result = WIFI_ERR_SOCKET; /* dead socket */
+    g_mock_xQueueReceive_return = pdFALSE;
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_PENDING;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 0u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_ERROR, poll); /* stale error present pre-close */
+
+    /* Close the socket (dispatched in WifiTask context). */
+    wifitask_request_t close_req = {.op = WIFITASK_OP_CLOSE_SOCKET, .socket = 0u};
+    s_close_socket_result = WIFI_ERR_OK;
+    prv_arm_next_request(&close_req);
+    wifitask_step_for_test(handle);
+
+    /* A fresh try_recv now sees a clean slot: PENDING, not the stale error. */
+    poll = WIFITASK_RECV_POLL_ERROR;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 0u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_PENDING, poll);
+}

@@ -153,6 +153,26 @@ static StaticQueue_t s_recv_arm_queue_ctrl;
 static uint8_t
     s_recv_arm_queue_storage[WIFITASK_RECV_ARM_QUEUE_DEPTH * sizeof(wifitask_recv_arm_t)];
 
+/* Return the background recv slot to IDLE. Called when a socket is opened
+ * or closed (Phase 4 hardware fix, 2026-09-13): the slot is a single
+ * shared resource keyed by socket number, but socket numbers are reused
+ * across reconnects. Without this, after a broker drop the slot is left
+ * DONE with the old socket's WIFI_ERR_SOCKET outcome, and the very first
+ * wifitask_try_recv() on the reopened socket picks up that stale error ->
+ * POLL_ERROR -> MqttClient sees MBEDTLS_ERR_SSL_TIMEOUT and aborts the
+ * reconnect TLS handshake before the fresh socket is ever polled
+ * (observed: every reconnect failed with -0x6800). Resetting on the
+ * socket lifecycle boundary makes each new socket start from a clean
+ * slot. Runs in WifiTask's own context (prv_dispatch), the sole writer
+ * of the slot, so no extra synchronisation is needed. */
+static void prv_recv_slot_reset(struct wifitask_inst *inst)
+{
+    inst->recv_slot.state = WIFITASK_RECV_SLOT_IDLE;
+    inst->recv_slot.scratch_len = 0u;
+    inst->recv_slot.scratch_off = 0u;
+    inst->recv_slot.outcome = WIFI_ERR_OK;
+}
+
 static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *req)
 {
     switch (req->op)
@@ -166,6 +186,7 @@ static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *r
     case WIFITASK_OP_GET_RSSI:
         return wifi_get_rssi(inst->wifi, &req->rssi_dbm);
     case WIFITASK_OP_OPEN_SOCKET:
+        prv_recv_slot_reset(inst);
         return wifi_open_socket(inst->wifi, req->socket_type, req->remote_addr, req->remote_port,
                                 &req->socket);
     case WIFITASK_OP_SEND:
@@ -174,6 +195,7 @@ static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *r
         return wifi_recv(inst->wifi, req->socket, req->rx_buf, req->rx_buf_len, &req->rx_len,
                          req->timeout_ms);
     case WIFITASK_OP_CLOSE_SOCKET:
+        prv_recv_slot_reset(inst);
         return wifi_close_socket(inst->wifi, req->socket);
     default:
         return WIFI_ERR_INVALID_ARG;
