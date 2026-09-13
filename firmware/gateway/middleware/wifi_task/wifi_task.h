@@ -236,7 +236,7 @@ wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, con
  *       WIFITASK-O1).
  */
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
-                            size_t buf_len, size_t *out_len, uint32_t timeout_ms);
+                             size_t buf_len, size_t *out_len, uint32_t timeout_ms);
 
 /**
  * @brief Poll for received data without blocking (WIFITASK-O1, Phase 1).

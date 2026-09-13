@@ -281,10 +281,10 @@ typedef struct
     config_service_handle_t cfg_write;    /**< IConfigManager — remote config cmds. */
     update_service_handle_t update_svc;   /**< May be NULL until UpdateService LLD (CP-O1). */
     lifecycle_handle_t lifecycle;         /**< ILifecycle — restart command.        */
-    mqtt_connect_cfg_t mqtt_connect_cfg;  /**< Broker/certs — CloudPublisher owns connect/reconnect
-                                                (CP-D7/CP-D9); stored by value, pointers inside
-                                                remain caller-owned (matches mqtt_client_connect()'s
-                                                own convention). */
+    mqtt_connect_cfg_t mqtt_connect_cfg; /**< Broker/certs — CloudPublisher owns connect/reconnect
+                                               (CP-D7/CP-D9); stored by value, pointers inside
+                                               remain caller-owned (matches mqtt_client_connect()'s
+                                               own convention). */
 } cloud_publisher_config_t;
 
 /**

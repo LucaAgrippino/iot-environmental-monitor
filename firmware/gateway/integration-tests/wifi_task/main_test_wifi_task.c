@@ -10,14 +10,11 @@
  *   3. Connect a serial terminal to PB6 (TX) at 115 200 8N1.
  *   4. Wire the ISM43362-M3G-L44 module (or use the on-board one on the
  *      B-L475E-IOT01A) and flash with a debugger attached.
- *   5. Define BRINGUP_TEST_MODE as a compiler preprocessor symbol (CubeIDE:
- *      Project Properties -> C/C++ Build -> Settings -> MCU GCC Compiler
- *      -> Preprocessor -> Defined symbols; do NOT edit it into this file)
- *      and create firmware/gateway/certs/bringup_secrets.h with your real
+ *   5. Create firmware/gateway/certs/bringup_secrets.h with your real
  *      BRINGUP_WIFI_SSID / BRINGUP_WIFI_PASSWORD / BRINGUP_REMOTE_HOST —
  *      see scripts/bringup_secrets.h.example for the template.
- *      bringup_secrets.h is gitignored and never committed; leave
- *      BRINGUP_TEST_MODE undefined for a placeholder-only build. Same
+ *      bringup_secrets.h is gitignored and never committed; without
+ *      it this is a placeholder-only build. Same
  *      test bench as main_test_wifi_driver.c (see that file's header for
  *      the phone-hotspot + TCP/UDP server app setup) — a dedicated router
  *      works too, but some networks silently drop device-to-device
@@ -111,12 +108,12 @@
 /* Leave BRINGUP_WIFI_SSID empty to skip TC-HW-WIFITASK-004/005/006.       */
 /* ---------------------------------------------------------------------- */
 
-/* BRINGUP_TEST_MODE must be defined as a compiler preprocessor symbol
- * (see the header comment above) to pull real values from
- * bringup_secrets.h (gitignored, never committed — see
- * scripts/bringup_secrets.h.example). Leave it undefined for a
- * placeholder-only build. */
-#ifdef BRINGUP_TEST_MODE
+/* Real values come from bringup_secrets.h (gitignored, never committed —
+ * see scripts/bringup_secrets.h.example) when the file exists; otherwise
+ * this is a placeholder-only build. Same __has_include mechanism as
+ * bringup_certs.h below, so no build-setting toggle is needed and the
+ * tracked .cproject builds cleanly on a machine without secrets (CI). */
+#if __has_include("bringup_secrets.h")
 #include "bringup_secrets.h"
 #else
 #define BRINGUP_WIFI_SSID ""

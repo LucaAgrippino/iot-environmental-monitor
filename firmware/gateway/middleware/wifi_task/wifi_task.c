@@ -17,7 +17,7 @@
 #define WIFITASK_MAX_INSTANCES 1u
 #define WIFITASK_TASK_STACK_WORDS 256u /**< D29; matches memory-budget.md §1.1 (1 KB). */
 #define WIFITASK_TASK_PRIORITY 3u      /**< D29. */
-#define WIFITASK_QUEUE_DEPTH 3u        /**< Sized by producer count (companion §2), not throughput. */
+#define WIFITASK_QUEUE_DEPTH 3u /**< Sized by producer count (companion §2), not throughput. */
 
 /** WIFI_LIVENESS_CHECK_PERIOD_MS: provisional, not yet validated against
  *  field data (WIFITASK-O4, companion §10). Doubles as the queue-receive
@@ -62,7 +62,7 @@
  *  fit — wifitask_recv()'s own worst case is the caller-supplied
  *  timeout_ms, not a fixed driver constant. */
 #define WIFITASK_QUEUE_MARGIN_MS (2u * WIFITASK_WIFI_JOIN_TIMEOUT_MS)
-#define WIFITASK_REPLY_TIMEOUT_TICKS(op_worst_case_ms) \
+#define WIFITASK_REPLY_TIMEOUT_TICKS(op_worst_case_ms)                                             \
     pdMS_TO_TICKS((op_worst_case_ms) + WIFITASK_QUEUE_MARGIN_MS)
 
 /** WIFITASK-O1 Phase 1: non-blocking recv, WifiTask layer only (see
@@ -132,7 +132,8 @@ static StackType_t s_wifitask_stack[WIFITASK_TASK_STACK_WORDS];
 static StaticQueue_t s_request_queue_ctrl;
 static uint8_t s_request_queue_storage[WIFITASK_QUEUE_DEPTH * sizeof(wifitask_request_t *)];
 static StaticQueue_t s_recv_arm_queue_ctrl;
-static uint8_t s_recv_arm_queue_storage[WIFITASK_RECV_ARM_QUEUE_DEPTH * sizeof(wifitask_recv_arm_t)];
+static uint8_t
+    s_recv_arm_queue_storage[WIFITASK_RECV_ARM_QUEUE_DEPTH * sizeof(wifitask_recv_arm_t)];
 
 static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *req)
 {
@@ -194,9 +195,9 @@ static void prv_recv_slot_attempt(struct wifitask_inst *inst)
     inst->recv_slot.state = WIFITASK_RECV_SLOT_IN_FLIGHT;
 
     size_t out_len = 0u;
-    wifi_err_t err = wifi_recv(inst->wifi, inst->recv_slot.socket, inst->recv_slot.scratch,
-                               sizeof(inst->recv_slot.scratch), &out_len,
-                               WIFITASK_WIFI_RESP_TIMEOUT_MS);
+    wifi_err_t err =
+        wifi_recv(inst->wifi, inst->recv_slot.socket, inst->recv_slot.scratch,
+                  sizeof(inst->recv_slot.scratch), &out_len, WIFITASK_WIFI_RESP_TIMEOUT_MS);
 
     inst->recv_slot.scratch_len = out_len;
     inst->recv_slot.outcome = err;
@@ -321,9 +322,9 @@ wifitask_err_t wifitask_create(const wifitask_config_t *config, wifitask_handle_
     (void) memset(inst, 0, sizeof(*inst));
     inst->wifi = config->wifi;
 
-    inst->request_queue = xQueueCreateStatic(WIFITASK_QUEUE_DEPTH,
-                                             (UBaseType_t) sizeof(wifitask_request_t *),
-                                             s_request_queue_storage, &s_request_queue_ctrl);
+    inst->request_queue =
+        xQueueCreateStatic(WIFITASK_QUEUE_DEPTH, (UBaseType_t) sizeof(wifitask_request_t *),
+                           s_request_queue_storage, &s_request_queue_ctrl);
 
     /* WIFITASK-O1 Phase 1: second, value-typed queue for wifitask_try_recv()
      * arm requests — deliberately separate from request_queue above, which
@@ -331,14 +332,14 @@ wifitask_err_t wifitask_create(const wifitask_config_t *config, wifitask_handle_
      * because that caller stays blocked the whole time). A non-blocking
      * caller returns immediately, so this queue must never hold a pointer
      * to memory that might already be gone by the time WifiTask reads it. */
-    inst->recv_arm_queue = xQueueCreateStatic(WIFITASK_RECV_ARM_QUEUE_DEPTH,
-                                              (UBaseType_t) sizeof(wifitask_recv_arm_t),
-                                              s_recv_arm_queue_storage, &s_recv_arm_queue_ctrl);
+    inst->recv_arm_queue =
+        xQueueCreateStatic(WIFITASK_RECV_ARM_QUEUE_DEPTH, (UBaseType_t) sizeof(wifitask_recv_arm_t),
+                           s_recv_arm_queue_storage, &s_recv_arm_queue_ctrl);
     inst->recv_slot.state = WIFITASK_RECV_SLOT_IDLE;
 
-    inst->task_handle = xTaskCreateStatic(prv_wifitask_body, "WifiTask", WIFITASK_TASK_STACK_WORDS,
-                                          inst, WIFITASK_TASK_PRIORITY, s_wifitask_stack,
-                                          &s_wifitask_tcb);
+    inst->task_handle =
+        xTaskCreateStatic(prv_wifitask_body, "WifiTask", WIFITASK_TASK_STACK_WORDS, inst,
+                          WIFITASK_TASK_PRIORITY, s_wifitask_stack, &s_wifitask_tcb);
 
     /* DATARDY ISR is wired but its notification bit is reserved, unused
      * on this increment's hot path (companion §5.4, WIFITASK-D5) — every
@@ -351,8 +352,7 @@ wifitask_err_t wifitask_create(const wifitask_config_t *config, wifitask_handle_
     return WIFITASK_ERR_OK;
 }
 
-wifitask_err_t wifitask_connect_ap(wifitask_handle_t handle, const char *ssid,
-                                   const char *password)
+wifitask_err_t wifitask_connect_ap(wifitask_handle_t handle, const char *ssid, const char *password)
 {
     if ((ssid == NULL) || (password == NULL))
     {
@@ -364,13 +364,15 @@ wifitask_err_t wifitask_connect_ap(wifitask_handle_t handle, const char *ssid,
         .ssid = ssid,
         .password = password,
     };
-    return prv_submit_and_wait(handle, &req, WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_JOIN_TIMEOUT_MS));
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_JOIN_TIMEOUT_MS));
 }
 
 wifitask_err_t wifitask_disconnect_ap(wifitask_handle_t handle)
 {
     wifitask_request_t req = {.op = WIFITASK_OP_DISCONNECT_AP};
-    return prv_submit_and_wait(handle, &req, WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
 }
 
 wifitask_err_t wifitask_get_link_state(wifitask_handle_t handle, wifi_link_state_t *state)
@@ -381,8 +383,8 @@ wifitask_err_t wifitask_get_link_state(wifitask_handle_t handle, wifi_link_state
     }
 
     wifitask_request_t req = {.op = WIFITASK_OP_GET_LINK_STATE};
-    wifitask_err_t rc = prv_submit_and_wait(handle, &req,
-                                            WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+    wifitask_err_t rc = prv_submit_and_wait(
+        handle, &req, WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
     if (rc == WIFITASK_ERR_OK)
     {
         *state = req.link_state;
@@ -398,8 +400,8 @@ wifitask_err_t wifitask_get_rssi(wifitask_handle_t handle, int8_t *rssi_dbm)
     }
 
     wifitask_request_t req = {.op = WIFITASK_OP_GET_RSSI};
-    wifitask_err_t rc = prv_submit_and_wait(handle, &req,
-                                            WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+    wifitask_err_t rc = prv_submit_and_wait(
+        handle, &req, WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
     if (rc == WIFITASK_ERR_OK)
     {
         *rssi_dbm = req.rssi_dbm;
@@ -445,11 +447,12 @@ wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, con
         .tx_buf = data,
         .tx_len = len,
     };
-    return prv_submit_and_wait(handle, &req, WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
 }
 
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
-                            size_t buf_len, size_t *out_len, uint32_t timeout_ms)
+                             size_t buf_len, size_t *out_len, uint32_t timeout_ms)
 {
     if ((buf == NULL) || (out_len == NULL))
     {
@@ -503,8 +506,8 @@ wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket,
     {
         if (handle->recv_slot.outcome == WIFI_ERR_OK)
         {
-            size_t copy_len = (handle->recv_slot.scratch_len < buf_len) ? handle->recv_slot.scratch_len
-                                                                        : buf_len;
+            size_t copy_len =
+                (handle->recv_slot.scratch_len < buf_len) ? handle->recv_slot.scratch_len : buf_len;
             (void) memcpy(buf, handle->recv_slot.scratch, copy_len);
             *out_len = copy_len;
             *out_poll = WIFITASK_RECV_POLL_READY;
@@ -531,7 +534,8 @@ wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t soc
         .op = WIFITASK_OP_CLOSE_SOCKET,
         .socket = socket,
     };
-    return prv_submit_and_wait(handle, &req, WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
 }
 
 #ifdef TEST

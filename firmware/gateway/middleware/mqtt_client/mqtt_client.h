@@ -123,7 +123,7 @@ typedef struct
  */
 typedef struct
 {
-    wifitask_handle_t wifi;              /**< WifiTask handle (injected).   */
+    wifitask_handle_t wifi;             /**< WifiTask handle (injected).   */
     mqtt_message_cb_t msg_cb;           /**< Inbound message callback.     */
     mqtt_disconnect_cb_t disconnect_cb; /**< Connection-loss callback.    */
 } mqtt_client_config_t;
