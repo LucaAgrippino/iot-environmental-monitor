@@ -87,6 +87,29 @@
  *  — but it is still the semantically-correct per-poll budget to pass. */
 #define MQTT_TRANSPORT_POLL_TIMEOUT_MS 500u
 
+/** WIFITASK-O1 Phase 2 regression fix: every tight "call MQTT_ProcessLoop()
+ *  (or connect_step()) until a flag/status changes or a timeout elapses"
+ *  loop in this file (mqtt_client_connect(), the QoS 1 PUBACK wait in
+ *  mqtt_client_publish(), the SUBACK wait in mqtt_client_subscribe()) used
+ *  to be implicitly paced by wifitask_recv()'s own ~5 s block per call — a
+ *  real yield point, since that wait happens inside FreeRTOS's blocking
+ *  primitives. Now that the underlying recv is wifitask_try_recv(), which
+ *  never blocks, a bare tight loop starves WifiTask of any chance to run
+ *  its own task and drain the arm queue it depends on — confirmed on
+ *  hardware as an immediate, permanent WIFITASK_ERR_NO_RESOURCE spin (arm
+ *  queue full forever, nothing ever dequeues it) in mqtt_client_connect().
+ *  The QoS 1 publish/subscribe waits have the identical shape and would
+ *  hit the same failure in production (not just bring-up) the first time
+ *  either is called after Phase 2 — fixed alongside connect() rather than
+ *  only where it was first observed. This delay is the yield point that
+ *  replaces the one lost when the per-call block went away; matches
+ *  WifiTask's own WIFITASK_RECV_ARM_POLL_TICKS cadence, so none of these
+ *  loops poll faster than WifiTask itself re-checks the arm queue.
+ *  CloudPublisher's own ticked reconnect path (prv_maybe_reconnect(), one
+ *  connect_step() call per wake) is unaffected — it already yields via
+ *  xTaskNotifyWait() between calls. */
+#define MQTT_PROCESS_LOOP_POLL_MS 100u
+
 #ifdef TEST
 #define MQTT_CLIENT_TEST_VISIBLE
 #else
@@ -792,6 +815,17 @@ mqtt_client_err_t mqtt_client_connect(mqtt_client_handle_t handle, const mqtt_co
     do
     {
         status = mqtt_client_connect_step(handle, cfg);
+        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment — this yield is
+         * required, not cosmetic, since WIFITASK-O1 Phase 2. #ifndef TEST:
+         * no unit test drives connect_step() into more than a handful of
+         * deterministic CMock-programmed IN_PROGRESS returns, so this is
+         * never exercised host-side and needs no FreeRTOS mock. */
+#ifndef TEST
+        if (status == MQTT_CLIENT_ERR_IN_PROGRESS)
+        {
+            vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
+        }
+#endif
     } while (status == MQTT_CLIENT_ERR_IN_PROGRESS);
 
     return status;
@@ -870,6 +904,10 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
             handle->stats.publish_failures++;
             return MQTT_CLIENT_ERR_PUBLISH_FAIL;
         }
+        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment. */
+#ifndef TEST
+        vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
+#endif
     }
 
     return MQTT_CLIENT_ERR_OK;
@@ -914,6 +952,10 @@ mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char 
             handle->stats.subscribe_failures++;
             return MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
         }
+        /* See MQTT_PROCESS_LOOP_POLL_MS's own doc comment. */
+#ifndef TEST
+        vTaskDelay(pdMS_TO_TICKS(MQTT_PROCESS_LOOP_POLL_MS));
+#endif
     }
 
     if (handle->suback_status == MQTTSubAckFailure)
