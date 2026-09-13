@@ -67,6 +67,16 @@
 
 /* --- Big number support (RSA/ECC) ------------------------------------ */
 #define MBEDTLS_BIGNUM_C
+/* Performance (Phase 4 hardware finding, TC-HW-CP-004): at -O0 on the
+ * 80 MHz M4 the client's RSA-2048 CertificateVerify signature plus the
+ * P-256 ECDHE alone exceeded the 30 s handshake budget (MqttClient's
+ * own deadline and Mosquitto's pre-CONNECT timeout are both 30 s). Both
+ * options below are on in mbedTLS's default config and cost no RAM:
+ * HAVE_ASM selects bn_mul.h's Thumb-2 multiply-accumulate inner loop
+ * (the RSA/ECC hot path); ECP_NIST_OPTIM uses the NIST curves' special-
+ * form modular reduction instead of generic Montgomery. */
+#define MBEDTLS_HAVE_ASM
+#define MBEDTLS_ECP_NIST_OPTIM
 
 /* --- RNG: CTR_DRBG seeded from the on-chip hardware entropy source --- */
 #define MBEDTLS_ENTROPY_C

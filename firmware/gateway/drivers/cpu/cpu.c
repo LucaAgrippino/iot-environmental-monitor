@@ -13,6 +13,7 @@
 
 #include "cpu.h"
 #include "cpu_hw.h"
+#include "panic_symbols.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
@@ -114,6 +115,43 @@ static void panic_uart_write_hex32(uint32_t value)
     {
         panic_uart_write_byte((uint8_t) hex[(value >> (uint32_t) shift) & 0xFU]);
     }
+}
+
+/**
+ * @brief Resolve addr against the build-time-generated symbol table
+ * (scripts/gen-panic-symbols.py, panic_symbols_data.c) and print
+ * "func_name+0xNN (file.c)", or "(unknown)" if addr isn't inside any
+ * known function — degrades gracefully on purpose: a fault handler is
+ * exactly where a lookup that itself misbehaves on unexpected input
+ * (including a genuinely garbage address, not just an unmapped one) is
+ * worse than one that just says it doesn't know. Compiled out entirely
+ * in TEST builds (host Ceedling) — panic_symbols_data.c is machine-
+ * generated from a real gateway.map and gitignored, so it doesn't exist
+ * in a fresh checkout or CI without a prior CubeIDE build;
+ * panic_symbol_lookup() itself has its own dedicated fixture-based unit
+ * tests instead (tests/gateway/drivers/cpu/test_panic_symbols.c).
+ */
+static void panic_uart_write_symbol(uint32_t addr)
+{
+#ifndef TEST
+    const panic_symbol_t *sym = panic_symbol_lookup(g_panic_symbols, g_panic_symbol_count, addr);
+    if (sym != NULL)
+    {
+        panic_uart_write_str(" (");
+        panic_uart_write_str(sym->name);
+        panic_uart_write_str("+0x");
+        panic_uart_write_hex32(addr - sym->addr);
+        panic_uart_write_str(" ");
+        panic_uart_write_str(g_panic_files[sym->file_index]);
+        panic_uart_write_str(")");
+    }
+    else
+    {
+        panic_uart_write_str(" (unknown)");
+    }
+#else
+    (void) addr;
+#endif
 }
 
 /* --------------------------------------------------------------------- */
@@ -288,8 +326,10 @@ static void emit_panic_uart(cpu_panic_source_t source, const char *reason, uint3
     {
         panic_uart_write_str("\r\nPC:     ");
         panic_uart_write_hex32(s_fault_frame[6]);
+        panic_uart_write_symbol(s_fault_frame[6]);
         panic_uart_write_str("\r\nLR:     ");
         panic_uart_write_hex32(s_fault_frame[5]);
+        panic_uart_write_symbol(s_fault_frame[5]);
         panic_uart_write_str("\r\nxPSR:   ");
         panic_uart_write_hex32(s_fault_frame[7]);
         panic_uart_write_str("\r\nR0-R3:  ");
@@ -341,8 +381,10 @@ static void check_panic_record(void)
     panic_uart_write_hex32(bfar);
     panic_uart_write_str("\r\nPC:     ");
     panic_uart_write_hex32(RTC->BKP4R);
+    panic_uart_write_symbol(RTC->BKP4R);
     panic_uart_write_str("\r\nLR:     ");
     panic_uart_write_hex32(RTC->BKP5R);
+    panic_uart_write_symbol(RTC->BKP5R);
     panic_uart_write_str("\r\n-----------------------------------\r\n");
 
     /* Invalidate the record so it is not replayed on the next boot. */

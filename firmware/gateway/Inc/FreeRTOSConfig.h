@@ -52,6 +52,11 @@
 #define configUSE_COUNTING_SEMAPHORES 0
 #define configUSE_QUEUE_SETS 0
 #define configUSE_TASK_NOTIFICATIONS 1
+/* 2 slots: index 0 is a task's own private use (e.g. CloudPublisher's
+ * periodic-tick notifications); index 1 is reserved for WifiTask's
+ * request/reply protocol (WIFITASK-O6) so the two never collide on
+ * whichever task happens to call into WifiTask. */
+#define configTASK_NOTIFICATION_ARRAY_ENTRIES 2
 #define configUSE_STATS_FORMATTING_FUNCTIONS 0
 
 #define configUSE_TIMERS 1

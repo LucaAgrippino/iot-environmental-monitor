@@ -38,6 +38,28 @@ BaseType_t  g_mock_xQueueReceive_return;
 uint32_t    g_mock_xQueueReceive_call_count;
 uint8_t     g_mock_xQueueReceive_next_item[256];
 size_t      g_mock_xQueueReceive_next_item_size;
+uint32_t    g_mock_xQueueReceive_available;
+
+BaseType_t  g_mock_xQueueSend2_return;
+uint32_t    g_mock_xQueueSend2_call_count;
+uint8_t     g_mock_xQueueSend2_last_item[256];
+size_t      g_mock_xQueueSend2_last_item_size;
+
+BaseType_t  g_mock_xQueueReceive2_return;
+uint32_t    g_mock_xQueueReceive2_call_count;
+uint8_t     g_mock_xQueueReceive2_next_item[256];
+size_t      g_mock_xQueueReceive2_next_item_size;
+uint32_t    g_mock_xQueueReceive2_available;
+
+/* Which handle is "queue 1" (routes through the plain globals above) vs.
+ * "queue 2" (routes through the "_2" globals) is fixed at *creation* time
+ * (first vs. second distinct xQueueCreateStatic() call), not first-use —
+ * this matches production code's own fixed creation order (e.g.
+ * wifitask_create() always creates request_queue before the arm queue)
+ * and stays stable regardless of which queue a test happens to touch
+ * first. Reset alongside everything else in mock_freertos_reset(). */
+static QueueHandle_t s_mock_queue1_handle;
+static QueueHandle_t s_mock_queue2_handle;
 
 SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
 BaseType_t        g_mock_xSemaphoreTake_return;
@@ -66,6 +88,22 @@ uint32_t      g_mock_ulTaskNotifyTake_return;
 uint32_t      g_mock_xTaskNotifyFromISR_call_count;
 TaskHandle_t  g_mock_xTaskNotifyFromISR_last_handle;
 uint32_t      g_mock_xTaskNotifyFromISR_last_value;
+
+BaseType_t    g_mock_xTaskNotify_return;
+uint32_t      g_mock_xTaskNotify_call_count;
+TaskHandle_t  g_mock_xTaskNotify_last_handle;
+uint32_t      g_mock_xTaskNotify_last_value;
+eNotifyAction g_mock_xTaskNotify_last_action;
+UBaseType_t   g_mock_xTaskNotify_last_index;
+
+BaseType_t  g_mock_xTaskNotifyWait_return;
+uint32_t    g_mock_xTaskNotifyWait_call_count;
+uint32_t    g_mock_xTaskNotifyWait_next_value;
+UBaseType_t g_mock_xTaskNotifyWait_last_index;
+
+BaseType_t g_mock_xTimerChangePeriod_return;
+uint32_t   g_mock_xTimerChangePeriod_call_count;
+TickType_t g_mock_xTimerChangePeriod_last_period;
 
 /* A canned non-NULL handle used as the default return value of the
  * static-create functions. Tests don't dereference it. */
@@ -105,6 +143,26 @@ void mock_freertos_reset(void)
     (void)memset(g_mock_xQueueReceive_next_item, 0,
                  sizeof(g_mock_xQueueReceive_next_item));
     g_mock_xQueueReceive_next_item_size = 0U;
+    g_mock_xQueueReceive_available      = 0xFFFFFFFFU;
+
+    g_mock_xQueueSend2_return            = pdTRUE;
+    g_mock_xQueueSend2_call_count        = 0U;
+    (void)memset(g_mock_xQueueSend2_last_item, 0,
+                 sizeof(g_mock_xQueueSend2_last_item));
+    g_mock_xQueueSend2_last_item_size    = 0U;
+
+    /* Defaults to pdFALSE ("empty"), unlike queue 1's pdTRUE default —
+     * most tests don't know a second queue exists at all, so the sane
+     * neutral default is "no traffic on it", not "always has an item". */
+    g_mock_xQueueReceive2_return         = pdFALSE;
+    g_mock_xQueueReceive2_call_count     = 0U;
+    (void)memset(g_mock_xQueueReceive2_next_item, 0,
+                 sizeof(g_mock_xQueueReceive2_next_item));
+    g_mock_xQueueReceive2_next_item_size = 0U;
+    g_mock_xQueueReceive2_available      = 0xFFFFFFFFU;
+
+    s_mock_queue1_handle                = NULL;
+    s_mock_queue2_handle                = NULL;
 
     g_mock_xSemaphoreCreateMutexStatic_return = DUMMY_HANDLE;
     g_mock_xSemaphoreTake_return              = pdTRUE;
@@ -133,6 +191,22 @@ void mock_freertos_reset(void)
     g_mock_xTaskNotifyFromISR_call_count      = 0U;
     g_mock_xTaskNotifyFromISR_last_handle     = NULL;
     g_mock_xTaskNotifyFromISR_last_value      = 0U;
+
+    g_mock_xTaskNotify_return                 = pdTRUE;
+    g_mock_xTaskNotify_call_count             = 0U;
+    g_mock_xTaskNotify_last_handle            = NULL;
+    g_mock_xTaskNotify_last_value             = 0U;
+    g_mock_xTaskNotify_last_action            = eNoAction;
+    g_mock_xTaskNotify_last_index             = 0U;
+
+    g_mock_xTaskNotifyWait_return              = pdTRUE;
+    g_mock_xTaskNotifyWait_call_count          = 0U;
+    g_mock_xTaskNotifyWait_next_value          = 0U;
+    g_mock_xTaskNotifyWait_last_index          = 0U;
+
+    g_mock_xTimerChangePeriod_return            = pdTRUE;
+    g_mock_xTimerChangePeriod_call_count        = 0U;
+    g_mock_xTimerChangePeriod_last_period        = 0U;
 }
 
 /* --------------------------------------------------------------------- */
@@ -145,15 +219,36 @@ QueueHandle_t xQueueCreateStatic(UBaseType_t length, UBaseType_t item_size,
     (void)length;
     (void)item_size;
     (void)storage;
-    (void)ctrl;
     g_mock_xQueueCreateStatic_call_count++;
-    return g_mock_xQueueCreateStatic_return;
+    /* Mirrors real FreeRTOS: the control block IS the queue object, so
+     * distinct StaticQueue_t buffers yield distinct, distinguishable
+     * handles. First distinct handle created this test = "queue 1"
+     * (plain globals below); second = "queue 2" (the "_2" globals). */
+    QueueHandle_t handle = (ctrl != NULL) ? (QueueHandle_t) ctrl : g_mock_xQueueCreateStatic_return;
+    if (s_mock_queue1_handle == NULL)
+    {
+        s_mock_queue1_handle = handle;
+    }
+    else if ((s_mock_queue2_handle == NULL) && (handle != s_mock_queue1_handle))
+    {
+        s_mock_queue2_handle = handle;
+    }
+    return handle;
 }
 
 BaseType_t xQueueSend(QueueHandle_t q, const void *item, TickType_t wait)
 {
-    (void)q;
     (void)wait;
+    if ((s_mock_queue2_handle != NULL) && (q == s_mock_queue2_handle))
+    {
+        g_mock_xQueueSend2_call_count++;
+        if ((item != NULL) && (g_mock_xQueueSend2_last_item_size > 0U))
+        {
+            (void)memcpy(g_mock_xQueueSend2_last_item, item,
+                         g_mock_xQueueSend2_last_item_size);
+        }
+        return g_mock_xQueueSend2_return;
+    }
     g_mock_xQueueSend_call_count++;
     if ((item != NULL) && (g_mock_xQueueSend_last_item_size > 0U))
     {
@@ -180,9 +275,39 @@ BaseType_t xQueueSendFromISR(QueueHandle_t q, const void *item,
 
 BaseType_t xQueueReceive(QueueHandle_t q, void *out, TickType_t wait)
 {
-    (void)q;
     (void)wait;
+
+    if ((s_mock_queue2_handle != NULL) && (q == s_mock_queue2_handle))
+    {
+        g_mock_xQueueReceive2_call_count++;
+        if (g_mock_xQueueReceive2_available == 0U)
+        {
+            return pdFALSE;
+        }
+        if (g_mock_xQueueReceive2_available != 0xFFFFFFFFU)
+        {
+            g_mock_xQueueReceive2_available--;
+        }
+        if ((g_mock_xQueueReceive2_return == pdTRUE) && (out != NULL) &&
+            (g_mock_xQueueReceive2_next_item_size > 0U))
+        {
+            (void)memcpy(out, g_mock_xQueueReceive2_next_item,
+                         g_mock_xQueueReceive2_next_item_size);
+        }
+        return g_mock_xQueueReceive2_return;
+    }
+
     g_mock_xQueueReceive_call_count++;
+
+    if (g_mock_xQueueReceive_available == 0U)
+    {
+        return pdFALSE;
+    }
+    if (g_mock_xQueueReceive_available != 0xFFFFFFFFU)
+    {
+        g_mock_xQueueReceive_available--;
+    }
+
     if ((g_mock_xQueueReceive_return == pdTRUE) &&
         (out != NULL) &&
         (g_mock_xQueueReceive_next_item_size > 0U))
@@ -341,4 +466,51 @@ BaseType_t xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
         *woken = pdFALSE;
     }
     return pdTRUE;
+}
+
+BaseType_t xTaskNotifyIndexed(TaskHandle_t task, UBaseType_t index, uint32_t value,
+                              eNotifyAction action)
+{
+    g_mock_xTaskNotify_call_count++;
+    g_mock_xTaskNotify_last_handle = task;
+    g_mock_xTaskNotify_last_value  = value;
+    g_mock_xTaskNotify_last_action = action;
+    g_mock_xTaskNotify_last_index  = index;
+    return g_mock_xTaskNotify_return;
+}
+
+BaseType_t xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action)
+{
+    return xTaskNotifyIndexed(task, 0U, value, action);
+}
+
+BaseType_t xTaskNotifyWaitIndexed(UBaseType_t index, uint32_t clear_on_entry,
+                                  uint32_t clear_on_exit, uint32_t *notify_value_out,
+                                  TickType_t wait)
+{
+    (void)clear_on_entry;
+    (void)wait;
+    g_mock_xTaskNotifyWait_call_count++;
+    g_mock_xTaskNotifyWait_last_index = index;
+    if (notify_value_out != NULL)
+    {
+        *notify_value_out = g_mock_xTaskNotifyWait_next_value;
+    }
+    g_mock_xTaskNotifyWait_next_value &= ~clear_on_exit;
+    return g_mock_xTaskNotifyWait_return;
+}
+
+BaseType_t xTaskNotifyWait(uint32_t clear_on_entry, uint32_t clear_on_exit,
+                            uint32_t *notify_value_out, TickType_t wait)
+{
+    return xTaskNotifyWaitIndexed(0U, clear_on_entry, clear_on_exit, notify_value_out, wait);
+}
+
+BaseType_t xTimerChangePeriod(TimerHandle_t timer, TickType_t new_period, TickType_t wait)
+{
+    (void)timer;
+    (void)wait;
+    g_mock_xTimerChangePeriod_call_count++;
+    g_mock_xTimerChangePeriod_last_period = new_period;
+    return g_mock_xTimerChangePeriod_return;
 }

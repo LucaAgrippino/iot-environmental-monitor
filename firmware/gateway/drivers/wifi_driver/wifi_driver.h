@@ -242,9 +242,10 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
 /**
  * @brief Receive data from an open socket.
  *
- * Issues P0=<socket> (select), R1=<len> (expected packet size), then
- * R0 to read the response payload. Blocks until data is available or
- * timeout expires.
+ * Issues P0=<socket> (select), R1=<len> (expected packet size),
+ * R2=<timeout_ms> (module-side read timeout), then R0 to read the
+ * response payload. Blocks until data is available or timeout expires —
+ * enforced by the module itself via R2, plus one AT turnaround.
  *
  * @param[in]  handle      WifiDriver handle.
  * @param[in]  socket      Socket identifier from wifi_open_socket().
