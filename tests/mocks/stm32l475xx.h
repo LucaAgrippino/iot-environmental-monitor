@@ -25,6 +25,7 @@
 /*   AHB2ENR  — GpioDriver (L4), I2cDriver, ModbusUartDriver             */
 /*   APB1ENR1 — I2cDriver (I2C2EN), ModbusUartDriver (UART4EN), CpuDriver (PWREN) */
 /*   APB2ENR  — CpuDriver (USART1EN)                                      */
+/*   AHB3ENR  — QspiFlashDriver (QSPIEN)                                  */
 /*   CR       — CpuDriver (PLLON, PLLRDY, MSIPLLEN)                      */
 /*   CFGR     — CpuDriver (SW, SWS)                                       */
 /*   PLLCFGR  — CpuDriver (PLLSRC, PLLM, PLLN, PLLR, PLLREN)            */
@@ -41,6 +42,7 @@ typedef struct
     volatile uint32_t BDCR;     /**< Backup domain control register (RtcDriver: LSE, RTCSEL, RTCEN). */
     volatile uint32_t PLLSAI1CFGR; /**< PLLSAI1 configuration register (MqttClient: 48 MHz RNG clock). */
     volatile uint32_t CCIPR;    /**< Peripherals independent clock configuration register (MqttClient: CLK48SEL). */
+    volatile uint32_t AHB3ENR;  /**< AHB3 peripheral clock enable register (QspiFlashDriver: QSPIEN). */
 } RCC_TypeDef;
 
 extern RCC_TypeDef g_mock_rcc_l4;
@@ -136,6 +138,10 @@ extern RCC_TypeDef g_mock_rcc_l4;
 /* --- AHB2ENR bits (MqttClient RNG entropy source) ---------------------- */
 #define RCC_AHB2ENR_RNGEN_Pos (18U)
 #define RCC_AHB2ENR_RNGEN     (1UL << RCC_AHB2ENR_RNGEN_Pos)
+
+/* --- AHB3ENR bits (QspiFlashDriver) — bit 8 per RM0351 --------------- */
+#define RCC_AHB3ENR_QSPIEN_Pos (8U)
+#define RCC_AHB3ENR_QSPIEN     (1UL << RCC_AHB3ENR_QSPIEN_Pos)
 
 /* --- PLLSAI1CFGR bits (MqttClient — 48 MHz RNG kernel clock) ------------ */
 #define RCC_PLLSAI1CFGR_PLLSAI1N_Pos (8U)
@@ -649,6 +655,107 @@ typedef struct
 extern EXTI_TypeDef g_mock_exti_l4;
 
 #define EXTI (&g_mock_exti_l4)
+
+/* ====================================================================== */
+/* §QUADSPI (QspiFlashDriver GW — MX25R6435F on PE10..PE15)               */
+/* ====================================================================== */
+
+/* Register layout per RM0351. Only the registers the driver touches are  */
+/* modelled; offsets follow the real block so the struct stays honest.    */
+typedef struct
+{
+    volatile uint32_t CR;  /**< Control register,          offset 0x00. */
+    volatile uint32_t DCR; /**< Device configuration,      offset 0x04. */
+    volatile uint32_t SR;  /**< Status register,           offset 0x08. */
+    volatile uint32_t FCR; /**< Flag clear register,       offset 0x0C. */
+    volatile uint32_t DLR; /**< Data length register,      offset 0x10. */
+    volatile uint32_t CCR; /**< Communication config,      offset 0x14. */
+    volatile uint32_t AR;  /**< Address register,          offset 0x18. */
+    volatile uint32_t ABR; /**< Alternate bytes register,  offset 0x1C. */
+    volatile uint32_t DR;  /**< Data register,             offset 0x20. */
+} QUADSPI_TypeDef;
+
+extern QUADSPI_TypeDef g_mock_quadspi;
+
+#define QUADSPI (&g_mock_quadspi)
+
+/* Instrumentation behind qspi_flash_hw.h (companion §7.2). The driver's
+ * CCR writes and byte-width DR accesses are routed through qspi_hw_*()
+ * stubs in test builds so that tests can observe command *sequences*
+ * and drive multi-byte responses.                                        */
+
+/* CCR command log: the first QUADSPI_MOCK_CCR_LOG_DEPTH writes are kept
+ * verbatim; g_mock_quadspi_ccr_count keeps counting past that so tests
+ * can still reason about long WIP-polling loops.                         */
+#define QUADSPI_MOCK_CCR_LOG_DEPTH (64U)
+extern uint32_t g_mock_quadspi_ccr_log[QUADSPI_MOCK_CCR_LOG_DEPTH];
+extern uint32_t g_mock_quadspi_dlr_log[QUADSPI_MOCK_CCR_LOG_DEPTH]; /* DLR as latched at each CCR write */
+extern uint32_t g_mock_quadspi_ccr_count;
+
+/* RX FIFO: tests pre-load bytes with mock_quadspi_push_dr(); each driver
+ * DR byte read pops the next one. Reading an empty FIFO returns 0xFF and
+ * sets g_mock_quadspi_rx_underflow.                                      */
+#define QUADSPI_MOCK_FIFO_DEPTH (512U)
+extern uint8_t  g_mock_quadspi_rx_fifo[QUADSPI_MOCK_FIFO_DEPTH];
+extern uint32_t g_mock_quadspi_rx_head;
+extern uint32_t g_mock_quadspi_rx_tail;
+extern uint8_t  g_mock_quadspi_rx_underflow;
+void mock_quadspi_push_dr(uint8_t value);
+
+/* TX capture: every driver DR byte write is appended here (bounded).      */
+#define QUADSPI_MOCK_TX_DEPTH (256U)
+extern uint8_t  g_mock_quadspi_written_data[QUADSPI_MOCK_TX_DEPTH];
+extern uint32_t g_mock_quadspi_written_count;
+
+/* Stub entry points named by qspi_flash_hw.h (TEST build).               */
+void    qspi_hw_write_ccr(uint32_t value);
+uint8_t qspi_hw_read_dr_byte(void);
+void    qspi_hw_write_dr_byte(uint8_t value);
+
+/* --- QUADSPI_CR bits -------------------------------------------------- */
+#define QUADSPI_CR_EN_Pos        (0U)
+#define QUADSPI_CR_EN            (1UL << QUADSPI_CR_EN_Pos)
+#define QUADSPI_CR_SSHIFT_Pos    (4U)
+#define QUADSPI_CR_FTHRES_Pos    (8U)
+#define QUADSPI_CR_PRESCALER_Pos (24U)
+#define QUADSPI_CR_PRESCALER_Msk (0xFFUL << QUADSPI_CR_PRESCALER_Pos)
+
+/* --- QUADSPI_DCR bits ------------------------------------------------- */
+#define QUADSPI_DCR_CKMODE_Pos (0U)
+#define QUADSPI_DCR_CSHT_Pos   (8U)
+#define QUADSPI_DCR_FSIZE_Pos  (16U)
+#define QUADSPI_DCR_FSIZE_Msk  (0x1FUL << QUADSPI_DCR_FSIZE_Pos)
+
+/* --- QUADSPI_SR bits -------------------------------------------------- */
+#define QUADSPI_SR_TCF_Pos    (1U)
+#define QUADSPI_SR_TCF        (1UL << QUADSPI_SR_TCF_Pos)
+#define QUADSPI_SR_FTF_Pos    (2U)
+#define QUADSPI_SR_FTF        (1UL << QUADSPI_SR_FTF_Pos)
+#define QUADSPI_SR_BUSY_Pos   (5U)
+#define QUADSPI_SR_BUSY       (1UL << QUADSPI_SR_BUSY_Pos)
+#define QUADSPI_SR_FLEVEL_Pos (8U)
+#define QUADSPI_SR_FLEVEL_Msk (0x1FUL << QUADSPI_SR_FLEVEL_Pos)
+
+/* --- QUADSPI_FCR bits ------------------------------------------------- */
+#define QUADSPI_FCR_CTCF_Pos (1U)
+#define QUADSPI_FCR_CTCF     (1UL << QUADSPI_FCR_CTCF_Pos)
+
+/* --- QUADSPI_CCR bit fields ------------------------------------------- */
+#define QUADSPI_CCR_INSTRUCTION_Pos (0U)  /* [7:0]   opcode                  */
+#define QUADSPI_CCR_INSTRUCTION_Msk (0xFFUL << QUADSPI_CCR_INSTRUCTION_Pos)
+#define QUADSPI_CCR_IMODE_Pos       (8U)  /* [9:8]   01 = single line        */
+#define QUADSPI_CCR_ADMODE_Pos      (10U) /* [11:10] 01 = single line        */
+#define QUADSPI_CCR_ADMODE_Msk      (0x3UL << QUADSPI_CCR_ADMODE_Pos)
+#define QUADSPI_CCR_ADSIZE_Pos      (12U) /* [13:12] 10 = 24-bit             */
+#define QUADSPI_CCR_ADSIZE_Msk      (0x3UL << QUADSPI_CCR_ADSIZE_Pos)
+#define QUADSPI_CCR_DMODE_Pos       (24U) /* [25:24] 01 = single line        */
+#define QUADSPI_CCR_DMODE_Msk       (0x3UL << QUADSPI_CCR_DMODE_Pos)
+#define QUADSPI_CCR_FMODE_Pos       (26U) /* [27:26] 00 = ind. write, 01 = ind. read */
+#define QUADSPI_CCR_FMODE_Msk       (0x3UL << QUADSPI_CCR_FMODE_Pos)
+
+#ifndef __NOP
+#define __NOP() ((void) 0)
+#endif
 
 /* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */

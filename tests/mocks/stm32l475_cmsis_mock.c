@@ -115,6 +115,22 @@ EXTI_TypeDef g_mock_exti_l4;
 
 
 /* ====================================================================== */
+/* §QUADSPI storage (QspiFlashDriver GW)                                  */
+/* ====================================================================== */
+
+QUADSPI_TypeDef g_mock_quadspi;
+uint32_t        g_mock_quadspi_ccr_log[QUADSPI_MOCK_CCR_LOG_DEPTH];
+uint32_t        g_mock_quadspi_dlr_log[QUADSPI_MOCK_CCR_LOG_DEPTH];
+uint32_t        g_mock_quadspi_ccr_count;
+uint8_t         g_mock_quadspi_rx_fifo[QUADSPI_MOCK_FIFO_DEPTH];
+uint32_t        g_mock_quadspi_rx_head;
+uint32_t        g_mock_quadspi_rx_tail;
+uint8_t         g_mock_quadspi_rx_underflow;
+uint8_t         g_mock_quadspi_written_data[QUADSPI_MOCK_TX_DEPTH];
+uint32_t        g_mock_quadspi_written_count;
+
+
+/* ====================================================================== */
 /* §NVIC storage (L475)                                                   */
 /* ====================================================================== */
 
@@ -155,6 +171,7 @@ void stm32l475_cmsis_mock_reset(void)
 
     /* §RCC */
     g_mock_rcc_l4.CR       = 0;
+    g_mock_rcc_l4.AHB3ENR  = 0;
     g_mock_rcc_l4.CFGR     = 0;
     g_mock_rcc_l4.PLLCFGR  = 0;
     g_mock_rcc_l4.AHB2ENR  = 0;
@@ -282,6 +299,35 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_exti_l4.SWIER1 = 0;
     g_mock_exti_l4.PR1    = 0;
 
+    /* §QUADSPI */
+    g_mock_quadspi.CR  = 0;
+    g_mock_quadspi.DCR = 0;
+    g_mock_quadspi.SR  = 0;
+    g_mock_quadspi.FCR = 0;
+    g_mock_quadspi.DLR = 0;
+    g_mock_quadspi.CCR = 0;
+    g_mock_quadspi.AR  = 0;
+    g_mock_quadspi.ABR = 0;
+    g_mock_quadspi.DR  = 0;
+    for (uint32_t i = 0; i < QUADSPI_MOCK_CCR_LOG_DEPTH; ++i)
+    {
+        g_mock_quadspi_ccr_log[i] = 0;
+        g_mock_quadspi_dlr_log[i] = 0;
+    }
+    g_mock_quadspi_ccr_count = 0;
+    for (uint32_t i = 0; i < QUADSPI_MOCK_FIFO_DEPTH; ++i)
+    {
+        g_mock_quadspi_rx_fifo[i] = 0;
+    }
+    g_mock_quadspi_rx_head      = 0;
+    g_mock_quadspi_rx_tail      = 0;
+    g_mock_quadspi_rx_underflow = 0;
+    for (uint32_t i = 0; i < QUADSPI_MOCK_TX_DEPTH; ++i)
+    {
+        g_mock_quadspi_written_data[i] = 0;
+    }
+    g_mock_quadspi_written_count = 0;
+
     /* §NVIC */
     for (uint32_t i = 0; i < NVIC_IRQ_COUNT_MAX; ++i)
     {
@@ -343,4 +389,51 @@ void cpu_hw_breakpoint(void)
 void cpu_hw_system_reset(void)
 {
     g_cpu_hw_system_reset_count++;
+}
+
+
+/* ====================================================================== */
+/* §QUADSPI hw-abstraction stub implementations (qspi_flash_hw.h)         */
+/* ====================================================================== */
+
+void mock_quadspi_push_dr(uint8_t value)
+{
+    if (g_mock_quadspi_rx_tail < QUADSPI_MOCK_FIFO_DEPTH)
+    {
+        g_mock_quadspi_rx_fifo[g_mock_quadspi_rx_tail] = value;
+        g_mock_quadspi_rx_tail++;
+    }
+}
+
+void qspi_hw_write_ccr(uint32_t value)
+{
+    g_mock_quadspi.CCR = value;
+    if (g_mock_quadspi_ccr_count < QUADSPI_MOCK_CCR_LOG_DEPTH)
+    {
+        g_mock_quadspi_ccr_log[g_mock_quadspi_ccr_count] = value;
+        g_mock_quadspi_dlr_log[g_mock_quadspi_ccr_count] = g_mock_quadspi.DLR;
+    }
+    g_mock_quadspi_ccr_count++;
+}
+
+uint8_t qspi_hw_read_dr_byte(void)
+{
+    if (g_mock_quadspi_rx_head < g_mock_quadspi_rx_tail)
+    {
+        uint8_t value = g_mock_quadspi_rx_fifo[g_mock_quadspi_rx_head];
+        g_mock_quadspi_rx_head++;
+        return value;
+    }
+    g_mock_quadspi_rx_underflow = 1;
+    return 0xFFU;
+}
+
+void qspi_hw_write_dr_byte(uint8_t value)
+{
+    g_mock_quadspi.DR = value;
+    if (g_mock_quadspi_written_count < QUADSPI_MOCK_TX_DEPTH)
+    {
+        g_mock_quadspi_written_data[g_mock_quadspi_written_count] = value;
+    }
+    g_mock_quadspi_written_count++;
 }
