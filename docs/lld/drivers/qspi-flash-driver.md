@@ -271,7 +271,7 @@ All commands use single-wire instruction, single-wire address, and single-wire d
 #endif
 ```
 
-The `QSPI_EXPECTED_RDID` values must be verified against the actual device datasheets at implementation. Tracked as **QSPID-O3** (§8) — Gateway value confirmed by implementation (2026-09-15).
+The `QSPI_EXPECTED_RDID` values must be verified against the actual device datasheets at implementation. Tracked as **QSPID-O3** (§8) — Gateway value confirmed on hardware by TC-HW-QSPI-001 (2026-09-16); closed.
 
 **Gateway file layout.** The Gateway implementation lives in `firmware/gateway/drivers/qspi_flash/` (`qspi_flash.h`, `qspi_flash.c`, `qspi_flash_hw.h`) — the unsuffixed name follows the Gateway `spi/`, `rtc/` convention and avoids a Ceedling basename collision with the Field Device `qspi_flash_driver.c`. `qspi_flash_hw.h` is the same mockable-indirection pattern as `cpu_hw.h`: in firmware builds its macros are direct register accesses (CCR write; byte-width DR read/write via a `volatile uint8_t *` so the QUADSPI FIFO advances one byte per access); in host tests they route to instrumented stubs in `stm32l475_cmsis_mock.c` (QSPID-D8).
 
@@ -514,6 +514,17 @@ repointed at offset 0, which is the live `ConfigStore` partition.
 | TC-HW-QSPI-009 | Validation cascade returns the documented error codes | §6 |
 | TC-HW-QSPI-010 | DWT-timed erase and page-program against datasheet windows (erase max 240 ms, program max 10 ms) and the ~500 ms bounded WIP poll | **QSPID-O4** measurement |
 
+**Bench result — 2026-09-16, B-L475E-IOT01A: 10/10 PASS.** RDID `0xC22817`
+confirmed on silicon (closes QSPID-O3); erase drove the array to `0xFF` at all
+three sector offsets; page A survived the adjacent-page write; program-without-
+erase produced the bitwise AND. Measured: **sector erase 81 ms** (datasheet typ
+40 / max 240) and **page program 3181 us** for 256 B (max 10 000) — both inside
+the datasheet windows and the driver's ~500 ms bounded poll. The erase figure is
+the integration measurement QSPID-O4 was waiting for.
+
+Note the execution order: TC-HW-QSPI-007 runs before -006, because the cross-page
+read must observe the clean A/B patterns before the AND test corrupts page A.
+
 Not covered, and still deferred: QSPID-O1 multi-task mutex validation (needs a
 second consumer to exist) and wire-level timing at 26.67 MHz (needs a logic
 analyser on PE10–PE15).
@@ -531,8 +542,8 @@ bus — the first thing needed to diagnose a wrong or unpopulated part.
 |---|---|---|---|
 | QSPID-O1 | **Peripheral-level concurrency gap (Gateway).** Three middleware consumers (`ConfigStore`, `CircularFlashLog`, `FirmwareStore`) access `QspiFlashDriver` from different tasks under independent mutexes. A shared `qspi_flash_mutex` must be acquired by all callers before calling any driver function. This mutex is a cross-cutting resource (not owned by any single middleware component). Resolution: add `qspi_flash_mutex` to the shared-resource locking table in `task-breakdown.md` §7 and initialise it in `main()`. All three consumers must acquire it before calling the driver. This is an HLD escalation — update `task-breakdown.md` and `lld.md` §5 (cross-cutting) accordingly. | Luca | Update `task-breakdown.md` §7 before implementing any of the three GW consumers |
 | QSPID-O2 | ~~QUADSPI clock prescaler.~~ **Resolved 2026-09-15** — GW HCLK is 80 MHz (CpuDriver); prescaler 2 → 26.67 MHz, bounded by the 33 MHz limit of the `READ 03h` opcode, not the 80 MHz `FAST_READ` figure (§4.2). FD: prescaler 2 → 60 MHz. | — | Closed |
-| QSPID-O3 | ~~Verify `QSPI_EXPECTED_RDID`.~~ **Resolved** — FD 0x20BA18 validated on hardware (v1.0, 2026-06); GW 0xC22817 (Macronix 0xC2, MX25R 0x28, 64 Mbit 0x17) per datasheet, implemented; hardware confirmation pending first GW bench run. | Luca | Run TC-HW-QSPI-001 in `main_test_qspi_flash.c` (§7.6) on the GW bench |
-| QSPID-O4 | WIP polling busy-waits up to 500 ms during erase. If integration profiling reveals this degrades system responsiveness, replace with `vTaskDelay(1)` loop — but note this imports FreeRTOS into the driver, violating the driver convention. Evaluate trade-off at integration. | Luca | Defer until integration measurements |
+| QSPID-O3 | ~~Verify `QSPI_EXPECTED_RDID`.~~ **Closed 2026-09-16** — FD 0x20BA18 validated on hardware (v1.0, 2026-06); GW 0xC22817 **confirmed on silicon** by TC-HW-QSPI-001 on the B-L475E-IOT01A bench (§7.6). The part is populated and the QSPI lines are good. | — | Closed |
+| QSPID-O4 | WIP polling busy-waits during erase. **Measured 2026-09-16 (TC-HW-QSPI-010): sector erase 81 ms, page program 3181 us** — both well inside the ~500 ms bounded window, so there is no timeout risk, but an 81 ms spin blocks the calling task and every task at or below its priority for that whole time. Whether that is acceptable cannot be settled until a real consumer erases concurrently with other work: `CircularFlashLog` is the `StoreAndForward` backing store, so erases will land precisely during cloud outages, when alarms are being buffered against the REQ-NF-113 500 ms budget — an 81 ms spin is ~16% of it. Replacing the busy-wait with a `vTaskDelay(1)` loop would free the CPU but imports `task.h`, violating the driver convention. | Luca | Re-evaluate when `CircularFlashLog` lands; decide spin vs `vTaskDelay(1)` vs running erases on a low-priority task |
 | QSPID-O5 | ~~QUADSPI pin assignments.~~ **Resolved** — table in §4.4; GW PE10–PE15 AF10 per UM2153, implemented and pinned by TC-QSPI-005. | — | Closed |
 | QSPID-O6 | **SD-06c/06d sequence diagram inconsistency.** The SDs show `FirmwareStore → QspiFlashDriver` writing the boot indicator and rollback flag, but these fields are in the on-chip metadata partition (`0x0800_4000`) per `flash-partition-layout.md` §5.1. `QspiFlashDriver` cannot write to on-chip flash. The SDs must be corrected and a separate on-chip flash write mechanism (Bootloader scope, or a `FlashDriver` for internal flash) identified. Escalate to HLD before `FirmwareStore` LLD companion is drafted. | Luca | Raise HLD gap; correct SD-06c and SD-06d; decide ownership of on-chip metadata writes |
 | QSPID-O7 | ~~Error enum lacks `ERR_NOT_INITIALISED` and `ERR_NULL_POINTER`.~~ **Resolved for GW** — codes 6 and 7 added to §2.4 and §6, guards implemented and pinned by TC-QSPI-013/-014/-026/-027/-034. **FD drift:** the FD v1.0 implementation carries `QSPI_FLASH_ERR_NOT_INIT = 6` (different spelling) and has no NULL-pointer guard — align when the FD driver is next touched. | Luca | FD: rename to `_NOT_INITIALISED`, add code 7 + guard |
@@ -568,7 +579,7 @@ bus — the first thing needed to diagnose a wrong or unpopulated part.
 | H4 | ADT pattern applied (or exception documented) | PASS — singleton exception documented in §1 (QSPID-D6) |
 | H5 | Error enum covers all failure modes | PASS — 8 codes after QSPID-O7; every code produced by ≥ 1 TC |
 | H6 | Hardware contract specifies all pins, AF numbers, clock config | PASS — §4.2 prescaler, §4.3 CSHT, §4.4 pin table (both boards) |
-| H7 | All critical open items resolved or have named owner | PASS — O2, O5 closed; O3 hardware-confirm pending; O1, O4, O6, O7 (FD), O8 owned by Luca with paths |
+| H7 | All critical open items resolved or have named owner | PASS — O2, O3, O5 closed (O3 confirmed on silicon 2026-09-16); O1, O4, O6, O7 (FD), O8, O9 owned by Luca with paths |
 | H8 | Unit-test plan covers happy path + error cases | PASS — 27 TCs across 4 functions + vtable; all TC IDs implemented in `test_qspi_flash_gw.c` (27/27 green, 2026-09-15) |
 | H9 | Test file path follows Gateway folder convention | PASS — `tests/gateway/drivers/qspi_flash/test_qspi_flash_gw.c` |
 | H10 | P1–P10 compliance reviewed | PASS — §3.8 |
@@ -578,4 +589,4 @@ bus — the first thing needed to diagnose a wrong or unpopulated part.
 | H14 | Decisions log complete | PASS — 10 decisions |
 | H15 | Sequence integration traces to HLD SDs | PASS — §5 (SD-06b/c/d), with QSPID-O6 inconsistency flagged upward |
 
-**Verdict: PASS — Gateway implemented.** Remaining open items (QSPID-O1 shared mutex, O6 on-chip metadata SDs) are middleware/HLD scope and block the *consumers'* LLDs (CircularFlashLog, ConfigStore, FirmwareStore), not this driver.
+**Verdict: PASS — Gateway implemented and hardware-validated (bench 2026-09-16, 10/10).** Remaining open items (QSPID-O1 shared mutex, O6 on-chip metadata SDs) are middleware/HLD scope and block the *consumers'* LLDs (CircularFlashLog, ConfigStore, FirmwareStore), not this driver.
