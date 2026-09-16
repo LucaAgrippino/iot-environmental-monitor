@@ -1,9 +1,8 @@
 # Bug Log — WifiTask (Gateway)
 
-No bug was intentionally planted. This module produced an unusually rich crop
-of **real** defects — three in one hardware session, each masking the next —
-and they are far better interview material than anything contrived, because
-every one of them passed the full host suite.
+Bugs encountered while building this module, and how to find them. Three of
+them surfaced in a single hardware session, each masking the next; every one
+passed the full host suite beforehand.
 
 The unifying lesson: **WifiTask's host tests mock FreeRTOS and the WiFi
 driver, so they verify *logic*. All three bugs were timing or byte-stream

@@ -1,9 +1,8 @@
 # Bug Log — CloudPublisher (Gateway)
 
-No bug was intentionally planted. The defects here are mostly *design*-level
-rather than line-level, which makes them a different and arguably better class
-of interview material: each one is a case where the code did exactly what it was
-written to do, and what it was written to do was wrong.
+Bugs encountered while building this module, and how to find them. These are
+mostly *design*-level rather than line-level: each is a case where the code did
+exactly what it was written to do, and what it was written to do was wrong.
 
 ---
 
@@ -128,53 +127,3 @@ latency, which is why `TC-HW-CP-012` exists.
 a hard guarantee** — a co-in-flight publish on the single CloudPublisherTask can
 still spike while one send costs 70% of the budget. A real guarantee needs
 faster module I/O or a dedicated alarm path.
-
----
-
-## The bug worth rehearsing — SAF drain that loses the message it failed on
-
-**Not present in the shipped code** (CP-T10 pins the correct behaviour), but it
-is the natural mistake in a store-and-forward drain loop, and a mock that never
-fails will never reveal it.
-
-**Category:** off-by-one in a queue drain / data loss on the error path
-
-**What the buggy version does:** on reconnect, the drain loop pops a buffered
-message, publishes it, and continues to the next one — checking the publish
-result only to decide whether to *stop*. The message that failed has already
-been removed from the buffer, so it is gone.
-
-**What it should do:** peek, publish, and only remove on success. A failed
-publish must leave the message buffered for the next attempt, and must stop the
-drain — continuing past a failure reorders the backlog and usually fails on
-every subsequent message anyway.
-
-**Correct fix:**
-
-    /* before */
-    while (saf_pop(&msg) == OK)
-    {
-        if (publish(&msg) != OK) { break; }   /* msg already popped — lost */
-    }
-
-    /* after */
-    while (saf_peek(&msg) == OK)
-    {
-        if (publish(&msg) != OK) { break; }   /* stays buffered for next time */
-        (void) saf_remove();
-    }
-
-**How to find it with a debugger:** fill the buffer offline, then reconnect
-against a broker that accepts the first few publishes and then refuses. Count
-what the broker received against what was buffered: exactly one message missing
-per failed drain, and always the one at the failure boundary. Breakpoint the pop
-and note it happens before the publish result is known.
-
-**Why it passes CI:** the mocked publish succeeds every time, so the failure
-branch is never taken and peek-versus-pop is unobservable. **CP-T10** ("SAF drain
-stops on publish failure") exercises the stop, and correctly asserting that the
-message survives is what separates a real test from a shallow one.
-
-**Live caveat:** StoreAndForward does not exist yet — CloudPublisher calls a
-drop-everything stand-in, so buffered data is currently discarded regardless.
-This exercise describes the behaviour the real module must have.

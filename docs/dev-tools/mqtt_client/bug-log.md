@@ -1,8 +1,8 @@
 # Bug Log — MqttClient (Gateway)
 
-No bug was intentionally planted. The real defects in this module are unusually
-instructive because two of them are **conditional fixes** — the naive version of
-each fix is itself a bug, and the second bug is strictly harder than the first.
+Bugs encountered while building this module, and how to find them. Two of them
+are **conditional fixes** — the naive version of each fix is itself a bug, and in
+one case a worse one than the defect it replaced.
 
 ---
 
@@ -147,40 +147,3 @@ firmware-build job is green regardless of how slow the result is.
 **Correction carried forward:** the earlier claim that the ~30 s floor was
 module-side latency was **wrong** — it was `-O0` crypto plus an unset `R2` in
 the WiFi driver (WIFI-O16). Do not re-adopt that assumption.
-
----
-
-## The bug worth rehearsing — QoS 1 publish treating a missing PUBACK as failure
-
-**Not present in the shipped driver** (MQTT-T09b pins the correct behaviour),
-but it is the natural mistake when `publish()` is made non-blocking under
-MQTT-D13, and it is invisible to a mock.
-
-**Category:** wrong return value / conflating transmission with acknowledgement
-
-**What the buggy version does:** after MQTT-D13 made `publish()` transmit and
-return, the PUBACK arrives later and is reaped in `mqtt_client_process()`. The
-tempting shape is for `publish()` to report failure when no PUBACK is present
-by the time it returns — which is *always*, since it no longer waits.
-
-**What it should do:** `publish()` reports whether the packet was **transmitted**.
-Acknowledgement is a separate, later event; a missing PUBACK at return time is
-the normal case, not an error.
-
-**Correct fix:**
-
-    /* before */
-    if (!inst->puback_seen[packet_id]) { return MQTT_CLIENT_ERR_PUBLISH; }
-    /* after */
-    return MQTT_CLIENT_ERR_OK;   /* transmitted; PUBACK reaped in process() */
-
-**How to find it with a debugger:** every QoS 1 alarm reports failure while the
-broker visibly receives all of them. Breakpoint `process()` and watch the PUBACK
-arrive milliseconds *after* `publish()` already returned its error — the
-ordering is the whole story. `get_stats()` shows `publishes_sent` incrementing
-while `publishes_acked` lags by one, which is correct behaviour misread as a
-fault.
-
-**Why it passes CI:** a mock that acknowledges synchronously inside the publish
-call makes the two designs indistinguishable. Only a real broker, with real
-round-trip latency, separates "sent" from "acked".
