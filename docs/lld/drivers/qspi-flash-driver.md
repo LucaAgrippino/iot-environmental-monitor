@@ -489,6 +489,40 @@ All existing values of `qspi_flash_err_t` are exercised. Two proposed additions 
 
 These are integration-phase concerns.
 
+### 7.6 Hardware bring-up test (Gateway)
+
+File: `firmware/gateway/integration-tests/qspi_flash/main_test_qspi_flash.c`
+— the vehicle for the §7.5 concerns. Bare-metal (no FreeRTOS), reports over
+USART1/PB6 at 115 200 8N1, following the Gateway bring-up convention. Not
+compiled by default; activation steps are in the file header.
+
+**Destructive.** It erases and programs the 4 KB sector at byte offset
+`0x0052_0000` — the start of the *(reserved)* region in
+`flash-partition-layout.md` §5.2, so no partition is touched. It must not be
+repointed at offset 0, which is the live `ConfigStore` partition.
+
+| TC | Case | Closes |
+|---|---|---|
+| TC-HW-QSPI-001 | `qspi_flash_init()` returns `QSPI_FLASH_OK` on the physical part — positive confirmation of RDID `0xC22817` | **QSPID-O3** |
+| TC-HW-QSPI-002 | Second `qspi_flash_init()` is idempotent | §2.5 contract |
+| TC-HW-QSPI-003 | Erase, then `0xFF` at sector offsets 0, `0x800`, `0xFFF` | §7.5 erase reaches the array |
+| TC-HW-QSPI-004 | 256-byte page program, verified read-back | §7.5 |
+| TC-HW-QSPI-005 | Adjacent page written; page A re-verified intact (no page-wrap spill) | QSPID-D3 on silicon |
+| TC-HW-QSPI-006 | Program without erase yields old `AND` new (NOR 1→0 only) | Device semantics — untestable on host |
+| TC-HW-QSPI-007 | 512-byte read spans both pages contiguously | Read is not page-bound |
+| TC-HW-QSPI-008 | Re-erase restores `0xFF` across the sector | §7.5 |
+| TC-HW-QSPI-009 | Validation cascade returns the documented error codes | §6 |
+| TC-HW-QSPI-010 | DWT-timed erase and page-program against datasheet windows (erase max 240 ms, program max 10 ms) and the ~500 ms bounded WIP poll | **QSPID-O4** measurement |
+
+Not covered, and still deferred: QSPID-O1 multi-task mutex validation (needs a
+second consumer to exist) and wire-level timing at 26.67 MHz (needs a logic
+analyser on PE10–PE15).
+
+**Diagnostic gap (QSPID-O9).** `qspi_flash_init()` verifies RDID internally but
+never exposes the value it read, so a `QSPI_FLASH_ERR_DEVICE` result tells the
+bench operator that the ID mismatched without saying what was actually on the
+bus — the first thing needed to diagnose a wrong or unpopulated part.
+
 ---
 
 ## 8. Open items
@@ -497,12 +531,13 @@ These are integration-phase concerns.
 |---|---|---|---|
 | QSPID-O1 | **Peripheral-level concurrency gap (Gateway).** Three middleware consumers (`ConfigStore`, `CircularFlashLog`, `FirmwareStore`) access `QspiFlashDriver` from different tasks under independent mutexes. A shared `qspi_flash_mutex` must be acquired by all callers before calling any driver function. This mutex is a cross-cutting resource (not owned by any single middleware component). Resolution: add `qspi_flash_mutex` to the shared-resource locking table in `task-breakdown.md` §7 and initialise it in `main()`. All three consumers must acquire it before calling the driver. This is an HLD escalation — update `task-breakdown.md` and `lld.md` §5 (cross-cutting) accordingly. | Luca | Update `task-breakdown.md` §7 before implementing any of the three GW consumers |
 | QSPID-O2 | ~~QUADSPI clock prescaler.~~ **Resolved 2026-09-15** — GW HCLK is 80 MHz (CpuDriver); prescaler 2 → 26.67 MHz, bounded by the 33 MHz limit of the `READ 03h` opcode, not the 80 MHz `FAST_READ` figure (§4.2). FD: prescaler 2 → 60 MHz. | — | Closed |
-| QSPID-O3 | ~~Verify `QSPI_EXPECTED_RDID`.~~ **Resolved** — FD 0x20BA18 validated on hardware (v1.0, 2026-06); GW 0xC22817 (Macronix 0xC2, MX25R 0x28, 64 Mbit 0x17) per datasheet, implemented; hardware confirmation pending first GW bench run. | Luca | Confirm on GW bench |
+| QSPID-O3 | ~~Verify `QSPI_EXPECTED_RDID`.~~ **Resolved** — FD 0x20BA18 validated on hardware (v1.0, 2026-06); GW 0xC22817 (Macronix 0xC2, MX25R 0x28, 64 Mbit 0x17) per datasheet, implemented; hardware confirmation pending first GW bench run. | Luca | Run TC-HW-QSPI-001 in `main_test_qspi_flash.c` (§7.6) on the GW bench |
 | QSPID-O4 | WIP polling busy-waits up to 500 ms during erase. If integration profiling reveals this degrades system responsiveness, replace with `vTaskDelay(1)` loop — but note this imports FreeRTOS into the driver, violating the driver convention. Evaluate trade-off at integration. | Luca | Defer until integration measurements |
 | QSPID-O5 | ~~QUADSPI pin assignments.~~ **Resolved** — table in §4.4; GW PE10–PE15 AF10 per UM2153, implemented and pinned by TC-QSPI-005. | — | Closed |
 | QSPID-O6 | **SD-06c/06d sequence diagram inconsistency.** The SDs show `FirmwareStore → QspiFlashDriver` writing the boot indicator and rollback flag, but these fields are in the on-chip metadata partition (`0x0800_4000`) per `flash-partition-layout.md` §5.1. `QspiFlashDriver` cannot write to on-chip flash. The SDs must be corrected and a separate on-chip flash write mechanism (Bootloader scope, or a `FlashDriver` for internal flash) identified. Escalate to HLD before `FirmwareStore` LLD companion is drafted. | Luca | Raise HLD gap; correct SD-06c and SD-06d; decide ownership of on-chip metadata writes |
 | QSPID-O7 | ~~Error enum lacks `ERR_NOT_INITIALISED` and `ERR_NULL_POINTER`.~~ **Resolved for GW** — codes 6 and 7 added to §2.4 and §6, guards implemented and pinned by TC-QSPI-013/-014/-026/-027/-034. **FD drift:** the FD v1.0 implementation carries `QSPI_FLASH_ERR_NOT_INIT = 6` (different spelling) and has no NULL-pointer guard — align when the FD driver is next touched. | Luca | FD: rename to `_NOT_INITIALISED`, add code 7 + guard |
 | QSPID-O8 | **FD USES drift (found during GW implementation).** The FD implementation `#include`s `gpio/gpio_driver.h` and calls `gpio_configure_pin()`, so its real USES is `CMSIS + GpioDriver`, whereas `components.md` says `CMSIS`. The GW implementation configures its pins through CMSIS directly (QSPID-D10) and matches the HLD. Either update `components.md` (FD row) or refactor the FD driver. | Luca | HLD decision when FD driver is next touched |
+| QSPID-O9 | **No way to read back the device ID.** `qspi_flash_init()` checks RDID against `QSPI_EXPECTED_RDID` internally and returns `QSPI_FLASH_ERR_DEVICE` on mismatch without reporting the observed value, leaving a bench operator with no diagnostic. Found while writing the bring-up test (§7.6). Options: a `qspi_flash_get_device_id(uint32_t *id)` accessor, or cache the read ID in a `#ifdef TEST`-free module-scope variable with a getter. Not urgent — affects diagnosis, not correctness. | Luca | Decide when the driver is next touched; low priority |
 
 ---
 
