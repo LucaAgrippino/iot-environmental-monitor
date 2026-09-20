@@ -66,3 +66,15 @@ knownConditionTrueFalse:wifi_driver.c
 // every call site — that external, vendored typedef is the actual constraint,
 // not an oversight in this file.
 constParameterCallback:mqtt_client.c
+
+// nullPointerRedundantCheck:test_config_service_main.c — the harness's fail()
+// helper never returns (it lights the red LED and spins in a for(;;) with
+// vTaskDelay), so execution cannot reach the dereferences that follow a
+// fail() call on the NULL branch. Cppcheck cannot infer non-return from the
+// loop and reports the guard as redundant. False positive; the guard is
+// required. Revisit if fail() is ever marked noreturn.
+//
+// NB: the path must be the full repo-relative path (or a glob). A bare
+// basename does not match the paths cppcheck is invoked with from the repo
+// root, and --suppress=unmatchedSuppression hides the mismatch silently.
+nullPointerRedundantCheck:firmware/field-device/integration-tests/config_service/test_config_service_main.c
