@@ -2,7 +2,7 @@
 
 **Version:** 1.1
 **Date:** 25 May 2026
-**Status:** Draft (Pass H reconciled)
+**Status:** Draft (Pass H complete)
 
 **HLD anchor:** `DebugUartDriver` in `components.md` (Field Device §4 driver layer, line 168; Gateway §4 driver layer, line 426). Layer: Driver. Targets: STM32F469 Discovery (Field Device, USART3) and STM32L475 IoT Discovery (Gateway, USART1).
 
@@ -713,59 +713,92 @@ The absence of a FreeRTOS mock is the visible benefit of the FreeRTOS-free desig
 
 ### 7.3 Test cases
 
-For each function, at least one happy-path case and one error-path case. The ISR is tested by directly invoking the handler symbol with the mock peripheral pre-populated.
-The `_stores_callback_and_context` test deferred from `debug_uart_attach_rx`
-(§7.3 above) is realised here: feed an EOL byte through the ISR after
-attaching a callback with a distinctive context pointer, then verify the
-callback was invoked with that exact context.
+For each public function, at least one happy-path case and one error-path case. The ISR is tested by directly invoking the handler symbol with the mock peripheral pre-populated. `debug_uart_set_tick_source` is exercised indirectly through the `send` timeout path and directly for its callable-before-init and NULL-revert contracts.
+
+Each test calls `debug_uart_reset_for_test()` and `stm32_cmsis_mock_reset()` in `setUp()`. Unless stated otherwise, precondition "driver initialised" means `debug_uart_init()` has returned `DEBUG_UART_OK`. Precondition "RX attached" means `debug_uart_attach_rx()` has also returned `DEBUG_UART_OK` with a test callback wired.
 
 **`debug_uart_init`**
 
-- `test_debug_uart_init_succeeds_first_call`
-- `test_debug_uart_init_idempotent_second_call_returns_ok`
-- `test_debug_uart_init_enables_usart_and_gpio_clocks`
-- `test_debug_uart_init_configures_pin_alternate_function`
-- `test_debug_uart_init_programs_baud_rate_for_pclk`
+| TC ID | Test function | Precondition | Action | Expected result |
+|---|---|---|---|---|
+| TC-DUART-001 | `test_debug_uart_init_succeeds_first_call` | Driver not initialised (fresh `setUp`). | Call `debug_uart_init()`. | Returns `DEBUG_UART_OK`. `s_debug_uart.initialised` is true (verified indirectly: subsequent `send` does not return `ERR_NOT_INITIALISED`). |
+| TC-DUART-002 | `test_debug_uart_init_idempotent_second_call_returns_ok` | Driver initialised. | Call `debug_uart_init()` again. | Returns `DEBUG_UART_OK`. No side effects (clock-enable bits not toggled a second time). |
+| TC-DUART-003 | `test_debug_uart_init_enables_usart_and_gpio_clocks` | Driver not initialised. Mock RCC registers zeroed. | Call `debug_uart_init()`. | F469: `RCC->APB1ENR` has `USART3EN` set; `RCC->AHB1ENR` has `GPIOBEN` set. L475: `RCC->APB2ENR` has `USART1EN` set; `RCC->AHB2ENR` has `GPIOBEN` set. |
+| TC-DUART-004 | `test_debug_uart_init_configures_pin_alternate_function` | Driver not initialised. Mock GPIOB registers zeroed. | Call `debug_uart_init()`. | F469: GPIOB `MODER` bits 20–21 and 22–23 set to 0b10 (AF mode for PB10, PB11); `AFR[1]` bits 8–11 and 12–15 set to 7 (AF7). L475: GPIOB `MODER` bits 12–13 and 14–15 set to 0b10 (AF mode for PB6, PB7); `AFR[0]` bits 24–27 and 28–31 set to 7 (AF7). `PUPDR` pull-up (0b01) on both pins. `OSPEEDR` high speed (0b10) on both pins. |
+| TC-DUART-005 | `test_debug_uart_init_programs_baud_rate_for_pclk` | Driver not initialised. | Call `debug_uart_init()`. | F469: `USART3->BRR` equals the expected value for 115200 bps at PCLK1 = 45 MHz. L475: `USART1->BRR` equals the expected value for 115200 bps at PCLK2 = 80 MHz. `CR1` has `TE` and `UE` set; `RXNEIE` clear (RX not yet attached). |
+
+**`debug_uart_set_tick_source`**
+
+| TC ID | Test function | Precondition | Action | Expected result |
+|---|---|---|---|---|
+| TC-DUART-010 | `test_debug_uart_set_tick_source_callable_before_init` | Driver not initialised. | Call `debug_uart_set_tick_source(mock_get_ms)`. Then `debug_uart_init()`, then `debug_uart_send()` a single byte with `timeout_ms = 10` and TXE pre-set in mock. | No crash. `mock_get_ms` is invoked at least once during `send` (proves the tick source was stored and used). |
+| TC-DUART-011 | `test_debug_uart_set_tick_source_null_disables_timeout` | Driver initialised. Tick source previously set to `mock_get_ms`. | Call `debug_uart_set_tick_source(NULL)`. Send a single byte with TXE pre-set, `timeout_ms = 10`. | Returns `DEBUG_UART_OK`. `mock_get_ms` invocation count is zero (proves the NULL override took effect and the timeout path is bypassed). |
 
 **`debug_uart_attach_rx`**
 
-- `test_debug_uart_attach_rx_happy_path_enables_rxneie`
-- `test_debug_uart_attach_rx_stores_callback_and_context`
-- `test_debug_uart_attach_rx_rejects_not_initialised`
-- `test_debug_uart_attach_rx_rejects_null_callback`
-- `test_debug_uart_attach_rx_rejects_second_call`
+| TC ID | Test function | Precondition | Action | Expected result |
+|---|---|---|---|---|
+| TC-DUART-020 | `test_debug_uart_attach_rx_happy_path_enables_rxneie` | Driver initialised. RX not attached. | Call `debug_uart_attach_rx(test_callback, &test_ctx)`. | Returns `DEBUG_UART_OK`. USART `CR1` has `RE` and `RXNEIE` set. NVIC mock shows `NVIC_EnableIRQ` called for the board's USART vector (`USART3_IRQn` or `USART1_IRQn`). |
+| TC-DUART-021 | `test_debug_uart_attach_rx_stores_callback_and_context` | Driver initialised. RX not attached. | Attach `test_callback` with a distinctive context pointer `(void *)0xDEADBEEF`. Then feed bytes `'A'`, `'\n'` through the ISR (direct invocation). | `test_callback` invoked exactly once. Recorded context equals `(void *)0xDEADBEEF`. |
+| TC-DUART-022 | `test_debug_uart_attach_rx_rejects_not_initialised` | Driver not initialised. | Call `debug_uart_attach_rx(test_callback, NULL)`. | Returns `DEBUG_UART_ERR_NOT_INITIALISED`. USART `CR1` unchanged. |
+| TC-DUART-023 | `test_debug_uart_attach_rx_rejects_null_callback` | Driver initialised. | Call `debug_uart_attach_rx(NULL, NULL)`. | Returns `DEBUG_UART_ERR_NULL_POINTER`. `RXNEIE` not set. |
+| TC-DUART-024 | `test_debug_uart_attach_rx_rejects_second_call` | Driver initialised. RX already attached. | Call `debug_uart_attach_rx(another_callback, NULL)`. | Returns `DEBUG_UART_ERR_RX_ALREADY_ATTACHED`. Original callback remains wired. |
 
 **`debug_uart_send`**
 
-- `test_debug_uart_send_zero_length_returns_ok_no_writes`
-- `test_debug_uart_send_writes_each_byte_to_data_register`
-- `test_debug_uart_send_polls_txe_between_bytes`
-- `test_debug_uart_send_rejects_null_data_when_length_nonzero`
-- `test_debug_uart_send_rejects_not_initialised`
-- `test_debug_uart_send_returns_tx_timeout_when_txe_never_asserts`
+| TC ID | Test function | Precondition | Action | Expected result |
+|---|---|---|---|---|
+| TC-DUART-030 | `test_debug_uart_send_zero_length_returns_ok_no_writes` | Driver initialised. | Call `debug_uart_send(NULL, 0, 100)`. | Returns `DEBUG_UART_OK`. Mock data register not written. (Verifies zero-length is a no-op and NULL `data` is accepted when `length == 0`.) |
+| TC-DUART-031 | `test_debug_uart_send_writes_each_byte_to_data_register` | Driver initialised. TXE pre-set in mock for all bytes. | Call `debug_uart_send("AB", 2, 100)`. | Returns `DEBUG_UART_OK`. F469: `USART3->DR` written with `'A'` then `'B'`. L475: `USART1->TDR` written with `'A'` then `'B'`. |
+| TC-DUART-032 | `test_debug_uart_send_polls_txe_between_bytes` | Driver initialised. TXE initially clear; mock toggles TXE to set after N reads of the status register. | Call `debug_uart_send("X", 1, 100)` with tick source wired. | Returns `DEBUG_UART_OK` after polling. Status register read count > 1 (proves polling occurred). Data register written with `'X'` only after TXE asserted. |
+| TC-DUART-033 | `test_debug_uart_send_rejects_null_data_when_length_nonzero` | Driver initialised. | Call `debug_uart_send(NULL, 5, 100)`. | Returns `DEBUG_UART_ERR_NULL_POINTER`. No bytes written. |
+| TC-DUART-034 | `test_debug_uart_send_rejects_not_initialised` | Driver not initialised. | Call `debug_uart_send("A", 1, 100)`. | Returns `DEBUG_UART_ERR_NOT_INITIALISED`. |
+| TC-DUART-035 | `test_debug_uart_send_returns_tx_timeout_when_txe_never_asserts` | Driver initialised. TXE permanently clear in mock. Tick source wired: `mock_get_ms` returns incrementing values to exceed `timeout_ms`. | Call `debug_uart_send("A", 1, 10)`. | Returns `DEBUG_UART_ERR_TX_TIMEOUT`. Data register not written (byte never transmitted). |
 
 **`debug_uart_read_line`**
 
-- `test_debug_uart_read_line_returns_no_line_when_flag_clear`
-- `test_debug_uart_read_line_copies_line_and_clears_flag`
-- `test_debug_uart_read_line_null_terminates_buffer`
-- `test_debug_uart_read_line_reports_ok_flag_when_not_truncated`
-- `test_debug_uart_read_line_reports_truncated_flag_when_overflow_occurred`
-- `test_debug_uart_read_line_rejects_buf_size_too_small`
-- `test_debug_uart_read_line_rejects_null_pointers`
-- `test_debug_uart_read_line_rejects_not_initialised`
+All `read_line` tests use `debug_uart_set_ready_line_for_test()` to inject a ready line (bypassing the ISR), unless otherwise stated.
+
+| TC ID | Test function | Precondition | Action | Expected result |
+|---|---|---|---|---|
+| TC-DUART-040 | `test_debug_uart_read_line_returns_no_line_when_flag_clear` | Driver initialised. No ready line injected (`rx_ready_flag` false). | Call `debug_uart_read_line(buf, sizeof(buf), &len, &flag)`. | Returns `DEBUG_UART_ERR_NO_LINE_AVAILABLE`. `buf`, `len`, `flag` unchanged. |
+| TC-DUART-041 | `test_debug_uart_read_line_copies_line_and_clears_flag` | Driver initialised. Inject ready line `"hello"` (5 bytes, not truncated). | Call `debug_uart_read_line(buf, sizeof(buf), &len, &flag)`. | Returns `DEBUG_UART_OK`. `buf` contains `"hello"`. `len == 5`. Subsequent call returns `DEBUG_UART_ERR_NO_LINE_AVAILABLE` (flag cleared). |
+| TC-DUART-042 | `test_debug_uart_read_line_null_terminates_buffer` | Driver initialised. Inject ready line `"cmd"` (3 bytes). | Call `debug_uart_read_line(buf, sizeof(buf), &len, &flag)`. | `buf[3] == '\0'`. |
+| TC-DUART-043 | `test_debug_uart_read_line_reports_ok_flag_when_not_truncated` | Driver initialised. Inject ready line (any content, `truncated = false`). | Call `debug_uart_read_line(...)`. | `flag == DEBUG_UART_LINE_OK`. |
+| TC-DUART-044 | `test_debug_uart_read_line_reports_truncated_flag_when_overflow_occurred` | Driver initialised. Inject ready line (128 bytes, `truncated = true`). | Call `debug_uart_read_line(...)`. | `flag == DEBUG_UART_LINE_TRUNCATED`. |
+| TC-DUART-045 | `test_debug_uart_read_line_rejects_buf_size_too_small` | Driver initialised. Inject ready line. | Call `debug_uart_read_line(buf, DEBUG_UART_LINE_MAX_LEN, &len, &flag)` (one byte short of the required `LINE_MAX_LEN + 1`). | Returns `DEBUG_UART_ERR_INVALID_PARAM`. Ready line not consumed (flag still set). |
+| TC-DUART-046 | `test_debug_uart_read_line_rejects_null_pointers` | Driver initialised. | Call `debug_uart_read_line(NULL, ...)`, then `(..., NULL, &flag)`, then `(..., &len, NULL)`. | Each returns `DEBUG_UART_ERR_NULL_POINTER`. |
+| TC-DUART-047 | `test_debug_uart_read_line_rejects_not_initialised` | Driver not initialised. | Call `debug_uart_read_line(buf, sizeof(buf), &len, &flag)`. | Returns `DEBUG_UART_ERR_NOT_INITIALISED`. |
 
 **RX ISR (invoked directly)**
 
-- `test_isr_accumulates_byte_into_buffer`
-- `test_isr_appends_until_eol_then_invokes_callback`
-- `test_isr_strips_cr_and_lf`
-- `test_isr_handles_crlf_as_single_terminator`
-- `test_isr_marks_overflow_when_buffer_full_no_eol`
-- `test_isr_drops_byte_and_clears_error_on_ore`
-- `test_isr_drops_byte_and_clears_error_on_fe`
-- `test_isr_ignores_empty_line_terminator_after_full_line`
-- `test_isr_invokes_callback_with_registered_context`
+The ISR handler symbol (`USART3_IRQHandler` or `USART1_IRQHandler`) is called directly from the test. The mock USART status and data registers are pre-populated before each invocation to simulate incoming bytes and error conditions.
+
+| TC ID | Test function | Precondition | Action | Expected result |
+|---|---|---|---|---|
+| TC-DUART-050 | `test_isr_accumulates_byte_into_buffer` | Driver initialised and RX attached. Mock: RXNE set, data register = `'A'`. | Invoke ISR handler once. | Callback not invoked (no EOL). Internal accumulation length incremented (verified by subsequent EOL delivery or by `read_line` after forcing a freeze). |
+| TC-DUART-051 | `test_isr_appends_until_eol_then_invokes_callback` | Driver initialised and RX attached. | Feed `'H'`, `'i'`, `'\n'` through three ISR invocations (mock RXNE + data register per byte). | Callback invoked exactly once on the `'\n'` invocation. `debug_uart_read_line()` returns `"Hi"`, `len == 2`, `flag == DEBUG_UART_LINE_OK`. |
+| TC-DUART-052 | `test_isr_strips_cr_and_lf` | Driver initialised and RX attached. | Feed `'O'`, `'K'`, `'\r'` through ISR. | Callback invoked. `debug_uart_read_line()` returns `"OK"` — no `'\r'` in output. |
+| TC-DUART-053 | `test_isr_handles_crlf_as_single_terminator` | Driver initialised and RX attached. | Feed `'A'`, `'\r'`, `'\n'` through ISR. | Callback invoked exactly once (on `'\r'`, the first terminator after content). The trailing `'\n'` produces no second callback (empty line suppression). `read_line` returns `"A"`. |
+| TC-DUART-054 | `test_isr_marks_overflow_when_buffer_full_no_eol` | Driver initialised and RX attached. | Feed exactly `DEBUG_UART_LINE_MAX_LEN` non-EOL bytes, then one more non-EOL byte, then `'\n'`. | Callback invoked on `'\n'`. `debug_uart_read_line()` returns a line of length `DEBUG_UART_LINE_MAX_LEN` with `flag == DEBUG_UART_LINE_TRUNCATED`. The extra byte is dropped. |
+| TC-DUART-055 | `test_isr_drops_byte_and_clears_error_on_ore` | Driver initialised and RX attached. Mock: ORE flag set in status register, RXNE set, data register = `'X'`. | Invoke ISR handler. | Byte `'X'` not appended to accumulation buffer. ORE flag cleared in mock (F469: DR read clears; L475: ICR `ORECF` written). Callback not invoked. |
+| TC-DUART-056 | `test_isr_drops_byte_and_clears_error_on_fe` | Driver initialised and RX attached. Mock: FE flag set, RXNE set, data register = `'Y'`. | Invoke ISR handler. | Byte `'Y'` not appended. FE flag cleared. Callback not invoked. |
+| TC-DUART-057 | `test_isr_ignores_empty_line_terminator_after_full_line` | Driver initialised and RX attached. | Feed `'A'`, `'\n'`, `'\n'` through ISR. | Callback invoked exactly once (on the first `'\n'`). The second `'\n'` produces no callback (empty-line suppression). |
+| TC-DUART-058 | `test_isr_invokes_callback_with_registered_context` | Driver initialised. Attach with `test_callback` and context `(void *)0xCAFEBABE`. | Feed `'Z'`, `'\n'` through ISR. | `test_callback` invoked with context `(void *)0xCAFEBABE`. |
+
+**Error-code coverage cross-check**
+
+| Error code | Produced by TC(s) |
+|---|---|
+| `DEBUG_UART_OK` | TC-DUART-001, -002, -010, -011, -020, -030, -031, -032, -041, -042, -043 |
+| `DEBUG_UART_ERR_NOT_INITIALISED` | TC-DUART-022, -034, -047 |
+| `DEBUG_UART_ERR_NULL_POINTER` | TC-DUART-023, -033, -046 |
+| `DEBUG_UART_ERR_INVALID_PARAM` | TC-DUART-045 |
+| `DEBUG_UART_ERR_TX_TIMEOUT` | TC-DUART-035 |
+| `DEBUG_UART_ERR_NO_LINE_AVAILABLE` | TC-DUART-040 |
+| `DEBUG_UART_ERR_RX_ALREADY_ATTACHED` | TC-DUART-024 |
+
+All seven values of `debug_uart_err_t` are exercised. Both values of `debug_uart_line_flag_t` are exercised (TC-DUART-043, TC-DUART-044).
 
 ### 7.4 Coverage target
 
