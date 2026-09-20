@@ -44,8 +44,8 @@
 /* ===================================================================== */
 
 static const led_pin_t k_fd_led_pins[LED_COUNT] = {
-    [LED_GREEN] = {.port = GPIO_PORT_G, .pin =  6U, .active_high = false, .fitted = true},
-    [LED_RED]   = {.port = GPIO_PORT_D, .pin =  5U, .active_high = false, .fitted = true},
+    [LED_GREEN] = {.port = GPIO_PORT_G, .pin = 6U, .active_high = false, .fitted = true},
+    [LED_RED] = {.port = GPIO_PORT_D, .pin = 5U, .active_high = false, .fitted = true},
 };
 
 /* ===================================================================== */
@@ -53,18 +53,18 @@ static const led_pin_t k_fd_led_pins[LED_COUNT] = {
 /* ===================================================================== */
 
 #define BLINK_HALF_PERIOD_MS (500U)
-#define BLINK_ITERATIONS     (10U)
-#define HEARTBEAT_PERIOD_MS  (1000U)
+#define BLINK_ITERATIONS (10U)
+#define HEARTBEAT_PERIOD_MS (1000U)
 
 #define PERIODIC_STACK_WORDS (configMINIMAL_STACK_SIZE)
-#define PERIODIC_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define PERIODIC_PRIORITY (tskIDLE_PRIORITY + 1U)
 
 /* ===================================================================== */
 /* Test task                                                             */
 /* ===================================================================== */
 
 static StaticTask_t s_periodic_tcb;
-static StackType_t  s_periodic_stack[PERIODIC_STACK_WORDS];
+static StackType_t s_periodic_stack[PERIODIC_STACK_WORDS];
 
 static void led_test_task(void *arg)
 {

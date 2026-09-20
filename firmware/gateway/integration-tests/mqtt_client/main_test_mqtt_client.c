@@ -317,7 +317,7 @@ static void mqtt_bringup_task(void *arg)
         bringup_fail("TC-HW-MQTT-002  wifitask_create() failed");
     }
     LOG_INFO("Mqtt", "wifitask_create() returned WIFITASK_ERR_OK (WifiTask's own task is "
-                    "now running)");
+                     "now running)");
 
     /* TC-HW-MQTT-002 */
     if (sizeof(BRINGUP_WIFI_SSID) <= 1U)

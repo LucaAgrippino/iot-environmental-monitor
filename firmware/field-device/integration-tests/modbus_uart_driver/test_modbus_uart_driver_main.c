@@ -61,36 +61,36 @@
 /* Configuration                                                         */
 /* ===================================================================== */
 
-#define LOG_MODULE              ("MBUART")
+#define LOG_MODULE ("MBUART")
 
-#define TEST_TASK_STACK_WORDS   (384U)
-#define TEST_TASK_PRIORITY      (tskIDLE_PRIORITY + 2U)
+#define TEST_TASK_STACK_WORDS (384U)
+#define TEST_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 
 /** Loopback wait: ~200 ms at 9600 baud for an 8-byte frame (8.3 ms) plus
  *  generous margin for IDLE detection and task scheduling. */
-#define LOOPBACK_WAIT_MS        (200U)
+#define LOOPBACK_WAIT_MS (200U)
 
 /** Modbus frame used for the loopback test. */
-#define TEST_FRAME_LEN          (8U)
-static const uint8_t k_test_frame[TEST_FRAME_LEN] =
-    {0x01U, 0x03U, 0x00U, 0x00U, 0x00U, 0x02U, 0xC4U, 0x0BU};
+#define TEST_FRAME_LEN (8U)
+static const uint8_t k_test_frame[TEST_FRAME_LEN] = {0x01U, 0x03U, 0x00U, 0x00U,
+                                                     0x00U, 0x02U, 0xC4U, 0x0BU};
 
 /* ===================================================================== */
 /* Test task                                                             */
 /* ===================================================================== */
 
 static StaticTask_t s_test_tcb;
-static StackType_t  s_test_stack[TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_test_stack[TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
 
 /** Set from the RX callback running in ISR context. */
-static volatile bool              s_rx_done    = false;
+static volatile bool s_rx_done = false;
 static volatile modbus_uart_event_t s_rx_event = MODBUS_UART_EVENT_RX_DONE;
 
 static void on_rx(modbus_uart_event_t event, void *context)
 {
     (void) context;
     s_rx_event = event;
-    s_rx_done  = true;
+    s_rx_done = true;
     /* In a real application the consumer calls xTaskNotifyFromISR() here.
      * For this test we use a volatile flag so the test task can poll it. */
 }
@@ -137,7 +137,7 @@ static void test_task(void *arg)
         {
             LOG_INFO(LOG_MODULE, "Phase 1: RX_DONE received");
 
-            uint8_t  buf[MODBUS_UART_BUF_SIZE];
+            uint8_t buf[MODBUS_UART_BUF_SIZE];
             uint16_t len = 0U;
             (void) modbus_uart_get_rx_frame(buf, &len);
 
@@ -180,7 +180,6 @@ static void test_task(void *arg)
     LOG_INFO(LOG_MODULE, "> requires hardware break condition");
     LOG_INFO(LOG_MODULE, "> on RS-485 bus — manual step");
 
-
     /* ------------------------------------------------------------------ */
     /* Periodic tick                                                       */
     /* ------------------------------------------------------------------ */
@@ -217,13 +216,8 @@ int main(void)
     LOG_INFO(LOG_MODULE, "starting scheduler...");
 
     /* 5. Create test task. */
-    (void) xTaskCreateStatic(test_task,
-                             "MBUARTTest",
-                             TEST_TASK_STACK_WORDS,
-                             NULL,
-                             TEST_TASK_PRIORITY,
-                             s_test_stack,
-                             &s_test_tcb);
+    (void) xTaskCreateStatic(test_task, "MBUARTTest", TEST_TASK_STACK_WORDS, NULL,
+                             TEST_TASK_PRIORITY, s_test_stack, &s_test_tcb);
 
     /* 6. Start scheduler. Does not return under normal operation. */
     vTaskStartScheduler();
