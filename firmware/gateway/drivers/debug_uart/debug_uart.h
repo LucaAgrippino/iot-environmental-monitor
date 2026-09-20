@@ -26,7 +26,7 @@
  *       intentional and does not conflict with this driver: a panic means
  *       normal execution (and therefore this driver's state) can no longer
  *       be trusted, so the fault handler re-inits the peripheral raw rather
- *       than depending on it. See docs/dev-tools/debug_uart/session-report.md.
+ *       than depending on it.
  * @note See docs/lld/drivers/debug-uart-driver.md for the full design.
  */
 

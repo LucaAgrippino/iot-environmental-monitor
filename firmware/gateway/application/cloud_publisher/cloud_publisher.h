@@ -333,8 +333,7 @@ void cloud_publisher_inject_alarm_for_test(cloud_publisher_handle_t handle,
  * @brief Test-only injection of an inbound MQTT command, as if delivered
  * by MqttClient's msg_cb (CP-O5: real wiring pending — MqttClient's
  * msg_cb/disconnect_cb are registered at mqtt_client_create() time,
- * upstream of CloudPublisher's config injection; see deviations in
- * docs/dev-tools/cloud_publisher/session-report.md).
+ * upstream of CloudPublisher's config injection).
  */
 void cloud_publisher_inject_command_for_test(cloud_publisher_handle_t handle, const char *topic,
                                              const uint8_t *payload, uint32_t len);
