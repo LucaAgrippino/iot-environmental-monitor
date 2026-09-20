@@ -42,26 +42,26 @@
 /* ---------------------------------------------------------------------- */
 
 /** LD2 (green user LED) on B-L475E-IOT01A — active high. */
-#define BRINGUP_LED_PIN          (5U)
+#define BRINGUP_LED_PIN (5U)
 
 /** USART1 TX on PB6, alternate function AF7. */
-#define BRINGUP_UART_TX_PIN      (6U)
-#define BRINGUP_UART_TX_AF       (7U)
+#define BRINGUP_UART_TX_PIN (6U)
+#define BRINGUP_UART_TX_AF (7U)
 
 /**
  * USART1 BRR = PCLK2 / baud = 80 000 000 / 115 200 ≈ 694.
  * Only valid after cpu_init() has switched SYSCLK to 80 MHz.
  */
-#define BRINGUP_UART_BRR         (694U)
+#define BRINGUP_UART_BRR (694U)
 
 /** Expected DWT cycles for cpu_delay_us(1000) at 80 MHz: 1000 × 80. */
-#define BRINGUP_DELAY_US_EXPECTED    (80000U)
+#define BRINGUP_DELAY_US_EXPECTED (80000U)
 
 /** Expected DWT cycles for cpu_delay_ms(100) at 80 MHz: 100 × 80 000. */
-#define BRINGUP_DELAY_MS_EXPECTED    (8000000U)
+#define BRINGUP_DELAY_MS_EXPECTED (8000000U)
 
 /** Tolerance denominator: error must be < expected / 100 (1 %). */
-#define BRINGUP_TOLERANCE_DIV        (100U)
+#define BRINGUP_TOLERANCE_DIV (100U)
 
 /* ---------------------------------------------------------------------- */
 /* Raw spin delay — used only in the TC-001 failure path before DWT is    */
@@ -83,13 +83,13 @@ static void bringup_raw_spin(uint32_t n)
 
 static void bringup_led_init(void)
 {
-    RCC->AHB2ENR   |=  RCC_AHB2ENR_GPIOAEN;
-    GPIOA->MODER   &= ~(3UL << (BRINGUP_LED_PIN * 2U));
-    GPIOA->MODER   |=  (1UL << (BRINGUP_LED_PIN * 2U));  /* general output */
-    GPIOA->OTYPER  &= ~(1UL <<  BRINGUP_LED_PIN);         /* push-pull      */
-    GPIOA->OSPEEDR &= ~(3UL << (BRINGUP_LED_PIN * 2U));   /* low speed      */
-    GPIOA->PUPDR   &= ~(3UL << (BRINGUP_LED_PIN * 2U));   /* no pull        */
-    GPIOA->BSRR     =  (1UL << (BRINGUP_LED_PIN + 16U));  /* off initially  */
+    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
+    GPIOA->MODER &= ~(3UL << (BRINGUP_LED_PIN * 2U));
+    GPIOA->MODER |= (1UL << (BRINGUP_LED_PIN * 2U));    /* general output */
+    GPIOA->OTYPER &= ~(1UL << BRINGUP_LED_PIN);         /* push-pull      */
+    GPIOA->OSPEEDR &= ~(3UL << (BRINGUP_LED_PIN * 2U)); /* low speed      */
+    GPIOA->PUPDR &= ~(3UL << (BRINGUP_LED_PIN * 2U));   /* no pull        */
+    GPIOA->BSRR = (1UL << (BRINGUP_LED_PIN + 16U));     /* off initially  */
 }
 
 static void bringup_led_on(void)
@@ -116,13 +116,13 @@ static void bringup_uart_init(void)
     RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
     RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
 
-    GPIOB->MODER  &= ~(3UL  << (BRINGUP_UART_TX_PIN * 2U));
-    GPIOB->MODER  |=  (2UL  << (BRINGUP_UART_TX_PIN * 2U));  /* AF mode    */
-    GPIOB->OTYPER &= ~(1UL  <<  BRINGUP_UART_TX_PIN);         /* push-pull  */
-    GPIOB->OSPEEDR|=  (3UL  << (BRINGUP_UART_TX_PIN * 2U));   /* very high  */
-    GPIOB->PUPDR  &= ~(3UL  << (BRINGUP_UART_TX_PIN * 2U));   /* no pull    */
+    GPIOB->MODER &= ~(3UL << (BRINGUP_UART_TX_PIN * 2U));
+    GPIOB->MODER |= (2UL << (BRINGUP_UART_TX_PIN * 2U));   /* AF mode    */
+    GPIOB->OTYPER &= ~(1UL << BRINGUP_UART_TX_PIN);        /* push-pull  */
+    GPIOB->OSPEEDR |= (3UL << (BRINGUP_UART_TX_PIN * 2U)); /* very high  */
+    GPIOB->PUPDR &= ~(3UL << (BRINGUP_UART_TX_PIN * 2U));  /* no pull    */
     GPIOB->AFR[0] &= ~(0xFUL << (BRINGUP_UART_TX_PIN * 4U));
-    GPIOB->AFR[0] |=  ((uint32_t)BRINGUP_UART_TX_AF << (BRINGUP_UART_TX_PIN * 4U));
+    GPIOB->AFR[0] |= ((uint32_t) BRINGUP_UART_TX_AF << (BRINGUP_UART_TX_PIN * 4U));
 
     USART1->CR1 = 0U;
     USART1->BRR = BRINGUP_UART_BRR;
@@ -135,7 +135,7 @@ static void bringup_putc(char c)
     {
         /* spin */
     }
-    USART1->TDR = (uint32_t)(uint8_t)c;
+    USART1->TDR = (uint32_t) (uint8_t) c;
 }
 
 static void bringup_puts(const char *s)
@@ -153,7 +153,7 @@ static void bringup_put_hex32(uint32_t v)
     bringup_puts("0x");
     for (int8_t shift = 28; shift >= 0; shift -= 4)
     {
-        bringup_putc(hex[(v >> (uint32_t)shift) & 0xFU]);
+        bringup_putc(hex[(v >> (uint32_t) shift) & 0xFU]);
     }
 }
 
@@ -164,11 +164,11 @@ static void bringup_put_dec(uint32_t v)
         bringup_putc('0');
         return;
     }
-    char    buf[10];
+    char buf[10];
     uint8_t n = 0U;
     while (v > 0U)
     {
-        buf[n++] = (char)('0' + (uint8_t)(v % 10U));
+        buf[n++] = (char) ('0' + (uint8_t) (v % 10U));
         v /= 10U;
     }
     while (n > 0U)
@@ -245,7 +245,7 @@ int main(void)
     if (init_st != STATUS_OK)
     {
         bringup_puts("[FAIL] TC-HW-CPU-001  cpu_init() returned ");
-        bringup_put_hex32((uint32_t)init_st);
+        bringup_put_hex32((uint32_t) init_st);
         bringup_puts("\r\n[FAIL] Clock/DWT unavailable — fast blink on PA5.\r\n");
         /*
          * DWT is not running and SYSCLK may still be MSI 4 MHz —
@@ -265,7 +265,7 @@ int main(void)
     /* TC-HW-CPU-002..004 — clock frequency queries -------------------- */
     {
         const uint32_t expected = 80000000U;
-        uint32_t       hz;
+        uint32_t hz;
 
         hz = cpu_get_sysclk_hz();
         bringup_puts("[INFO] TC-HW-CPU-002  SYSCLK = ");
@@ -308,7 +308,7 @@ int main(void)
         uint32_t t0, elapsed, err;
 
         bringup_led_on();
-        t0      = DWT->CYCCNT;
+        t0 = DWT->CYCCNT;
         cpu_delay_us(1000U);
         elapsed = DWT->CYCCNT - t0;
         bringup_led_off();
@@ -319,9 +319,8 @@ int main(void)
         bringup_put_dec(BRINGUP_DELAY_US_EXPECTED);
         bringup_puts(")\r\n");
 
-        err = (elapsed > BRINGUP_DELAY_US_EXPECTED)
-              ? (elapsed - BRINGUP_DELAY_US_EXPECTED)
-              : (BRINGUP_DELAY_US_EXPECTED - elapsed);
+        err = (elapsed > BRINGUP_DELAY_US_EXPECTED) ? (elapsed - BRINGUP_DELAY_US_EXPECTED)
+                                                    : (BRINGUP_DELAY_US_EXPECTED - elapsed);
 
         if (err > (BRINGUP_DELAY_US_EXPECTED / BRINGUP_TOLERANCE_DIV))
         {
@@ -341,7 +340,7 @@ int main(void)
         uint32_t t0, elapsed, err;
 
         bringup_led_on();
-        t0      = DWT->CYCCNT;
+        t0 = DWT->CYCCNT;
         cpu_delay_ms(100U);
         elapsed = DWT->CYCCNT - t0;
         bringup_led_off();
@@ -352,9 +351,8 @@ int main(void)
         bringup_put_dec(BRINGUP_DELAY_MS_EXPECTED);
         bringup_puts(")\r\n");
 
-        err = (elapsed > BRINGUP_DELAY_MS_EXPECTED)
-              ? (elapsed - BRINGUP_DELAY_MS_EXPECTED)
-              : (BRINGUP_DELAY_MS_EXPECTED - elapsed);
+        err = (elapsed > BRINGUP_DELAY_MS_EXPECTED) ? (elapsed - BRINGUP_DELAY_MS_EXPECTED)
+                                                    : (BRINGUP_DELAY_MS_EXPECTED - elapsed);
 
         if (err > (BRINGUP_DELAY_MS_EXPECTED / BRINGUP_TOLERANCE_DIV))
         {
@@ -380,7 +378,7 @@ int main(void)
      *      harness prints its own banner.
      *   6. Re-comment the call and reflash to restore normal operation.
      */
-     cpu_panic(CPU_PANIC_USER, "TC-HW-CPU-007: deliberate panic test");
+    cpu_panic(CPU_PANIC_USER, "TC-HW-CPU-007: deliberate panic test");
 
     /*
      * TC-HW-CPU-008 — cpu_reset() (manual step)
@@ -389,7 +387,7 @@ int main(void)
      * On the subsequent boot, NO post-mortem record will appear because
      * cpu_reset() does not write the RTC backup registers.
      */
-//     cpu_reset();
+    //     cpu_reset();
 
     /* Heartbeat -------------------------------------------------------- */
     for (;;)

@@ -428,8 +428,7 @@ static void test_task(void *arg)
         if (exc == MB_EXC_NONE && s_slave_addr_set_called && s_slave_addr_set == 5u)
         {
             LOG_INFO(LOG_MODULE, "Phase 4: slave addr write OK");
-            LOG_INFO(LOG_MODULE, "set_address called with %u [PASS]",
-                     (unsigned) s_slave_addr_set);
+            LOG_INFO(LOG_MODULE, "set_address called with %u [PASS]", (unsigned) s_slave_addr_set);
         }
         else
         {

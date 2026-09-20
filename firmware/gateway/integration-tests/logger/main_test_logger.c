@@ -187,7 +187,8 @@ int main(void)
 
     /* 4. Pre-scheduler diagnostics — exercises the direct-write path. */
     LOG_INFO("Boot", "===== Logger integration test (GW) =====");
-    LOG_INFO("Boot", "SYSCLK=%lu MHz UART=115200/8N1", (unsigned long) (cpu_get_sysclk_hz() / 1000000U));
+    LOG_INFO("Boot", "SYSCLK=%lu MHz UART=115200/8N1",
+             (unsigned long) (cpu_get_sysclk_hz() / 1000000U));
     LOG_DEBUG("Boot", "pre-scheduler path - dim tag");
     LOG_WARN("Boot", "pre-scheduler path - yellow tag");
     LOG_ERROR("Boot", "pre-scheduler path - red tag");

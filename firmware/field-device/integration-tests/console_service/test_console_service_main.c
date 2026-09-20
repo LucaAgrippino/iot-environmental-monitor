@@ -1,3 +1,4 @@
+/* clang-format off */
 /**
  * @file test_console_service_main.c
  * @brief ConsoleService integration test — STM32F469I-DISCO (Field Device).
@@ -37,6 +38,7 @@
  * | 18| Type "modbus status" → valid/CRC/mismatch counters            | FD-specific command compiled in        |
  * | 19| Type "frobnicate" → "[ERR] unknown command 'frobnicate'. Type 'help'." | Unknown-command path |
  */
+/* clang-format on */
 
 #include "stm32f469xx.h"
 
@@ -60,7 +62,7 @@
 /* ========================================================================= */
 
 #define LED_GREEN_PIN (1UL << 13U) /* PG13 — active high */
-#define LED_RED_PIN   (1UL << 5U)  /* PD5  — active high */
+#define LED_RED_PIN (1UL << 5U)    /* PD5  — active high */
 
 static void led_green_on(void)
 {
@@ -80,9 +82,9 @@ static void led_green_off(void)
 /* ========================================================================= */
 
 #define CONSOLE_TASK_STACK_WORDS (512U)
-#define CONSOLE_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define CONSOLE_TASK_PRIORITY (tskIDLE_PRIORITY + 1U)
 
-static StackType_t  s_console_stack[CONSOLE_TASK_STACK_WORDS];
+static StackType_t s_console_stack[CONSOLE_TASK_STACK_WORDS];
 static StaticTask_t s_console_tcb;
 
 /* ========================================================================= */
@@ -121,8 +123,8 @@ int main(void)
     /* 7. ConfigService with factory defaults; apply any persisted blob. */
     (void) config_service_init(config_store);
     {
-        config_blob_t      blob;
-        uint32_t           len    = 0U;
+        config_blob_t blob;
+        uint32_t len = 0U;
         config_store_err_t cs_err = config_store->load(&blob, &len, sizeof(blob));
         if (cs_err == CONFIG_STORE_OK)
         {
@@ -134,8 +136,8 @@ int main(void)
     (void) sensor_service_init();
 
     /* 9. ConsoleService — wires all injected interfaces. */
-    (void) console_service_init(debug_uart, sensor_service, config_provider,
-                                config_manager, health_snapshot);
+    (void) console_service_init(debug_uart, sensor_service, config_provider, config_manager,
+                                health_snapshot);
 
     /* 10. Pre-scheduler diagnostic so the operator knows the boot completed. */
     LOG_INFO(IT_TAG, "ConsoleService integration test — type 'help' for commands");
@@ -153,7 +155,9 @@ int main(void)
 
     /* Should never reach here — indicate error via red LED. */
     led_red_on();
-    for (;;) {}
+    for (;;)
+    {
+    }
 
     return 0;
 }

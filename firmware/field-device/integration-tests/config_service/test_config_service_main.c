@@ -1,3 +1,4 @@
+/* clang-format off */
 /**
  * @file test_config_service_main.c
  * @brief ConfigService integration test — STM32F469I-DISCO.
@@ -37,6 +38,7 @@
  * | 13| Green LED (LD1, PG13) lit continuously                          | No assertion failure                   |
  * | 14| Red LED (LD4, PD4) remains off                                  | No error condition triggered           |
  */
+/* clang-format on */
 
 #include "stm32f469xx.h"
 
@@ -57,21 +59,30 @@
 /* Board-specific LED macros (F469-DISCO)                                   */
 /* ========================================================================= */
 
-#define LED_GREEN_PIN   (1UL << 13U)   /* PG13 */
-#define LED_RED_PIN     (1UL << 4U)    /* PD4  */
+#define LED_GREEN_PIN (1UL << 13U) /* PG13 */
+#define LED_RED_PIN (1UL << 4U)    /* PD4  */
 
-static void led_green_on(void)  { GPIOG->BSRR = LED_GREEN_PIN; }
-static void led_red_on(void)    { GPIOD->BSRR = LED_RED_PIN;   }
-static void led_green_off(void) { GPIOG->BSRR = (LED_GREEN_PIN << 16U); }
+static void led_green_on(void)
+{
+    GPIOG->BSRR = LED_GREEN_PIN;
+}
+static void led_red_on(void)
+{
+    GPIOD->BSRR = LED_RED_PIN;
+}
+static void led_green_off(void)
+{
+    GPIOG->BSRR = (LED_GREEN_PIN << 16U);
+}
 
 /* ========================================================================= */
 /* Test task configuration                                                   */
 /* ========================================================================= */
 
-#define TEST_STACK_WORDS  1024U
-#define TEST_TASK_TAG     "IT"
+#define TEST_STACK_WORDS 1024U
+#define TEST_TASK_TAG "IT"
 
-static StackType_t  s_test_stack[TEST_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_test_stack[TEST_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_test_tcb;
 
 /* ========================================================================= */
@@ -126,8 +137,7 @@ static void test_task(void *arg)
     /* Step 2: Valid set_param                                             */
     /* ------------------------------------------------------------------ */
     uint32_t new_interval = 3000U;
-    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL,
-                                                         &new_interval);
+    config_service_err_t err = config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &new_interval);
     if (err != CONFIG_SERVICE_OK)
     {
         fail("set_param(3000) failed");
@@ -229,7 +239,7 @@ int main(void)
     /* Attempt to load stored config (may return ERR_NO_VALID_SLOT on blank flash). */
     {
         config_blob_t blob;
-        uint32_t      len   = 0U;
+        uint32_t len = 0U;
         config_store_err_t cs_err = config_store->load(&blob, &len, sizeof(blob));
         if (cs_err == CONFIG_STORE_OK)
         {
@@ -237,12 +247,13 @@ int main(void)
         }
     }
 
-    (void) xTaskCreateStatic(test_task, "IT", TEST_STACK_WORDS,
-                             NULL, tskIDLE_PRIORITY + 1U,
+    (void) xTaskCreateStatic(test_task, "IT", TEST_STACK_WORDS, NULL, tskIDLE_PRIORITY + 1U,
                              s_test_stack, &s_test_tcb);
 
     vTaskStartScheduler();
 
-    for (;;) {}
+    for (;;)
+    {
+    }
     return 0;
 }
