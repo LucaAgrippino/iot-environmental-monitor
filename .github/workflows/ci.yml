@@ -80,7 +80,8 @@ jobs:
       - name: Run cppcheck
         run: |
           sources=$(find firmware \
-            \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \) \
+            \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \
+               -o -path '*/integration-tests/*' \) \
             \( -name '*.c' -o -name '*.h' \) 2>/dev/null || true)
           if [ -z "$sources" ]; then
             echo "cppcheck: no project source files found — skipping"
@@ -106,7 +107,8 @@ jobs:
       - name: Check formatting
         run: |
           files=$(find firmware \
-            \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \) \
+            \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \
+               -o -path '*/integration-tests/*' \) \
             \( -name '*.c' -o -name '*.h' \) 2>/dev/null || true)
           if [ -z "$files" ]; then
             echo "clang-format: no project source files found — skipping"
