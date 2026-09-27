@@ -114,6 +114,27 @@ static struct cfl_inst g_pool[CFL_MAX_INSTANCES];
 static uint8_t g_count;
 
 /* ====================================================================== */
+/* IHealthReport default (CFL-O5)                                         */
+/* ====================================================================== */
+
+/**
+ * @brief Weak no-op default for the IHealthReport push.
+ *
+ * The Gateway has no HealthMonitor yet, so without a definition the image
+ * would not link once this module is compiled into it. The weak binding lets
+ * a real implementation — or a unit test's spy, or a bring-up harness's stub —
+ * override it with an ordinary strong definition, exactly as
+ * panic_symbols.c does for its generated tables. Remove this default when the
+ * GW HealthMonitor lands (CFL-O5).
+ */
+__attribute__((weak)) void health_report_push_buffer_event(health_monitor_handle_t handle,
+                                                           cfl_health_event_t event)
+{
+    (void) handle;
+    (void) event;
+}
+
+/* ====================================================================== */
 /* Little-endian serialisation                                            */
 /* ====================================================================== */
 

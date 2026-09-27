@@ -583,7 +583,7 @@ area untouched.
 | CFL-O2 | Boot scan latency — if > 100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer. | **Open** | Measure with TC-HW-CFL-002 at integration. |
 | CFL-O3 | Pack records (current) vs one-per-sector. | **Resolved** | Pack records to maximise capacity and minimise erase frequency. Revisit only if CFL-O1 forces redesign. |
 | CFL-O4 | **Metadata-zone wear (found during implementation).** The A/B rotation erases one of only two sectors on every head-sector advance. At the §7 worst case (1 440 messages/day, ~2 KB each, two records per sector) that is ~720 advances/day, ~131 000 erases per slot per year — past the 100 000-cycle rating inside a year, against ~49 years for a data sector. It only bites under sustained cloud outage, since an idle ring writes no metadata. Mitigation without a format change: treat each metadata sector as log-structured, appending a fresh 16-byte slot into the next free position and erasing only when the sector fills, which divides the erase count by 256. | **Open** | Decide before StoreAndForward drives CFL in anger; prefer the log-structured slot. |
-| CFL-O5 | **IHealthReport is a placeholder.** The Gateway has no HealthMonitor, so `health_monitor_handle_t`, `cfl_health_event_t` and `health_report_push_buffer_event()` are guarded declarations in `circular_flash_log.h`, following the convention in `cloud_publisher.h`. The GW firmware cannot link until a real implementation or a deliberate stub exists. | **Open** | Replace with the real interface at GW HealthMonitor LLD; reconcile the event enum with `health_event_t`. |
+| CFL-O5 | **IHealthReport is a placeholder.** The Gateway has no HealthMonitor, so `health_monitor_handle_t`, `cfl_health_event_t` and `health_report_push_buffer_event()` are guarded declarations in `circular_flash_log.h`, following the convention in `cloud_publisher.h`. So that the GW image still links, the push has a **weak no-op default** in `circular_flash_log.c` (CFL-D12) — which means a missing HealthMonitor degrades to silence rather than a link error, so the override must not be forgotten. | **Open** | Replace with the real interface at GW HealthMonitor LLD; remove the weak default; reconcile the event enum with `health_event_t`. |
 | CFL-O6 | **Consumed records inside the head sector are replayed after a reset.** Only `head_sector` is persisted (CFL-D5), not `head_offset`, so a reboot rediscovers records already consumed within that sector. Acceptable under MQTT QoS 1 at-least-once delivery, but it is a duplicate-delivery window that StoreAndForward's own design should acknowledge. Persisting `head_offset` would fix it at the cost of a metadata write per consume — which CFL-O4 argues against. | **Open** | Confirm acceptable at StoreAndForward LLD, or resolve together with CFL-O4. |
 | CFL-O7 | **Shared driver mutex (QSPID-O1) is still absent.** `ConfigStore`, `CircularFlashLog` and `FirmwareStore` will all reach `QspiFlashDriver` from different tasks. QSPID-O1 requires a cross-cutting `qspi_flash_mutex` in `task-breakdown.md` §7, acquired by all three before any driver call. CircularFlashLog is the first of the three to land, so nothing is broken yet, but the second consumer makes it a live defect. | **Open** | HLD escalation per QSPID-O1, before the second QSPI consumer is implemented. |
 | CFL-O8 | **QSPID-O4 decision is now due.** The driver's WIP poll spins for the whole erase — measured 81 ms — blocking the calling task and everything at or below its priority. CircularFlashLog is the consumer QSPID-O4 named: its erases land during cloud outages, exactly when alarms are buffering against the REQ-NF-113 500 ms budget (81 ms ≈ 16%). | **Open** | Decide spin vs `vTaskDelay(1)` vs a low-priority erase task, per QSPID-O4. |
@@ -605,6 +605,7 @@ area untouched.
 | CFL-D9 | A sector whose tail region is not pristine is retired, not reused | NOR programming only clears bits, so writing a new record over the partially programmed remains of an interrupted one stores the bitwise AND of the two — a record that fails CRC on every read and halts the scan at that offset permanently. Detected at boot by scanning for non-0xFF bytes, and on an in-session write failure by retiring the remainder directly. Costs at most the tail of one sector. |
 | CFL-D10 | The persistent head pointer is rewritten only when `head_sector` changes | The slot stores a sector index, so a write per consumed record would add no information while erasing a metadata sector each time. See CFL-O4. |
 | CFL-D11 | On an empty ring the head travels with the tail | An empty ring parks the head on the tail. If an append then crosses into a new sector the head has to move too, or the first record written after the move would be sought at a stale head position holding nothing. |
+| CFL-D12 | IHealthReport push has a weak no-op default | The Gateway has no HealthMonitor, and this module is compiled into the GW image, so without a definition the image would not link at all. A weak binding lets a real implementation, a unit-test spy or a bring-up harness stub override it with an ordinary strong definition — the idiom `panic_symbols.c` already uses for its generated tables. Tracked for removal under CFL-O5. |
 
 ---
 
@@ -624,6 +625,12 @@ tests/gateway/middleware/circular_flash_log/
 
 No new file was added to `tests/support/` or `tests/mocks/`: the vtable
 injection of CFL-D7 means the fake flash lives in the test TU itself.
+
+`firmware/gateway/.cproject` adds `circular_flash_log` to the
+`integration-tests` exclusion filter. Every bring-up harness defines its
+own `main()`, so the CubeIDE image compiles exactly one of them — the
+Gateway has no production `main()` yet, and `cloud_publisher` remains the
+active harness.
 
 ---
 
@@ -645,7 +652,7 @@ injection of CFL-D7 means the fake flash lives in the test TU itself.
 | H12 | P1–P10 compliance reviewed | PASS — §11 |
 | H13 | Thread safety documented | PASS — §8, single-task access; shared-driver gap tracked as CFL-O7 |
 | H14 | `reset_for_test` hook specified | PASS — §6.6 |
-| H15 | Decisions log complete | PASS — 11 decisions |
+| H15 | Decisions log complete | PASS — 12 decisions |
 | H16 | Hardware bring-up test specified | PASS — §12.1, 10 cases; not yet run |
 
 **Verdict: PASS — implemented for Gateway; hardware validation outstanding.**
