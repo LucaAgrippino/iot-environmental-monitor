@@ -29,10 +29,24 @@ typedef enum
     LED_ERR_INVALID_ID = 1,
     LED_ERR_NOT_INIT   = 2,
     LED_ERR_NULL_ARG   = 3,
+    LED_ERR_INVALID_PARAM = 4,
 } led_err_t;
 
 led_err_t led_on(led_id_t id);
 led_err_t led_off(led_id_t id);
 led_err_t led_toggle(led_id_t id);
+
+/* Gateway pattern API (firmware/gateway/drivers/led/led_driver.h). */
+typedef enum
+{
+    LED_PATTERN_OFF          = 0,
+    LED_PATTERN_ON           = 1,
+    LED_PATTERN_BLINK_FAST   = 2,
+    LED_PATTERN_BLINK_MEDIUM = 3,
+    LED_PATTERN_BLINK_SLOW   = 4,
+    LED_PATTERN_COUNT
+} led_pattern_t;
+
+led_err_t led_set(led_id_t id, led_pattern_t pattern);
 
 #endif /* LED_DRIVER_STUB_H */
