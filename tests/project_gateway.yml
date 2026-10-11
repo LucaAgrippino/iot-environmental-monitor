@@ -43,6 +43,7 @@
     - gateway/drivers/wifi_driver/**
     - gateway/middleware/time_provider/**
     - gateway/application/health_monitor/**
+    - gateway/middleware/config_store/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -51,6 +52,7 @@
     - ../firmware/gateway/middleware/logger/**
     - ../firmware/gateway/middleware/time_provider/**
     - ../firmware/gateway/application/health_monitor/**
+    - ../firmware/gateway/middleware/config_store/**
     # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
     # reaches wifi_task.h and wifi_driver.h. Their directories must be include
     # roots; nothing links them because the test never includes them directly.
@@ -69,6 +71,10 @@
     - ../firmware/gateway/drivers/**
   :support:
     - support
+  # config_store.h includes "health_monitor/health_monitor.h", so the parent of the
+  # health_monitor directory has to be an include root.
+  :include:
+    - ../firmware/gateway/application
 
 :defines:
   :common: &common_defines []
@@ -89,6 +95,14 @@
     - STM32L475xx
     - TEST
   :test_health_monitor_gateway:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_config_store:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_config_store_crc:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
