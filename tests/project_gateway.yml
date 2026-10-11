@@ -38,6 +38,7 @@
 :paths:
   :test:
     - gateway/drivers/gpio/**
+    - gateway/drivers/led/**
     - gateway/middleware/logger/**
     - gateway/drivers/wifi_driver/**
     - gateway/middleware/time_provider/**
@@ -45,6 +46,7 @@
     - mocks/**
     - ../firmware/shared/
     - ../firmware/gateway/drivers/gpio/**
+    - ../firmware/gateway/drivers/led/**
     - ../firmware/gateway/middleware/logger/**
     - ../firmware/gateway/middleware/time_provider/**
     # The whole Gateway drivers tree is added (not just rtc/ and debug_uart/)
@@ -78,6 +80,10 @@
     - TEST
   :test_wifi_driver:
     - STM32L475xx
+    - TEST
+  :test_led_driver_gateway:
+    - STM32L475xx
+    - BOARD_GATEWAY
     - TEST
   :test_time_provider:
     - STM32L475xx
