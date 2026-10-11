@@ -155,6 +155,13 @@ extern uint32_t   g_mock_xSemaphoreGive_call_count;
 
 /* uxTaskGetStackHighWaterMark mock */
 extern UBaseType_t g_mock_uxTaskGetStackHighWaterMark_return;
+/* Optional per-call values: while the call count is below _seq_len the mock
+ * returns _seq[call_count] instead of _return, so a test can give each task a
+ * different watermark. Reset by mock_freertos_reset(). */
+#define MOCK_WATERMARK_SEQ_MAX (8U)
+extern UBaseType_t g_mock_uxTaskGetStackHighWaterMark_seq[MOCK_WATERMARK_SEQ_MAX];
+extern uint32_t    g_mock_uxTaskGetStackHighWaterMark_seq_len;
+extern uint32_t    g_mock_uxTaskGetStackHighWaterMark_call_count;
 
 /* xTimerCreateStatic / xTimerStart / xTimerStop mock */
 extern TimerHandle_t g_mock_xTimerCreateStatic_return;

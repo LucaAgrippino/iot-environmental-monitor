@@ -42,6 +42,7 @@
     - gateway/middleware/logger/**
     - gateway/drivers/wifi_driver/**
     - gateway/middleware/time_provider/**
+    - gateway/application/health_monitor/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -49,6 +50,12 @@
     - ../firmware/gateway/drivers/led/**
     - ../firmware/gateway/middleware/logger/**
     - ../firmware/gateway/middleware/time_provider/**
+    - ../firmware/gateway/application/health_monitor/**
+    # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
+    # reaches wifi_task.h and wifi_driver.h. Their directories must be include
+    # roots; nothing links them because the test never includes them directly.
+    - ../firmware/gateway/middleware/mqtt_client/**
+    - ../firmware/gateway/middleware/wifi_task/**
     # The whole Gateway drivers tree is added (not just rtc/ and debug_uart/)
     # so that "../firmware/gateway/drivers" itself becomes an include root —
     # logger.c #includes "rtc/rtc.h" and "debug_uart/debug_uart.h", which
@@ -80,6 +87,10 @@
     - TEST
   :test_wifi_driver:
     - STM32L475xx
+    - TEST
+  :test_health_monitor_gateway:
+    - STM32L475xx
+    - BOARD_GATEWAY
     - TEST
   :test_led_driver_gateway:
     - STM32L475xx

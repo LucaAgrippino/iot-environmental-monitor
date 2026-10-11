@@ -14,6 +14,7 @@
   :test:
     - field-device/**
     - gateway/application/**
+    - -:gateway/application/health_monitor/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
@@ -34,6 +35,7 @@
     - ../firmware/gateway/middleware/mqtt_client/**
     - ../firmware/gateway/middleware/wifi_task/**
     - ../firmware/gateway/application/**
+    - -:../firmware/gateway/application/health_monitor/**
     - ../vendor/coreMQTT/source/**
     - ../vendor/mbedtls/include/**
   :support:
