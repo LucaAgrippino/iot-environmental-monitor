@@ -116,6 +116,16 @@ if [[ -f "$VERSION_SCRIPT" && -f "$VERSION_IN" ]]; then
     python3 "$VERSION_SCRIPT" "$VERSION_IN" "$VERSION_OUT" 2>/dev/null || true
 fi
 
+# Gateway modules whose filename collides with a Field Device module run under
+# their own Ceedling project (see tests/project_gateway.yml). Mirror what
+# test-module.ps1 does: use it when it declares a :test_<module>: block.
+ALT_PROJECT="${REPO_ROOT}/tests/project_gateway.yml"
+if [[ "$BOARD" == "gateway" && -f "$ALT_PROJECT" ]] && \
+   grep -qF ":test_${MOD_NAME}:" "$ALT_PROJECT"; then
+    export CEEDLING_MAIN_PROJECT_FILE="project_gateway.yml"
+    info "Using tests/project_gateway.yml"
+fi
+
 cd "${REPO_ROOT}/tests"
 if ceedling "test:test_${MOD_NAME}" 2>&1; then
     CEEDLING_OK=true
