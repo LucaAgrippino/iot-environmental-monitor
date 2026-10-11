@@ -16,6 +16,7 @@
     - gateway/application/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
+    - gateway/middleware/circular_flash_log/**
     - gateway/middleware/mqtt_client/**
     - gateway/middleware/wifi_task/**
   :source:
@@ -27,6 +28,7 @@
     - ../firmware/gateway/drivers/**
     - -:../firmware/gateway/drivers/gpio/**
     - -:../firmware/**/Debug/**
+    - ../firmware/gateway/middleware/circular_flash_log/**
     - ../firmware/gateway/middleware/mqtt_client/**
     - ../firmware/gateway/middleware/wifi_task/**
     - ../firmware/gateway/application/**
@@ -134,6 +136,9 @@
     - STM32L475xx
     - TEST
   :test_exti_driver:
+    - STM32L475xx
+    - TEST
+  :test_circular_flash_log:
     - STM32L475xx
     - TEST
   :test_mqtt_client:
