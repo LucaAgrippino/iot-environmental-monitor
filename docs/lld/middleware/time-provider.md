@@ -6,9 +6,9 @@
 **Consumes:** `IRtc` (RtcDriver), `IHealthReport`, `ILogger`  
 **SRS traces:** REQ-TS-040, REQ-NF-210, REQ-NF-211, REQ-NF-212  
 **HLD ref:** `components.md` §Middleware — TimeProvider; `hld.md` §5.2, §5.5  
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** May 2026  
-**Status:** Released
+**Status:** Released — FD implemented; GW implemented and hardware-validated (2026-10-11)
 
 **HLD anchor:** TimeProvider in `components.md` (FD + GW middleware layer)
 
@@ -400,10 +400,64 @@ the primary validation path.
 
 ---
 
-## 10. Open items
+## 10. Gateway implementation notes
+
+The Gateway build lives in `firmware/gateway/middleware/time_provider/`
+(`time_provider.{h,c}`, `time_provider_config.h`). The two boards are separate
+CubeIDE projects, so each keeps its own copy with the same public API. The
+points below are where the Gateway code settles something this companion left
+open or goes beyond it.
+
+| # | Topic | Gateway behaviour |
+|---|---|---|
+| 1 | Epoch range | `time_provider_set_time()` rejects an epoch outside 2000-01-01..2099-12-31 (`TIME_PROVIDER_EPOCH_MIN/MAX`) with `TIME_PROVIDER_ERR_RTC_FAIL`, before taking the mutex or calling the driver. `rtc_set_time()` writes `year - 2000` without a range check, so an out-of-range epoch would otherwise reach the hardware as a wrapped year. |
+| 2 | `time_provider_get()` | Also returns `TIME_PROVIDER_ERR_RTC_FAIL` when the RTC read fails while SYNCHRONISED (the §3 prototype lists only OK and NULL_ARG). |
+| 3 | Backup-register writes | A failed `write_backup` is logged at WARN and does not fail the call: the clock is set, so the provider is synchronised for this run and only persistence across a warm reset is lost. |
+| 4 | IHealthReport | The Gateway has no HealthMonitor, so `time_provider.h` carries a placeholder `ihealth_report_t` / `health_event_t` / `health_monitor_err_t` under the real header's guard (`IHEALTH_REPORT_H`). Enumerator values and the first two vtable slots (`init`, `push_event`) match the Field Device header. Remove it when the GW HealthMonitor lands (TP-O4). |
+| 5 | Null health handle | `time_provider_init(NULL)` is allowed; no events are pushed. |
+| 6 | Host test project | The Gateway and Field Device modules share the basename `time_provider`, so the Gateway tests run under `tests/project_gateway.yml` (`CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml ceedling test:test_time_provider`). `scripts/test-module.sh` selects that project automatically. |
+
+### 10.1 Gateway test results
+
+`tests/gateway/middleware/time_provider/test_time_provider.c`: 32 tests, 31
+pass, 1 deferred, 0 fail (2026-10-11). TC-TP-001..010 follow the §7 table; 011
+onward cover the sanity-delta boundary and backward step, the first-sync bypass,
+leap-day and century conversions, the epoch range, RTC and mutex failure paths,
+warm-reset persistence, the singleton vtable and mutex balance. The deferred
+case (concurrent access) is covered on hardware by TC-HW-TP-008.
+
+### 10.2 Hardware bring-up
+
+Harness: `firmware/gateway/integration-tests/time_provider/main_test_time_provider.c`.
+Two phases around a warm reset, because BKP0R survives a reset but not a power
+cycle. It also stands in for the RtcDriver bring-up on the Gateway: every RTC
+call TimeProvider makes runs on silicon.
+
+| ID | What to observe | Verifies |
+|---|---|---|
+| TC-HW-TP-001 | Boots UNSYNCHRONISED; uptime seconds advance | Uptime fallback (§4) |
+| TC-HW-TP-002 | `set_time()` synchronises, one SYNC_ACQUIRED, epoch advances at 1 Hz | Write path and clock rate |
+| TC-HW-TP-003 | `rtc_get_time()` calendar matches the epoch set | Conversion on silicon |
+| TC-HW-TP-004 | A step beyond the sanity delta is rejected, nothing changes | Defence-in-depth check |
+| TC-HW-TP-005 | Epoch 0 and 2100-01-01 rejected | Range guard (note 1) |
+| TC-HW-TP-006 | 2024-02-29 23:59:58 rolls to 2024-03-01 00:00:01 | Leap-day handling in hardware and in `get()` |
+| TC-HW-TP-007 | `mark_unsynchronised()`: SYNC_LOST, BKP0R cleared, uptime fallback | §5, §6 |
+| TC-HW-TP-008 | 1 000 reads and 1 000 writes from two tasks: no errors, no out-of-window epoch, no deadlock | The mutex serialises the RtcDriver, which is not thread-safe |
+| TC-HW-TP-009 | After RESET the provider boots SYNCHRONISED with no `set_time()` and no event | Persistence via BKP0R (§5) |
+| TC-HW-TP-010 | The RTC kept running through the reset | Warm reset does not disturb the calendar |
+| TC-HW-TP-011 | `mark_unsynchronised()` clears BKP0R | Next run starts at Phase A |
+
+**Status: run on hardware 2026-10-11 — all 11 cases PASS** (B-L475E-IOT01A, the
+phase change made by an OpenOCD reset). The stress test completed 1 000 reads and
+1 000 writes in 400 ms with zero errors.
+
+---
+
+## 11. Open items
 
 | ID | Item | Resolution path | Status |
 |--------|------|-----------------|--------|
 | TP-O1  | `TIME_PROVIDER_SYNC_INTERVAL_S` — [TBD], driven by REQ-NF-210 / REQ-NF-211. Determined at integration testing via RTC drift measurement. | Determine via RTC drift measurement at integration; set in time_provider_config.h | Open |
 | TP-O2  | Backup register index (`TIME_PROVIDER_BKUP_REG`). Must be allocated from a project-wide backup-register map to avoid collision with reset-cause and watchdog flags. | Closed by LLD-D16: index 0 (BKP0R) allocated; see `lld.md` §6 backup-register allocation table. Magic changed to `0xA5A55A5AUL` (asymmetric, distinguishes from other users). | Closed |
 | TP-O3  | `TIME_PROVIDER_SANITY_DELTA_S` — NTP delta sanity threshold. Decided in TimeService LLD companion (GW). TimeProvider needs the value to compile `time_provider_config.h`. | Confirm threshold value at TimeService LLD companion (GW) | Open |
+| TP-O4  | GW `IHealthReport` is a placeholder in `time_provider.h` (§10 note 4). | Replace with the real header when the GW HealthMonitor lands. | Open |
