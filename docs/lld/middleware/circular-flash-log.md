@@ -4,7 +4,7 @@
 **Version:** 0.3 (Pass H complete — Gateway implemented)
 **Board:** Gateway (B-L475E-IOT01A) only
 **Layer:** Middleware
-**Status:** Pass H complete — GW v1.0 implemented (2026-09-27), hardware validation pending
+**Status:** Pass H complete — GW v1.0 implemented (2026-09-27), hardware-validated (2026-10-11)
 **Date:** May 2026 (Pass H July 2026; implementation reconciliation September 2026)
 
 **HLD anchor:** CircularFlashLog in `components.md` (GW middleware layer)
@@ -391,8 +391,9 @@ Slack left at the end of a full sector does not end the scan, because
 the following sector still begins with a valid record.
 
 Worst case: 254 sectors × 4 KB = 1 016 KB at QSPI speed (~25 MB/s)
-≈ 40 ms. Measured at integration by TC-HW-CFL-002; see CFL-O2 if this
-exceeds 100 ms.
+≈ 40 ms. Measured on hardware by TC-HW-CFL-002 and TC-HW-CFL-008 (5.6 ms
+blank, 20.9 ms with two records; see CFL-O2). The full-ring worst case has
+not been exercised.
 
 ### 6.5 IHealthReport events
 
@@ -568,7 +569,11 @@ harness runs **Phase A** when `cfl_create()` reports an empty ring, and
 | TC-HW-CFL-009 | The recovered oldest record is the expected one | Head pointer came from the metadata A/B slot, not a default of 0 |
 | TC-HW-CFL-010 | `cfl_drop_oldest()` reports the overflow; ring drains to empty | Overflow event and drain path on hardware |
 
-**Status: not yet run.** The harness is destructive on the real
+**Status: run on hardware 2026-10-11 — all 10 cases PASS** (B-L475E-IOT01A,
+Phase B entered by an OpenOCD reset). Measured: boot scan 5 633 µs on a
+blank partition and 20 922 µs over a populated ring; append 79 209 µs;
+append with sector erase 215 902 µs; consume with metadata write 26 µs.
+The harness is destructive on the real
 CircularFlashLog partition (Phase A erases the metadata zone and six
 data sectors) and leaves ConfigStore, CertStore and the OTA staging
 area untouched.
@@ -580,7 +585,7 @@ area untouched.
 | ID | Item | Status | Resolution |
 |---|---|---|---|
 | CFL-O1 | Max record size (4 078 B) must accommodate the largest caller payload. OTA download chunks (SD-06b) are the candidate upper bound; if chunks exceed 4 078 B the record format needs multi-sector spanning or caller-side splitting. | **Open** | Confirm at UpdateService LLD. |
-| CFL-O2 | Boot scan latency — if > 100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer. | **Open** | Measure with TC-HW-CFL-002 at integration. |
+| CFL-O2 | Boot scan latency — if > 100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer. | **Resolved** | Measured 2026-10-11: 5.6 ms blank, 20.9 ms with two records, both inside the 100 ms budget. A completely full 254-sector ring was not exercised; re-measure if StoreAndForward is expected to boot with a near-full ring. |
 | CFL-O3 | Pack records (current) vs one-per-sector. | **Resolved** | Pack records to maximise capacity and minimise erase frequency. Revisit only if CFL-O1 forces redesign. |
 | CFL-O4 | **Metadata-zone wear (found during implementation).** The A/B rotation erases one of only two sectors on every head-sector advance. At the §7 worst case (1 440 messages/day, ~2 KB each, two records per sector) that is ~720 advances/day, ~131 000 erases per slot per year — past the 100 000-cycle rating inside a year, against ~49 years for a data sector. It only bites under sustained cloud outage, since an idle ring writes no metadata. Mitigation without a format change: treat each metadata sector as log-structured, appending a fresh 16-byte slot into the next free position and erasing only when the sector fills, which divides the erase count by 256. | **Open** | Decide before StoreAndForward drives CFL in anger; prefer the log-structured slot. |
 | CFL-O5 | **IHealthReport is a placeholder.** The Gateway has no HealthMonitor, so `health_monitor_handle_t`, `cfl_health_event_t` and `health_report_push_buffer_event()` are guarded declarations in `circular_flash_log.h`, following the convention in `cloud_publisher.h`. So that the GW image still links, the push has a **weak no-op default** in `circular_flash_log.c` (CFL-D12) — which means a missing HealthMonitor degrades to silence rather than a link error, so the override must not be forgotten. | **Open** | Replace with the real interface at GW HealthMonitor LLD; remove the weak default; reconcile the event enum with `health_event_t`. |
@@ -646,13 +651,13 @@ active harness.
 | H6 | Flash partition documented with addresses | PASS — §2, including the offset-vs-mapped distinction |
 | H7 | Record format documented with field offsets and CRC | PASS — §3 |
 | H8 | Wear analysis documented | PASS — §7; data ring ~49 years, metadata zone raised as CFL-O4 |
-| H9 | Open items have resolution path | PASS — O3 resolved; O1, O2, O4–O8 deferred with a named owner step |
+| H9 | Open items have resolution path | PASS — O3 resolved; O1, O4–O8 deferred with a named owner step |
 | H10 | Unit-test plan covers happy + error + boundary cases | PASS — 20 test cases, all passing |
 | H11 | Test file path follows Gateway convention | PASS |
 | H12 | P1–P10 compliance reviewed | PASS — §11 |
 | H13 | Thread safety documented | PASS — §8, single-task access; shared-driver gap tracked as CFL-O7 |
 | H14 | `reset_for_test` hook specified | PASS — §6.6 |
 | H15 | Decisions log complete | PASS — 12 decisions |
-| H16 | Hardware bring-up test specified | PASS — §12.1, 10 cases; not yet run |
+| H16 | Hardware bring-up test specified | PASS — §12.1, 10 cases; all passed on hardware 2026-10-11 |
 
-**Verdict: PASS — implemented for Gateway; hardware validation outstanding.**
+**Verdict: PASS — implemented and hardware-validated for Gateway.**
