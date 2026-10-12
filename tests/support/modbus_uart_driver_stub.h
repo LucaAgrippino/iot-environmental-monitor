@@ -23,8 +23,10 @@
 typedef enum
 {
     MODBUS_UART_ERR_OK      = 0,
+    MODBUS_UART_OK          = 0, /* Gateway driver spelling (commit 62d5ea4). */
     MODBUS_UART_ERR_TIMEOUT = 1,
     MODBUS_UART_ERR_BUSY    = 2,
+    MODBUS_UART_ERR_INVALID_ARG = 3, /* Gateway driver only. */
 } modbus_uart_err_t;
 
 typedef enum
