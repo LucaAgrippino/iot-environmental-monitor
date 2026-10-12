@@ -4,7 +4,7 @@
 **Version:** 1.1
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
-**Status:** COMPLETE — FD v1.0 implemented (2026-06-10); Gateway implemented v1.1 (2026-10-12), host tests green, hardware bring-up pending (§7.2)
+**Status:** COMPLETE — FD v1.0 implemented (2026-06-10); Gateway implemented v1.1 (2026-10-12), host tests green, hardware-validated 2026-10-12 (§7.2)
 **Date:** June 2026
 
 **HLD anchor:** ModbusUartDriver in `components.md` (FD + GW driver layer)
@@ -472,7 +472,11 @@ Test files:
 | TC-HW-MBUART-009 | Invalid arguments rejected |
 | TC-HW-MBUART-010 | Re-entrant `transmit` returns BUSY |
 
-**Bench result:** not yet run.
+**Bench result (2026-10-12, B-L475E-IOT01A, D1–D0 jumper):** TC-HW-MBUART-001..010 all PASS.
+
+- 8-byte frame TX 8344 µs (ideal 8333); 100 bytes 104 169 µs against 104 167 µs ideal, so the baud rate is effectively exact and BRR = 8333 is confirmed.
+- PA15 (RTS_DE) is high during TX and low after TC, so the hardware DE window works. MBUART-O4 is narrowed: the pin drives correctly; reachability from a header still needs a look when a transceiver is fitted.
+- A genuine overrun (UART IRQ masked while looping back 3 bytes) gives RX_ERROR and no RX_DONE, and the next frame is clean.
 ---
 
 ## 8. Open items
