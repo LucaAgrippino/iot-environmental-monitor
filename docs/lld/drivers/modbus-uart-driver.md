@@ -1,10 +1,10 @@
 # ModbusUartDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/modbus-uart-driver.md`
-**Version:** 1.0
+**Version:** 1.1
 **Board scope:** Field Device (STM32F469) and Gateway (B-L475E-IOT01A)
 **Layer:** Driver
-**Status:** COMPLETE — v1.0 implemented, unit tests green (2026-06-10)
+**Status:** COMPLETE — FD v1.0 implemented (2026-06-10); Gateway implemented v1.1 (2026-10-12), host tests green, hardware-validated 2026-10-12 (§7.2)
 **Date:** June 2026
 
 **HLD anchor:** ModbusUartDriver in `components.md` (FD + GW driver layer)
@@ -71,9 +71,10 @@ The ISR callback requires the consuming task to exist before it can post a notif
  * Naming follows the cross-cutting convention in lld.md §3.2.
  */
 typedef enum {
-    MODBUS_UART_ERR_OK      = 0, /**< Operation succeeded. */
+    MODBUS_UART_OK          = 0, /**< Operation succeeded. */
     MODBUS_UART_ERR_TIMEOUT = 1, /**< TXE or TC flag did not assert within timeout. */
     MODBUS_UART_ERR_BUSY    = 2, /**< Transmit called while a TX is already in progress. */
+    MODBUS_UART_ERR_INVALID_ARG = 3, /**< NULL pointer, or length outside 1..256 (Gateway, MBUART-D10). */
 } modbus_uart_err_t;
 
 /**
@@ -116,7 +117,7 @@ typedef void (*modbus_uart_rx_cb_t)(modbus_uart_event_t event, void *context);
  *
  * Must be called once from main() before the FreeRTOS scheduler starts.
  *
- * @return MODBUS_UART_ERR_OK on success.
+ * @return MODBUS_UART_OK on success.
  * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
  */
 modbus_uart_err_t modbus_uart_init(void);
@@ -151,7 +152,7 @@ void modbus_uart_attach_rx(modbus_uart_rx_cb_t callback, void *context);
  *
  * @param frame  Pointer to frame bytes (must not be NULL).
  * @param len    Number of bytes to transmit (1..256).
- * @return MODBUS_UART_ERR_OK on success; MODBUS_UART_ERR_TIMEOUT if
+ * @return MODBUS_UART_OK on success; MODBUS_UART_ERR_TIMEOUT if
  *         TXE or TC does not assert within the timeout; MODBUS_UART_ERR_BUSY
  *         if a prior transmit is still in progress (should not occur in
  *         normal single-task operation).
@@ -169,7 +170,7 @@ modbus_uart_err_t modbus_uart_transmit(const uint8_t *frame, uint16_t len);
  *
  * @param[out] buf      Destination buffer (must be at least 256 bytes).
  * @param[out] len      Number of bytes in the received frame.
- * @return MODBUS_UART_ERR_OK on success.
+ * @return MODBUS_UART_OK on success.
  */
 modbus_uart_err_t modbus_uart_get_rx_frame(uint8_t *buf, uint16_t *len);
 
@@ -275,7 +276,7 @@ modbus_uart_transmit:
   poll TC until set       → MODBUS_UART_ERR_TIMEOUT if expired
   (hardware DE de-asserts automatically after TC)
   set s_tx_busy = false
-  return MODBUS_UART_ERR_OK
+  return MODBUS_UART_OK
 ```
 
 The TC wait at the end is mandatory for RS-485 half-duplex. TXE indicates the shift register has accepted the byte from the data register, not that it has been clocked out onto the wire. Only TC guarantees the last bit is on the bus and DE can safely de-assert. Hardware RS-485 mode handles the de-assertion automatically on TC, but the function must still wait for TC before returning so the caller (ModbusMaster/ModbusSlave) does not begin listening before the bus is released.
@@ -289,12 +290,12 @@ TX polling uses a generous timeout: at 9600 baud, transmitting 256 bytes takes 2
 ### 3.6 Principles applied
 
 - **P1 (Strict directional layering).** Depends only on CMSIS UART/DMA peripheral headers; no RTOS task dependencies in the ISR path.
-- **P2 (Dependency Inversion).** Exposes `imodbus_uart_t` vtable; ModbusSlave (FD) and ModbusMaster (GW) depend on the interface.
+- **P2 (Dependency Inversion).** Consumers (ModbusSlave on FD, ModbusMaster on GW) depend on the `modbus_uart.h` public API (free functions, singleton per MBUART-D8). The implementation can change without affecting consumers.
 - **P5 (Bounded resources, no dynamic allocation post-init).** Static RX/TX buffers sized at compile time; one DMA descriptor; no heap.
 - **P6 (Responsibility traces to requirements).** IDLE-line RX and RS-485 DE control trace to REQ-MB-010/020 frame-exchange requirements.
 - **P8 (Total error propagation, no silent failures).** `modbus_uart_err_t` on all calls; framing errors set a sticky flag returned on the next receive.
 - **P9 (BARR-C coding standard).** Buffer sizes `uint16_t`; DMA count register `uint16_t`; no implicit widening.
-- **P10 (Naming conventions).** Prefix `modbus_uart_`; interface `IModbusUart` -> `imodbus_uart_t`; errors `MODBUS_UART_ERR_*`.
+- **P10 (Naming conventions).** Prefix `modbus_uart_`; errors `MODBUS_UART_ERR_*`; callback type `modbus_uart_rx_cb_t`.
 
 ### modbus_uart_init
 
@@ -405,6 +406,7 @@ the next master request.
 | Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
 |---|---|---|---|---|---|
 | `MODBUS_UART_ERR_TIMEOUT` | TXE or TC flag did not assert within `MODBUS_UART_TX_TIMEOUT_MS` | Return error; `s_tx_busy` cleared | Non-OK return | No retry by driver — ModbusMaster retries up to 3 times per REQ-MB-060; ModbusSlave logs and awaits the next request | Caller logs at WARN via ILogger; ModbusMaster increments `stats.tx_errors` |
+| `MODBUS_UART_ERR_INVALID_ARG` | NULL `frame`/`buf`/`len`, or `len` outside 1..256 (Gateway) | Return error immediately; no hardware interaction, `s_tx_busy` untouched | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
 | `MODBUS_UART_ERR_BUSY` | `modbus_uart_transmit()` called while a previous TX is still in progress (`s_tx_busy == true`) | Return error immediately; no hardware interaction | Non-OK return | No retry — programming error; caller must serialise access (ModbusMaster holds the bus token) | Caller logs at ERROR via ILogger |
 
 
@@ -426,12 +428,55 @@ Host-platform tests (Unity framework). The USART peripheral is mocked via `#defi
 | T-MBUART-10 | `modbus_uart_get_rx_frame` after RX_DONE | Correct bytes returned; length matches |
 | T-MBUART-11 | `modbus_uart_transmit` BUSY guard | Second call while s_tx_busy=true returns MODBUS_UART_ERR_BUSY |
 
+Gateway-only additions (v1.1; T-MBUART-01 also asserts BRR = 8333 and CR3.DEM, and T-MBUART-11 re-enters `modbus_uart_transmit()` from the injected tick source, so neither is deferred):
+
+| ID | Test case | Expected result |
+|---|---|---|
+| T-MBUART-12 | `init` pin routing | PA0, PA1, PA15: MODER = AF, AF8 in AFRL/AFRH |
+| T-MBUART-13 | `init` leaves other PA pins untouched | Neighbouring MODER/AFR/PUPDR bits unchanged; pulls cleared only on the three pins |
+| T-MBUART-14 | `attach_rx(NULL, …)` | Ignored: no RE/RXNEIE/IDLEIE, NVIC not enabled |
+| T-MBUART-15 | TC wait uses `MODBUS_UART_TC_TIMEOUT_MS` | TC timeout takes ≥ 10 ms of injected time, not 5 ms |
+| T-MBUART-16 | `transmit` bad arguments | NULL frame, len 0, len 257 → INVALID_ARG |
+| T-MBUART-17 | `transmit` 256 bytes | OK; last byte in TDR |
+| T-MBUART-18 | BUSY cleared after a timeout | Next transmit succeeds |
+| T-MBUART-19 | ISR FE and NE | Each → RX_ERROR; FECF / NECF written |
+| T-MBUART-20 | Error with coincident IDLE | One RX_ERROR, no RX_DONE; IDLECF and error CF written |
+| T-MBUART-21 | Exactly 256 bytes then IDLE | RX_DONE, 256 bytes returned |
+| T-MBUART-22 | Overflow does not poison the next frame | RX_ERROR, then a 1-byte frame gives RX_DONE |
+| T-MBUART-23 | IDLE with empty buffer | No callback; IDLECF written |
+| T-MBUART-24 | ISR with no callback attached | No crash, no callback |
+| T-MBUART-25 | `get_rx_frame` NULL arguments | INVALID_ARG |
+
 Test files:
 - `tests/field-device/drivers/modbus_uart_driver/test_modbus_uart_driver_fd.c` (compiled with `-DSTM32F469xx`)
-- `tests/gateway/drivers/modbus_uart_driver/test_modbus_uart_driver_gw.c` (compiled with `-DSTM32L475xx`)
+- `tests/gateway/drivers/modbus_uart_driver/test_modbus_uart_driver.c` (compiled with `-DSTM32L475xx`, Gateway Ceedling project)
 
-**Results (2026-06-10):** Both suites — 9 PASSED, 2 IGNORED (T-MBUART-01 BRR deferred MBUART-O2; T-MBUART-11 concurrent BUSY deferred to integration test), 0 FAILED.
+**Results (2026-06-10, FD):** 9 PASSED, 2 IGNORED (T-MBUART-01 BRR deferred MBUART-O2; T-MBUART-11 concurrent BUSY deferred to integration test), 0 FAILED.
 
+**Results (2026-10-12, Gateway):** 25 PASSED, 0 IGNORED, 0 FAILED.
+
+### 7.2 Gateway hardware bring-up
+
+`firmware/gateway/integration-tests/modbus_uart_driver/main_test_modbus_uart_driver.c`. No transceiver is needed: jumper Arduino D1 (PA0) to D0 (PA1) and the driver receives its own frames.
+
+| ID | Check |
+|---|---|
+| TC-HW-MBUART-001 | `init`: UE/TE, CR3.DEM, BRR = 8333 |
+| TC-HW-MBUART-002 | `attach_rx`: RE, RXNEIE, IDLEIE, NVIC enabled |
+| TC-HW-MBUART-003 | 8-byte frame loops back as one RX_DONE, bytes identical |
+| TC-HW-MBUART-004 | 100 bytes take 104.2 ms ± 2 % (baud-rate accuracy) |
+| TC-HW-MBUART-005 | PA15 (DE) high during TX, low after TC |
+| TC-HW-MBUART-006 | 256-byte frame is a valid frame |
+| TC-HW-MBUART-007 | Three back-to-back frames, three RX_DONE |
+| TC-HW-MBUART-008 | Real overrun gives RX_ERROR and no RX_DONE; next frame clean |
+| TC-HW-MBUART-009 | Invalid arguments rejected |
+| TC-HW-MBUART-010 | Re-entrant `transmit` returns BUSY |
+
+**Bench result (2026-10-12, B-L475E-IOT01A, D1–D0 jumper):** TC-HW-MBUART-001..010 all PASS.
+
+- 8-byte frame TX 8344 µs (ideal 8333); 100 bytes 104 169 µs against 104 167 µs ideal, so the baud rate is effectively exact and BRR = 8333 is confirmed.
+- PA15 (RTS_DE) is high during TX and low after TC, so the hardware DE window works. MBUART-O4 is narrowed: the pin drives correctly; reachability from a header still needs a look when a transceiver is fitted.
+- A genuine overrun (UART IRQ masked while looping back 3 bytes) gives RX_ERROR and no RX_DONE, and the next frame is clean.
 ---
 
 ## 8. Open items
@@ -441,6 +486,9 @@ Test files:
 | MBUART-O1 | ~~Identify UART peripheral per board~~ | Luca | **Resolved:** F469 uses USART6 (PG14 TX / PG9 RX on Arduino D1/D0, CN7); L475 uses UART4 (PA0 TX / PA1 RX on Arduino D1/D0). Both verified on Arduino-compatible headers, no conflict with on-board peripherals (LCD, SDRAM, QSPI, WiFi module, ST-LINK VCP). |
 | MBUART-O2 | BRR register value for 9600 bps. Depends on PCLK feeding the selected UART. Resolve when `clock-config.md` lands. | Luca | Resolve with DUART-O2, I2CD-O1/O2, SPID-O1 |
 | MBUART-O3 | ~~F469 IDLE flag clear sequence (SR read → DR read). Verify against RM0386 §30.8 that no byte is lost in the two-step clear.~~ | Luca | **Resolved:** Implementation follows the SR→DR two-step exactly. The window where a byte is silently discarded is < 1 µs at 9600 baud; risk accepted per §4.4. `MBUART_CLEAR_IDLE()` macro documented with a MBUART-O3 comment in the source. Disabling RXNEIE was not required. |
+| MBUART-O4 | Gateway RTS_DE pin. §4.3 left the DE pin to be confirmed at implementation. PA15 (AF8) is the only L475 pin carrying UART4_RTS_DE, so the Gateway driver routes it. PA15 resets as JTDI with a pull-up; the driver clears the pull. Bench check outstanding: PA15 is free and reachable on the board headers, and a transceiver's DE input can be wired to it. | Luca | TC-HW-MBUART-005 samples PA15 in software; scope it once a transceiver is fitted |
+| MBUART-O5 | RS-485 transceiver echo. If a transceiver's /RE is not tied to DE, every transmitted frame is echoed into RX and the master receives its own request as RX_DONE. The driver does not mask RX during TX. | Luca | Decide when a transceiver is fitted: tie /RE to DE (hardware), or discard RX while `tx_busy` (driver) |
+| MBUART-O6 | FD copy diverges from this companion: it never sets `CR3.DEM` and never routes the RTS pin, has no `INVALID_ARG`, and treats a received frame of exactly 256 bytes as an overflow. The Gateway driver follows the companion. | Luca | Reconcile the FD driver in its own pass |
 
 ---
 
@@ -456,3 +504,16 @@ Test files:
 | MBUART-D6 | Static 256-byte RX buffer in module state | REQ-NF-408 prohibits dynamic memory after init; 256 bytes is the maximum Modbus RTU ADU size; the buffer is always present, no allocation needed |
 | MBUART-D7 | `modbus_uart_get_rx_frame` copies to caller buffer | Decouples the internal buffer from the consumer; the consumer can process the frame at its own pace; the buffer is ready for the next frame immediately after copy |
 | MBUART-D8 | Singleton module (no handle) | One Modbus UART per board; consistent with all prior driver companions |
+| MBUART-D9 | Gateway ISR: error handling wins over a coincident IDLE; IDLE with an empty buffer is ignored; buffer overflow is a sticky flag reported at IDLE | A damaged frame must never be delivered as RX_DONE. IDLE straight after an error reset would otherwise yield a zero-length RX_DONE. A flag (not `rx_len >= 256`) keeps a legal 256-byte ADU valid |
+| MBUART-D10 | Gateway adds `MODBUS_UART_ERR_INVALID_ARG`; `MODBUS_UART_OK` replaces `MODBUS_UART_ERR_OK` (commit 62d5ea4) | §3 requires input validation but §2.4 had no code for it. The additive code does not affect existing callers |
+| MBUART-D11 | Gateway BRR = 8333 (`(80 MHz + 4800) / 9600`, 16x oversampling, UART4SEL = PCLK1) | Closes MBUART-O2 for the Gateway; −0.004 % baud error. FD value still follows clock-config.md |
+
+---
+
+## 10. Gateway implementation notes (v1.1)
+
+- Source: `firmware/gateway/drivers/modbus_uart_driver/modbus_uart_driver.{h,c}`. L475-only: no board `#if`, so there is no shared FD/GW translation unit any more.
+- Tests: `tests/gateway/drivers/modbus_uart_driver/test_modbus_uart_driver.c`, run in the Gateway Ceedling project (`tests/project_gateway.yml`) because the basename collides with the FD driver: `CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml ceedling test:test_modbus_uart_driver`.
+- Timeouts follow §3.5: 5 ms per TXE, 10 ms for TC.
+- `modbus_uart_attach_rx(NULL, …)` is ignored and leaves the receiver disabled.
+- Pins: PA0 TX, PA1 RX, PA15 RTS_DE, all AF8, push-pull, no pull.

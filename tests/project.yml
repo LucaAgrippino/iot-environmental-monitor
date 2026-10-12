@@ -18,6 +18,7 @@
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
+    - -:gateway/drivers/modbus_uart_driver/**
     - gateway/middleware/circular_flash_log/**
     - gateway/middleware/mqtt_client/**
     - gateway/middleware/wifi_task/**
@@ -30,6 +31,7 @@
     - ../firmware/gateway/drivers/**
     - -:../firmware/gateway/drivers/gpio/**
     - -:../firmware/gateway/drivers/led/**
+    - -:../firmware/gateway/drivers/modbus_uart_driver/**
     - -:../firmware/**/Debug/**
     - ../firmware/gateway/middleware/circular_flash_log/**
     - ../firmware/gateway/middleware/mqtt_client/**

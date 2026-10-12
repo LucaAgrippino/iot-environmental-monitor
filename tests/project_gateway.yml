@@ -44,6 +44,7 @@
     - gateway/middleware/time_provider/**
     - gateway/application/health_monitor/**
     - gateway/middleware/config_store/**
+    - gateway/drivers/modbus_uart_driver/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -113,6 +114,9 @@
   :test_time_provider:
     - STM32L475xx
     - BOARD_GATEWAY
+    - TEST
+  :test_modbus_uart_driver:
+    - STM32L475xx
     - TEST
 
 :cmock:
