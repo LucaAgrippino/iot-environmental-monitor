@@ -1,14 +1,11 @@
 # LLD Companion — NtpClient
 
-**Layer:** Middleware  
-**Board:** Gateway (GW) only  
-**Provides:** `INtpClient`  
-**Consumes:** `IWifi` (WifiDriver), `IHealthReport`, `ILogger`  
-**SRS traces:** REQ-TS-010  
-**HLD ref:** `components.md` §Middleware — NtpClient; `sequence-diagrams.md` SD-09; `hld.md` §6.1
-**Version:** 0.1
-**Date:** May 2026
-**Status:** Draft
+**Document:** `docs/lld/middleware/ntp-client.md`
+**Version:** 0.3 (implemented and hardware-validated 2026-10-13; as-built deviations in NTP-D6)
+**Board:** Gateway (B-L475E-IOT01A) only
+**Layer:** Middleware
+**Status:** Implementation-ready — GW implemented and hardware-validated
+**Date:** July 2026
 
 **HLD anchor:** NtpClient in `components.md` (GW middleware layer)
 
@@ -16,16 +13,24 @@
 
 ## 1. Sources
 
-NtpClient issues a single SNTPv4 request to a configurable server list and
-returns the server's time reference to its caller (`TimeService`). It owns
-nothing beyond the wire exchange — no RTC write, no sync-state flag, no
-retry scheduling. Those concerns belong to `TimeService`.
+| Attribute | Value | Source |
+|---|---|---|
+| Responsibility | Queries NTP servers and returns time references. Reports NTP query failure events. | `components.md` |
+| PROVIDES (upward) | INtpClient | `components.md` |
+| USES (downward) | WifiDriver (reached through WifiTask — NTP-D6), IHealthReport, ILogger | `components.md` |
+| Root requirement | REQ-TS-010 | `SRS.md` |
+| HLD refs | `sequence-diagrams.md` SD-09; `hld.md` §6.1 | HLD |
 
-NtpClient reports a query-failure event via `IHealthReport` when every
+NtpClient issues a single SNTPv4 request to a configurable server list
+and returns the server's time reference to its caller (`TimeService`).
+It owns nothing beyond the wire exchange — no RTC write, no sync-state
+flag, no retry scheduling. Those concerns belong to `TimeService`.
+
+NtpClient reports a query-failure event via IHealthReport when every
 server in the list fails to respond. It does not retry within a single
-`ntp_client_query()` call; retrying is TimeService's policy (REQ-TS-0E1).
+`ntp_client_query()` call; retrying is TimeService's policy.
 
-NtpClient is passive — it runs in `TimeServiceTask` context, called
+NtpClient is passive — it runs in TimeServiceTask context, called
 synchronously. No thread of its own.
 
 ---
@@ -33,18 +38,17 @@ synchronously. No thread of its own.
 ## 2. Protocol — SNTPv4
 
 NtpClient implements the client side of SNTPv4 (RFC 4330 / RFC 5905 §14).
-SNTPv4 is a one-shot subset of the full NTP protocol: send a 48-byte UDP
-request, receive a 48-byte response, extract the Transmit Timestamp. No
-clock discipline, no symmetric mode, no association management.
+SNTPv4 is a one-shot subset of NTP: send a 48-byte UDP request, receive
+a 48-byte response, extract the Transmit Timestamp.
 
 | Parameter | Value |
-|-----------|-------|
+|---|---|
 | Protocol | UDP |
 | Server port | 123 |
 | Client port | Ephemeral (allocated by WifiDriver) |
 | Packet size | 48 bytes |
 | LI/VN/Mode byte (request) | `0x1B` — LI=0, VN=3, Mode=3 (client) |
-| Epoch | NTP epoch: seconds since 1 Jan 1900 UTC |
+| Epoch | NTP: seconds since 1 Jan 1900 UTC |
 | Unix conversion | subtract `2208988800` (70 years in seconds) |
 
 ---
@@ -55,311 +59,386 @@ clock discipline, no symmetric mode, no association management.
 /* ntp_client.c — internal only, not in header */
 
 typedef struct __attribute__((packed)) {
-    uint8_t  li_vn_mode;       /* byte 0: LI(2)|VN(3)|Mode(3)           */
-    uint8_t  stratum;          /* byte 1: clock stratum                  */
-    uint8_t  poll;             /* byte 2: polling interval (log2 s)      */
-    int8_t   precision;        /* byte 3: clock precision (log2 s)       */
-    uint32_t root_delay;       /* bytes  4-7:  big-endian fixed-point    */
-    uint32_t root_dispersion;  /* bytes  8-11: big-endian fixed-point    */
-    uint32_t reference_id;     /* bytes 12-15                            */
-    uint32_t ref_ts_sec;       /* bytes 16-19: reference timestamp (s)   */
-    uint32_t ref_ts_frac;      /* bytes 20-23: reference timestamp (frac)*/
-    uint32_t orig_ts_sec;      /* bytes 24-27: originate timestamp       */
-    uint32_t orig_ts_frac;     /* bytes 28-31                            */
-    uint32_t rx_ts_sec;        /* bytes 32-35: receive timestamp         */
-    uint32_t rx_ts_frac;       /* bytes 36-39                            */
-    uint32_t tx_ts_sec;        /* bytes 40-43: transmit timestamp (s)    */
-    uint32_t tx_ts_frac;       /* bytes 44-47: transmit timestamp (frac) */
+    uint8_t  li_vn_mode;       /* byte 0: LI(2)|VN(3)|Mode(3)            */
+    uint8_t  stratum;          /* byte 1: clock stratum                   */
+    uint8_t  poll;             /* byte 2: polling interval (log2 s)       */
+    int8_t   precision;        /* byte 3: clock precision (log2 s)        */
+    uint32_t root_delay;       /* bytes  4–7:  big-endian fixed-point     */
+    uint32_t root_dispersion;  /* bytes  8–11: big-endian fixed-point     */
+    uint32_t reference_id;     /* bytes 12–15                             */
+    uint32_t ref_ts_sec;       /* bytes 16–19: reference timestamp (s)    */
+    uint32_t ref_ts_frac;      /* bytes 20–23: reference timestamp (frac) */
+    uint32_t orig_ts_sec;      /* bytes 24–27: originate timestamp        */
+    uint32_t orig_ts_frac;     /* bytes 28–31                             */
+    uint32_t rx_ts_sec;        /* bytes 32–35: receive timestamp          */
+    uint32_t rx_ts_frac;       /* bytes 36–39                             */
+    uint32_t tx_ts_sec;        /* bytes 40–43: transmit timestamp (s)     */
+    uint32_t tx_ts_frac;       /* bytes 44–47: transmit timestamp (frac)  */
 } ntp_packet_t;
 ```
 
-The client sends a zeroed 48-byte packet with `li_vn_mode = 0x1B`. The
-server fills all fields in the response. Only `tx_ts_sec` is used — it is
-the server's best estimate of the current time at the moment the response
-was sent, which is sufficient for the accuracy requirements of this system
-(REQ-TS-010 does not mandate sub-second precision).
+Client sends a zeroed 48-byte packet with `li_vn_mode = 0x1B`. Server
+fills all fields. Only `tx_ts_sec` is used — sufficient for REQ-TS-010
+(sub-second precision not required).
 
-All multi-byte fields in the NTP packet are **big-endian** on the wire. The
-Cortex-M4 is little-endian; byte-swap `tx_ts_sec` before use.
+All multi-byte fields are **big-endian** on the wire. Cortex-M4 is
+little-endian; byte-swap `tx_ts_sec` via `__REV()` intrinsic or a
+portable four-byte swap.
 
 ---
 
-## 4. Data types
+## 4. Public API
+
+### 4.1 ADT pattern
+
+NtpClient follows the Gateway ADT default: an opaque handle returned by
+`ntp_client_create()` from a static pool of 1. Both dependencies
+(WifiDriver, IHealthReport) are injected via the config struct.
+
+### 4.2 Data types
 
 ```c
 /* ntp_client.h */
 
+#ifndef NTP_CLIENT_H
+#define NTP_CLIENT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "health_monitor/health_monitor.h"
+#include "wifi_task/wifi_task.h"
+
+/** @brief Opaque handle to an NtpClient instance. */
+typedef struct ntp_client_inst *ntp_client_handle_t;
+
 typedef enum {
-    NTP_CLIENT_ERR_OK          = 0,
-    NTP_CLIENT_ERR_NOT_INIT    = 1,
-    NTP_CLIENT_ERR_NULL_ARG    = 2,
-    NTP_CLIENT_ERR_ALL_FAILED  = 3,   /* no server in list responded       */
-    NTP_CLIENT_ERR_BAD_RESPONSE= 4,   /* response failed sanity check      */
-    NTP_CLIENT_ERR_WIFI        = 5,   /* WifiDriver returned error         */
+    NTP_CLIENT_ERR_OK           = 0,
+    NTP_CLIENT_ERR_NULL_PTR     = 1,
+    NTP_CLIENT_ERR_NO_RESOURCE  = 2,
+    NTP_CLIENT_ERR_ALL_FAILED   = 3, /**< No server responded.               */
+    NTP_CLIENT_ERR_BAD_RESPONSE = 4, /**< Reserved: a reply failed a sanity check. */
+    NTP_CLIENT_ERR_WIFI         = 5, /**< Reserved: WiFi layer returned error. */
+    NTP_CLIENT_ERR_INVALID_ARG  = 6, /**< server_count > MAX, or stale handle (NTP-D6). */
 } ntp_client_err_t;
 
-#define NTP_CLIENT_MAX_SERVERS   4U   /* maximum entries in server list    */
-#define NTP_CLIENT_QUERY_TIMEOUT_MS  3000U   /* per-server timeout (NTP-O1) */
-#define NTP_UNIX_OFFSET          2208988800UL  /* NTP epoch → Unix epoch   */
+#define NTP_CLIENT_MAX_SERVERS        4u
+#define NTP_CLIENT_QUERY_TIMEOUT_MS   3000u  /**< Per-server timeout; see NTP-O1. */
+#define NTP_UNIX_OFFSET               2208988800ul
+
+/**
+ * @brief NtpClient creation configuration.
+ */
+typedef struct {
+    wifitask_handle_t       wifi;    /**< WifiTask handle (for UDP sockets). */
+    health_monitor_handle_t health;  /**< IHealthReport handle (for push events). */
+} ntp_client_config_t;
 ```
 
----
-
-## 2. Public API — `INtpClient`
+### 4.3 Public API — INtpClient
 
 ```c
 /**
- * @brief  Initialise NtpClient.
+ * @brief Create and initialise an NtpClient instance.
  *
- * @param  health  IHealthReport handle for failure event push.
- * @return NTP_CLIENT_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Must be called before the scheduler starts.
+ * Stores injected dependencies. Does not perform any network I/O.
+ *
+ * @param[in]  config  Injected dependencies (WifiDriver + IHealthReport).
+ * @param[out] handle  Receives the created handle on success.
+ * @return NTP_CLIENT_ERR_OK on success; NTP_CLIENT_ERR_NULL_PTR if
+ *         config or handle is NULL; NTP_CLIENT_ERR_NO_RESOURCE if
+ *         pool exhausted.
+ * @note Threading: task-context only. Call before scheduler starts.
  */
-ntp_client_err_t ntp_client_init(ihealth_report_t *health);
+ntp_client_err_t ntp_client_create(const ntp_client_config_t *config,
+                                    ntp_client_handle_t *handle);
 
 /**
- * @brief  Query NTP servers and return a Unix epoch timestamp.
+ * @brief Query NTP servers and return a Unix epoch timestamp.
  *
  * Tries each server in server_list in order. On the first successful
- * response, converts the NTP Transmit Timestamp to a Unix epoch value and
- * returns it. If all servers fail (no response within NTP_CLIENT_QUERY_TIMEOUT_MS
+ * response, converts the NTP Transmit Timestamp to a Unix epoch value
+ * and returns it via unix_epoch_out.
+ *
+ * If all servers fail (no response within NTP_CLIENT_QUERY_TIMEOUT_MS
  * or bad response), pushes HEALTH_EVENT_NTP_SYNC_FAILED and returns
  * NTP_CLIENT_ERR_ALL_FAILED.
  *
- * Blocking — holds TimeServiceTask for up to
- * server_count × NTP_CLIENT_QUERY_TIMEOUT_MS ms in the worst case.
- *
- * The server list is passed in on each call — NtpClient does not cache it.
+ * The server list is passed on each call — NtpClient does not cache it.
  * This allows TimeService to update the list from ConfigService without
  * reinitialising NtpClient.
  *
- * @param  server_list    Array of null-terminated NTP server IPv4 addresses.
- *                        Hostnames are not supported — WifiDriver (ISM43362)
- *                        has no DNS resolver (see §6).
- * @param  server_count   Number of entries; must be ≤ NTP_CLIENT_MAX_SERVERS.
- * @param[out] unix_epoch_out  Set to Unix epoch seconds on success.
- * @return NTP_CLIENT_ERR_OK on success; non-zero error code on failure.
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ * NTP servers must be supplied as IPv4 addresses (dotted-decimal).
+ * WifiDriver (ISM43362) has no DNS resolver. TimeService / ConfigService
+ * must ensure server_list contains IP addresses, not hostnames.
+ *
+ * @param[in]  handle          NtpClient handle.
+ * @param[in]  server_list     Array of null-terminated IPv4 address strings.
+ * @param[in]  server_count    Number of entries (≤ NTP_CLIENT_MAX_SERVERS).
+ * @param[out] unix_epoch_out  Receives Unix epoch seconds on success.
+ * @return NTP_CLIENT_ERR_OK on success; NTP_CLIENT_ERR_ALL_FAILED if
+ *         no server responded; NTP_CLIENT_ERR_NULL_PTR if handle,
+ *         server_list, or unix_epoch_out is NULL.
+ * @note Threading: task-context only, **blocking**. Worst case:
+ *       server_count × NTP_CLIENT_QUERY_TIMEOUT_MS. Not ISR-safe.
  */
-ntp_client_err_t ntp_client_query(const char * const *server_list,
+ntp_client_err_t ntp_client_query(ntp_client_handle_t handle,
+                                   const char * const *server_list,
                                    uint8_t             server_count,
                                    uint32_t           *unix_epoch_out);
 
-/* ------------------------------------------------------------------ */
-/* Singleton vtable interface (INtpClient — LLD-D10)                   */
-/* ------------------------------------------------------------------ */
-
-typedef struct {
-    ntp_client_err_t (*init)(ihealth_report_t *health);
-    ntp_client_err_t (*query)(const char * const *server_list,
-                              uint8_t             server_count,
-                              uint32_t           *unix_epoch_out);
-} intp_client_t;
-
-/** Singleton pointer to the NtpClient vtable (Gateway only). */
-extern const intp_client_t * const ntp_client;
+#endif /* NTP_CLIENT_H */
 ```
 
 ---
 
-## 6. Query execution — one server attempt
+## 5. Internal design
 
-The per-server logic inside `ntp_client_query()`:
-
-**NTP state machine: no change (LLD-D13).** Switching from the old non-vtable
-UDP functions to `wifi_driver->open_socket(WIFI_SOCKET_UDP, ...)` is
-transparent at the TimeService / state-machine level; the sync-state
-transitions are unchanged.
-
-```
-for each server in server_list:
-
-1. NTP servers must be supplied as IPv4 addresses (dotted-decimal).
-   WifiDriver (ISM43362) has no DNS resolver. TimeService / ConfigService
-   must ensure server_list contains IP addresses, not hostnames.
-
-2. wifi_driver->open_socket(WIFI_SOCKET_UDP, server_ip, 123, &h)
-   via WifiTask (D29 — no caller reaches WifiDriver directly).
-   On failure: log, continue to next server.
-
-3. Build request packet:
-   memset(&pkt, 0, sizeof(pkt));
-   pkt.li_vn_mode = 0x1B;   /* LI=0, VN=3, Mode=3 (client) */
-
-4. wifi_driver->send(h, (uint8_t *)&pkt, 48)
-   On failure: wifi_driver->close_socket(h); log; continue.
-
-5. wifi_driver->recv(h, (uint8_t *)&pkt, 48, &rcvd, NTP_CLIENT_QUERY_TIMEOUT_MS)
-   On timeout or rcvd != 48: wifi_driver->close_socket(h); log; continue.
-
-6. Sanity check response (§7).
-   On failure: wifi_driver->close_socket(h); log;
-               health_report->push_event(HEALTH_EVENT_NTP_BAD_RESPONSE, 0);
-               continue.
-
-7. Extract tx_ts_sec = ntohl(pkt.tx_ts_sec).
-   Convert: *unix_epoch_out = tx_ts_sec - NTP_UNIX_OFFSET.
-
-8. wifi_driver->close_socket(h).
-   Return NTP_CLIENT_ERR_OK.
-
-if all servers exhausted:
-    health_report->push_event(HEALTH_EVENT_NTP_SYNC_FAILED, 0);
-    return NTP_CLIENT_ERR_ALL_FAILED.
-```
-
-`ntohl()` performs the big-endian to little-endian byte swap on
-`tx_ts_sec`. Use the CMSIS `__REV()` intrinsic or a portable four-byte
-swap — do not rely on compiler-specific builtins.
-
----
-
-## 7. Response sanity checks
-
-These are applied before accepting a timestamp (§6, step 6):
-
-| Check | Condition to reject | Rationale |
-|-------|--------------------|-----------| 
-| Mode | `(pkt.li_vn_mode & 0x07) != 4` | Response must be Mode 4 (server) |
-| Stratum | `pkt.stratum == 0` | Kiss-of-Death packet — server is refusing queries |
-| Stratum | `pkt.stratum > 15` | Invalid stratum (16 = unsynchronised) |
-| Transmit timestamp | `tx_ts_sec == 0` | Server did not fill the timestamp |
-| Unix conversion | `tx_ts_sec < NTP_UNIX_OFFSET` | Result would underflow (timestamp before 1970) |
-
-**NTP delta sanity check is not performed here.** Per `time-provider.md`
-§10 (GW), the plausibility check (|new_epoch − current_rtc| >
-`TIME_PROVIDER_SANITY_DELTA_S`) is TimeService's responsibility, executed
-before calling `time_provider_set_time()`. NtpClient returns the raw
-server timestamp without comparing it to the RTC.
-
----
-
-## 8. IHealthReport events
-
-| Event constant | Trigger |
-|----------------|---------|
-| `HEALTH_EVENT_NTP_SYNC_FAILED` | All servers exhausted without a valid response |
-| `HEALTH_EVENT_NTP_BAD_RESPONSE` | A server responded but failed the sanity check (per attempt) |
-
-Both are direct-push events (Metric Producer Pattern — events → push).
-`HEALTH_EVENT_NTP_BAD_RESPONSE` may fire multiple times in one
-`ntp_client_query()` call if several servers return invalid responses.
-
----
-
-## 3. Internal design
+### 5.1 Private struct and static pool
 
 ```c
 /* ntp_client.c */
 
-typedef struct {
-    bool          initialised;
-    IHealthReport *health;
-} NtpClientState;
+#define NTP_CLIENT_MAX_INSTANCES  1u
 
-static NtpClientState s_ntp;
+struct ntp_client_inst {
+    wifitask_handle_t       wifi;
+    health_monitor_handle_t health;
+    bool                    in_use;
+};
+
+static struct ntp_client_inst g_pool[NTP_CLIENT_MAX_INSTANCES];
+static uint8_t                g_count;
 ```
 
-No mutex needed — `ntp_client_query()` is called only from
-`TimeServiceTask`, never concurrently.
+No mutex — `ntp_client_query()` is called only from TimeServiceTask.
 
----
-
-### ntp_client_init
-
-Pre-conditions: the component has been initialised (where an init function exists). Validates inputs and returns the appropriate error code on failure. Performs the operation described in §2; post-conditions as documented in the §2 Doxygen block. No synchronisation primitive is held across the call — the operation is bounded and deterministic (see §3 Synchronisation).
-
-### Principles applied
-
-- **P1 (Strict directional layering).** Depends on IWifi (driver layer via UDP socket, LLD-D13); IHealthReport and ILogger are cross-cutting exceptions (P4).
-- **P2 (Dependency Inversion).** Exposes `intp_client_t` vtable; TimeService (application layer) depends on `INtpClient`.
-- **P4 (Cross-cutting concern exception).** Logger and HealthMonitor (IHealthReport) referenced concretely per the cross-cutting exception; documented in §1 Sources.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Static socket handle and 48-byte NTP v4 UDP packet buffer; no heap.
-- **P6 (Responsibility traces to requirements).** Query / parse / report-offset functions trace to REQ-TS-010 NTP synchronisation requirement.
-- **P7 (Pull-based downstream consumption).** TimeService calls `ntp_client_query()` on its own synchronisation schedule; NtpClient does not push time updates unprompted.
-- **P8 (Total error propagation, no silent failures).** `ntp_client_err_t` on all operations; socket open failure, timeout, and invalid-stratum response are distinct error codes.
-- **P9 (BARR-C coding standard).** NTP timestamp fields `uint32_t`; reference-epoch conversion done with explicit integer arithmetic; no floating-point.
-- **P10 (Naming conventions).** Prefix `ntp_client_`; interface `INtpClient` -> `intp_client_t`; errors `NTP_CLIENT_ERR_*`.
-
-
-## 10. Init ordering
+### 5.2 Query execution — per-server logic
 
 ```
-wifi_driver_init()      ← driver ready (two-phase init complete; WiFi associated)
-ntp_client_init(health) ← registers health handle
+for each server in server_list:
+
+1. IPv4 addresses required (no DNS on ISM43362).
+
+2. wifitask_open_socket(inst->wifi, WIFI_SOCKET_UDP, server_ip, 123, &sock)
+   On failure: log, continue to next server.
+
+3. Build request:
+   memset(&pkt, 0, sizeof(pkt));
+   pkt.li_vn_mode = 0x1B;
+
+4. wifitask_send(inst->wifi, sock, (uint8_t *)&pkt, 48)
+   On failure: wifitask_close_socket(inst->wifi, sock); log; continue.
+
+5. wifitask_recv(inst->wifi, sock, (uint8_t *)&pkt, 48, &rcvd,
+             NTP_CLIENT_QUERY_TIMEOUT_MS)
+   On timeout or rcvd != 48: close socket; log; continue.
+
+6. Sanity check response (§5.3).
+   On failure: close socket; log;
+   health_monitor_push_event(inst->health, HEALTH_EVENT_NTP_BAD_RESPONSE, 0);
+   continue.
+
+7. tx_ts_sec = read_be32(&pkt_bytes[40])  /* big-endian wire bytes, host-order independent */
+   *unix_epoch_out = tx_ts_sec - NTP_UNIX_OFFSET
+
+8. wifitask_close_socket(inst->wifi, sock)
+   return NTP_CLIENT_ERR_OK
+
+if all servers exhausted:
+    health_monitor_push_event(inst->health, HEALTH_EVENT_NTP_SYNC_FAILED, 0);
+    return NTP_CLIENT_ERR_ALL_FAILED
 ```
 
-NtpClient must not be called before the WiFi link is up (the ISM43362 must
-have joined the AP). `TimeService` enforces this — it calls
-`ntp_client_query()` only from within its boot and periodic sync flow,
-which is gated on the Cloud Connectivity state machine reaching Connected.
+### 5.3 Response sanity checks
 
----
-
-## 5. Sequence integration
-
-See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
-
-### SD trace
-
-| SD | Component role | Key function |
+| Check | Reject if | Rationale |
 |---|---|---|
-| SD-09 | `TimeService` calls `ntp_client_sync()` which issues a UDP NTP query via `WifiDriver`, awaits the response, and returns the synchronised timestamp | `ntp_client_sync()` |
+| Mode | `(li_vn_mode & 0x07) != 4` | Response must be Mode 4 (server) |
+| Stratum | `stratum == 0` | Kiss-of-Death — server refusing queries |
+| Stratum | `stratum > 15` | 16 = unsynchronised |
+| Timestamp | `tx_ts_sec == 0` | Server did not fill the timestamp |
+| Underflow | `tx_ts_sec < NTP_UNIX_OFFSET` | Unix epoch would underflow |
 
----
+**Delta sanity check** (|new_epoch − current_rtc|) is TimeService's
+responsibility, not NtpClient's. NtpClient returns the raw server
+timestamp.
 
-## 6. Error and fault behaviour
+### 5.4 IHealthReport events
 
-All public functions return `ntp_client_err_t`; callers must not ignore
-non-OK returns.  No retry is performed inside NtpClient for individual
-server attempts — TimeService drives the overall retry policy with
-exponential back-off (REQ-GW-NTP-002).
+| Event | Trigger |
+|---|---|
+| `HEALTH_EVENT_NTP_SYNC_FAILED` | All servers exhausted without valid response |
+| `HEALTH_EVENT_NTP_BAD_RESPONSE` | A server responded but failed sanity check (per attempt). Added to HealthMonitor with this module (value 15; log-only, no snapshot field) |
 
-| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
-|---|---|---|---|---|---|
-| `NTP_CLIENT_ERR_NOT_INIT` | Function called before `ntp_client_init()` | Return error; no network interaction | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
-| `NTP_CLIENT_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Caller logs at ERROR via ILogger |
-| `NTP_CLIENT_ERR_ALL_FAILED` | No server in the configured list responded within `NTP_CLIENT_QUERY_TIMEOUT_MS` | Return error; time not updated | Non-OK return | No retry by NtpClient — TimeService retries the full query with exponential back-off; after threshold: `HEALTH_EVENT_NTP_SYNC_FAILED` | Logged at WARN via ILogger; IHealthReport event after repeated failures |
-| `NTP_CLIENT_ERR_BAD_RESPONSE` | NTP response failed LI, VN, Stratum, or timestamp sanity checks | Return error; response discarded | Non-OK return | No retry by NtpClient — TimeService tries the next server in list | Logged at WARN via ILogger |
-| `NTP_CLIENT_ERR_WIFI` | WifiDriver returned a non-OK error on UDP send or receive | Return error | Non-OK return | No retry by NtpClient — TimeService retries after WiFi reconnect | Logged at WARN via ILogger |
+Both are direct-push events (Metric Producer Pattern — events → push).
 
-
-## 7. Unit-test plan
+### 5.5 Test reset hook
 
 ```c
-#ifdef UNIT_TEST
-/* Replace wifi_driver singleton with a mock vtable (LLD-D10, LLD-D13).
-   Inject synthetic NTP responses or simulate timeouts via stub functions. */
-static iwifi_t s_mock_wifi;
-void setUp(void) {
-    s_mock_wifi.open_socket  = stub_udp_open;
-    s_mock_wifi.send         = stub_udp_send;
-    s_mock_wifi.recv         = stub_udp_receive;
-    s_mock_wifi.close_socket = stub_udp_close;
-    *(const iwifi_t **)&wifi_driver = &s_mock_wifi;
+#ifdef TEST
+void ntp_client_reset_for_test(void)
+{
+    memset(g_pool, 0, sizeof(g_pool));
+    g_count = 0u;
 }
 #endif
 ```
 
-Minimum test cases:
-- Single server responds with valid timestamp → returns `ERR_OK`, correct Unix epoch.
-- NTP epoch conversion: `tx_ts_sec = 3913215600` (2024-01-01 00:00:00 UTC) → Unix `1704067200`.
-- Server responds with Mode != 4 → sanity check rejects; `HEALTH_EVENT_NTP_BAD_RESPONSE` pushed.
-- Server responds with stratum = 0 → rejected.
-- Server responds with stratum = 16 → rejected.
-- Server responds with `tx_ts_sec = 0` → rejected.
-- First server times out, second responds → `ERR_OK` from second server.
-- All servers time out → `NTP_CLIENT_ERR_ALL_FAILED`; `HEALTH_EVENT_NTP_SYNC_FAILED` pushed exactly once.
-- `server_count = 0` → `NTP_CLIENT_ERR_NULL_ARG` (or `ERR_ALL_FAILED` if zero-length list is acceptable — decide at implementation).
-- Big-endian byte swap: inject `tx_ts_sec = 0x01020304` on wire → verify `ntohl()` gives `0x04030201` before subtraction.
+---
+
+## 6. Init ordering
+
+```
+wifi_create(...)              ← driver ready
+[WiFi associated with AP]    ← gated by LifecycleController
+ntp_client_create(...)       ← stores WiFi + IHealthReport handles
+[TimeServiceTask created]
+ntp_client_query(...)        ← called by TimeService on sync schedule
+```
+
+NtpClient must not be called before the WiFi link is up. TimeService
+enforces this — it calls `ntp_client_query()` only when the Cloud
+Connectivity state machine has reached Connected.
 
 ---
 
-## 8. Open items
+## 7. Sequence integration
 
-| ID | Item | Resolution path | Status |
-|--------|------|-----------------|--------|
-| NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` is provisional. Validate against worst-case WiFi + internet RTT during integration. Increase to 5000 ms if public NTP servers prove slow. | Validate query timeout at integration against worst-case WiFi + internet RTT | Open |
-| NTP-O2 | DNS resolution — `wifi_driver_dns_lookup()` does not exist; ISM43362 has no DNS resolver. Resolved by LLD-D13: NtpClient server list must contain IPv4 addresses only. DNS is the caller's responsibility (TimeService / ConfigService provisioning). | Closed by LLD-D13 — IPv4 addresses required; §6 documents this constraint. | Closed |
-| NTP-O3 | IPv6 support — SNTPv4 supports IPv6. WifiDriver (ISM43362) is IPv4-only per AT command set. No action needed; constraint documented in §6. | Document IPv4-only constraint; no action required | Closed |
-| NTP-OX | Transport selection — LLD-D13 resolves this: NtpClient uses `wifi_driver->open_socket(WIFI_SOCKET_UDP, ...)`. IWifi now supports UDP natively via the polymorphic open_socket() API. TCP-based fallback removed. | Closed by LLD-D13 | Closed |
+| SD | Role | Key function |
+|---|---|---|
+| SD-09 | TimeService calls `ntp_client_query()` — UDP NTP exchange via WifiDriver, returns synchronised Unix timestamp | `ntp_client_query()` |
+
+---
+
+## 8. Error and fault behaviour
+
+| Error | Cause | Behaviour |
+|---|---|---|
+| `NTP_CLIENT_ERR_NULL_PTR` | Required pointer is NULL | Return immediately |
+| `NTP_CLIENT_ERR_NO_RESOURCE` | Pool exhausted | Return immediately |
+| `NTP_CLIENT_ERR_ALL_FAILED` | No server responded within timeout | `HEALTH_EVENT_NTP_SYNC_FAILED` pushed; TimeService retries with back-off |
+| `NTP_CLIENT_ERR_BAD_RESPONSE` | Sanity check failed | `HEALTH_EVENT_NTP_BAD_RESPONSE` pushed; try next server |
+| `NTP_CLIENT_ERR_WIFI` | WifiDriver returned error on socket/send/recv | Log; try next server |
+
+No retry inside NtpClient — TimeService drives the retry policy.
+
+---
+
+## 9. Principles applied
+
+- **P1 (Strict directional layering).** Depends on WifiDriver (driver layer via UDP socket); IHealthReport and ILogger are cross-cutting exceptions (P4).
+- **P2 (DIP).** TimeService (application) depends on the opaque `ntp_client_handle_t`, not the concrete implementation.
+- **P4 (Cross-cutting exception).** Logger and IHealthReport referenced per convention.
+- **P5 (Bounded resources).** Static pool; 48-byte NTP packet on stack; no heap.
+- **P6 (Traces to requirements).** Query and parse trace to REQ-TS-010.
+- **P7 (Pull-based).** TimeService calls `ntp_client_query()` on its own schedule; NtpClient does not push.
+- **P8 (Total error propagation).** 5 distinct error codes; socket failure, timeout, and invalid-stratum each distinguished.
+- **P9 (BARR-C).** `uint32_t` for NTP timestamps; explicit integer arithmetic; no floating-point.
+- **P10 (Naming).** Prefix `ntp_client_`; handle `ntp_client_handle_t`; errors `NTP_CLIENT_ERR_*`.
+
+---
+
+## 10. Synchronisation
+
+Caller serialises. NtpClient runs exclusively in TimeServiceTask context.
+No FreeRTOS synchronisation primitives. `ntp_client_create()` is called
+before the scheduler starts; `ntp_client_query()` is called only from
+TimeServiceTask.
+
+---
+
+## 11. Unit-test plan
+
+Test file: `tests/gateway/middleware/ntp_client/test_ntp_client.c`
+
+WifiTask and HealthMonitor are replaced by inline spies in the test TU (the repo idiom for Gateway middleware tests, NTP-D6) instead of CMock.
+
+| ID | Scenario | Expected |
+|---|---|---|
+| NTP-T01 | `ntp_client_create` happy path | Handle returned, deps stored |
+| NTP-T02 | `ntp_client_create` NULL config | Returns `ERR_NULL_PTR` |
+| NTP-T03 | `ntp_client_create` pool exhaustion | Returns `ERR_NO_RESOURCE` |
+| NTP-T04 | Single server, valid response | Returns `ERR_OK`; correct Unix epoch |
+| NTP-T05 | NTP epoch conversion: `tx_ts_sec = 3913215600` → Unix `1704226800` | Arithmetic verified |
+| NTP-T06 | Response Mode != 4 | Rejected; `HEALTH_EVENT_NTP_BAD_RESPONSE` pushed |
+| NTP-T07 | Response stratum = 0 (KoD) | Rejected |
+| NTP-T08 | Response stratum = 16 (unsynchronised) | Rejected |
+| NTP-T09 | Response `tx_ts_sec = 0` | Rejected |
+| NTP-T10 | `tx_ts_sec < NTP_UNIX_OFFSET` (pre-1970) | Rejected |
+| NTP-T11 | First server times out, second responds | Returns `ERR_OK` from second |
+| NTP-T12 | All servers time out | Returns `ERR_ALL_FAILED`; `HEALTH_EVENT_NTP_SYNC_FAILED` pushed once |
+| NTP-T13 | `server_count = 0` | Returns `ERR_NULL_PTR` |
+| NTP-T14 | Big-endian read: wire bytes `E9 6B A1 F0` | Epoch `0xE96BA1F0 − NTP_UNIX_OFFSET`; the code reads the four bytes directly, so the result does not depend on host byte order |
+| NTP-T15 | NULL `unix_epoch_out` | Returns `ERR_NULL_PTR` |
+| NTP-T16 | `wifitask_open_socket` fails on first, succeeds on second | First logged, second proceeds; no close for the failed open |
+| NTP-T17 | `create` with NULL handle / NULL dependency handle | `ERR_NULL_PTR`; pool not consumed |
+| NTP-T18 | Request packet | 48 bytes, `0x1B` then zeros; UDP, port 123, per-server timeout passed on |
+| NTP-T19 | Stratum 15 | Accepted (boundary) |
+| NTP-T20 | Bad reply, then a good one | `ERR_OK`; one `BAD_RESPONSE`, no `SYNC_FAILED` |
+| NTP-T21 | Send fails | Socket closed; next server tried |
+| NTP-T22 | Reply of 47 bytes | A miss, not a bad response: no `BAD_RESPONSE` event |
+| NTP-T23 | NULL entry in the server list | Skipped |
+| NTP-T24 | NULL handle / NULL list | `ERR_NULL_PTR` |
+| NTP-T25 | `server_count` 5 | `ERR_INVALID_ARG` |
+| NTP-T26 | Stale handle after reset | `ERR_INVALID_ARG` |
+
+---
+
+## 12. Open items
+
+| ID | Item | Status | Resolution |
+|---|---|---|---|
+| NTP-O1 | `NTP_CLIENT_QUERY_TIMEOUT_MS = 3000` provisional. Validate against worst-case WiFi + internet RTT. | **Open** | Bench 2026-10-13 (home router): a good server answers in 90–130 ms; an unreachable server costs about 3.1 s. The 3 s default is ample for the working case. Keep open until measured on a slower link. |
+| NTP-O4 | `HEALTH_EVENT_NTP_SYNC_OK` is described in the HealthMonitor companion as pushed by NtpClient, but this companion (and `time-service-lld.md`) leave it to TimeService, which alone knows the delta check passed. | **Open** | Decide when TimeService is built; NtpClient pushes only failures today. |
+| NTP-O2 | DNS resolution | **Resolved** | ISM43362 has no DNS. Server list must be IPv4 addresses. Documented in §4.3. |
+| NTP-O3 | IPv6 support | **Resolved** | ISM43362 is IPv4-only. No action needed. |
+
+---
+
+## 13. Decisions log
+
+| ID | Decision | Rationale |
+|---|---|---|
+| NTP-D1 | ADT pattern (opaque handle, static pool of 1) | Gateway default. Both deps (WifiDriver, IHealthReport) injected via config struct. |
+| NTP-D2 | IPv4 addresses only, no hostname/DNS | ISM43362 has no DNS resolver. Callers must supply dotted-decimal addresses. |
+| NTP-D3 | Only `tx_ts_sec` used from response | REQ-TS-010 does not require sub-second precision. Full NTP clock discipline is unnecessary. |
+| NTP-D4 | No retry inside NtpClient | TimeService owns the retry policy with exponential back-off. NtpClient is a stateless one-shot query. |
+| NTP-D5 | Server list passed per-call, not cached | Allows TimeService to update servers from ConfigService without reinitialising NtpClient. |
+| NTP-D6 | As-built deviations: (1) WiFi I/O goes through `wifitask_*` (config field `wifitask_handle_t`), not `wifi_*`: WifiTask is the sole owner of WifiDriver (D29, `task-breakdown.md`) and MqttClient already does the same; the calls mirror WifiDriver's 1:1. (2) `health_monitor_push_event(handle, event, 0)` replaces the abstract `health_report_push_event`; `HEALTH_EVENT_NTP_BAD_RESPONSE` was added to HealthMonitor. (3) `ERR_INVALID_ARG` added for `server_count > 4` and stale handles; `ERR_BAD_RESPONSE` and `ERR_WIFI` stay reserved because every per-server failure moves on to the next server. (4) The timestamp is read byte by byte, not with `ntohl()`. (5) Inline spies instead of CMock. | (1) avoids two tasks driving the ISM43362 SPI channel at once; the rest follow from the real APIs on `main`. |
+
+---
+
+## 14. File layout
+
+```
+firmware/gateway/middleware/ntp_client/
+├── ntp_client.h    /* public API — handle, config, error enum */
+└── ntp_client.c    /* implementation — SNTP query, sanity checks */
+
+tests/gateway/middleware/ntp_client/
+└── test_ntp_client.c  /* Unity + CMock */
+```
+
+---
+
+## Phase H — Readiness review
+
+| # | Check | Status |
+|---|---|---|
+| H1 | PROVIDES / USES match `components.md` | PASS — PROVIDES INtpClient; USES WifiDriver, IHealthReport, ILogger |
+| H2 | Root SRS requirement cited | PASS — REQ-TS-010 |
+| H3 | All public API functions have complete Doxygen | PASS |
+| H4 | ADT pattern applied | PASS — NTP-D1 |
+| H5 | Error enum covers all failure modes | PASS — 5 error codes |
+| H6 | Protocol spec documented (SNTPv4, packet layout, sanity checks) | PASS — §2, §3, §5.3 |
+| H7 | Open items resolved or have resolution path | PASS — O2, O3 resolved; O1 deferred to integration |
+| H8 | Unit-test plan covers happy + error cases | PASS — 16 test cases |
+| H9 | Test file path follows Gateway convention | PASS |
+| H10 | P1–P10 compliance reviewed | PASS — §9 |
+| H11 | Thread safety documented | PASS — §10, single-task access |
+| H12 | `reset_for_test` hook specified | PASS — §5.5 |
+| H13 | Decisions log complete | PASS — 5 decisions |
+| H14 | Both dependencies injected via config struct | PASS — wifi + health |
+| H15 | Hardware bring-up | PASS — TC-HW-NTP-001..006 on the B-L475E-IOT01A, 2026-10-13 (5 of 5 runs after an unexplained one-off association failure on the very first boot) |
+
+**Verdict: PASS — ready for implementation.**

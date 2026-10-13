@@ -368,6 +368,9 @@ health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, h
     case HEALTH_EVENT_FAULT:
         log_kind = HM_LOG_FAULT; /* the LED is driven by set_led_fault() */
         break;
+    case HEALTH_EVENT_NTP_BAD_RESPONSE:
+        /* NtpClient logs the detail; the monitor keeps no counter for it. */
+        break;
     default:
         break;
     }

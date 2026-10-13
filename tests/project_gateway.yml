@@ -47,6 +47,7 @@
     - gateway/drivers/modbus_uart_driver/**
     - gateway/middleware/modbus_master/**
     - gateway/application/modbus_poller/**
+    - gateway/middleware/ntp_client/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -59,6 +60,7 @@
     - ../firmware/gateway/middleware/modbus_master/**
     - ../firmware/gateway/application/modbus_poller/**
     - ../firmware/gateway/application/device_profile_registry/**
+    - ../firmware/gateway/middleware/ntp_client/**
     # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
     # reaches wifi_task.h and wifi_driver.h. Their directories must be include
     # roots; nothing links them because the test never includes them directly.
@@ -131,6 +133,10 @@
     - BOARD_GATEWAY
     - TEST
   :test_modbus_poller:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_ntp_client:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
