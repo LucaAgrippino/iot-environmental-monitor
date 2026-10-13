@@ -76,8 +76,11 @@
     - support
   # config_store.h includes "health_monitor/health_monitor.h", so the parent of the
   # health_monitor directory has to be an include root.
+  # health_monitor.h includes "modbus_master/modbus_master.h", so the parent of that
+  # directory has to be an include root as well.
   :include:
     - ../firmware/gateway/application
+    - ../firmware/gateway/middleware
 
 :defines:
   :common: &common_defines []

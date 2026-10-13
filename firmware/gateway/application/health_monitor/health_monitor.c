@@ -417,7 +417,6 @@ health_monitor_err_t health_monitor_update_modbus_master_stats(health_monitor_ha
     hm_lock(handle);
     handle->snapshot.modbus_transactions_ok = stats->transactions_ok;
     handle->snapshot.modbus_timeouts = stats->timeouts;
-    handle->snapshot.modbus_link_online = stats->link_online;
     hm_unlock(handle);
 
     return HEALTH_MONITOR_ERR_OK;

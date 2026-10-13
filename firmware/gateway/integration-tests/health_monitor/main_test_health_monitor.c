@@ -471,7 +471,7 @@ static void bringup_task(void *arg)
 
     /* TC-HW-HM-007 */
     mqtt_stats_t mq;
-    modbus_master_stats_t mm = {.transactions_ok = 120U, .timeouts = 3U, .link_online = true};
+    modbus_master_stats_t mm = {.transactions_ok = 120U, .timeouts = 3U};
 
     (void) memset(&mq, 0, sizeof(mq));
     mq.publishes_sent = 50U;
@@ -488,6 +488,8 @@ static void bringup_task(void *arg)
               "TC-HW-HM-007 rssi");
     expect_hm(health_monitor_push_event(s_hm, HEALTH_EVENT_NTP_SYNC_OK, 1791750615UL),
               HEALTH_MONITOR_ERR_OK, "TC-HW-HM-007 ntp ok");
+    expect_hm(health_monitor_push_event(s_hm, HEALTH_EVENT_MODBUS_LINK_UP, 0U),
+              HEALTH_MONITOR_ERR_OK, "TC-HW-HM-007 link up");
     expect_hm(health_monitor_push_event(s_hm, HEALTH_EVENT_CLOUD_CONNECTED, 0U),
               HEALTH_MONITOR_ERR_OK, "TC-HW-HM-007 cloud");
     expect_hm(health_monitor_push_event(s_hm, HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U),
