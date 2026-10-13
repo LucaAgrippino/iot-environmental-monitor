@@ -218,7 +218,7 @@ typedef struct {
 
 | Type | Source header | Expected fields |
 |---|---|---|
-| `modbus_master_stats_t` | `modbus_master.h` | `transactions_ok` (uint32_t), `timeouts` (uint32_t), `link_online` (bool) |
+| `modbus_master_stats_t` | `modbus_master.h` | `transactions_ok` (uint32_t), `timeouts` (uint32_t) — the real ModbusMaster counters; the other five are ignored. The link flag is event-driven (`MODBUS_LINK_UP` / `_DOWN`), no longer part of the stats |
 | `mqtt_stats_t` | `mqtt_client.h` | `publishes_sent` (uint32_t), `publishes_failed` (uint32_t), `reconnect_count` (uint32_t) |
 | `lifecycle_state_t` | `lifecycle_controller.h` | Enum: INIT, OPERATIONAL, FAULTED, etc. |
 | `lifecycle_reset_cause_t` | `lifecycle_controller.h` | Enum: POWER_ON, WATCHDOG, SOFTWARE, etc. |
@@ -1007,7 +1007,7 @@ Test file: `tests/gateway/application/health_monitor/test_health_monitor.c`
 
 | ID | Precondition | Action | Expected |
 |---|---|---|---|
-| HM-T17 | Handle created; stats = {ok=100, timeouts=5, online=true} | `update_modbus_master_stats(h, &stats)` | `ERR_OK`; snapshot `modbus_transactions_ok == 100`, `modbus_timeouts == 5`, `modbus_link_online == true` |
+| HM-T17 | Handle created; stats = {ok=100, timeouts=5} | `update_modbus_master_stats(h, &stats)` | `ERR_OK`; snapshot `modbus_transactions_ok == 100`, `modbus_timeouts == 5`, `modbus_link_online` unchanged (`false`) |
 | HM-T18 | Handle created; stats = {sent=50, failed=2, reconnect=3} | `update_mqtt_stats(h, &stats)` | `ERR_OK`; snapshot fields match |
 | HM-T19 | Handle created | `update_buffer_occupancy(h, 42)` | `ERR_OK`; `buffer_entry_count == 42` |
 | HM-T20 | Handle created | `update_wifi_rssi(h, -65)` | `ERR_OK`; `wifi_rssi_dbm == -65` |

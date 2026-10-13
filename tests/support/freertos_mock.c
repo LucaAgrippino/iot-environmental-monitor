@@ -117,8 +117,15 @@ static int g_dummy_handle_sentinel;
 /* Reset                                                                  */
 /* --------------------------------------------------------------------- */
 
+uint32_t   g_mock_vTaskDelayUntil_call_count     = 0U;
+TickType_t g_mock_vTaskDelayUntil_last_increment = 0U;
+uint32_t   g_mock_vQueueDelete_call_count        = 0U;
+
 void mock_freertos_reset(void)
 {
+    g_mock_vTaskDelayUntil_call_count     = 0U;
+    g_mock_vTaskDelayUntil_last_increment = 0U;
+    g_mock_vQueueDelete_call_count        = 0U;
     g_mock_scheduler_state              = taskSCHEDULER_NOT_STARTED;
     g_mock_tick_count                   = 0U;
     g_mock_tick_count_from_isr          = 0U;
@@ -525,4 +532,17 @@ BaseType_t xTimerChangePeriod(TimerHandle_t timer, TickType_t new_period, TickTy
     g_mock_xTimerChangePeriod_call_count++;
     g_mock_xTimerChangePeriod_last_period = new_period;
     return g_mock_xTimerChangePeriod_return;
+}
+
+void vTaskDelayUntil(TickType_t *previous_wake, TickType_t increment)
+{
+    (void)previous_wake;
+    g_mock_vTaskDelayUntil_call_count++;
+    g_mock_vTaskDelayUntil_last_increment = increment;
+}
+
+void vQueueDelete(QueueHandle_t q)
+{
+    (void)q;
+    g_mock_vQueueDelete_call_count++;
 }

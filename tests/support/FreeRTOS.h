@@ -224,6 +224,11 @@ extern BaseType_t g_mock_xTimerChangePeriod_return;
 extern uint32_t   g_mock_xTimerChangePeriod_call_count;
 extern TickType_t g_mock_xTimerChangePeriod_last_period;
 
+/* vTaskDelayUntil / vQueueDelete mocks (ModbusPoller) */
+extern uint32_t   g_mock_vTaskDelayUntil_call_count;
+extern TickType_t g_mock_vTaskDelayUntil_last_increment;
+extern uint32_t   g_mock_vQueueDelete_call_count;
+
 /* Reset all g_mock_* state to defaults. Call from setUp(). */
 void mock_freertos_reset(void);
 
@@ -276,6 +281,14 @@ BaseType_t    xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
                                  eNotifyAction action, BaseType_t *woken);
 
 BaseType_t    xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action);
+void          vTaskDelayUntil(TickType_t *previous_wake, TickType_t increment);
+void          vQueueDelete(QueueHandle_t q);
+
+/* configASSERT is a no-op in the host build. */
+#ifndef configASSERT
+#define configASSERT(x)     ((void)(x))
+#endif
+
 BaseType_t    xTaskNotifyWait(uint32_t clear_on_entry, uint32_t clear_on_exit,
                               uint32_t *notify_value_out, TickType_t wait);
 

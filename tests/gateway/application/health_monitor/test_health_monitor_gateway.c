@@ -336,7 +336,7 @@ void test_HM_T16_out_of_range_event_changes_nothing(void)
 
 void test_HM_T17_modbus_master_stats_are_copied(void)
 {
-    modbus_master_stats_t stats = {.transactions_ok = 100U, .timeouts = 5U, .link_online = true};
+    modbus_master_stats_t stats = {.transactions_ok = 100U, .timeouts = 5U};
 
     create_ok();
 
@@ -347,7 +347,8 @@ void test_HM_T17_modbus_master_stats_are_copied(void)
 
     TEST_ASSERT_EQUAL_UINT32(100U, s.modbus_transactions_ok);
     TEST_ASSERT_EQUAL_UINT32(5U, s.modbus_timeouts);
-    TEST_ASSERT_TRUE(s.modbus_link_online);
+    /* The link state is event-driven; the stats never touch it. */
+    TEST_ASSERT_FALSE(s.modbus_link_online);
 }
 
 void test_HM_T18_mqtt_stats_are_copied_with_the_real_field_names(void)
@@ -527,7 +528,7 @@ void test_HM_T31_fault_is_latched_and_overrides_later_alarms(void)
 
 void test_HM_T32_reset_metrics_zeroes_only_the_counters(void)
 {
-    modbus_master_stats_t mm = {.transactions_ok = 9U, .timeouts = 4U, .link_online = true};
+    modbus_master_stats_t mm = {.transactions_ok = 9U, .timeouts = 4U};
     mqtt_stats_t mq;
 
     (void) memset(&mq, 0, sizeof(mq));
@@ -544,6 +545,7 @@ void test_HM_T32_reset_metrics_zeroes_only_the_counters(void)
     (void) health_monitor_push_event(s_h, HEALTH_EVENT_BUFFER_OVERFLOW, 0U);
     (void) health_monitor_push_event(s_h, HEALTH_EVENT_CONFIG_WRITE_FAIL, 0U);
     (void) health_monitor_push_event(s_h, HEALTH_EVENT_CLOUD_CONNECTED, 0U);
+    (void) health_monitor_push_event(s_h, HEALTH_EVENT_MODBUS_LINK_UP, 0U);
     (void) health_monitor_update_modbus_master_stats(s_h, &mm);
     (void) health_monitor_update_mqtt_stats(s_h, &mq);
     (void) health_monitor_update_buffer_occupancy(s_h, 11U);

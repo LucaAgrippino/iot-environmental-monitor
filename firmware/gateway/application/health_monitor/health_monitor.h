@@ -26,13 +26,14 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "modbus_master/modbus_master.h"
 #include "mqtt_client.h"
 
 /* ====================================================================== */
 /* Placeholder dependency types                                           */
 /*                                                                        */
-/* The Gateway has no LifecycleController, SensorService, AlarmService or  */
-/* ModbusMaster yet, so the types the snapshot needs stand in here. Each   */
+/* The Gateway has no LifecycleController, SensorService or AlarmService   */
+/* yet, so the types the snapshot needs stand in here. Each   */
 /* block uses the Field Device header's include guard and its enumerator   */
 /* names and values, so the real Gateway header supersedes it without a    */
 /* duplicate-definition error once it exists.                              */
@@ -100,20 +101,6 @@ typedef enum
     TIME_SYNC_SYNCHRONISED = 1,
 } time_sync_state_t;
 #endif /* TIME_SYNC_STATE_DEFINED */
-
-#ifndef MODBUS_MASTER_STATS_T_DEFINED
-#define MODBUS_MASTER_STATS_T_DEFINED
-/** @brief Modbus master counters, polled from ModbusMaster by ModbusPoller. */
-typedef struct
-{
-    /* cppcheck-suppress unusedStructMember */
-    uint32_t transactions_ok; /**< Completed transactions.          */
-    /* cppcheck-suppress unusedStructMember */
-    uint32_t timeouts; /**< Transactions that timed out.            */
-    /* cppcheck-suppress unusedStructMember */
-    bool link_online; /**< Field Device link state.                 */
-} modbus_master_stats_t;
-#endif /* MODBUS_MASTER_STATS_T_DEFINED */
 
 /* ====================================================================== */
 /* Handle, limits, errors                                                 */
@@ -304,6 +291,9 @@ health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, h
 
 /**
  * @brief Copy the Modbus master counters into the snapshot.
+ *
+ * Copies transactions_ok and timeouts only.  The link state is event-driven:
+ * it changes through HEALTH_EVENT_MODBUS_LINK_UP / _DOWN, not through these stats.
  *
  * @param[in] handle  HealthMonitor handle.
  * @param[in] stats   Counter snapshot from ModbusMaster.

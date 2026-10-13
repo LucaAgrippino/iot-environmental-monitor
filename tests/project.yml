@@ -15,6 +15,7 @@
     - field-device/**
     - gateway/application/**
     - -:gateway/application/health_monitor/**
+    - -:gateway/application/modbus_poller/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
@@ -38,6 +39,8 @@
     - ../firmware/gateway/middleware/wifi_task/**
     - ../firmware/gateway/application/**
     - -:../firmware/gateway/application/health_monitor/**
+    - -:../firmware/gateway/application/modbus_poller/**
+    - -:../firmware/gateway/application/device_profile_registry/**
     - ../vendor/coreMQTT/source/**
     - ../vendor/mbedtls/include/**
   :support:
