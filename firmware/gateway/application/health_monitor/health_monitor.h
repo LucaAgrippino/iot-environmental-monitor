@@ -157,6 +157,8 @@ typedef enum
     HEALTH_EVENT_ALARM_CLEARED = 13,      /**< AlarmService: param = sensor_id.        */
     HEALTH_EVENT_FAULT = 14,              /**< Any: param = fault code. Logged only;
                                                the LED is driven by set_led_fault().   */
+    HEALTH_EVENT_NTP_BAD_RESPONSE = 15,   /**< NtpClient: a server's reply failed the sanity
+                                               checks.  Logged only; no snapshot field.   */
     HEALTH_EVENT_COUNT                    /**< Sentinel — not a valid event.           */
 } health_event_t;
 

@@ -315,6 +315,22 @@ void test_HM_T15_alarm_raised_records_the_alarm_and_slows_the_led(void)
     TEST_ASSERT_EQUAL(LED_PATTERN_BLINK_SLOW, last_led_pattern());
 }
 
+void test_HM_T51_ntp_bad_response_event_is_accepted_and_changes_nothing(void)
+{
+    create_ok();
+    led_spy_reset();
+    health_snapshot_t before = snap();
+
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
+                      health_monitor_push_event(s_h, HEALTH_EVENT_NTP_BAD_RESPONSE, 0U));
+
+    health_snapshot_t after = snap();
+
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof(before));
+    TEST_ASSERT_EQUAL_UINT32(0U, after.ntp_sync_fail_count);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_led_calls);
+}
+
 void test_HM_T16_out_of_range_event_changes_nothing(void)
 {
     create_ok();

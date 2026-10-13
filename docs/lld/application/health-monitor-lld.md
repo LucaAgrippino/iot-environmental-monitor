@@ -145,6 +145,8 @@ typedef enum {
                                                   param = fault code. Logged
                                                   only; LED driven by
                                                   set_led_fault().           */
+    HEALTH_EVENT_NTP_BAD_RESPONSE     = 15,  /**< NtpClient: reply failed the sanity
+                                                  checks. Logged only.       */
     HEALTH_EVENT_COUNT                       /**< Sentinel — not a valid
                                                   event.                     */
 } health_event_t;
@@ -510,6 +512,7 @@ column shows how the second argument to `push_event()` is interpreted.
 | `CLOUD_DISCONNECTED` | unused (0) | `cloud_connected = false` | No |
 | `ALARM_RAISED` | sensor_id | `alarm_state[param] = ALARM_ACTIVE; alarm_raise_count++` | Yes |
 | `ALARM_CLEARED` | sensor_id | `alarm_state[param] = ALARM_CLEAR` | Yes |
+| `NTP_BAD_RESPONSE` | unused (0) | No snapshot field change; NtpClient logs the detail (added with NtpClient) | No |
 | `FAULT` | fault code | Logged at ERROR; no snapshot field change. LED driven by `set_led_fault()`, not by this event. | No |
 
 **Param validation.** Events that use `param` as `sensor_id`
