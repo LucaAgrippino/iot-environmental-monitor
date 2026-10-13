@@ -795,7 +795,7 @@ forwarded to the caller via `modbus_command_response_t.status`.
 | `s_poller` struct | 8 B | `poll_period_ms` (4 B) + `initialised` (1 B) + padding |
 | `s_cmd_queue` handle | 4 B | Queue handle pointer |
 | **Total static RAM** | **~1.1 KB** | Excludes task stack |
-| ModbusPollerTask stack | 2,048 B | `task-breakdown.md`. Measured worst path (`-fstack-usage`): drain 272 + execute 280 + transact_command 272 + `modbus_master_transact` 680 + UART 24 ≈ 1.5 KB before the FreeRTOS context frame (MBP-O5) |
+| ModbusPollerTask stack | 2,048 B | `task-breakdown.md`. Calculated worst path (`-fstack-usage`) ≈ 1.5 KB; measured high-water on the bench ≈ 1.8 KB (MBP-O5) |
 | **Total with stack** | **~3.1 KB** | |
 
 ### ROM budget
@@ -890,7 +890,7 @@ queue/delay stubs.
 | MBP-O1 | Command queue depth — 4 is provisional. Confirm at integration by measuring peak queue occupancy under worst-case concurrent callers (TimeService + ConsoleService + UpdateService). | Measure peak queue occupancy at integration | Open |
 | MBP-O2 | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. | Address when second Modbus slave is added | Open |
 | MBP-O4 | DeviceProfileRegistry is a placeholder: weak defaults serve one hard-coded Field Device profile. | Replace `device_profile_registry.c` when the real module is built; reconcile the `idevice_profile_provider_t` vtable with `device_profile_get_next()` / `device_profile_is_registered()` | Open |
-| MBP-O5 | Stack headroom — the `-fstack-usage` estimate is about 1.5 KB of the 2 KB budget. | Read the high-water mark in TC-HW-MBP-009 on the bench | Open |
+| MBP-O5 | Stack headroom — measured on the bench 2026-10-13 (TC-HW-MBP-009): 65 of 512 words free, so about 1.8 KB of the 2 KB budget is used (the `-fstack-usage` estimate of ~1.5 KB missed the FreeRTOS/ISR context frames). Passes, but with only ~260 B margin. | Re-measure with real traffic and the logger active; raise the stack to 640 words if the margin shrinks | Open |
 | MBP-O3 | `forward_response_to_consumers()` target interface — writes decoded register values to a shared data store for CloudPublisher and LcdDisplay consumption. Exact data-store interface TBD in the Gateway data-flow design. | Define when Gateway data-flow companion is written | Open |
 
 ---
