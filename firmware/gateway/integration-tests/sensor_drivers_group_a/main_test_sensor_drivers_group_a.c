@@ -15,10 +15,9 @@
  *   LD2 green  PA5                Heartbeat on completion, fast blink on halt
  *   I2C2       PB10 SCL / PB11 SDA  HTS221 @ 0x5F, LPS22HB @ 0x5D
  *
- * PREREQUISITE — the Gateway I2cDriver (i2c_driver_l4.c) is NOT written yet.
- * Until it is, i2c_driver_placeholder.c answers every transaction with
- * I2C_ERR_NACK, TC-HW-SA-001 reports it and the run halts.  The harness is
- * kept complete so that it runs unchanged the moment the L475 driver lands.
+ * PREREQUISITE — the Gateway I2cDriver (drivers/i2c/i2c_driver_l4.c).  Run its own
+ * bring-up (integration-tests/i2c) first: it proves the bus and the four sensors'
+ * WHO_AM_I before this harness depends on them.
  *
  * The drivers call vTaskDelay() for the STATUS_REG retry, so the sequence runs
  * inside a FreeRTOS task after the scheduler starts.
@@ -38,8 +37,7 @@
  *                  cross-check that catches a wrong T0/T1 MSB assembly.
  *
  * Integration checklist:
- *   [ ] TC-HW-SA-001 passes (needs the L475 I2cDriver; closes GPA-O3 once the
- *       TIMINGR value is settled)
+ *   [ ] TC-HW-SA-001 passes (closes GPA-O3 together with I2CD-O1)
  *   [ ] Humidity moves when breathed on; pressure moves ~0.1 hPa per metre
  *   [ ] No _ERR_NOT_READY across the five 1 Hz samples (ODR matches the poll rate)
  *   [ ] Record observed values in docs/lld/drivers/gw-sensor-drivers-group-a-lld.md

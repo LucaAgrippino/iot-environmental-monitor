@@ -50,6 +50,7 @@
     - gateway/middleware/ntp_client/**
     - gateway/drivers/humidity_temp_driver/**
     - gateway/drivers/barometer_driver/**
+    - gateway/drivers/i2c/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -149,6 +150,9 @@
   :test_barometer_driver:
     - STM32L475xx
     - BOARD_GATEWAY
+    - TEST
+  :test_i2c_driver_l4:
+    - STM32L475xx
     - TEST
 
 :cmock:
