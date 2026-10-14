@@ -820,7 +820,7 @@ firmware/gateway/drivers/barometer/
 
 firmware/gateway/drivers/i2c/
 ├── i2c_driver.h               /* II2c interface — Gateway copy (GPA-D7) */
-└── i2c_driver_placeholder.c   /* weak NACK-everything vtable until i2c_driver_l4.c lands */
+└── i2c_driver_l4.c            /* I2C v2 implementation (docs/lld/drivers/i2c-driver.md) */
 
 firmware/gateway/integration-tests/sensor_drivers_group_a/
 └── main_test_sensor_drivers_group_a.c   /* TC-HW-SA-001..006 */
@@ -899,7 +899,7 @@ checked against an independent floating-point model, ±1 LSB.
 **Results (2026-10-14):** HumidityTempDriver 18 / 18 pass, BarometerDriver 16 / 16
 pass, 0 ignored. Hardware cases TC-HW-SA-001..006 are in
 `firmware/gateway/integration-tests/sensor_drivers_group_a/` and have **not been
-run** (blocked on the Gateway I2cDriver, GPA-O5).
+run** (run after the I2cDriver bring-up passes).
 
 ---
 
@@ -911,7 +911,7 @@ run** (blocked on the Gateway I2cDriver, GPA-O5).
 | GPA-O2 | DRDY GPIO pin assignments (HTS221 → PD15/EXTI15, LPS22HB → PD10/EXTI10) from schematic Fig. 27 and Fig. 23. Not cross-checked against UM2153 Appendix A. | Luca | Verify against UM2153 Appendix A before implementation. Although not used at firmware level, the assignment must be documented correctly. | Open |
 | GPA-O3 | I2C2 TIMINGR value (clock speed, rise/fall times for L475) is a cross-cutting open item from I2cDriver companion (I2CD-O1 root). | Luca | Resolve in clock-config companion. | Open |
 | GPA-O4 | HTS221 AV_CONF register value 0x1B is the datasheet default. Optimal averaging for 1 Hz ODR should be confirmed against the datasheet noise/latency tradeoff table. | Luca | The register **address** was wrong in v1.0 (0xC0 → 0x10, GPA-D8); the value 0x1B is unchanged and safe. Judge the averaging against the noise seen in TC-HW-SA-005. | Open (address corrected) |
-| GPA-O5 | **The Gateway I2cDriver does not exist.** `i2c_driver_l4.c` (docs/lld/drivers/i2c-driver.md, Final) was never built and `i2c_driver.h` lived only in the Field Device tree. This PR adds the interface header and a weak placeholder (GPA-D7). Until the real driver lands every sensor read returns `*_ERR_I2C` on hardware. | Luca | Implement `i2c_driver_l4.c` as its own module; delete `i2c_driver_placeholder.c` in the same PR. It gates TC-HW-SA-001..006 and GPA-O3. | Open |
+| GPA-O5 | The Gateway I2cDriver did not exist when this companion was implemented. | Luca | `i2c_driver_l4.c` implemented 2026-10-14 (docs/lld/drivers/i2c-driver.md §7.6); the placeholder is deleted. Hardware validation of TC-HW-SA-001..006 is GPA-O6. | Closed 2026-10-14 |
 | GPA-O6 | Hardware validation of both drivers (TC-HW-SA-001..006). | Luca | Run the bring-up harness once GPA-O5 closes. Also confirms the corrected init values (GPA-D8) against real silicon. | Open |
 | GPA-O7 | Both drivers call `vTaskDelay` (FreeRTOS), but `components.md` lists no FreeRTOS in their USES and the coding rules forbid FreeRTOS includes in the driver layer unless USES permits it. Same position as the Gateway LedDriver. | Luca | Either add the FreeRTOS exception to `components.md` for blocking sensor drivers, or move the 2 ms retry up into SensorService. | Open |
 
@@ -927,7 +927,7 @@ run** (blocked on the Gateway I2cDriver, GPA-O5).
 | GPA-D4 | HTS221 calibration read as burst (auto-increment) | Reduces I2C transactions from 16 individual reads to 1 burst. Auto-increment enabled via address bit 7. |
 | GPA-D5 | Integer-only compensation for HTS221 | No float in driver layer. Verified intermediate products fit in int32_t. Consistent with fixed-point driver output convention. |
 | GPA-D6 | Vtable singleton pattern for both drivers | Consistent with I2cDriver (LLD-D10). SensorService depends on `ihumidity_temp_t` / `ibarometer_t` interfaces, enabling test mocking via vtable replacement. P2 conformant. |
-| GPA-D7 | The Gateway gets its own `i2c/i2c_driver.h` (interface copy of the Field Device header) plus a weak `i2c_driver_placeholder.c` | The two boards are separate CubeIDE projects and the shared header only existed under `field-device`. The weak vtable returns `I2C_ERR_NACK` so the image links and fails honestly; the real `i2c_driver_l4.c` replaces it by being added. Mirrors the weak-default idiom in `drivers/cpu/panic_symbols.c`. |
+| GPA-D7 | The Gateway gets its own `i2c/i2c_driver.h` (interface copy of the Field Device header) | The two boards are separate CubeIDE projects and the shared header only existed under `field-device`. Originally paired with a weak placeholder vtable; the placeholder is deleted now that `i2c_driver_l4.c` exists. |
 | GPA-D8 | Init register values corrected against the HTS221 / LPS22HB datasheets (ST BSP headers in `vendor/`): HTS221 CTRL_REG1 **0x85** (not 0x83), AV_CONF at **0x10** (not 0xC0), LPS22HB CTRL_REG2 **0x10** (not 0x00) | v1.0 wrote BDU=0 with ODR 12.5 Hz (0x83 = PD + ODR 11), wrote the averaging value to a reserved register (0xC0), and cleared IF_ADD_INC, which turns the 5-byte burst read into the same register five times. All three would pass a mocked-I2C test. |
 | GPA-D9 | `read()` before a successful `init()` returns `_ERR_NOT_READY` with no bus traffic, instead of a debug assertion | An assertion would abort the host test run and cannot be asserted on; the ready flag already exists. Release behaviour in v1.0 was "undefined". |
 | GPA-D10 | A zero calibration span (corrupt OTP) yields the H0 / T0 point rather than an error; humidity is clamped to 0..10000 | No error code exists for it and one reading is better than none for REQ-SA-060 (continue with available sensors). Clamping follows the datasheet's 0..100 %RH range. |
