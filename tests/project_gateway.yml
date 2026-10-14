@@ -48,6 +48,8 @@
     - gateway/middleware/modbus_master/**
     - gateway/application/modbus_poller/**
     - gateway/middleware/ntp_client/**
+    - gateway/drivers/humidity_temp_driver/**
+    - gateway/drivers/barometer_driver/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -137,6 +139,14 @@
     - BOARD_GATEWAY
     - TEST
   :test_ntp_client:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_humidity_temp_driver:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_barometer_driver:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST

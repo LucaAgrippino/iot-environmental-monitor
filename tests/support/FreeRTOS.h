@@ -229,6 +229,10 @@ extern uint32_t   g_mock_vTaskDelayUntil_call_count;
 extern TickType_t g_mock_vTaskDelayUntil_last_increment;
 extern uint32_t   g_mock_vQueueDelete_call_count;
 
+/* vTaskDelay mock (HumidityTempDriver / BarometerDriver STATUS_REG retry) */
+extern uint32_t   g_mock_vTaskDelay_call_count;
+extern TickType_t g_mock_vTaskDelay_last_ticks;
+
 /* Reset all g_mock_* state to defaults. Call from setUp(). */
 void mock_freertos_reset(void);
 
@@ -282,6 +286,7 @@ BaseType_t    xTaskNotifyFromISR(TaskHandle_t task, uint32_t value,
 
 BaseType_t    xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action);
 void          vTaskDelayUntil(TickType_t *previous_wake, TickType_t increment);
+void          vTaskDelay(TickType_t ticks);
 void          vQueueDelete(QueueHandle_t q);
 
 /* configASSERT is a no-op in the host build. */
