@@ -679,10 +679,11 @@ void imu_int1_irq_handler(void)
 }
 ```
 
-**Integration with the EXTI vectors.** The Gateway has no `stm32l4xx_it.c`
-yet (GPB-O8): each bring-up harness defines the vectors it needs, as the
-WiFi harnesses do for `EXTI1_IRQHandler`. The glue below is what the
-system layer must provide:
+**Integration with the EXTI vectors.** The vectors live in
+`firmware/gateway/Src/stm32l4xx_it.c` (GPB-O8, closed): weak handlers that test
+their pending bits, clear them through ExtiDriver and call the entry points
+above; a bring-up harness may still override them with a strong definition.
+The code is equivalent to:
 
 ```c
 #include "magnetometer_driver_internal.h"
@@ -1244,7 +1245,7 @@ and have **not been run**; TC-HW-SB-004 measures the real interrupt rates.
 | GPB-O5 | LIS3MDL CTRL_REG1 value 0x7C uses OM=11 (ultra-high performance), which increases power consumption (570 µA typ.). Acceptable for this project; would be revisited in a power-optimised build. | Luca | Note only — no action required for this project. | Open |
 | GPB-O6 | The LIS3MDL 10 Hz DRDY and LSM6DSL 104 Hz INT1 are latched high until the output registers are read. The 5 ms `xTaskNotifyWait()` of GPB-O2 therefore also depends on SensorTask reading every notified sample; if it skips a cycle the line stays high and no new edge arrives. | Luca | SensorService must read both sensors after every wake-up, even when it discards the sample. Verify in the SensorTask integration. | Open |
 | GPB-O7 | Hardware validation of both drivers (TC-HW-SB-001..009), including the real interrupt rates and the corrected register values. | Luca | Run `integration-tests/i2c` first, then `sensor_drivers_group_b`, board still and flat. | Open |
-| GPB-O8 | The Gateway has no `stm32l4xx_it.c`; only bring-up harnesses define EXTI vectors. `EXTI9_5_IRQHandler` and `EXTI15_10_IRQHandler` are shared with other lines and must be written once, in the system layer, when the real `main()` exists. | Luca | Create it with the Gateway entry point (see firmware-entry-point gap). | Open |
+| GPB-O8 | The Gateway had no `stm32l4xx_it.c`; only bring-up harnesses defined EXTI vectors. | Luca | `firmware/gateway/Src/stm32l4xx_it.c` provides weak `EXTI1`, `EXTI9_5` and `EXTI15_10` handlers (WifiDriver, MagnetometerDriver, ImuDriver); 6 host tests; link order verified on the built ELF. | Closed 2026-10-14 |
 
 ---
 
