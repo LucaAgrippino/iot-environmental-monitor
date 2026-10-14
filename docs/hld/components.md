@@ -453,13 +453,13 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Provides ambient atmospheric pressure readings to the layer above (REQ-SA-031).
 **PROVIDES (upward):** IBarometer
-**USES (downward):** I2cDriver, GpioDriver
+**USES (downward):** I2cDriver
 
 **NAME:** HumidityTempDriver
 **LAYER:** Driver
 **RESPONSIBILITY:** Provides ambient humidity and temperature readings to the layer above (REQ-SA-031).
 **PROVIDES (upward):** IHumidityTemp
-**USES (downward):** I2cDriver, GpioDriver
+**USES (downward):** I2cDriver
 
 **NAME:** QspiFlashDriver
 **LAYER:** Driver
