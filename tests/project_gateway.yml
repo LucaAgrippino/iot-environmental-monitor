@@ -53,10 +53,12 @@
     - gateway/drivers/i2c/**
     - gateway/drivers/magnetometer_driver/**
     - gateway/drivers/imu_driver/**
+    - gateway/system/**
   :source:
     - mocks/**
     - ../firmware/shared/
     - ../firmware/gateway/drivers/gpio/**
+    - ../firmware/gateway/Src
     - ../firmware/gateway/drivers/led/**
     - ../firmware/gateway/middleware/logger/**
     - ../firmware/gateway/middleware/time_provider/**
@@ -161,6 +163,10 @@
     - BOARD_GATEWAY
     - TEST
   :test_imu_driver:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_stm32l4xx_it:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
