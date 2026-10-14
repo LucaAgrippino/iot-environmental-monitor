@@ -18,12 +18,11 @@
  *
  * @note See docs/lld/drivers/i2c-driver.md for the full design.
  *
- * Gateway copy: this is the interface half of the shared I2cDriver header,
- * placed in the Gateway tree because the Gateway and Field Device are built
- * as separate CubeIDE projects. The L475 implementation (i2c_driver_l4.c)
- * is NOT yet written; until it lands, i2c_driver_placeholder.c supplies a
- * weak vtable that reports I2C_ERR_NACK so the sensor drivers link. Keep the
- * declarations below byte-compatible with the Field Device header.
+ * Gateway copy: the interface half of the shared I2cDriver header, kept in
+ * the Gateway tree because the two boards are separate CubeIDE projects. The
+ * implementation is i2c_driver_l4.c (STM32L475, I2C2, I2C v2). Keep the
+ * declarations below compatible with the Field Device header; the only
+ * addition is I2C_ERR_INVALID_ARG (I2CD-D7).
  */
 
 #ifndef I2C_DRIVER_H
@@ -43,10 +42,12 @@
  */
 typedef enum
 {
-    I2C_ERR_OK = 0,       /**< Operation succeeded. */
-    I2C_ERR_NACK = 1,     /**< Device did not acknowledge address or data byte. */
-    I2C_ERR_TIMEOUT = 2,  /**< A flag did not assert within the timeout window. */
-    I2C_ERR_BUS_BUSY = 3, /**< BUSY flag set at transaction start. */
+    I2C_ERR_OK = 0,          /**< Operation succeeded. */
+    I2C_ERR_NACK = 1,        /**< Device did not acknowledge address or data byte. */
+    I2C_ERR_TIMEOUT = 2,     /**< A flag did not assert within the timeout window. */
+    I2C_ERR_BUS_BUSY = 3,    /**< BUSY flag set at transaction start. */
+    I2C_ERR_INVALID_ARG = 4, /**< NULL pointer, zero length, length > 255 or address > 0x7F
+                                  (Gateway only; I2C v2 NBYTES is 8 bits wide). */
 } i2c_err_t;
 
 /* --------------------------------------------------------------------- */
@@ -62,8 +63,8 @@ typedef enum
  * calls i2c_write, i2c_read, or i2c_write_read.
  *
  * Peripheral: I2C1 on Field Device; I2C2 on Gateway.
- * Timing register values are placeholders pending clock-config.md resolution
- * (open items I2CD-O1, I2CD-O2 — see companion §8).
+ * TIMINGR is a placeholder (80 MHz I2CCLK, 400 kHz) pending bench measurement
+ * (open item I2CD-O1 — see companion §8).
  *
  * @return I2C_ERR_OK on success.
  * @note Threading: task-context only, non-blocking.
@@ -79,7 +80,7 @@ i2c_err_t i2c_init(void);
  * @param dev_addr  7-bit device address (not shifted).
  * @param data      Pointer to bytes to transmit (must not be NULL).
  * @param len       Number of bytes to transmit (must be >= 1).
- * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, I2C_ERR_BUS_BUSY or I2C_ERR_INVALID_ARG.
  * @note Threading: task-context only, may block. Not ISR-safe.
  * @note Pre-condition (debug builds): i2c_init() has been called successfully.
  */
@@ -94,7 +95,7 @@ i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len);
  * @param dev_addr  7-bit device address (not shifted).
  * @param buf       Pointer to receive buffer (must not be NULL).
  * @param len       Number of bytes to receive (must be >= 1).
- * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, I2C_ERR_BUS_BUSY or I2C_ERR_INVALID_ARG.
  * @note Threading: task-context only, may block. Not ISR-safe.
  * @note Pre-condition (debug builds): i2c_init() has been called successfully.
  */
@@ -115,7 +116,7 @@ i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len);
  * @param tx_len    Number of bytes in write phase (must be >= 1).
  * @param rx_buf    Receive buffer for read phase (must not be NULL).
  * @param rx_len    Number of bytes to receive in read phase (must be >= 1).
- * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, I2C_ERR_BUS_BUSY or I2C_ERR_INVALID_ARG.
  * @note Threading: task-context only, may block. Not ISR-safe.
  * @note Pre-condition (debug builds): i2c_init() has been called successfully.
  */
@@ -162,6 +163,14 @@ extern const ii2c_t *const i2c_driver;
  * project-wide convention established in DebugUartDriver and RtcDriver.
  */
 void i2c_reset_for_test(void);
+
+/**
+ * @brief Number of SCL pulses issued by the most recent bus recovery.
+ *
+ * Test-only (Gateway): a register mock cannot count BSRR writes, so the
+ * driver exposes the count. 0 when no recovery has run since the reset.
+ */
+uint32_t i2c_recovery_pulses_for_test(void);
 #endif
 
 #endif /* I2C_DRIVER_H */
