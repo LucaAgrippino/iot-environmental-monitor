@@ -19,9 +19,9 @@
  * PREREQUISITE — run integration-tests/i2c first: it proves the bus and the WHO_AM_I of
  * both sensors.  Keep the board STILL and flat for TC-HW-SB-006.
  *
- * The EXTI vectors are defined here (bench-local, like the other Gateway harnesses): the
- * production stm32l4xx_it.c does not exist yet.  Each handler clears the pending bit and
- * calls the driver's internal ISR entry point, whose callback notifies this task.
+ * The EXTI vectors are the production ones in Src/stm32l4xx_it.c: each clears the pending
+ * bit and calls the driver's internal ISR entry point, whose callback notifies this task.
+ * So this harness also exercises the real interrupt wiring.
  *
  * Automated test sequence:
  *   TC-HW-SB-001  magnetometer_init() and imu_init() succeed (Phase 1).
@@ -59,13 +59,10 @@
 #include "cpu/cpu.h"
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
-#include "exti/exti_driver.h"
 #include "gpio/gpio_driver.h"
 #include "i2c/i2c_driver.h"
 #include "imu_driver/imu_driver.h"
-#include "imu_driver/imu_driver_internal.h"
 #include "magnetometer_driver/magnetometer_driver.h"
-#include "magnetometer_driver/magnetometer_driver_internal.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
@@ -171,7 +168,7 @@ static void expect_true(const char *label, bool condition)
 }
 
 /* ---------------------------------------------------------------------- */
-/* ISR glue (bench-local) and callbacks                                    */
+/* Callbacks (the vectors themselves are in Src/stm32l4xx_it.c)           */
 /* ---------------------------------------------------------------------- */
 
 static void notify_task_from_isr(void *ctx, uint32_t bit)
@@ -191,24 +188,6 @@ static void imu_int1_cb(void *ctx)
 {
     s_imu_irq_count++;
     notify_task_from_isr(ctx, NOTIFY_BIT_IMU);
-}
-
-void EXTI9_5_IRQHandler(void)
-{
-    if ((EXTI->PR1 & (1UL << MAG_DRDY_LINE)) != 0U)
-    {
-        exti_clear_pending(MAG_DRDY_LINE);
-        magnetometer_drdy_irq_handler();
-    }
-}
-
-void EXTI15_10_IRQHandler(void)
-{
-    if ((EXTI->PR1 & (1UL << IMU_INT1_LINE)) != 0U)
-    {
-        exti_clear_pending(IMU_INT1_LINE);
-        imu_int1_irq_handler();
-    }
 }
 
 /** Wait for any of the bits; returns the bits received (0 on timeout). */
