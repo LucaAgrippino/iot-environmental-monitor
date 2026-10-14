@@ -1,11 +1,11 @@
 # I2cDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/i2c-driver.md`
-**Version:** 1.0
+**Version:** 1.1
 **Board scope:** Field Device (STM32F469, I2C1) and Gateway (B-L475E-IOT01A, I2C2)
 **Layer:** Driver
-**Status:** Final (Phase H complete 2026-06-01)
-**Date:** May 2026
+**Status:** Final (Phase H complete 2026-06-01). Gateway `i2c_driver_l4.c` implemented 2026-10-14 (host-tested; hardware validation pending, §7.6)
+**Date:** May 2026 (v1.1 October 2026)
 
 **HLD anchor:** I2cDriver in `components.md` (FD + GW driver layer)
 
@@ -60,6 +60,8 @@ typedef enum {
     I2C_ERR_BUS_BUSY = 3, /**< BUSY flag set at transaction start. */
 } i2c_err_t;
 ```
+
+**Gateway addition (I2CD-D7).** The Gateway copy of `i2c_driver.h` adds `I2C_ERR_INVALID_ARG = 4` (NULL pointer, length 0 or > 255, address > 0x7F). The v2 `NBYTES` field is 8 bits wide and the 16-bit `len` parameters would otherwise silently truncate. The Field Device header is unchanged.
 
 ### 2.5 Public API (`i2c_driver.h`)
 
@@ -459,6 +461,20 @@ Both paths are covered by the existing wildcard globs `field-device/**` and `gat
 
 Every `i2c_err_t` value (`I2C_ERR_OK`, `I2C_ERR_NACK`, `I2C_ERR_TIMEOUT`, `I2C_ERR_BUS_BUSY`) is produced by ≥ 1 test in each test file. Every public API function has ≥ 1 happy-path and ≥ 1 error-path test. TC-I2C-F4-010 covers the single-byte read errata path explicitly — this is the highest-risk path in the F469 implementation per RM0386 §27.3.3. Bus recovery (TC-I2C-F4-013, TC-I2C-L4-011) verifies that PE is cleared and SCL is toggled 9 times via the mock GPIO; full electrical validation (SDA release detection) is deferred to hardware integration (I2CD-O4).
 
+### 7.6 Gateway implementation addendum (v1.1)
+
+**Location.** `firmware/gateway/drivers/i2c/i2c_driver.h` (Gateway copy of the interface) and `i2c_driver_l4.c`. Tests: `tests/gateway/drivers/i2c/test_i2c_driver_l4.c`, run under `tests/project_gateway.yml` (`:test_i2c_driver_l4:`) because `i2c_driver.h` exists in both trees; the default project excludes the Gateway directory. The trigger header `tests/support/i2c_driver_l4.h` links the `.c` into the test, mirroring `i2c_driver_f4.h`.
+
+**Test results (2026-10-14):** TC-I2C-L4-001..011 as specified plus TC-I2C-L4-012..020 (busy-strike reset; recovery with SDA already released; invalid arguments; 255-byte limit; read NACK; RXNE, STOPF and write_read RXNE timeouts; vtable). 20 / 20 pass.
+
+**Interpretations of the plan.**
+
+- TC-I2C-L4-003 / 007: the write-phase CR2 of a combined transaction (`AUTOEND = 0`) is overwritten by the read phase, so it is observed through the TC-timeout case (TC-I2C-L4-009), which stops before the read phase.
+- TC-I2C-L4-011 was specified as "BUSY persists, write call times out". It is implemented as the §6.1 contract: the first BUSY-at-entry returns `I2C_ERR_BUS_BUSY`; a BUSY on the consumer's retry (second consecutive) runs recovery and returns `I2C_ERR_TIMEOUT` (I2CD-D8).
+- A register mock cannot observe BSRR writes, so the pulse count is exposed through `i2c_recovery_pulses_for_test()`.
+
+**Hardware cases** `TC-HW-I2C-001..008` are in `firmware/gateway/integration-tests/i2c/main_test_i2c_driver.c` (WHO_AM_I of all four sensors, write / read-back, plain read, 16-byte burst, NACK on an absent address, argument rejection, DWT-timed transaction). **Not yet run.**
+
 ---
 
 ## 8. Open items
@@ -468,6 +484,7 @@ Every `i2c_err_t` value (`I2C_ERR_OK`, `I2C_ERR_NACK`, `I2C_ERR_TIMEOUT`, `I2C_E
 | I2CD-O1 | `TIMINGR` value for I2C2 on L475 at 400 kHz. Depends on I2CCLK source, resolved in `clock-config.md`. Use STM32CubeIDE I2C timing tool once clock tree is fixed. | Luca | Resolve when `clock-config.md` lands (DUART-O2 dependency) |
 | I2CD-O2 | `CCR` and `TRISE` values for I2C1 on F469 at 400 kHz. Depends on PCLK1. Same root dependency as I2CD-O1. | Luca | Resolve when `clock-config.md` lands |
 | I2CD-O3 | F469 I2C1 pin assignment (SCL, SDA, alternate function number). Verify against UM1932 schematic and FT6206 datasheet before implementation. | Luca | Check at implementation |
+| I2CD-O5 | Gateway `TIMINGR` is the common 80 MHz / 400 kHz value `0x00702991`, entered from memory of the CubeMX-generated constant, not computed from RM0351 against measured rise / fall times. TC-HW-I2C-008 bounds the transaction time; the edge timing needs a scope. Feeds I2CD-O1. | Luca | Measure SCL frequency, tr and tf on the bench; adjust or confirm. | 
 | I2CD-O4 | Bus recovery sequence validation. The 9-clock recovery is specified behaviour but the timing and GPIO reconfiguration must be validated on hardware; hard to test fully on host. | Luca | Validate at integration with an oscilloscope or logic analyser |
 
 **Inherited open items with no surface area in this companion:**
@@ -486,4 +503,8 @@ Every `i2c_err_t` value (`I2C_ERR_OK`, `I2C_ERR_NACK`, `I2C_ERR_TIMEOUT`, `I2C_E
 | I2CD-D3 | `i2c_write_read` as single atomic operation | Callers must not manage the repeated START; doing so would push hardware knowledge upward, violating P1 |
 | I2CD-D4 | 7-bit address convention | Caller supplies the 7-bit address; driver shifts internally; cleaner API — callers never see the 8-bit wire format |
 | I2CD-D5 | Singleton module (no handle) | One I2C peripheral per board; consistent with RtcDriver and GpioDriver; handle adds no value |
+| I2CD-D7 | Gateway header adds `I2C_ERR_INVALID_ARG` | `NBYTES` is 8 bits; a `uint16_t` length > 255 would truncate silently. Reusing `NACK` / `TIMEOUT` for a caller bug would mislead the consumer's fault handling. Field Device header untouched. |
+| I2CD-D8 | BUSY-at-entry is a two-strike rule: first returns `BUS_BUSY`, a second consecutive one runs recovery and returns `TIMEOUT` | Implements §6.1 ("consumer may retry once; if still busy, treat as TIMEOUT") without the driver sleeping. A stuck-low SDA shows as BUSY forever, so this is the only path that frees it. |
+| I2CD-D9 | A NACK waits (bounded) for the automatic STOPF, then clears NACKF + STOPF and flushes TXDR | The master sends STOP by itself after a NACK. Leaving STOPF set would satisfy the next transaction's STOP wait early. |
+| I2CD-D10 | Recovery clocks SCL as an open-drain output, samples SDA as an input before every pulse, and sends a manual STOP if SDA released | Open-drain never fights a stretching slave; sampling first avoids pointless pulses on a bus that is merely BUSY. The result is always `TIMEOUT` for the failed transaction; recovery only leaves the bus usable for the retry. |
 | I2CD-D6 | Bus recovery on timeout before returning error | Supports REQ-NF-205 (sensor reinitialisation); without recovery, a stuck SDA line requires a full MCU reset rather than a `SensorService`-level recovery |

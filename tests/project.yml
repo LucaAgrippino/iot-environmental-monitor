@@ -20,6 +20,9 @@
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
     - -:gateway/drivers/modbus_uart_driver/**
+    - -:gateway/drivers/humidity_temp_driver/**
+    - -:gateway/drivers/barometer_driver/**
+    - -:gateway/drivers/i2c/**
     - gateway/middleware/circular_flash_log/**
     - gateway/middleware/mqtt_client/**
     - gateway/middleware/wifi_task/**
@@ -33,6 +36,9 @@
     - -:../firmware/gateway/drivers/gpio/**
     - -:../firmware/gateway/drivers/led/**
     - -:../firmware/gateway/drivers/modbus_uart_driver/**
+    - -:../firmware/gateway/drivers/humidity_temp_driver/**
+    - -:../firmware/gateway/drivers/barometer_driver/**
+    - -:../firmware/gateway/drivers/i2c/**
     - -:../firmware/**/Debug/**
     - ../firmware/gateway/middleware/circular_flash_log/**
     - ../firmware/gateway/middleware/mqtt_client/**
