@@ -32,8 +32,6 @@
  *   confirm the transmitted words appear MSB-first.
  */
 
-
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>

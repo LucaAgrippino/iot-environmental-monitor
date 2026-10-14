@@ -293,8 +293,8 @@ static void bringup_countdown(const char *action)
  * uses a real per-second yield instead of one long delay.
  */
 static void bringup_socket_roundtrip(wifi_handle_t wifi_handle, const char *tc_id,
-                                     wifi_socket_type_t type, uint16_t port,
-                                     const uint8_t *hello, size_t hello_len)
+                                     wifi_socket_type_t type, uint16_t port, const uint8_t *hello,
+                                     size_t hello_len)
 {
     const char *proto = (type == WIFI_SOCKET_TCP) ? "TCP" : "UDP";
 
@@ -328,8 +328,8 @@ static void bringup_socket_roundtrip(wifi_handle_t wifi_handle, const char *tc_i
 
     uint8_t rx_buf[64];
     size_t rx_len = 0U;
-    wifi_err_t recv_err = wifi_recv(wifi_handle, sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len,
-                                    BRINGUP_RECV_TIMEOUT_MS);
+    wifi_err_t recv_err =
+        wifi_recv(wifi_handle, sock, rx_buf, sizeof(rx_buf) - 1U, &rx_len, BRINGUP_RECV_TIMEOUT_MS);
     if (recv_err == WIFI_ERR_OK)
     {
         rx_buf[rx_len] = (uint8_t) '\0';

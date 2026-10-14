@@ -8,9 +8,9 @@ component — command parsing, dispatch, provisioning workflow,
 operational configuration workflow, self-test execution, and
 board-specific command sets.
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** June 2026
-**Status:** Ready for Pass H review
+**Status:** Pass H complete
 
 **HLD anchor:** ConsoleService in `components.md` (FD + GW application layer)
 
@@ -559,18 +559,32 @@ a single-method vtable; no class of consumers requires only a subset.
 
 ## 18. Unit test plan (Pass H)
 
-File: `tests/field-device/application/console_service/test_console_service.c`
-(plus `tests/gateway/application/console_service/test_console_service_gw.c`
-for board-specific commands).
+### 18.0 Framework, location, and mock strategy
 
-All tests use CMock-generated mocks for `IDebugUart`, `ISensorService`,
-`IConfigProvider`, `IConfigManager`, `IHealthSnapshot`,
-`IDeviceProfileManager`, `ILogger`. UART output is captured via the
-mocked `IDebugUart.write()` — assertions on output text use
-`TEST_ASSERT_EQUAL_STRING` against the captured buffer.
+**Framework:** Unity + CMock (ThrowTheSwitch.org).
 
-Test isolation: `console_service_reset_for_test()` (TEST-only)
-zeroes file-scope statics between cases.
+**Files:**
+
+- `tests/firmware/field-device/application/console_service/test_console_service.c` — init, parser, shared commands, config workflow, prov workflow (FD-valid keys), self-test, cross-cutting.
+- `tests/firmware/gateway/application/console_service/test_console_service_gw.c` — GW-specific commands (`profiles`, `wifi status`, `mqtt status`) and GW prov keys (`wifi-ssid`, `wifi-pass`, `mqtt-endpoint`).
+
+**Build target:** host (PC).
+
+**Mock strategy:**
+
+All dependencies are injected interfaces. CMock generates mocks from each interface header:
+
+- **`IDebugUart` mock.** TX output captured via a `write` stub into a test-visible string buffer (`s_uart_capture[]`, `s_uart_capture_len`). Tests assert on substrings (`strstr`) or exact match (`TEST_ASSERT_EQUAL_STRING`) in the captured output. RX line injection: `read_line` `ExpectAndReturn` feeds canned input lines to `run_once()`. Timed-read for confirm prompts: the timed-read mock returns `'y'`, `'n'`, or times out to exercise the three confirm-prompt paths.
+- **`ISensorService` mock.** `force_read` returns a canned `sensor_reading_t` with configurable `valid`, `value`, `unit`, and `timestamp` fields. Default: all sensors valid.
+- **`IConfigProvider` mock.** `get_params` returns a canned parameter set for `config list` verification.
+- **`IConfigManager` mock.** `apply_prov_block` / `apply_cfg_block` return configurable error codes (default: OK). `round_trip_test` returns OK or error for self-test. `store_selftest_result` captures the result struct for assertion. `get_selftest_result` returns a canned result or a "no result" error.
+- **`IHealthSnapshot` mock.** `get` returns a canned health snapshot with configurable `modbus_slave_ok`, `wifi_ok`, `mqtt_ok`, `modbus_master_ok` flags, link state, RSSI, and counters.
+- **`IDeviceProfileManager` mock (GW only).** `list_profiles`, `add_profile`, `remove_profile` capture calls and return configurable results.
+- **`ILogger` mock.** Captures log level and message for assertions on observability requirements (TC-CS-171..173). Default: pass-through.
+
+**Test isolation:** `console_service_reset_for_test(void)` under `#ifdef TEST`. Clears all file-scope statics (`s_line_buf`, `s_ring_buf`, `s_prov_pending`, `s_cfg_pending`, `s_initialised`, interface pointers, head/tail/flags). Called from `setUp()`.
+
+**Precondition preamble:** Unless stated otherwise, "service initialised" means `console_service_init()` has returned `CONSOLE_SERVICE_ERR_OK` with all required mocks wired. "FD build" / "GW build" indicates the `BOARD_FIELD_DEVICE` / `BOARD_GATEWAY` compile flag. Tests that exercise `run_once()` feed a complete input line (ending with `\n`) through the `IDebugUart` read-line mock, then call `console_service->run_once()` and assert on the UART capture buffer and/or the return code.
 
 ### 18.1 Initialisation suite
 
@@ -658,6 +672,9 @@ zeroes file-scope statics between cases.
 | TC-CS-096 | `prov commit` with 30 s timeout → same as decline | REQ-LI-0E3 |
 | TC-CS-097 | `prov commit` with `apply_prov_block` returning error → `dirty == true` retained, `[ERR] apply failed` | REQ-LI-120 |
 | TC-CS-098 | `prov discard` → pending zeroed, `dirty == false`, `[INFO] Discarded` | REQ-LI-0E3 |
+| TC-CS-100 | *(Pass H addition)* `prov set wifi-pass ValidPa$$ ` (8 chars, valid) → staged, `dirty == true` (GW only) | REQ-LI-040 |
+| TC-CS-101 | `prov set wifi-pass short` (< 8 chars) → `[ERR] invalid value`, `dirty` unchanged | REQ-LI-090 |
+| TC-CS-102 | `prov set wifi-pass <64-char string>` (> 63 chars) → `[ERR] invalid value`, `dirty` unchanged | REQ-LI-090 |
 
 ### 18.6 Self-test suite
 
@@ -700,6 +717,40 @@ zeroes file-scope statics between cases.
 | TC-CS-171 | A handler returning `CONSOLE_SERVICE_ERR_VALIDATION` logs at DEBUG via `ILogger` | P8 |
 | TC-CS-172 | A handler returning `CONSOLE_SERVICE_ERR_APPLY_FAILED` logs at WARN via `ILogger` | P8 |
 | TC-CS-173 | `console_service_init` failure logs at ERROR via `ILogger` | P8 |
+
+### 18.10 Error-code coverage cross-check
+
+| Error code | Produced by TC(s) |
+|---|---|
+| `CONSOLE_SERVICE_ERR_OK` | TC-CS-007, -009, -010, -011, -020, -040, -042, -043, -044, -046, -049, -060, -063, -064, -068, -080, -085, -088, -090, -093, -094, -098, -100, -110 |
+| `CONSOLE_SERVICE_ERR_NULL_ARG` | TC-CS-001, -002, -003, -004, -005, -006, -008 |
+| `CONSOLE_SERVICE_ERR_NOT_INIT` | TC-CS-012 |
+| `CONSOLE_SERVICE_ERR_VALIDATION` | TC-CS-061, -081, -082, -084, -086, -087, -089, -091, -101, -102 |
+| `CONSOLE_SERVICE_ERR_UNKNOWN_KEY` | TC-CS-023, -062, -092 |
+| `CONSOLE_SERVICE_ERR_APPLY_FAILED` | TC-CS-067, -097 |
+| `CONSOLE_SERVICE_ERR_TIMEOUT` | TC-CS-066, -096 |
+| `CONSOLE_SERVICE_ERR_LINE_OVERFLOW` | TC-CS-027 |
+
+All eight values of `console_service_err_t` are exercised.
+
+### 18.11 Coverage target
+
+- 100% of public API functions exercised (`console_service_init`, `run_once`, `console_task_body`).
+- 100% of `s_cmd_table` entries invoked by at least one test case.
+- 100% of error codes in `console_service_err_t` produced by at least one test case.
+- 100% of validation rules in §9.4 exercised with at least one valid and one invalid value.
+- ≥ 85% statement coverage in `console_service.c`. (Lower than the 90% driver target because the command-dispatch table generates many small handlers; a few GW-only handlers are not exercised in the FD test file and vice versa.)
+
+### 18.12 Cannot be host-tested
+
+- Actual UART byte timing and ISR-to-task notification latency.
+- Ring-buffer overflow under sustained traffic (requires real ISR rates).
+- Confirm-prompt 30 s wall-clock timeout accuracy — host tests verify the timeout path via mock, not elapsed time.
+- Config persistence across power cycles (REQ-DM-090) — `IConfigManager` is mocked; end-to-end persistence is an integration test (IT-CS-006).
+- Self-test with real hardware probes (sensor I²C, flash write-verify on device) — TC-CS-110..118 exercise the logic with mocked providers; physical evidence is IT-CS-010/011.
+- WiFi/MQTT link-state reporting from live hardware — TC-CS-136/137 verify the display logic against mocked health snapshots.
+
+These are covered by the §19 integration test plan.
 
 ---
 

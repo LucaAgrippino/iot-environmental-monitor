@@ -74,22 +74,22 @@
 /* Configuration                                                         */
 /* ===================================================================== */
 
-#define LOG_MODULE                ("MSLAVE")
+#define LOG_MODULE ("MSLAVE")
 
-#define MODBUS_TASK_STACK_WORDS   (512U)
-#define MODBUS_TASK_PRIORITY      (tskIDLE_PRIORITY + 2U)
+#define MODBUS_TASK_STACK_WORDS (512U)
+#define MODBUS_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 
-#define STATS_TASK_STACK_WORDS    (256U)
-#define STATS_TASK_PRIORITY       (tskIDLE_PRIORITY + 1U)
+#define STATS_TASK_STACK_WORDS (256U)
+#define STATS_TASK_PRIORITY (tskIDLE_PRIORITY + 1U)
 
 /** Slave address used for the integration test. */
-#define TEST_SLAVE_ADDR           (0x01U)
+#define TEST_SLAVE_ADDR (0x01U)
 
 /** Holding register value returned for all read requests. */
-#define TEST_HOLDING_VALUE        (0x1234U)
+#define TEST_HOLDING_VALUE (0x1234U)
 
 /** Notify bit set by ISR callback. */
-#define MODBUS_NOTIFY_RX_DONE     (1UL)
+#define MODBUS_NOTIFY_RX_DONE (1UL)
 
 /* ===================================================================== */
 /* Minimal register map — stub for integration test                     */
@@ -111,14 +111,14 @@ static modbus_slave_err_t it_read_holding(uint16_t addr, uint16_t *out)
 
 static modbus_slave_err_t it_write_holding(uint16_t addr, uint16_t value)
 {
-    LOG_INFO(LOG_MODULE, "Phase 2: FC06 write addr=0x%04X val=0x%04X",
-             (unsigned) addr, (unsigned) value);
+    LOG_INFO(LOG_MODULE, "Phase 2: FC06 write addr=0x%04X val=0x%04X", (unsigned) addr,
+             (unsigned) value);
     return MODBUS_SLAVE_ERR_OK;
 }
 
 static const IModbusRegisterMap k_reg_map = {
-    .read_input    = it_read_input,
-    .read_holding  = it_read_holding,
+    .read_input = it_read_input,
+    .read_holding = it_read_holding,
     .write_holding = it_write_holding,
 };
 
@@ -127,24 +127,22 @@ static const IModbusRegisterMap k_reg_map = {
 /* ===================================================================== */
 
 static StaticTask_t s_modbus_tcb;
-static StackType_t  s_modbus_stack[MODBUS_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_modbus_stack[MODBUS_TASK_STACK_WORDS] __attribute__((aligned(8)));
 
 static void modbus_task(void *arg)
 {
     (void) arg;
 
     /* Two-phase init: call modbus_slave_init() here so task_handle is valid. */
-    modbus_slave_err_t err = modbus_slave_init(&k_reg_map,
-                                               TEST_SLAVE_ADDR,
-                                               xTaskGetCurrentTaskHandle());
+    modbus_slave_err_t err =
+        modbus_slave_init(&k_reg_map, TEST_SLAVE_ADDR, xTaskGetCurrentTaskHandle());
     if (err != MODBUS_SLAVE_ERR_OK)
     {
         LOG_ERROR(LOG_MODULE, "modbus_slave_init FAILED err=%u", (unsigned) err);
         vTaskDelete(NULL);
     }
 
-    LOG_INFO(LOG_MODULE, "modbus_slave_init OK — slave addr=0x%02X",
-             (unsigned) TEST_SLAVE_ADDR);
+    LOG_INFO(LOG_MODULE, "modbus_slave_init OK — slave addr=0x%02X", (unsigned) TEST_SLAVE_ADDR);
     LOG_INFO(LOG_MODULE, "Listening for Modbus RTU frames on USART6 (PG14 TX / PG9 RX)");
 
     for (;;)
@@ -162,7 +160,7 @@ static void modbus_task(void *arg)
 /* ===================================================================== */
 
 static StaticTask_t s_stats_tcb;
-static StackType_t  s_stats_stack[STATS_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_stats_stack[STATS_TASK_STACK_WORDS] __attribute__((aligned(8)));
 
 static void stats_task(void *arg)
 {
@@ -176,16 +174,13 @@ static void stats_task(void *arg)
         modbus_slave_stats_t stats;
         (void) modbus_slave_get_stats(&stats);
 
-        LOG_INFO(LOG_MODULE, "[MSLAVE-task] tick %lu  valid=%lu crc_err=%lu",
-        					(unsigned long) tick,
-        	                (unsigned long) stats.valid_frames,
-        	                (unsigned long) stats.crc_errors);
+        LOG_INFO(LOG_MODULE, "[MSLAVE-task] tick %lu  valid=%lu crc_err=%lu", (unsigned long) tick,
+                 (unsigned long) stats.valid_frames, (unsigned long) stats.crc_errors);
 
         LOG_INFO(LOG_MODULE, "[MSLAVE-task] mismatch=%lu exc=%lu unsup=%lu ok=%lu",
-        					 (unsigned long) stats.address_mismatches,
-							 (unsigned long) stats.exception_responses,
-							 (unsigned long) stats.unsupported_fc,
-							 (unsigned long) stats.successful_responses);
+                 (unsigned long) stats.address_mismatches,
+                 (unsigned long) stats.exception_responses, (unsigned long) stats.unsupported_fc,
+                 (unsigned long) stats.successful_responses);
 
         vTaskDelay(pdMS_TO_TICKS(1000U));
     }
@@ -215,21 +210,11 @@ int main(void)
 
     /* 5. Create tasks — ModbusTask first so its handle is valid before
      *    modbus_slave_init() is called inside the task body. */
-    (void) xTaskCreateStatic(modbus_task,
-                             "ModbusTask",
-                             MODBUS_TASK_STACK_WORDS,
-                             NULL,
-                             MODBUS_TASK_PRIORITY,
-                             s_modbus_stack,
-                             &s_modbus_tcb);
+    (void) xTaskCreateStatic(modbus_task, "ModbusTask", MODBUS_TASK_STACK_WORDS, NULL,
+                             MODBUS_TASK_PRIORITY, s_modbus_stack, &s_modbus_tcb);
 
-    (void) xTaskCreateStatic(stats_task,
-                             "StatsTask",
-                             STATS_TASK_STACK_WORDS,
-                             NULL,
-                             STATS_TASK_PRIORITY,
-                             s_stats_stack,
-                             &s_stats_tcb);
+    (void) xTaskCreateStatic(stats_task, "StatsTask", STATS_TASK_STACK_WORDS, NULL,
+                             STATS_TASK_PRIORITY, s_stats_stack, &s_stats_tcb);
 
     /* 6. Start scheduler. Does not return under normal operation. */
     vTaskStartScheduler();

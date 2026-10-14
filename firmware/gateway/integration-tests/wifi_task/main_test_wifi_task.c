@@ -234,8 +234,8 @@ static void bringup_countdown(const char *action)
  *        directly. Shared by TC-HW-WIFITASK-005 (TCP) and -006 (UDP).
  */
 static void bringup_socket_roundtrip(wifitask_handle_t wifitask_handle, const char *tc_id,
-                                     wifi_socket_type_t type, uint16_t port,
-                                     const uint8_t *hello, size_t hello_len)
+                                     wifi_socket_type_t type, uint16_t port, const uint8_t *hello,
+                                     size_t hello_len)
 {
     const char *proto = (type == WIFI_SOCKET_TCP) ? "TCP" : "UDP";
 
@@ -312,7 +312,7 @@ static void wifitask_bringup_task(void *arg)
         bringup_fail("TC-HW-WIFITASK-002  wifitask_create() failed");
     }
     LOG_INFO("WifiTask", "TC-HW-WIFITASK-002  wifitask_create() returned WIFITASK_ERR_OK "
-                        "(WifiTask's own task is now running)");
+                         "(WifiTask's own task is now running)");
 
     /* TC-HW-WIFITASK-003 */
     wifi_link_state_t link_state;
@@ -323,7 +323,7 @@ static void wifitask_bringup_task(void *arg)
         bringup_fail("TC-HW-WIFITASK-003  expected WIFI_LINK_DOWN before wifitask_connect_ap()");
     }
     LOG_INFO("WifiTask", "TC-HW-WIFITASK-003  link state is WIFI_LINK_DOWN pre-connect "
-                        "(round trip through WifiTask confirmed)");
+                         "(round trip through WifiTask confirmed)");
 
     /* TC-HW-WIFITASK-004 — only runs if credentials were filled in above. */
     if (sizeof(BRINGUP_WIFI_SSID) > 1U)
@@ -363,18 +363,18 @@ static void wifitask_bringup_task(void *arg)
         else
         {
             LOG_INFO("WifiTask", "BRINGUP_REMOTE_HOST is empty - skipping "
-                                "TC-HW-WIFITASK-005/006");
+                                 "TC-HW-WIFITASK-005/006");
         }
     }
     else
     {
         LOG_INFO("WifiTask", "BRINGUP_WIFI_SSID is empty - skipping "
-                            "TC-HW-WIFITASK-004/005/006");
+                             "TC-HW-WIFITASK-004/005/006");
     }
 
     LOG_INFO("WifiTask", "All automated tests complete. Heartbeat running — the periodic "
-                        "liveness-check tick (WIFI-O15) fires every 30 s from here on "
-                        "whenever WifiTask's request queue is idle.");
+                         "liveness-check tick (WIFI-O15) fires every 30 s from here on "
+                         "whenever WifiTask's request queue is idle.");
 
     for (;;)
     {
@@ -542,7 +542,7 @@ int main(void)
                      "handshake, or firmware version check)");
     }
     LOG_INFO("WifiTask", "TC-HW-WIFITASK-001  wifi_create() completed reset + AT handshake + "
-                        "firmware check");
+                         "firmware check");
     LOG_INFO("WifiTask", "starting scheduler...");
 
     (void) xTaskCreateStatic(wifitask_bringup_task, "wifitask_bringup", BRINGUP_TASK_STACK_WORDS,

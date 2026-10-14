@@ -55,34 +55,30 @@
 /* Monitor task — logs lifecycle state transitions on UART                 */
 /* ======================================================================= */
 
-static StackType_t  s_monitor_stack[IT_TASK_STACK_WORDS];
+static StackType_t s_monitor_stack[IT_TASK_STACK_WORDS];
 static StaticTask_t s_monitor_tcb;
 
 static void monitor_task(void *arg)
 {
-    (void)arg;
+    (void) arg;
     lifecycle_state_t prev_state = LIFECYCLE_STATE_INIT;
 
     /* Wait for the start-gate before entering the polling loop */
     EventGroupHandle_t gate = lifecycle_get_start_gate();
-    (void)xEventGroupWaitBits(gate, LIFECYCLE_START_GATE_BIT,
-                              pdFALSE, pdTRUE, portMAX_DELAY);
+    (void) xEventGroupWaitBits(gate, LIFECYCLE_START_GATE_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
 
-    LOG_INFO("[IT-LC]","Start-gate released — Operational entered");
+    LOG_INFO("[IT-LC]", "Start-gate released — Operational entered");
 
     for (;;)
     {
         lifecycle_state_t cur = lifecycle_controller->get_state();
         if (cur != prev_state)
         {
-            static const char *const state_names[] = {
-                "INIT", "OPERATIONAL", "EDITING_CONFIG",
-                "RESTARTING", "UPDATING_FW", "FAULTED"
-            };
+            static const char *const state_names[] = {"INIT",       "OPERATIONAL", "EDITING_CONFIG",
+                                                      "RESTARTING", "UPDATING_FW", "FAULTED"};
             const char *name = (cur < 6U) ? state_names[cur] : "???";
-            LOG_INFO("[IT-LC] State → %s  (reset_cause=%u)",
-                     name,
-                     (unsigned)lifecycle_controller->get_reset_cause());
+            LOG_INFO("[IT-LC] State → %s  (reset_cause=%u)", name,
+                     (unsigned) lifecycle_controller->get_reset_cause());
             prev_state = cur;
         }
         vTaskDelay(pdMS_TO_TICKS(IT_MONITOR_PERIOD_MS));
@@ -101,13 +97,8 @@ static void monitor_task(void *arg)
  */
 void it_lc_start(void)
 {
-    (void)xTaskCreateStatic(monitor_task,
-                            "IT_LC_Monitor",
-                            IT_TASK_STACK_WORDS,
-                            NULL,
-                            tskIDLE_PRIORITY + 1U,
-                            s_monitor_stack,
-                            &s_monitor_tcb);
+    (void) xTaskCreateStatic(monitor_task, "IT_LC_Monitor", IT_TASK_STACK_WORDS, NULL,
+                             tskIDLE_PRIORITY + 1U, s_monitor_stack, &s_monitor_tcb);
 
     LOG_INFO("[IT-LC]", "Integration test monitor started");
     LOG_INFO("[IT-LC]", "IT-LC-001: Cold boot FD -> 5 sub-states then Operational");
@@ -121,9 +112,9 @@ void it_lc_start(void)
 /* ======================================================================= */
 
 #define CONSOLE_TASK_STACK_WORDS (512U)
-#define CONSOLE_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define CONSOLE_TASK_PRIORITY (tskIDLE_PRIORITY + 1U)
 
-static StackType_t  s_console_stack[CONSOLE_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_console_stack[CONSOLE_TASK_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_console_tcb;
 
 /* ======================================================================= */
@@ -131,16 +122,16 @@ static StaticTask_t s_console_tcb;
 /* ======================================================================= */
 
 #define MODBUS_TASK_STACK_WORDS (512U)
-#define MODBUS_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define MODBUS_TASK_PRIORITY (tskIDLE_PRIORITY + 1U)
 
-static StackType_t  s_modbus_stack[MODBUS_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_modbus_stack[MODBUS_TASK_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_modbus_tcb;
 
 /* LifecycleTask static storage (last task created per §17) */
-#define LC_TASK_STACK_WORDS  (2048U)
-#define LC_TASK_PRIORITY     (tskIDLE_PRIORITY + 2U)
+#define LC_TASK_STACK_WORDS (2048U)
+#define LC_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 
-static StackType_t  s_lc_stack[LC_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_lc_stack[LC_TASK_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_lc_tcb;
 
 /* ======================================================================= */
@@ -199,7 +190,7 @@ static modbus_slave_err_t bridge_write_holding(uint16_t addr, uint16_t val)
 }
 
 static const IModbusRegisterMap s_legacy_map = {
-    .read_input   = bridge_read_input,
+    .read_input = bridge_read_input,
     .read_holding = bridge_read_holding,
     .write_holding = bridge_write_holding,
 };
@@ -215,8 +206,8 @@ static void modbus_task(void *arg)
     const config_params_t *cfg = config_provider->get_params();
     uint8_t slave_addr = (cfg != NULL) ? (uint8_t) cfg->modbus_slave_addr : 1U;
 
-    modbus_slave_err_t err = modbus_slave_init(&s_legacy_map, slave_addr,
-                                               xTaskGetCurrentTaskHandle());
+    modbus_slave_err_t err =
+        modbus_slave_init(&s_legacy_map, slave_addr, xTaskGetCurrentTaskHandle());
     if (err != MODBUS_SLAVE_ERR_OK)
     {
         LOG_ERROR("[IT-LC]", "modbus_slave_init FAILED err=%u", (unsigned) err);
@@ -262,8 +253,8 @@ int main(void)
     /* 7. ConfigService with factory defaults; apply any persisted blob. */
     (void) config_service_init(config_store);
     {
-        config_blob_t      blob;
-        uint32_t           len    = 0U;
+        config_blob_t blob;
+        uint32_t len = 0U;
         config_store_err_t cs_err = config_store->load(&blob, &len, sizeof(blob));
         if (cs_err == CONFIG_STORE_OK)
         {
@@ -272,30 +263,22 @@ int main(void)
     }
 
     /* 8. ConsoleService — wires injected interfaces; task calls init_finalise(). */
-    (void) console_service_init(debug_uart, sensor_service, config_provider,
-                                config_manager, health_snapshot);
+    (void) console_service_init(debug_uart, sensor_service, config_provider, config_manager,
+                                health_snapshot);
 
     /* 9. ModbusRegisterMap — wire all providers. */
     modbus_register_map_t *mrm = modbus_register_map_instance();
-    (void) modbus_register_map_init(mrm, sensor_service, alarm_service,
-                                    config_provider, (iconfig_manager_t *) config_manager,
-                                    health_snapshot, (ihealth_report_t *) health_report,
-                                    time_provider,
-                                    &s_mb_stats_vtable, (imodbus_slave_t *) modbus_slave,
-                                    &s_lc_ctrl_vtable);
+    (void) modbus_register_map_init(
+        mrm, sensor_service, alarm_service, config_provider, (iconfig_manager_t *) config_manager,
+        health_snapshot, (ihealth_report_t *) health_report, time_provider, &s_mb_stats_vtable,
+        (imodbus_slave_t *) modbus_slave, &s_lc_ctrl_vtable);
     modbus_register_map_get_iface(mrm, &s_mrm_iface);
 
     /* 10. LifecycleController — sensor/alarm init is delegated to the LC
      *     init sub-state sequence (BringingUpSensors). */
     lifecycle_reset_cause_t reset_cause = lifecycle_detect_reset_cause();
-    (void) lifecycle_controller_init(reset_cause,
-                                     config_store,
-                                     config_provider,
-                                     config_manager,
-                                     sensor_service,
-                                     alarm_service,
-                                     console_service,
-                                     health_report,
+    (void) lifecycle_controller_init(reset_cause, config_store, config_provider, config_manager,
+                                     sensor_service, alarm_service, console_service, health_report,
                                      modbus_slave);
 
     /* 11. Pre-scheduler banner. */
@@ -304,25 +287,21 @@ int main(void)
 
     /* 12. Create tasks — LifecycleTask LAST (all other tasks gate on
      *     the start-gate bit set by LifecycleController on Operational). */
-    (void) xTaskCreateStatic(console_task_body, "Console",
-                             CONSOLE_TASK_STACK_WORDS, NULL,
-                             CONSOLE_TASK_PRIORITY,
-                             s_console_stack, &s_console_tcb);
+    (void) xTaskCreateStatic(console_task_body, "Console", CONSOLE_TASK_STACK_WORDS, NULL,
+                             CONSOLE_TASK_PRIORITY, s_console_stack, &s_console_tcb);
 
-    (void) xTaskCreateStatic(modbus_task, "ModbusTask",
-                             MODBUS_TASK_STACK_WORDS, NULL,
-                             MODBUS_TASK_PRIORITY,
-                             s_modbus_stack, &s_modbus_tcb);
+    (void) xTaskCreateStatic(modbus_task, "ModbusTask", MODBUS_TASK_STACK_WORDS, NULL,
+                             MODBUS_TASK_PRIORITY, s_modbus_stack, &s_modbus_tcb);
 
     it_lc_start();
 
-    (void) xTaskCreateStatic(lifecycle_task_body, "LifecycleTask",
-                             LC_TASK_STACK_WORDS, NULL,
-                             LC_TASK_PRIORITY,
-                             s_lc_stack, &s_lc_tcb);
+    (void) xTaskCreateStatic(lifecycle_task_body, "LifecycleTask", LC_TASK_STACK_WORDS, NULL,
+                             LC_TASK_PRIORITY, s_lc_stack, &s_lc_tcb);
 
     vTaskStartScheduler();
 
-    for (;;) {}
+    for (;;)
+    {
+    }
     return 0;
 }

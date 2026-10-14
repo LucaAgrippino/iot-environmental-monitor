@@ -65,8 +65,8 @@ static StackType_t s_sensor_task_stack[SENSOR_TASK_STACK_WORDS];
 /* ===================================================================== */
 
 static const led_pin_t k_fd_led_pins[LED_COUNT] = {
-    [LED_GREEN] = {.port = GPIO_PORT_G, .pin =  6U, .active_high = false, .fitted = true},
-    [LED_RED]   = {.port = GPIO_PORT_D, .pin =  5U, .active_high = false, .fitted = true},
+    [LED_GREEN] = {.port = GPIO_PORT_G, .pin = 6U, .active_high = false, .fitted = true},
+    [LED_RED] = {.port = GPIO_PORT_D, .pin = 5U, .active_high = false, .fitted = true},
 };
 
 /* ======================================================================= */
@@ -148,10 +148,10 @@ int main(void)
 {
     system_clock_init();
 
-    (void)gpio_init();
-    (void)led_init(k_fd_led_pins, LED_COUNT);
-    (void)rtc_init();
-    (void)debug_uart_init();
+    (void) gpio_init();
+    (void) led_init(k_fd_led_pins, LED_COUNT);
+    (void) rtc_init();
+    (void) debug_uart_init();
 
     logger_init(LOG_LEVEL_DEBUG);
     health_monitor_init();

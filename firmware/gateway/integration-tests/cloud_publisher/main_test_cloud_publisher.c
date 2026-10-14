@@ -330,7 +330,8 @@ void alarm_service_subscribe(alarm_service_handle_t handle, alarm_event_cb_t cb,
     (void) handle;
     s_alarm_cb = cb;
     s_alarm_ctx = ctx;
-    LOG_INFO("CloudPub", "TC-HW-CP-006  alarm_service_subscribe() called (captured for TC-HW-CP-011)");
+    LOG_INFO("CloudPub",
+             "TC-HW-CP-006  alarm_service_subscribe() called (captured for TC-HW-CP-011)");
 }
 
 saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
@@ -430,8 +431,9 @@ void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t 
     }
     else
     {
-        LOG_INFO("CloudPub", "TC-HW-CP-011  alarm #%lu %s in %lu ms", (unsigned long) s_alarm_handled,
-                 published ? "published" : "buffered", (unsigned long) ms);
+        LOG_INFO("CloudPub", "TC-HW-CP-011  alarm #%lu %s in %lu ms",
+                 (unsigned long) s_alarm_handled, published ? "published" : "buffered",
+                 (unsigned long) ms);
     }
     if ((s_alarm_handled % CP_BRINGUP_ALARM_SUMMARY_EVERY) == 0u)
     {
@@ -540,23 +542,26 @@ static void bringup_msg_cb(const char *topic, uint16_t topic_len, const uint8_t 
 
     if (ok)
     {
-        LOG_INFO("CloudPub", "TC-HW-CP-010  seq=%u/%u len=%u OK", seq, total, (unsigned) payload_len);
+        LOG_INFO("CloudPub", "TC-HW-CP-010  seq=%u/%u len=%u OK", seq, total,
+                 (unsigned) payload_len);
     }
     else
     {
-        LOG_ERROR("CloudPub", "TC-HW-CP-010  seq=%u/%u len=%u CORRUPT (got %u bytes, first bad @%lu)",
-                  seq, total, (unsigned) (DI_HEADER_LEN + len), (unsigned) payload_len,
+        LOG_ERROR("CloudPub",
+                  "TC-HW-CP-010  seq=%u/%u len=%u CORRUPT (got %u bytes, first bad @%lu)", seq,
+                  total, (unsigned) (DI_HEADER_LEN + len), (unsigned) payload_len,
                   (unsigned long) first_bad);
     }
     if ((seq + 1u) == total)
     {
-        const bool pass = (s_di_received == total) && (s_di_corrupt == 0u) &&
-                          (s_di_out_of_order == 0u);
-        LOG_INFO("CloudPub",
-                 "TC-HW-CP-010  summary: received=%lu/%u bytes=%lu corrupt=%lu out_of_order=%lu -> %s",
-                 (unsigned long) s_di_received, total, (unsigned long) s_di_bytes,
-                 (unsigned long) s_di_corrupt, (unsigned long) s_di_out_of_order,
-                 pass ? "PASS" : "FAIL");
+        const bool pass =
+            (s_di_received == total) && (s_di_corrupt == 0u) && (s_di_out_of_order == 0u);
+        LOG_INFO(
+            "CloudPub",
+            "TC-HW-CP-010  summary: received=%lu/%u bytes=%lu corrupt=%lu out_of_order=%lu -> %s",
+            (unsigned long) s_di_received, total, (unsigned long) s_di_bytes,
+            (unsigned long) s_di_corrupt, (unsigned long) s_di_out_of_order,
+            pass ? "PASS" : "FAIL");
         s_di_expected_seq = 0u;
         s_di_received = 0u;
         s_di_corrupt = 0u;
@@ -591,7 +596,7 @@ static void cloud_publisher_bringup_task(void *arg)
         bringup_fail("TC-HW-CP-002  wifitask_create() failed");
     }
     LOG_INFO("CloudPub", "wifitask_create() returned WIFITASK_ERR_OK (WifiTask's own task "
-                        "is now running)");
+                         "is now running)");
 
     /* TC-HW-CP-002 */
     if (sizeof(BRINGUP_WIFI_SSID) <= 1U)
@@ -654,10 +659,11 @@ static void cloud_publisher_bringup_task(void *arg)
     LOG_INFO("CloudPub", "TC-HW-CP-004  mqtt_client_connect() returned MQTT_CLIENT_ERR_OK");
     {
         const uint32_t ms = (uint32_t) ((xTaskGetTickCount() - connect_t0) * portTICK_PERIOD_MS);
-        LOG_INFO("CloudPub",
-                 "TC-HW-CP-012  initial TCP+TLS+MQTT connect wall-clock %lu ms (baseline %lu ms) %s",
-                 (unsigned long) ms, (unsigned long) CP_BRINGUP_CONNECT_BASELINE_MS,
-                 (ms <= CP_BRINGUP_CONNECT_BASELINE_MS) ? "PASS" : "FAIL (regression)");
+        LOG_INFO(
+            "CloudPub",
+            "TC-HW-CP-012  initial TCP+TLS+MQTT connect wall-clock %lu ms (baseline %lu ms) %s",
+            (unsigned long) ms, (unsigned long) CP_BRINGUP_CONNECT_BASELINE_MS,
+            (ms <= CP_BRINGUP_CONNECT_BASELINE_MS) ? "PASS" : "FAIL (regression)");
     }
 
     /* TC-HW-CP-005: subscribe while still single-task. */
@@ -724,7 +730,8 @@ static void cloud_publisher_bringup_task(void *arg)
              * stuck somewhere), counted here since the outcome path will
              * never report it on time. */
             s_alarm_over_budget++;
-            LOG_ERROR("CloudPub", "TC-HW-CP-011  alarm #%lu still unhandled after %u ms — OVER budget",
+            LOG_ERROR("CloudPub",
+                      "TC-HW-CP-011  alarm #%lu still unhandled after %u ms — OVER budget",
                       (unsigned long) s_alarm_fired, (unsigned) CP_BRINGUP_ALARM_PERIOD_MS);
         }
         alarm_event_t ev = {

@@ -57,7 +57,7 @@ The implementation covers seven functional layers. Layers 1–5 are non-negotiab
 | 1 | Sensor Acquisition | Non-negotiable |
 | 2 | Processing / State Machines | Non-negotiable |
 | 3 | Modbus RTU | Non-negotiable |
-| 4 | LCD | Non-negotiable |
+| 4 | LCD | Non-negotiable (currently parked — see note below) |
 | 5 | WiFi / MQTT | Non-negotiable |
 | 6 | Bootloader OTA | Good-to-have |
 | 7 | CI/CD extensions beyond bootstrap | Good-to-have |
@@ -65,6 +65,10 @@ The implementation covers seven functional layers. Layers 1–5 are non-negotiab
 If timeline pressure requires cuts, the cut order is: Layer 7 extras first, then Layer 6, then
 Layer-5 polish (TLS cert rotation, advanced exception flows). The functional core of Layers 1–5
 ships regardless.
+
+Layer 4 (LCD) is currently **parked**. The display stack was built and then removed from the
+tree during the post-GUI clean restart; the full snapshot is preserved at tag
+`checkpoint/phase-4-lcd_ui-parked-2026-06-23`. A rebuild is planned post-Gateway.
 
 ## Project Structure
 
@@ -85,11 +89,12 @@ ships regardless.
 | Tool | Version |
 |------|---------|
 | STM32CubeIDE | 2.1.1 |
-| Host OS | Windows |
+| Host OS | Ubuntu 24.04 |
 
 ## Build Instructions
 
-See `docs/build-instructions.md` (to be added when CubeIDE projects land).
+Host unit tests: run `ceedling test:all` from `tests/`. Firmware images for both
+targets are built with STM32CubeIDE (headless builds are used in CI).
 
 ## Development Methodology
 
