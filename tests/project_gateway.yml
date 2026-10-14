@@ -51,6 +51,8 @@
     - gateway/drivers/humidity_temp_driver/**
     - gateway/drivers/barometer_driver/**
     - gateway/drivers/i2c/**
+    - gateway/drivers/magnetometer_driver/**
+    - gateway/drivers/imu_driver/**
   :source:
     - mocks/**
     - ../firmware/shared/
@@ -153,6 +155,14 @@
     - TEST
   :test_i2c_driver_l4:
     - STM32L475xx
+    - TEST
+  :test_magnetometer_driver:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_imu_driver:
+    - STM32L475xx
+    - BOARD_GATEWAY
     - TEST
 
 :cmock:
