@@ -56,7 +56,7 @@ typedef struct
 {
     bool initialised;
     time_sync_state_t sync_state;
-    const ihealth_report_t *health;
+    health_monitor_handle_t health;
     StaticSemaphore_t mutex_buf;
     SemaphoreHandle_t mutex;
 } time_provider_state_t;
@@ -168,7 +168,7 @@ static uint32_t epoch_delta(uint32_t a, uint32_t b)
 /* Public API                                                                */
 /* ========================================================================= */
 
-time_provider_err_t time_provider_init(const ihealth_report_t *health)
+time_provider_err_t time_provider_init(health_monitor_handle_t health)
 {
     uint32_t bkup_val = 0U;
     rtc_err_t rtc_err;
@@ -314,7 +314,7 @@ time_provider_err_t time_provider_set_time(uint32_t new_epoch)
      * the HealthMonitor mutex. */
     if (was_unsynchronised && (s_tp.health != NULL))
     {
-        (void) s_tp.health->push_event(HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
+        (void) health_monitor_push_event(s_tp.health, HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
         LOG_INFO(MODULE_TAG, "Time sync acquired epoch=%lu", (unsigned long) new_epoch);
     }
 
@@ -349,7 +349,7 @@ time_provider_err_t time_provider_mark_unsynchronised(void)
 
     if (was_synchronised && (s_tp.health != NULL))
     {
-        (void) s_tp.health->push_event(HEALTH_EVENT_TIME_SYNC_LOST, 0U);
+        (void) health_monitor_push_event(s_tp.health, HEALTH_EVENT_TIME_SYNC_LOST, 0U);
         LOG_INFO(MODULE_TAG, "Time sync lost");
     }
 

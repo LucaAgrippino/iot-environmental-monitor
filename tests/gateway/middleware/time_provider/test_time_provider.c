@@ -7,8 +7,8 @@
  *
  * Mocking strategy:
  *   - RtcDriver     -> s_mock_rtc vtable injected through the rtc_driver pointer
- *   - IHealthReport -> s_mock_health vtable passed to time_provider_init(); the
- *                      type comes from the placeholder in time_provider.h
+ *   - HealthMonitor -> health_monitor_push_event() spy defined below; the test
+ *                      passes the opaque HEALTH_HANDLE to time_provider_init()
  *   - FreeRTOS      -> freertos_mock.h (auto-links freertos_mock.c)
  *
  * Runs under tests/project_gateway.yml because the Gateway and Field Device
@@ -130,27 +130,24 @@ static void rtc_mock_reset(void)
 }
 
 /* ====================================================================== */
-/* IHealthReport mock                                                     */
+/* HealthMonitor spy                                                      */
 /* ====================================================================== */
+
+#define HEALTH_HANDLE ((health_monitor_handle_t) 0x1234)
 
 static uint32_t g_push_calls;
 static health_event_t g_push_last;
 
-static health_monitor_err_t stub_health_init(void)
+health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, health_event_t event,
+                                               uint32_t param)
 {
-    return HEALTH_MONITOR_ERR_OK;
-}
-
-static health_monitor_err_t stub_health_push_event(health_event_t event, uint32_t param)
-{
+    (void) handle;
     (void) param;
     g_push_calls++;
     g_push_last = event;
 
     return HEALTH_MONITOR_ERR_OK;
 }
-
-static ihealth_report_t s_mock_health;
 
 static void health_mock_reset(void)
 {
@@ -188,7 +185,7 @@ static void set_rtc_now_y2k(void)
 static void transition_to_synchronised(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(EPOCH_Y2K));
     TEST_ASSERT_EQUAL(TIME_SYNC_SYNCHRONISED, time_provider_get_sync_state());
 
@@ -214,9 +211,6 @@ void setUp(void)
     s_mock_rtc.write_backup = stub_rtc_write_backup;
     rtc_driver = &s_mock_rtc;
 
-    s_mock_health.init = stub_health_init;
-    s_mock_health.push_event = stub_health_push_event;
-
     time_provider_reset_for_test();
 }
 
@@ -240,7 +234,7 @@ void test_TC_TP_002_get_after_init_unsynchronised_returns_uptime(void)
     time_provider_ts_t ts;
 
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     g_mock_tick_count = 5000U; /* 5 000 ticks / 1 000 Hz = 5 s */
 
@@ -253,7 +247,7 @@ void test_TC_TP_002_get_after_init_unsynchronised_returns_uptime(void)
 void test_TC_TP_003_get_null_returns_null_arg(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_NULL_ARG, time_provider_get(NULL));
 }
@@ -261,7 +255,7 @@ void test_TC_TP_003_get_null_returns_null_arg(void)
 void test_TC_TP_004_first_set_time_synchronises_and_pushes_event_once(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(EPOCH_Y2K));
 
@@ -299,7 +293,7 @@ void test_TC_TP_006_mark_unsynchronised_transitions_and_pushes_lost(void)
 void test_TC_TP_007_mark_unsynchronised_when_already_unsynchronised_pushes_nothing(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_mark_unsynchronised());
 
@@ -326,7 +320,7 @@ void test_TC_TP_009_init_with_magic_starts_synchronised(void)
 {
     g_bkup_read_val = TIME_PROVIDER_SYNC_MAGIC;
 
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_SYNC_SYNCHRONISED, time_provider_get_sync_state());
 }
 
@@ -334,7 +328,7 @@ void test_TC_TP_010_init_without_magic_starts_unsynchronised(void)
 {
     g_bkup_read_val = 0x12345678UL;
 
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_SYNC_UNSYNCHRONISED, time_provider_get_sync_state());
 }
 
@@ -362,7 +356,7 @@ void test_TC_TP_012_sanity_delta_applies_to_a_backward_step(void)
 void test_TC_TP_013_first_sync_skips_the_sanity_check(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     set_rtc_now_y2k();
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(EPOCH_2038));
@@ -407,7 +401,7 @@ void test_TC_TP_015_get_converts_leap_day_and_century_dates(void)
 void test_TC_TP_016_set_time_writes_the_matching_calendar_fields(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(EPOCH_2024_LEAP));
 
@@ -422,7 +416,7 @@ void test_TC_TP_016_set_time_writes_the_matching_calendar_fields(void)
 void test_TC_TP_017_epoch_range_limits_are_accepted(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(TIME_PROVIDER_EPOCH_MIN));
     TEST_ASSERT_EQUAL_UINT16(2000U, g_rtc_last_set.year);
@@ -444,7 +438,7 @@ void test_TC_TP_017_epoch_range_limits_are_accepted(void)
 void test_TC_TP_018_epoch_outside_the_rtc_range_is_rejected_before_the_driver(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL, time_provider_set_time(0UL));
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL,
@@ -460,7 +454,7 @@ void test_TC_TP_018_epoch_outside_the_rtc_range_is_rejected_before_the_driver(vo
 void test_TC_TP_019_rtc_set_failure_leaves_state_and_backup_untouched(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     g_rtc_set_ret = RTC_ERR_INIT_TIMEOUT;
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL, time_provider_set_time(EPOCH_Y2K));
@@ -496,7 +490,7 @@ void test_TC_TP_022_init_backup_read_failure_leaves_the_module_uninitialised(voi
 
     g_bkup_read_ret = RTC_ERR_BACKUP_BOUNDS;
 
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_NOT_INIT, time_provider_get(&ts));
 }
 
@@ -504,14 +498,14 @@ void test_TC_TP_023_init_mutex_creation_failure_is_reported(void)
 {
     g_mock_xSemaphoreCreateMutexStatic_return = NULL;
 
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_RTC_FAIL, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_SYNC_UNSYNCHRONISED, time_provider_get_sync_state());
 }
 
 void test_TC_TP_024_backup_write_failure_still_synchronises(void)
 {
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     g_bkup_write_ret = RTC_ERR_BACKUP_BOUNDS;
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(EPOCH_Y2K));
@@ -547,7 +541,7 @@ void test_TC_TP_027_warm_reset_restores_synchronised_state(void)
     time_provider_reset_for_test();
     g_bkup_read_val = g_bkup_last_val;
 
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_SYNC_SYNCHRONISED, time_provider_get_sync_state());
     TEST_ASSERT_EQUAL_UINT32(0U, g_push_calls);
 }
@@ -560,7 +554,7 @@ void test_TC_TP_028_sync_lost_then_reset_restarts_unsynchronised(void)
     time_provider_reset_for_test();
     g_bkup_read_val = g_bkup_last_val;
 
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_SYNC_UNSYNCHRONISED, time_provider_get_sync_state());
 }
 
@@ -571,7 +565,7 @@ void test_TC_TP_029_singleton_vtable_dispatches_to_the_functions(void)
     TEST_ASSERT_NOT_NULL(time_provider);
 
     g_bkup_read_val = 0U;
-    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider->init(&s_mock_health));
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider->init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider->set_time(EPOCH_Y2K));
     set_rtc_now_y2k();
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider->get(&ts));

@@ -23,6 +23,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "health_monitor/health_monitor.h" /* health_monitor_handle_t */
+
 /* ========================================================================= */
 /* Error codes                                                               */
 /* ========================================================================= */
@@ -68,44 +70,6 @@ typedef struct
 } time_provider_ts_t;
 
 /* ========================================================================= */
-/* IHealthReport — placeholder                                               */
-/*                                                                           */
-/* The Gateway has no HealthMonitor yet, so there is no                      */
-/* health_monitor/ihealth_report.h to include. This stands in for it, using  */
-/* the real header's include guard so that header supersedes this block      */
-/* without a duplicate-definition error once it exists. Enumerator values    */
-/* and the leading vtable slots (init, push_event) match the Field Device    */
-/* header, so a pointer to the real vtable stays valid through this type.    */
-/* Remove this block when the GW HealthMonitor lands.                        */
-/* ========================================================================= */
-
-#ifndef IHEALTH_REPORT_H
-#define IHEALTH_REPORT_H
-
-typedef enum
-{
-    HEALTH_MONITOR_ERR_OK = 0,
-    HEALTH_MONITOR_ERR_NOT_INIT = 1,
-    HEALTH_MONITOR_ERR_NULL_ARG = 2,
-} health_monitor_err_t;
-
-typedef enum
-{
-    HEALTH_EVENT_TIME_SYNC_ACQUIRED = 0,
-    HEALTH_EVENT_TIME_SYNC_LOST = 1,
-} health_event_t;
-
-typedef struct ihealth_report_s
-{
-    /* cppcheck-suppress unusedStructMember */
-    health_monitor_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember */
-    health_monitor_err_t (*push_event)(health_event_t event, uint32_t param);
-} ihealth_report_t;
-
-#endif /* IHEALTH_REPORT_H */
-
-/* ========================================================================= */
 /* Public API — ITimeProvider                                                */
 /* ========================================================================= */
 
@@ -117,13 +81,13 @@ typedef struct ihealth_report_s
  * SYNCHRONISED, otherwise UNSYNCHRONISED. Must be called after rtc_init() and
  * logger_init(), before the scheduler starts.
  *
- * @param[in] health  IHealthReport handle for sync-state events; may be NULL, in
+ * @param[in] health  HealthMonitor handle for sync-state events; may be NULL, in
  *                    which case no events are pushed.
  * @return TIME_PROVIDER_ERR_OK, or TIME_PROVIDER_ERR_RTC_FAIL if the backup
  *         register cannot be read or the mutex cannot be created.
  * @note Threading: task-context only, non-blocking. Not ISR-safe.
  */
-time_provider_err_t time_provider_init(const ihealth_report_t *health);
+time_provider_err_t time_provider_init(health_monitor_handle_t health);
 
 /**
  * @brief Get the current timestamp.
@@ -181,7 +145,7 @@ time_sync_state_t time_provider_get_sync_state(void);
 typedef struct
 {
     /* cppcheck-suppress unusedStructMember */
-    time_provider_err_t (*init)(const ihealth_report_t *health);
+    time_provider_err_t (*init)(health_monitor_handle_t health);
     /* cppcheck-suppress unusedStructMember */
     time_provider_err_t (*get)(time_provider_ts_t *ts_out);
     /* cppcheck-suppress unusedStructMember */
