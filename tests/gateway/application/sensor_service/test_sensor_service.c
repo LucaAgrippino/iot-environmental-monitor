@@ -530,3 +530,25 @@ void test_filter_rounds_halfway_results_symmetrically(void)
     (void) sensor_service_get_snapshot(&snap);
     TEST_ASSERT_EQUAL_INT32(-101, snap.readings[SENSOR_ID_TEMPERATURE].value);
 }
+
+/* TC-SS-110 - 1 Hz Group A sensors return NOT_READY on most 100 ms cycles; that is not a fault */
+void test_group_a_not_ready_keeps_previous_reading_and_raises_no_fault(void)
+{
+    sensor_snapshot_t snap;
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    (void) sensor_service_run_cycle();
+
+    s_ht_read_result = HUMIDITY_TEMP_ERR_NOT_READY;
+    s_baro_read_result = BAROMETER_ERR_NOT_READY;
+    (void) sensor_service_run_cycle();
+    (void) sensor_service_run_cycle();
+
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+    TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_PRESSURE].valid);
+    TEST_ASSERT_EQUAL_INT32(2350, snap.readings[SENSOR_ID_TEMPERATURE].value);
+    TEST_ASSERT_EQUAL_INT32(10132, snap.readings[SENSOR_ID_PRESSURE].value);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
+    TEST_ASSERT_TRUE(sensor_service_is_ready());
+}

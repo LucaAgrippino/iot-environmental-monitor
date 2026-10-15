@@ -354,6 +354,8 @@ static void prv_fail_range(sensor_snapshot_t *snap, sensor_id_t first, uint8_t c
     }
 }
 
+/* Both Group A sensors run at 1 Hz (GPA-D2) against a 100 ms cycle, so most reads return
+ * NOT_READY: no new sample, keep the previous reading. Only a bus error is a fault. */
 static void prv_read_humidity_temp(sensor_snapshot_t *snap)
 {
     if (s_ss.driver_failed[SENSOR_ID_TEMPERATURE])
@@ -362,14 +364,19 @@ static void prv_read_humidity_temp(sensor_snapshot_t *snap)
     }
 
     humidity_temp_data_t ht = {0};
-    if (humidity_temp_driver->read(&ht) == HUMIDITY_TEMP_ERR_OK)
+    const humidity_temp_err_t err = humidity_temp_driver->read(&ht);
+    if (err == HUMIDITY_TEMP_ERR_OK)
     {
         prv_accept(snap, SENSOR_ID_TEMPERATURE, ht.temperature_x100);
         prv_accept(snap, SENSOR_ID_HUMIDITY, ht.humidity_x100);
     }
-    else
+    else if (err != HUMIDITY_TEMP_ERR_NOT_READY)
     {
         prv_fail_range(snap, SENSOR_ID_TEMPERATURE, 2U);
+    }
+    else
+    {
+        /* No new sample: keep the previous reading. */
     }
 }
 
@@ -381,18 +388,22 @@ static void prv_read_barometer(sensor_snapshot_t *snap)
     }
 
     barometer_data_t baro = {0};
-    if (barometer_driver->read(&baro) == BAROMETER_ERR_OK)
+    const barometer_err_t err = barometer_driver->read(&baro);
+    if (err == BAROMETER_ERR_OK)
     {
         prv_accept(snap, SENSOR_ID_PRESSURE, baro.pressure_x10);
     }
-    else
+    else if (err != BAROMETER_ERR_NOT_READY)
     {
         prv_fail(snap, SENSOR_ID_PRESSURE);
     }
+    else
+    {
+        /* No new sample: keep the previous reading. */
+    }
 }
 
-/* NOT_READY means the sensor has no new sample yet (it runs faster or slower than the
- * 100 ms cycle); the previous reading is kept. Only a bus or hardware error is a fault. */
+/* Group B: same rule as Group A - NOT_READY keeps the previous reading (SS-D17). */
 static void prv_read_imu(sensor_snapshot_t *snap)
 {
     if (s_ss.driver_failed[SENSOR_ID_ACCEL_X])
