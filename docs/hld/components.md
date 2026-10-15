@@ -69,6 +69,7 @@ USES entries reference the consumed **interface** (`IXxx`) wherever one is defin
 
 - **`Logger`** — cross-cutting per P4; referenced concretely in USES lists throughout both boards.
 - **Driver-layer components** — referenced concretely when no higher abstraction is available (e.g., `CMSIS`, `SpiDriver`).
+- **FreeRTOS blocking primitives (Gateway drivers)** — a Gateway driver that must block the calling task (a bounded `vTaskDelay` retry or an `xTaskNotifyWait` on an ISR event) may include the FreeRTOS kernel headers without listing FreeRTOS in its USES line. Applies to `LedDriver`, `HumidityTempDriver`, `BarometerDriver`, `MagnetometerDriver` and `ImuDriver`; it does not extend to queues, mutexes or task creation, which stay in Middleware and Application. Recorded as GPA-O7.
 
 Top-level orchestrators (`LifecycleController`) may reference concrete component names in their USES lists where the orchestrator's role is to own those components directly.
 
