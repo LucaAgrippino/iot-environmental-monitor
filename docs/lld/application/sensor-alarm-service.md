@@ -11,7 +11,7 @@
 **HLD ref:** `components.md` §Application — SensorService, AlarmService; `hld.md` §5.3; `sequence-diagrams.md` SD-01; `task-breakdown.md` §4.2 (FD), §5.2 (GW)
 **Version:** 0.1
 **Date:** May 2026
-**Status:** Draft
+**Status:** Superseded by `fd-gw-sensor-alarm-service-lld.md` (v1.1, 2026-10-15) - kept for history, do not edit
 
 **HLD anchor:** SensorService + AlarmService in `components.md` (FD + GW application layer)
 

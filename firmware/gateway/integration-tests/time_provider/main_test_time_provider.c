@@ -68,6 +68,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -76,6 +77,8 @@
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
 #include "gpio/gpio_driver.h"
+#include "health_monitor/health_monitor.h"
+#include "led/led_driver.h"
 #include "logger/logger.h"
 #include "rtc/rtc.h"
 #include "time_provider/time_provider.h"
@@ -99,6 +102,8 @@
 #define BRINGUP_UART_AF (7U)
 
 #define TAG "TP-HW"
+
+#define LD2_PIN (14U) /* PB14, green LD2 driven by HealthMonitor */
 
 #define MAIN_TASK_STACK_WORDS (512U)
 #define WORKER_TASK_STACK_WORDS (384U)
@@ -134,41 +139,34 @@
 #define STRESS_WINDOW_AFTER_S (10UL)
 
 /* ---------------------------------------------------------------------- */
-/* IHealthReport spy                                                       */
+/* HealthMonitor                                                           */
+/* TimeProvider reports sync transitions to the real HealthMonitor. The     */
+/* snapshot's time_sync_state is the observable: ACQUIRED sets it            */
+/* SYNCHRONISED, LOST clears it. Event counts are no longer visible.         */
 /* ---------------------------------------------------------------------- */
 
-static volatile uint32_t s_acquired_events;
-static volatile uint32_t s_lost_events;
+static health_monitor_handle_t s_hm;
 
-static health_monitor_err_t spy_health_init(void)
-{
-    return HEALTH_MONITOR_ERR_OK;
-}
-
-static health_monitor_err_t spy_health_push(health_event_t event, uint32_t param)
-{
-    (void) param;
-
-    if (event == HEALTH_EVENT_TIME_SYNC_ACQUIRED)
-    {
-        s_acquired_events++;
-    }
-    else if (event == HEALTH_EVENT_TIME_SYNC_LOST)
-    {
-        s_lost_events++;
-    }
-    else
-    {
-        /* TimeProvider pushes only the two events above. */
-    }
-
-    return HEALTH_MONITOR_ERR_OK;
-}
-
-static const ihealth_report_t s_health_spy = {
-    .init = spy_health_init,
-    .push_event = spy_health_push,
+static const led_pin_t k_gw_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = (uint8_t) GPIO_PORT_B,
+                   .pin = (uint8_t) LD2_PIN,
+                   .active_high = true,
+                   .fitted = true},
+    [LED_RED] = {.port = (uint8_t) GPIO_PORT_A,
+                 .pin = 5U,
+                 .active_high = true,
+                 .fitted = false}, /* LD1 / SB1 - shared with SPI1_SCK */
 };
+
+/** Sync state as HealthMonitor last heard it from TimeProvider. */
+static time_sync_state_t hm_sync_state(void)
+{
+    health_snapshot_t snap;
+
+    (void) memset(&snap, 0, sizeof(snap));
+    (void) health_monitor_get_snapshot(s_hm, &snap);
+    return snap.time_sync_state;
+}
 
 /* ---------------------------------------------------------------------- */
 /* Reporting helpers — built on Logger.                                    */
@@ -315,7 +313,8 @@ static void phase_a(void)
     /* TC-HW-TP-002 */
     expect_err(time_provider_set_time(EPOCH_BASE), TIME_PROVIDER_ERR_OK, "TC-HW-TP-002 set_time");
     check(time_provider_get_sync_state() == TIME_SYNC_SYNCHRONISED, "TC-HW-TP-002 state");
-    check(s_acquired_events == 1U, "TC-HW-TP-002 one SYNC_ACQUIRED event");
+    check(hm_sync_state() == TIME_SYNC_SYNCHRONISED,
+          "TC-HW-TP-002 HealthMonitor told SYNCHRONISED");
     expect_err(time_provider_get(&ts), TIME_PROVIDER_ERR_OK, "TC-HW-TP-002 get");
     check(ts.sync_state == TIME_SYNC_SYNCHRONISED, "TC-HW-TP-002 get state");
     check((ts.epoch >= EPOCH_BASE) && (ts.epoch <= (EPOCH_BASE + 1UL)), "TC-HW-TP-002 epoch");
@@ -327,7 +326,7 @@ static void phase_a(void)
 
     /* TC-HW-TP-003 */
     expect_err(time_provider_set_time(EPOCH_BASE), TIME_PROVIDER_ERR_OK, "TC-HW-TP-003 re-set");
-    check(s_acquired_events == 1U, "TC-HW-TP-003 no second SYNC_ACQUIRED");
+    check(hm_sync_state() == TIME_SYNC_SYNCHRONISED, "TC-HW-TP-003 still SYNCHRONISED");
     check(rtc_get_time(&dt) == RTC_OK, "TC-HW-TP-003 rtc_get_time");
     check((dt.year == BASE_YEAR) && (dt.month == BASE_MONTH) && (dt.day == BASE_DAY) &&
               (dt.hour == BASE_HOUR) && (dt.minute == BASE_MINUTE) &&
@@ -367,9 +366,10 @@ static void phase_a(void)
     /* TC-HW-TP-007 - step 006 left the provider SYNCHRONISED (its set_time()
      * ran while UNSYNCHRONISED), so dropping it now must raise SYNC_LOST. */
     check(time_provider_get_sync_state() == TIME_SYNC_SYNCHRONISED, "TC-HW-TP-007 precondition");
-    s_lost_events = 0U;
+    check(hm_sync_state() == TIME_SYNC_SYNCHRONISED, "TC-HW-TP-007 HealthMonitor precondition");
     expect_err(time_provider_mark_unsynchronised(), TIME_PROVIDER_ERR_OK, "TC-HW-TP-007 mark");
-    check(s_lost_events == 1U, "TC-HW-TP-007 one SYNC_LOST event");
+    check(hm_sync_state() == TIME_SYNC_UNSYNCHRONISED,
+          "TC-HW-TP-007 SYNC_LOST reached HealthMonitor");
     check(time_provider_get_sync_state() == TIME_SYNC_UNSYNCHRONISED, "TC-HW-TP-007 state");
     check(rtc_read_backup(TIME_PROVIDER_BKUP_REG, &value) == RTC_OK, "TC-HW-TP-007 read BKP0R");
     check(value == TIME_PROVIDER_SYNC_CLEARED, "TC-HW-TP-007 BKP0R cleared");
@@ -445,7 +445,8 @@ static void phase_b(void)
 
     /* TC-HW-TP-009 */
     check(time_provider_get_sync_state() == TIME_SYNC_SYNCHRONISED, "TC-HW-TP-009 state");
-    check(s_acquired_events == 0U, "TC-HW-TP-009 no SYNC_ACQUIRED without set_time");
+    check(hm_sync_state() == TIME_SYNC_UNSYNCHRONISED,
+          "TC-HW-TP-009 no SYNC_ACQUIRED without set_time");
     pass("TC-HW-TP-009 booted SYNCHRONISED from BKP0R, no set_time() call");
 
     /* TC-HW-TP-010 */
@@ -458,9 +459,9 @@ static void phase_b(void)
     pass("TC-HW-TP-010 the RTC kept running through the reset");
 
     /* TC-HW-TP-011 */
-    s_lost_events = 0U;
     expect_err(time_provider_mark_unsynchronised(), TIME_PROVIDER_ERR_OK, "TC-HW-TP-011 mark");
-    check(s_lost_events == 1U, "TC-HW-TP-011 SYNC_LOST event");
+    check(hm_sync_state() == TIME_SYNC_UNSYNCHRONISED,
+          "TC-HW-TP-011 SYNC_LOST reached HealthMonitor");
     check(rtc_read_backup(TIME_PROVIDER_BKUP_REG, &value) == RTC_OK, "TC-HW-TP-011 read BKP0R");
     check(value == TIME_PROVIDER_SYNC_CLEARED, "TC-HW-TP-011 BKP0R cleared");
     pass("TC-HW-TP-011 flag cleared; the next run starts at Phase A");
@@ -542,6 +543,7 @@ int main(void)
         .pull = GPIO_PULL_UP,
         .alternate = BRINGUP_UART_AF,
     };
+    (void) gpio_init(); /* LedDriver (used by HealthMonitor) needs the GPIO driver up */
     (void) gpio_configure_pin(&led_config);
     (void) gpio_configure_pin(&uart_tx_config);
     (void) gpio_configure_pin(&uart_rx_config);
@@ -560,7 +562,21 @@ int main(void)
     LOG_INFO(TAG, "Board : B-L475E-IOT01A (STM32L475VGTx)");
     LOG_INFO(TAG, "SYSCLK=%lu Hz", (unsigned long) cpu_get_sysclk_hz());
 
-    if (time_provider_init(&s_health_spy) != TIME_PROVIDER_ERR_OK)
+    const health_monitor_config_t hm_config = {.boot_reset_cause = LIFECYCLE_RESET_SOFT};
+
+    const led_err_t led_err = led_init(k_gw_led_pins, (uint8_t) LED_COUNT);
+    const health_monitor_err_t hm_err = health_monitor_create(&hm_config, &s_hm);
+
+    if ((led_err != LED_ERR_OK) || (hm_err != HEALTH_MONITOR_ERR_OK))
+    {
+        LOG_ERROR(TAG, "[FAIL] led_init=%d health_monitor_create=%d - HALTED", (int) led_err,
+                  (int) hm_err);
+        for (;;)
+        {
+        }
+    }
+
+    if (time_provider_init(s_hm) != TIME_PROVIDER_ERR_OK)
     {
         LOG_ERROR(TAG, "[FAIL] time_provider_init - HALTED");
         for (;;)
