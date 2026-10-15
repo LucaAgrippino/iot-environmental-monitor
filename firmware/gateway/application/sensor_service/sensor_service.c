@@ -43,6 +43,14 @@
 #define MAG_MGAUSS_NUM (1000)
 #define MAG_MGAUSS_DEN (6842)
 
+/* HTS221 and LPS22HB run at 1 Hz (GPA-D2). Reading them every 100 ms makes nine reads in ten
+ * hit the driver's 2 ms not-ready retry sleep, so they are read every 10th cycle (SS-D19). */
+#define GROUP_A_PERIOD_CYCLES_DEFAULT (10U)
+
+/* Extra fractional bits kept in the IIR state: 16 steps per output unit (SS-D18). */
+#define FILTER_FRAC_BITS (4)
+#define FILTER_SCALE (1 << FILTER_FRAC_BITS)
+
 /* Plausibility range per channel, in the units of sensor_reading_t.value. The three
  * scalar ranges are the sensor operating limits (REQ-SA-120); the IMU and
  * magnetometer ranges are the configured full scales. */
@@ -68,15 +76,18 @@ static const int32_t s_range_max[SENSOR_ID_COUNT] = {
 /* Module state                                                             */
 /* ======================================================================= */
 
+/* Outside s_ss so init does not reset it; tests set it to 1 to read Group A every cycle. */
+static uint32_t s_group_a_period = GROUP_A_PERIOD_CYCLES_DEFAULT;
+
 static struct
 {
     bool initialised;
     health_monitor_handle_t health;
-    sensor_snapshot_t snapshot; /* guarded by a critical section */
-    int32_t prev_filtered[SENSOR_ID_COUNT];
-    bool filter_seeded[SENSOR_ID_COUNT]; /* first accepted sample seeds the filter */
-    bool driver_failed[SENSOR_ID_COUNT]; /* permanent: init failed */
-    bool fail_reported[SENSOR_ID_COUNT]; /* HEALTH_EVENT_SENSOR_FAIL sent, not yet recovered */
+    sensor_snapshot_t snapshot;             /* guarded by a critical section */
+    int32_t prev_filtered[SENSOR_ID_COUNT]; /* filter state, FILTER_SCALE times the value */
+    bool filter_seeded[SENSOR_ID_COUNT];    /* first accepted sample seeds the filter */
+    bool driver_failed[SENSOR_ID_COUNT];    /* permanent: init failed */
+    bool fail_reported[SENSOR_ID_COUNT];    /* HEALTH_EVENT_SENSOR_FAIL sent, not yet recovered */
     uint8_t alpha_num;
     uint8_t alpha_den;
     void (*subscribers[SENSOR_MAX_SUBSCRIBERS])(const sensor_snapshot_t *);
@@ -88,6 +99,7 @@ static struct
 /* ======================================================================= */
 
 static int32_t prv_convert(sensor_id_t id, int16_t raw);
+static int32_t prv_div_round(int32_t numerator, int32_t divisor);
 static void prv_accept(sensor_snapshot_t *snap, sensor_id_t id, int32_t value);
 static void prv_fail(sensor_snapshot_t *snap, sensor_id_t id);
 static void prv_fail_range(sensor_snapshot_t *snap, sensor_id_t first, uint8_t count);
@@ -154,8 +166,17 @@ sensor_service_err_t sensor_service_run_cycle(void)
     (void) memcpy(&working, &s_ss.snapshot, sizeof(working));
     taskEXIT_CRITICAL();
 
-    prv_read_humidity_temp(&working);
-    prv_read_barometer(&working);
+    /* Group A: at its own 1 Hz rate, and every cycle while a channel has no valid reading
+     * (before the first sample, or after a fault) so start-up and recovery are not delayed. */
+    const bool group_a_due = ((working.cycle_count % s_group_a_period) == 0U);
+    if (group_a_due || !working.readings[SENSOR_ID_TEMPERATURE].valid)
+    {
+        prv_read_humidity_temp(&working);
+    }
+    if (group_a_due || !working.readings[SENSOR_ID_PRESSURE].valid)
+    {
+        prv_read_barometer(&working);
+    }
     /* GPB-O6: both Group B sensors are read every cycle, whatever happens to the sample,
      * because the sensor holds DRDY / INT1 high until its output registers are read. */
     prv_read_imu(&working);
@@ -260,6 +281,13 @@ static void prv_init_driver(bool ok, sensor_id_t first, uint8_t count, const cha
     s_ss.fail_reported[first] = true;
 }
 
+/* Integer division rounded half away from zero. */
+static int32_t prv_div_round(int32_t numerator, int32_t divisor)
+{
+    const int32_t half = divisor / 2;
+    return (numerator + ((numerator >= 0) ? half : -half)) / divisor;
+}
+
 /* Convert a raw IMU / magnetometer LSB count into the channel's engineering unit. */
 static int32_t prv_convert(sensor_id_t id, int16_t raw)
 {
@@ -307,24 +335,27 @@ static void prv_accept(sensor_snapshot_t *snap, sensor_id_t id, int32_t value)
         clamped = s_range_max[id];
     }
 
+    /* The filter state carries FILTER_FRAC_BITS extra bits (SS-D18). With plain integer
+     * state a step smaller than den / (2 * num) rounds to zero and the output sticks: the
+     * accelerometer (mg) sat at -166 / -90 / -950 for 30 s on the bench. */
+    const int32_t scaled = clamped * FILTER_SCALE;
+
     /* First accepted sample seeds the filter. Starting from zero would walk a pressure
      * channel up from 0 hPa and raise a false low-pressure alarm on every boot. */
     if (!s_ss.filter_seeded[id])
     {
-        s_ss.prev_filtered[id] = clamped;
+        s_ss.prev_filtered[id] = scaled;
         s_ss.filter_seeded[id] = true;
     }
 
-    /* filtered = (a * x + (den - a) * prev) / den, rounded half away from zero. C division
-     * truncates toward zero, so the half-denominator bias must follow the sign of the sum;
-     * a plain "+ den / 2" would round negative accelerometer axes the wrong way. */
     const int32_t num = (int32_t) s_ss.alpha_num;
     const int32_t den = (int32_t) s_ss.alpha_den;
-    const int32_t sum = (num * clamped) + ((den - num) * s_ss.prev_filtered[id]);
-    const int32_t bias = (sum >= 0) ? (den / 2) : -(den / 2);
-    const int32_t filtered = (sum + bias) / den;
-    s_ss.prev_filtered[id] = filtered;
-    r->value = filtered;
+    const int32_t sum = (num * scaled) + ((den - num) * s_ss.prev_filtered[id]);
+    s_ss.prev_filtered[id] = prv_div_round(sum, den);
+
+    /* Back to the channel's unit. C division truncates toward zero, so the half-divisor
+     * bias must follow the sign (SS-D13); a plain "+ half" rounds negative axes wrongly. */
+    r->value = prv_div_round(s_ss.prev_filtered[id], FILTER_SCALE);
 
     if (s_ss.fail_reported[id] && r->valid)
     {
@@ -465,6 +496,7 @@ static void prv_read_magnetometer(sensor_snapshot_t *snap)
 void sensor_service_reset_for_test(void)
 {
     (void) memset(&s_ss, 0, sizeof(s_ss));
+    s_group_a_period = GROUP_A_PERIOD_CYCLES_DEFAULT;
 }
 
 void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den)
@@ -478,3 +510,8 @@ int32_t sensor_service_convert_for_test(sensor_id_t id, int16_t raw)
     return prv_convert(id, raw);
 }
 #endif /* TEST */
+
+void sensor_service_set_group_a_period_for_test(uint32_t cycles)
+{
+    s_group_a_period = cycles;
+}

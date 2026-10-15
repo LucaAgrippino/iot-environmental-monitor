@@ -176,6 +176,9 @@ void sensor_service_reset_for_test(void);
 /** @brief Seed the IIR coefficient as num/den (unit tests only). */
 void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den);
 
+/** @brief Read Group A every @p cycles cycles instead of the default 10 (unit tests only). */
+void sensor_service_set_group_a_period_for_test(uint32_t cycles);
+
 /** @brief Convert one raw driver sample to engineering units (unit tests only). */
 int32_t sensor_service_convert_for_test(sensor_id_t id, int16_t raw);
 #endif /* TEST */

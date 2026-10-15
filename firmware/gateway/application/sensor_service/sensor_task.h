@@ -14,6 +14,9 @@
 
 #include <stdint.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "health_monitor/health_monitor.h"
 
 /** Error codes returned by sensor_task_create(). */
@@ -47,5 +50,16 @@ typedef enum
  * @note Threading: call once, before the scheduler starts, after i2c_init() and gpio_init().
  */
 sensor_task_err_t sensor_task_create(health_monitor_handle_t health);
+
+/**
+ * @brief Return the SensorTask handle, or NULL before sensor_task_create() succeeds.
+ *
+ * Exists for diagnostics only: the bring-up harness suspends the task to time
+ * sensor_service_run_cycle() and reads the stack high-water mark (SS-O4, SS-O9).
+ *
+ * @return Task handle or NULL.
+ * @note Threading: any task.
+ */
+TaskHandle_t sensor_task_get_handle(void);
 
 #endif /* SENSOR_TASK_H */

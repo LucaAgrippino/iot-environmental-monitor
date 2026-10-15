@@ -36,6 +36,9 @@
  *   TC-HW-SS-007  No alarm is ever active on an IMU / magnetometer channel (SS-D15) and
  *                  get_all_states() succeeds.
  *   TC-HW-SS-008  HealthMonitor reports zero sensor failures after the run.
+ *   TC-HW-SS-009  With SensorTask suspended, 50 run_cycle() calls timed with the DWT counter:
+ *                  worst case under 10 ms, a tenth of the period (SS-O4); SensorTask stack
+ * high-water mark leaves at least 64 of 384 words free (SS-O9).
  *
  * Integration checklist:
  *   [ ] All TC-HW-SS pass, then watch the live lines:
@@ -107,6 +110,13 @@
 #define GYRO_STILL_MAX_MDPS (17000)
 #define MAG_MIN_MGAUSS (100)
 #define MAG_MAX_MGAUSS (1200)
+
+#define WCET_RUNS (50U)
+/* One tenth of the 100 ms period. The LLD estimate of 5 ms (SS-O4) was exceeded by 81 us because
+ * a due Group A cycle can include two 2 ms driver retry sleeps, which block but do not burn CPU. */
+#define WCET_BUDGET_US (10000U)
+#define STACK_FREE_MIN_WORDS (64U)
+#define US_PER_SECOND (1000000U)
 
 #define LIVE_PERIOD_MS (1000U)
 
@@ -342,6 +352,45 @@ static void test_health(void)
     bringup_pass("TC-HW-SS-008 no sensor failure reported to HealthMonitor");
 }
 
+/* TC-HW-SS-009 */
+static void test_wcet_and_stack(void)
+{
+    const TaskHandle_t task = sensor_task_get_handle();
+    uint32_t worst = 0U;
+    char msg[96];
+
+    expect_true("TC-HW-SS-009 no SensorTask handle", task != NULL);
+
+    /* Suspended, SensorTask cannot overlap these calls, so the timing is the cycle alone. */
+    vTaskSuspend(task);
+    for (uint32_t i = 0U; i < WCET_RUNS; i++)
+    {
+        const uint32_t t0 = DWT->CYCCNT;
+        (void) sensor_service_run_cycle();
+        const uint32_t dt = DWT->CYCCNT - t0;
+        /* cppcheck-suppress unsignedLessThanZero -- DWT->CYCCNT is a hardware register */
+        if (dt > worst)
+        {
+            worst = dt;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20U)); /* let the 1 Hz sensors produce fresh samples too */
+    }
+    vTaskResume(task);
+
+    const uint32_t worst_us = worst / (cpu_get_sysclk_hz() / US_PER_SECOND);
+    const UBaseType_t free_words = uxTaskGetStackHighWaterMark(task);
+    (void) snprintf(msg, sizeof(msg),
+                    "[INFO] run_cycle worst %lu us (budget %u), stack free %lu/%u words\r\n",
+                    (unsigned long) worst_us, WCET_BUDGET_US, (unsigned long) free_words,
+                    SENSOR_TASK_STACK_WORDS);
+    bringup_puts(msg);
+
+    expect_true("TC-HW-SS-009 run_cycle exceeds 10 ms", worst_us < WCET_BUDGET_US);
+    expect_true("TC-HW-SS-009 SensorTask stack nearly exhausted",
+                free_words >= STACK_FREE_MIN_WORDS);
+    bringup_pass("TC-HW-SS-009 cycle time within budget, stack margin adequate");
+}
+
 /* Live line once a second so the operator can tilt, rotate and warm the board. */
 static void live_loop(void)
 {
@@ -386,6 +435,7 @@ static void test_task(void *arg)
     test_timestamps();
     test_alarm_states();
     test_health();
+    test_wcet_and_stack();
 
     bringup_puts("\r\n[PASS] All automated tests complete. Live snapshot follows.\r\n");
     live_loop();

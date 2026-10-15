@@ -67,3 +67,8 @@ sensor_task_err_t sensor_task_create(health_monitor_handle_t health)
                                       SENSOR_TASK_PRIORITY, s_task_stack, &s_task_tcb);
     return (s_task_handle != NULL) ? SENSOR_TASK_ERR_OK : SENSOR_TASK_ERR_RTOS;
 }
+
+TaskHandle_t sensor_task_get_handle(void)
+{
+    return s_task_handle;
+}

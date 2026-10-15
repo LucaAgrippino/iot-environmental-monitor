@@ -543,6 +543,7 @@ int main(void)
         .pull = GPIO_PULL_UP,
         .alternate = BRINGUP_UART_AF,
     };
+    (void) gpio_init(); /* LedDriver (used by HealthMonitor) needs the GPIO driver up */
     (void) gpio_configure_pin(&led_config);
     (void) gpio_configure_pin(&uart_tx_config);
     (void) gpio_configure_pin(&uart_rx_config);
@@ -563,10 +564,13 @@ int main(void)
 
     const health_monitor_config_t hm_config = {.boot_reset_cause = LIFECYCLE_RESET_SOFT};
 
-    if ((led_init(k_gw_led_pins, (uint8_t) LED_COUNT) != LED_ERR_OK) ||
-        (health_monitor_create(&hm_config, &s_hm) != HEALTH_MONITOR_ERR_OK))
+    const led_err_t led_err = led_init(k_gw_led_pins, (uint8_t) LED_COUNT);
+    const health_monitor_err_t hm_err = health_monitor_create(&hm_config, &s_hm);
+
+    if ((led_err != LED_ERR_OK) || (hm_err != HEALTH_MONITOR_ERR_OK))
     {
-        LOG_ERROR(TAG, "[FAIL] health_monitor_create - HALTED");
+        LOG_ERROR(TAG, "[FAIL] led_init=%d health_monitor_create=%d - HALTED", (int) led_err,
+                  (int) hm_err);
         for (;;)
         {
         }

@@ -183,6 +183,7 @@ static void set_good_readings(void)
 void setUp(void)
 {
     sensor_service_reset_for_test();
+    sensor_service_set_group_a_period_for_test(1U); /* most tests want a read every cycle */
     s_ht_init_result = HUMIDITY_TEMP_ERR_OK;
     s_ht_read_result = HUMIDITY_TEMP_ERR_OK;
     s_baro_init_result = BAROMETER_ERR_OK;
@@ -520,6 +521,7 @@ void test_filter_rounds_halfway_results_symmetrically(void)
     TEST_ASSERT_EQUAL_INT32(101, snap.readings[SENSOR_ID_TEMPERATURE].value);
 
     sensor_service_reset_for_test();
+    sensor_service_set_group_a_period_for_test(1U);
     (void) sensor_service_init(HEALTH_HANDLE);
     sensor_service_set_alpha_for_test(1U, 2U);
 
@@ -551,4 +553,59 @@ void test_group_a_not_ready_keeps_previous_reading_and_raises_no_fault(void)
     TEST_ASSERT_EQUAL_INT32(10132, snap.readings[SENSOR_ID_PRESSURE].value);
     TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
     TEST_ASSERT_TRUE(sensor_service_is_ready());
+}
+
+/* TC-SS-111 - SS-D18: a small steady offset is not lost to rounding (no dead band) */
+void test_filter_converges_on_a_step_smaller_than_the_rounding_threshold(void)
+{
+    sensor_snapshot_t snap;
+
+    (void) sensor_service_init(HEALTH_HANDLE); /* alpha = 0.1 */
+    (void) sensor_service_run_cycle();         /* seeds at 0 mg */
+
+    s_imu_data.accel_x = 33; /* 2 mg: plain integer state would round the 0.2 step to 0 */
+    for (uint8_t i = 0U; i < 60U; i++)
+    {
+        (void) sensor_service_run_cycle();
+    }
+
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_EQUAL_INT32(2, snap.readings[SENSOR_ID_ACCEL_X].value);
+}
+
+/* TC-SS-112 - SS-D19: Group A is read at its own 1 Hz rate, Group B every cycle */
+void test_group_a_is_read_every_tenth_cycle_and_group_b_every_cycle(void)
+{
+    sensor_service_set_group_a_period_for_test(10U);
+    (void) sensor_service_init(HEALTH_HANDLE);
+
+    for (uint8_t i = 0U; i < 30U; i++)
+    {
+        (void) sensor_service_run_cycle();
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(3U, s_ht_read_calls);
+    TEST_ASSERT_EQUAL_UINT32(3U, s_baro_read_calls);
+    TEST_ASSERT_EQUAL_UINT32(30U, s_imu_read_calls);
+    TEST_ASSERT_EQUAL_UINT32(30U, s_mag_read_calls);
+}
+
+/* TC-SS-113 - SS-D19: until the first Group A sample arrives it is retried every cycle */
+void test_group_a_is_retried_every_cycle_until_the_first_sample(void)
+{
+    sensor_service_set_group_a_period_for_test(10U);
+    s_ht_read_result = HUMIDITY_TEMP_ERR_NOT_READY;
+    s_baro_read_result = BAROMETER_ERR_NOT_READY;
+    (void) sensor_service_init(HEALTH_HANDLE);
+
+    (void) sensor_service_run_cycle(); /* cycle 0: due, not ready */
+    (void) sensor_service_run_cycle(); /* cycle 1: not due, but still no valid reading */
+    s_ht_read_result = HUMIDITY_TEMP_ERR_OK;
+    s_baro_read_result = BAROMETER_ERR_OK;
+    (void) sensor_service_run_cycle(); /* cycle 2: first sample */
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+    TEST_ASSERT_EQUAL_UINT32(3U, s_ht_read_calls);
 }

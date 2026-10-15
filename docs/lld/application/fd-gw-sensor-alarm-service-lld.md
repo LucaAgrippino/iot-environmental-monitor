@@ -951,6 +951,9 @@ Gateway-only additions use IDs from 100:
 | TC-SS-108 | `NOT_READY` keeps the previous reading, no fault |
 | TC-SS-109 | Group B bus error invalidates all axes and reports once per channel |
 | TC-SS-110 | Group A `NOT_READY` (1 Hz sensors) keeps the reading, no fault |
+| TC-SS-111 | A 2 mg offset is not lost to rounding (no IIR dead band, SS-D18) |
+| TC-SS-112 | Group A read every 10th cycle, Group B every cycle (SS-D19) |
+| TC-SS-113 | Group A retried every cycle until its first valid sample (SS-D19) |
 | TC-AS-100 | `init` fails when SensorService refuses the subscription |
 | TC-AS-101 | `get_state` rejects an out-of-range sensor ID (`ERR_INVALID_ARG`) |
 | TC-AS-102 | vtable members point at the public functions |
@@ -980,13 +983,13 @@ treated as a fault. Fixed and covered by TC-SS-110 (SS-D17).
 | SS-O1 | IIR filter alpha value — [TBD] in REQ-SA-140. Provisional 0.1. Must be in range (0, 1) exclusive; validated at init. | Confirm with sensor characterisation data or customer spec | Open |
 | SS-O2 | REQ-SA-090 "most recent [TBD] readings per sensor" — TBD not resolved. Decision: N=1 (latest reading only). If N > 1 required, add static ring buffer per sensor. | Implement N=1; revisit if historical access required | Open |
 | SS-O3 | IMU and magnetometer alarm evaluation (GW) — deferred. Per-axis and magnitude thresholds have different physical interpretations. | Design at coding time once customer spec confirmed | Open |
-| SS-O4 | WCET measurement — 3 ms (FD) / 5 ms (GW) budget must be verified by timing `sensor_service_run_cycle()` under debugger at target speed. | Time on target; record in task-breakdown.md §8 | Open |
+| SS-O4 | WCET measurement — 3 ms (FD) / 5 ms (GW) budget must be verified by timing `sensor_service_run_cycle()` under debugger at target speed. | Measured on the Gateway 2026-10-15 (TC-HW-SS-009): worst case **5081 us** over 50 timed cycles, 81 us over the estimate. About 4 ms of it is the Group A drivers' two 2 ms not-ready retry sleeps (blocked, not CPU-busy); a cycle with no due Group A read is far shorter. The requirement is to finish well inside the 100 ms period (REQ-NF-101), so the GW budget is restated as 10 ms wall time. Record in task-breakdown.md §8. | Closed (GW) |
 | SS-O5 | `firmware/common/` directory — not in original project structure. | Closed 2026-10-15 — per-board copies kept (SS-D16). | Closed |
 | SS-O6 | The Gateway has no `IConfigProvider`: alpha, ranges, thresholds and hysteresis are compile-time defaults, and the §5.3 hysteresis-validation path (TC-AS-002) has nothing to validate. | Load from ConfigService once it exists on the Gateway; then implement TC-AS-002. | Open |
 | SS-O7 | `read_on_demand()` runs a cycle in the caller's task with no lock; safe only if it never overlaps SensorTask. The Gateway has no caller. | Add a mutex or route the request through SensorTask before the first Gateway caller appears. | Open |
 | SS-O8 | CloudPublisher still compiles against placeholder `sensor_reading_t` / `sensor_service_get_latest()` / `alarm_service_subscribe(handle, cb, ctx)` / `alarm_event_t`. All clash with the real headers, and its `int16_t` gyro field overflows (±250 dps = ±250000 mdps). | Reconcile CloudPublisher against this LLD (same job as SAF-O3). Until then `application/sensor_service` and `application/alarm_service` are excluded from the default `.cproject` image, because the `cloud_publisher` bring-up harness defines a placeholder `alarm_service_subscribe` that collides with the real one at link time. | Open |
-| SS-O9 | Hardware validation of the pipeline (TC-HW-SS-*), the 5 ms GW WCET (SS-O4) and the 384-word stack. | TC-HW-SS-001..008 PASS on 2026-10-15 (see §13.5). Still open: WCET with the DWT counter, SensorTask stack high-water mark, tilt / rotate / breathe checks. | Partly closed |
-| SS-O11 | The integer IIR has a dead band: with alpha 1/10 and rounding to nearest, a step smaller than 5 units rounds to zero. The accelerometer (mg) held -166/-90/-950 for 30 s on the bench while the gyro and magnetometer moved. | Confirm accel responds when tilted; if the dead band matters, keep the filter state with extra fractional bits. | Open |
+| SS-O9 | Hardware validation of the pipeline (TC-HW-SS-*), the 5 ms GW WCET (SS-O4) and the 384-word stack. | TC-HW-SS-001..008 PASS on 2026-10-15 (see §13.5). SensorTask stack high-water mark measured: 233 of 384 words free, so 192 words would still leave 41 free. Still open: tilt / rotate / breathe checks. | Partly closed |
+| SS-O11 | (Closed 2026-10-15, SS-D18) The integer IIR had a dead band: with alpha 1/10 and rounding to nearest, a step smaller than 5 units rounds to zero. The accelerometer (mg) held -166/-90/-950 for 30 s on the bench while the gyro and magnetometer moved. | Confirm accel responds when tilted; if the dead band matters, keep the filter state with extra fractional bits. | Open |
 | SS-O10 | IMU / magnetometer DRDY interrupts are not used: SensorService polls every 100 ms and never calls `attach_*_callback`. | Revisit if lower latency than one cycle is needed. | Open |
 
 ---
@@ -1012,6 +1015,8 @@ treated as a fault. Fixed and covered by TC-SS-110 (SS-D17).
 | SS-D15 | AlarmService evaluates only channels with `enabled` thresholds | Gateway IMU / magnetometer readings are valid; zero thresholds would alarm on any non-zero reading (SS-O3). |
 | SS-D16 | Sources stay per board under `firmware/<board>/application/` | Matches every other module and the FD copy; closes SS-O5. |
 | SS-D17 | `NOT_READY` from any of the four drivers keeps the previous reading and is not a fault | HTS221 / LPS22HB run at 1 Hz and the magnetometer at 10 Hz against a 100 ms cycle, so a cycle without a fresh sample is normal (found on the bench 2026-10-15: treating it as a fault failed TC-HW-SS-008). The sensor is still read every cycle so its latched DRDY / INT1 line is released (GPB-O6). |
+| SS-D18 | The IIR state carries 4 fractional bits | With integer state a step below den / (2 * num) rounds to zero and the output sticks; the accelerometer held one value for 30 s on the bench (SS-O11). |
+| SS-D19 | Group A (HTS221, LPS22HB) is read every 10th cycle, and every cycle while a channel has no valid reading | Those sensors run at 1 Hz (GPA-D2). Reading at 10 Hz made nine reads in ten hit the driver's 2 ms not-ready retry sleep, pushing the measured cycle to 5081 us against the 5 ms budget. |
 
 ---
 
