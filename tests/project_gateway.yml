@@ -47,6 +47,8 @@
     - gateway/drivers/modbus_uart_driver/**
     - gateway/middleware/modbus_master/**
     - gateway/application/modbus_poller/**
+    - gateway/application/sensor_service/**
+    - gateway/application/alarm_service/**
     - gateway/middleware/ntp_client/**
     - gateway/drivers/humidity_temp_driver/**
     - gateway/drivers/barometer_driver/**
@@ -66,6 +68,8 @@
     - ../firmware/gateway/middleware/config_store/**
     - ../firmware/gateway/middleware/modbus_master/**
     - ../firmware/gateway/application/modbus_poller/**
+    - ../firmware/gateway/application/sensor_service/**
+    - ../firmware/gateway/application/alarm_service/**
     - ../firmware/gateway/application/device_profile_registry/**
     - ../firmware/gateway/middleware/ntp_client/**
     # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
@@ -136,6 +140,14 @@
     - STM32L475xx
     - TEST
   :test_modbus_master:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_sensor_service:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_alarm_service:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
