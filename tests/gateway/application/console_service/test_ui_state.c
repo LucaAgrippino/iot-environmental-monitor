@@ -118,11 +118,11 @@ void test_tab_pushes_focus_into_the_panel(void)
 /* TC-GCS-047 */
 void test_escape_returns_focus_to_the_menu_and_keeps_the_screen(void)
 {
-    into_panel(2U);
+    into_panel(5U);
     (void) press(KEY_ESCAPE, 0U);
 
     TEST_ASSERT_EQUAL(FOCUS_MENU, s_ui.focus);
-    TEST_ASSERT_EQUAL_UINT8(2U, s_ui.sel);
+    TEST_ASSERT_EQUAL_UINT8(5U, s_ui.sel);
 }
 
 void test_menu_ignores_keys_it_does_not_use(void)
@@ -154,16 +154,33 @@ void test_graph_panel_cycles_the_channel(void)
     TEST_ASSERT_EQUAL_UINT8(0U, s_ui.sel); /* the menu selection did not move */
 }
 
-void test_other_panels_only_react_to_escape(void)
+void test_read_only_panels_cannot_be_entered(void)
 {
-    into_panel(1U);
-    (void) press(KEY_DOWN, 0U);
-    (void) press(KEY_PRINTABLE, 'a');
-    TEST_ASSERT_EQUAL(FOCUS_PANEL, s_ui.focus);
-    TEST_ASSERT_EQUAL_UINT8(1U, s_ui.sel);
-
-    (void) press(KEY_ESCAPE, 0U);
+    /* Status, alarms, thresholds, network and firmware show data only: Enter and Tab do nothing. */
+    for (uint8_t digit = 2U; digit <= 5U; digit++)
+    {
+        ui_init(&s_ui);
+        (void) press(KEY_DIGIT, digit);
+        (void) press(KEY_ENTER, 0U);
+        (void) press(KEY_TAB, 0U);
+        TEST_ASSERT_EQUAL(FOCUS_MENU, s_ui.focus);
+        TEST_ASSERT_EQUAL_UINT8((uint8_t) (digit - 1U), s_ui.sel);
+    }
+    ui_init(&s_ui);
+    (void) press(KEY_DIGIT, 7U);
+    (void) press(KEY_ENTER, 0U);
     TEST_ASSERT_EQUAL(FOCUS_MENU, s_ui.focus);
+}
+
+void test_only_graph_and_console_are_interactive(void)
+{
+    TEST_ASSERT_TRUE(ui_screen_is_interactive(SCR_GRAPH));
+    TEST_ASSERT_TRUE(ui_screen_is_interactive(SCR_CONSOLE));
+    TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_STATUS));
+    TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_ALARMS));
+    TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_CONFIG));
+    TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_NETWORK));
+    TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_FIRMWARE));
 }
 
 /* ---------------------------------------------------------------------- */

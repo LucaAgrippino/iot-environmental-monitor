@@ -99,4 +99,7 @@ size_t theme_sgr(char *buf, uint8_t fg, uint8_t bg, bool bold);
 /** Longest sequence theme_sgr() writes. */
 #define THEME_SGR_MAX (48U)
 
+/** Serial speed of the console (8N1). The terminal must be set to the same rate. */
+#define CONSOLE_LINK_BAUD (460800U)
+
 #endif /* THEME_H */

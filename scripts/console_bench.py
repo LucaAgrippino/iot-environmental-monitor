@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive the Gateway console TUI over the ST-Link virtual COM port and check what it shows.
 
-Sends keystrokes to /dev/ttyACM0 (115200 8N1), renders the returned ANSI stream with the `pyte`
+Sends keystrokes to /dev/ttyACM0 (460800 8N1 by default; CONSOLE_BAUD=... to override), renders the returned ANSI stream with the `pyte`
 terminal emulator (pip install pyte) and asserts on the screen text. Use with the
 integration-tests/console_service image (see its header comment), board connected, nothing else
 reading the port.
@@ -32,7 +32,7 @@ def open_port(path):
     attrs[1] = 0  # oflag
     attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
     attrs[3] = 0  # lflag
-    attrs[4] = attrs[5] = termios.B115200
+    attrs[4] = attrs[5] = getattr(termios, "B" + os.environ.get("CONSOLE_BAUD", "460800"))  # = CONSOLE_LINK_BAUD
     attrs[6][termios.VMIN] = 0
     attrs[6][termios.VTIME] = 0
     termios.tcsetattr(fd, termios.TCSANOW, attrs)
@@ -129,7 +129,14 @@ def main():
     con.send("4", 0.8)
     check("IT-GCS-004 digit jumps to Thresholds", con.has("THRESHOLDS"))
     con.send("\t", 0.8)
-    check("IT-GCS-005 Tab moves focus to the panel", con.has("focus PANEL"))
+    check("read-only panels (thresholds) do not take focus on Tab", con.has("focus MENU"))
+    con.send("\r", 0.8)
+    check("... nor on Enter", con.has("focus MENU"))
+    check("... and the menu has no \u25ba marker on the read-only items",
+          not any("\u25ba" in l for l in con.screen.display[13:18] if "Thresholds" in l or "Network" in l or "Firmware" in l))
+    con.send("1", 0.8)
+    con.send("\t", 0.8)
+    check("IT-GCS-005 Tab moves focus to the graph", con.has("focus PANEL"))
     con.send("\x1b", 0.8)
     check("IT-GCS-006 Esc returns to the menu", con.has("focus MENU"))
 

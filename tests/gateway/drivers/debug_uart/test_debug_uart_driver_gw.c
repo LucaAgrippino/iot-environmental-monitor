@@ -144,6 +144,34 @@ void test_debug_uart_init_programs_baud_rate_for_pclk(void)
     TEST_ASSERT_EQUAL_HEX32(694u, USART1->BRR);
 }
 
+void test_set_baud_reprograms_brr_and_keeps_the_other_cr1_bits(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+    USART1->CR1 |= USART_CR1_RE | USART_CR1_RXNEIE;
+    USART1->ISR |= USART_ISR_TC;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_set_baud(921600U));
+
+    TEST_ASSERT_EQUAL_HEX32(87u, USART1->BRR); /* 80 MHz / 921600 = 86.8, rounded */
+    TEST_ASSERT_BITS_HIGH(USART_CR1_UE | USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE,
+                          USART1->CR1);
+}
+
+void test_set_baud_rejects_zero_and_rates_the_divider_cannot_make(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+    USART1->ISR |= USART_ISR_TC;
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_INVALID_PARAM, debug_uart_set_baud(0U));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_INVALID_PARAM, debug_uart_set_baud(8000000U));
+    TEST_ASSERT_EQUAL_HEX32(694u, USART1->BRR); /* unchanged */
+}
+
+void test_set_baud_before_init_reports_not_initialised(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED, debug_uart_set_baud(921600U));
+}
+
 /* Dummy callback for tests that need a non-NULL function pointer. */
 static void test_dummy_callback(void *ctx)
 {

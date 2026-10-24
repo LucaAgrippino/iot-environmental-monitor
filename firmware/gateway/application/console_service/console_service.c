@@ -99,18 +99,20 @@ static bool prv_sink(const uint8_t *data, size_t len, void *ctx)
 static void prv_rx_isr(uint8_t byte, void *ctx)
 {
     (void) ctx;
-    const uint16_t next = (uint16_t) ((s_ring_head + 1U) & RING_MASK);
+    const uint16_t head = s_ring_head;
+    const uint16_t next = (uint16_t) ((head + 1U) & RING_MASK);
 
     if (next == s_ring_tail)
     {
         s_ring_overflow = true; /* full: drop the byte, tell the operator on the next frame */
+        return;
     }
-    else
-    {
-        s_ring[s_ring_head] = byte;
-        s_ring_head = next;
-    }
-    if (s_task != NULL)
+    s_ring[head] = byte;
+    s_ring_head = next;
+
+    /* At 921600 baud a byte arrives every 12 us, so the ISR has to be short: wake the task only
+     * for the first byte of a burst. The task drains the whole ring each time it runs. */
+    if ((s_task != NULL) && (head == s_ring_tail))
     {
         BaseType_t woken = pdFALSE;
 
@@ -409,6 +411,12 @@ console_service_err_t console_service_init(const console_deps_t *deps)
     if (s_deps.uart->attach_rx_byte(prv_rx_isr, NULL) != DEBUG_UART_OK)
     {
         LOG_ERROR(MODULE_TAG, "cannot attach the UART receive path");
+        return CONSOLE_SERVICE_ERR_APPLY_FAILED;
+    }
+    if ((s_deps.uart->set_baud != NULL) &&
+        (s_deps.uart->set_baud(CONSOLE_LINK_BAUD) != DEBUG_UART_OK))
+    {
+        LOG_ERROR(MODULE_TAG, "cannot set the console baud rate");
         return CONSOLE_SERVICE_ERR_APPLY_FAILED;
     }
     s_initialised = true;

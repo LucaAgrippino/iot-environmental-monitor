@@ -63,6 +63,10 @@ void ui_init(ui_state_t *ui);
 /** @brief The screen shown for the current selection. */
 screen_t ui_screen(const ui_state_t *ui);
 
+/** @brief True for the screens that take keys once focused (graph, console); the rest are
+ * read-only. */
+bool ui_screen_is_interactive(screen_t screen);
+
 /** @brief Apply one key. Terminal size reports are not handled here. */
 ui_action_t ui_handle_key(ui_state_t *ui, const key_event_t *key);
 

@@ -264,6 +264,19 @@ void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
  */
 debug_uart_err_t debug_uart_attach_rx_byte(debug_uart_byte_callback_t callback, void *context);
 
+/**
+ * @brief Change the line speed after debug_uart_init().
+ *
+ * Waits for the bytes already queued to leave the shifter, then reprograms BRR with the
+ * transmitter and receiver settings (and the RX interrupt) left as they were. The default
+ * after init stays 115200, so harnesses that never call this keep their terminal setting.
+ *
+ * @param[in] baud Requested rate in bit/s (8N1, 16x oversampling, from PCLK2 = 80 MHz).
+ * @return DEBUG_UART_OK; DEBUG_UART_ERR_NOT_INITIALISED; DEBUG_UART_ERR_INVALID_PARAM if the
+ *         rate cannot be produced (BRR below 16, i.e. above 5 Mbit/s, or zero).
+ */
+debug_uart_err_t debug_uart_set_baud(uint32_t baud);
+
 /* ------------------------------------------------------------------ */
 /* IDebugUart vtable (P2 — Dependency Inversion)                       */
 /* ------------------------------------------------------------------ */
@@ -283,6 +296,7 @@ typedef struct idebug_uart_s
                                   debug_uart_line_flag_t *out_flag);
     debug_uart_err_t (*attach_rx)(debug_uart_line_callback_t callback, void *context);
     debug_uart_err_t (*attach_rx_byte)(debug_uart_byte_callback_t callback, void *context);
+    debug_uart_err_t (*set_baud)(uint32_t baud);
 } idebug_uart_t;
 
 extern const idebug_uart_t *const debug_uart;

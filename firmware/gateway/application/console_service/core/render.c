@@ -35,15 +35,11 @@ static const char *const s_logo[6] = {
 static const struct
 {
     const char *label;
-    bool deeper; /* shows the ► marker */
+    bool deeper; /* shows the ► marker: only for items that open something to work in */
 } s_menu[UI_MENU_COUNT] = {
-    {"Live sensor readings", false},
-    {"System status", false},
-    {"Active alarms", false},
-    {"Thresholds", true},
-    {"Network", true},
-    {"Console", false},
-    {"Firmware · Reboot", true},
+    {"Live sensor readings", true}, {"System status", false}, {"Active alarms", false},
+    {"Thresholds", false},          {"Network", false},       {"Console", true},
+    {"Firmware · Reboot", false},
 };
 
 /* ---------------------------------------------------------------------- */
@@ -599,7 +595,9 @@ const char *render_hint(const ui_state_t *ui)
     }
     if (ui->focus == FOCUS_MENU)
     {
-        return "↑↓ select · Enter / Tab → panel · 1–7 jump";
+        return ui_screen_is_interactive(ui_screen(ui))
+                   ? "↑↓ select · Enter / Tab → panel · 1–7 jump"
+                   : "↑↓ select · 1–7 jump";
     }
     switch (ui_screen(ui))
     {
@@ -625,8 +623,8 @@ static void prv_footer(cell_grid_t *g, const render_input_t *in)
     {
         prv_seg(g, R_FOOTER_ROW, &c, HINT_RIGHT_COL, render_hint(in->ui), PAL_MUTED);
     }
-    (void) snprintf(right, sizeof(right), "focus %s · 115200 8N1",
-                    (in->ui->focus == FOCUS_MENU) ? "MENU" : "PANEL");
+    (void) snprintf(right, sizeof(right), "focus %s · %u 8N1",
+                    (in->ui->focus == FOCUS_MENU) ? "MENU" : "PANEL", (unsigned) CONSOLE_LINK_BAUD);
     c = (uint8_t) (GRID_COLS - fmt_cols(right)); /* right-aligned to the last column */
     prv_seg(g, R_FOOTER_ROW, &c, (uint8_t) GRID_COLS, right, PAL_MUTED);
 }

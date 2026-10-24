@@ -28,6 +28,13 @@ void ui_clear_input(ui_state_t *ui)
     ui->input_len = 0U;
 }
 
+bool ui_screen_is_interactive(screen_t screen)
+{
+    /* Only the graph (channel select) and the console (command line) take keys; the other
+     * panels are read-only views, so there is nothing to focus. */
+    return (screen == SCR_GRAPH) || (screen == SCR_CONSOLE);
+}
+
 static ui_action_t prv_menu_key(ui_state_t *ui, const key_event_t *key)
 {
     switch (key->kind)
@@ -43,7 +50,10 @@ static ui_action_t prv_menu_key(ui_state_t *ui, const key_event_t *key)
         break;
     case KEY_ENTER:
     case KEY_TAB:
-        ui->focus = FOCUS_PANEL;
+        if (ui_screen_is_interactive(ui_screen(ui)))
+        {
+            ui->focus = FOCUS_PANEL;
+        }
         break;
     default:
         break;

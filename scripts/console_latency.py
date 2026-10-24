@@ -18,7 +18,6 @@ import pyte
 sys.path.insert(0, os.path.dirname(__file__))
 import console_bench as cb  # noqa: E402
 
-BAUD = {115200: termios.B115200, 460800: termios.B460800, 921600: termios.B921600}
 
 
 def timed(con, keys, want_row, want_title, quiet=0.12, limit=6.0):

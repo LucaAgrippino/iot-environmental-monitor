@@ -166,7 +166,11 @@ void test_menu_lists_all_seven_items(void)
     TEST_ASSERT_TRUE(row_has(15U, "Network"));
     TEST_ASSERT_TRUE(row_has(16U, "Console"));
     TEST_ASSERT_TRUE(row_has(17U, "Firmware · Reboot"));
-    TEST_ASSERT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[14][27].glyph); /* deeper-menu marker */
+    /* Only the items that open something to work in carry the marker. */
+    TEST_ASSERT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[16][27].glyph); /* console */
+    TEST_ASSERT_NOT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[14][27].glyph); /* thresholds */
+    TEST_ASSERT_NOT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[15][27].glyph); /* network */
+    TEST_ASSERT_NOT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[17][27].glyph); /* firmware */
 }
 
 /* TC-GCS-082 */
@@ -352,12 +356,20 @@ void test_a_long_input_line_keeps_its_tail_visible(void)
     TEST_ASSERT_TRUE(row_has(18U, "END"));
 }
 
+void test_menu_hint_does_not_offer_a_panel_for_read_only_screens(void)
+{
+    s_ui.sel = 3U; /* thresholds */
+    compose(true, false);
+    TEST_ASSERT_TRUE(row_has(20U, "↑↓ select · 1–7 jump"));
+    TEST_ASSERT_FALSE(row_has(20U, "Enter / Tab"));
+}
+
 /* TC-GCS-084 */
 void test_footer_hint_matches_focus_and_screen(void)
 {
     compose(true, false);
     TEST_ASSERT_TRUE(row_has(20U, "↑↓ select · Enter / Tab → panel · 1–7 jump"));
-    TEST_ASSERT_TRUE(row_has(20U, "focus MENU · 115200 8N1"));
+    TEST_ASSERT_TRUE(row_has(20U, "focus MENU · 460800 8N1"));
 
     s_ui.focus = FOCUS_PANEL;
     compose(true, false);
