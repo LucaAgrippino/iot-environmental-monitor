@@ -155,13 +155,15 @@ static config_service_err_t prv_set_param(void *ctx, config_param_id_t id, const
 static config_service_err_t prv_validate_param(void *ctx, config_param_id_t id, const void *value);
 static config_service_err_t prv_set_param_deferred(void *ctx, config_param_id_t id,
                                                    const void *value);
+static config_service_err_t prv_persist_pending(void *ctx);
 static const config_params_t *prv_get_params(void *ctx);
 
 static const iconfig_provider_t s_provider = {.ctx = NULL, .get_params = prv_get_params};
 static const iconfig_manager_t s_manager = {.ctx = NULL,
                                             .set_param = prv_set_param,
                                             .validate_param = prv_validate_param,
-                                            .set_param_deferred = prv_set_param_deferred};
+                                            .set_param_deferred = prv_set_param_deferred,
+                                            .persist_pending = prv_persist_pending};
 
 /* ======================================================================= */
 /* Field access                                                             */
@@ -719,6 +721,12 @@ static config_service_err_t prv_set_param_deferred(void *ctx, config_param_id_t 
 {
     (void) ctx;
     return config_service_set_param_deferred(id, value);
+}
+
+static config_service_err_t prv_persist_pending(void *ctx)
+{
+    (void) ctx;
+    return config_service_persist_pending();
 }
 
 #ifdef TEST
