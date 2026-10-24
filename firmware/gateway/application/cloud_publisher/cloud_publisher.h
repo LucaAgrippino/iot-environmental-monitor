@@ -24,6 +24,8 @@
 #include <stdbool.h>
 
 #include "mqtt_client.h"
+#include "alarm_service/alarm_service.h"
+#include "sensor_service/sensor_service.h"
 
 /** @brief Opaque handle to a CloudPublisher instance. */
 typedef struct cloud_publisher_inst *cloud_publisher_handle_t;
@@ -55,37 +57,6 @@ typedef enum
 /* stubs.                                                                */
 /* ===================================================================== */
 
-/* --- ISensorService (placeholder; see sensor-alarm-service.md) -------- */
-
-#ifndef SENSOR_SERVICE_HANDLE_T_DEFINED
-#define SENSOR_SERVICE_HANDLE_T_DEFINED
-typedef struct sensor_service_inst *sensor_service_handle_t;
-#endif /* SENSOR_SERVICE_HANDLE_T_DEFINED */
-
-#ifndef SENSOR_READING_T_DEFINED
-#define SENSOR_READING_T_DEFINED
-/** @brief Latest onboard sensor reading (fields per companion §7.1). */
-typedef struct
-{
-    int16_t temperature_deci_c;
-    uint8_t humidity_pct;
-    uint16_t pressure_hpa;
-    int16_t accel_x_mg;
-    int16_t accel_y_mg;
-    int16_t accel_z_mg;
-    int16_t gyro_x_mdps;
-    int16_t gyro_y_mdps;
-    int16_t gyro_z_mdps;
-    int16_t mag_x_mgauss;
-    int16_t mag_y_mgauss;
-    int16_t mag_z_mgauss;
-    bool time_synchronised; /**< Drives JSON "sync_state" (§7.1). */
-} sensor_reading_t;
-#endif /* SENSOR_READING_T_DEFINED */
-
-/** @brief Placeholder — returns the latest cached onboard sensor reading. */
-sensor_reading_t sensor_service_get_latest(sensor_service_handle_t handle);
-
 /* --- IModbusPoller (placeholder; see docs/lld/middleware/modbus-master-poller.md) */
 
 #ifndef MODBUS_POLLER_HANDLE_T_DEFINED
@@ -108,12 +79,7 @@ typedef struct
 /** @brief Placeholder — returns the latest cached Field Device reading. */
 modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t handle);
 
-/* --- IAlarmService (placeholder; see sensor-alarm-service.md) --------- */
-
-#ifndef ALARM_SERVICE_HANDLE_T_DEFINED
-#define ALARM_SERVICE_HANDLE_T_DEFINED
-typedef struct alarm_service_inst *alarm_service_handle_t;
-#endif /* ALARM_SERVICE_HANDLE_T_DEFINED */
+/* --- Alarm payload (CloudPublisher's own wire model) ------------------ */
 
 #ifndef CP_ALARM_TYPE_T_DEFINED
 #define CP_ALARM_TYPE_T_DEFINED
@@ -136,9 +102,13 @@ typedef enum
 
 #define CP_ALARM_SENSOR_NAME_MAX 16u
 
-#ifndef ALARM_EVENT_T_DEFINED
-#define ALARM_EVENT_T_DEFINED
-/** @brief Alarm event payload (fields per companion §7.3). */
+/**
+ * @brief One alarm transition as published to the cloud (companion §7.3).
+ *
+ * Built in the AlarmService subscriber callback from the real sensor_id_t /
+ * alarm_event_t / sensor_reading_t triple. Values are in SensorService fixed-point
+ * units (0.01 degC, 0.01 %RH, 0.1 hPa), the same units the thresholds use.
+ */
 typedef struct
 {
     char sensor_name[CP_ALARM_SENSOR_NAME_MAX];
@@ -146,14 +116,7 @@ typedef struct
     int32_t measured_value_raw;
     int32_t threshold_value_raw;
     cp_alarm_source_t source;
-} alarm_event_t;
-#endif /* ALARM_EVENT_T_DEFINED */
-
-/** @brief Alarm subscriber callback — runs in SensorTask context; must not block. */
-typedef void (*alarm_event_cb_t)(const alarm_event_t *event, void *ctx);
-
-/** @brief Placeholder — registers cb, invoked whenever an alarm changes state. */
-void alarm_service_subscribe(alarm_service_handle_t handle, alarm_event_cb_t cb, void *ctx);
+} cp_alarm_event_t;
 
 /* --- IStoreAndForward (placeholder; see store-and-forward-lld.md) ----- */
 
@@ -276,8 +239,6 @@ void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, 
 typedef struct
 {
     mqtt_client_handle_t mqtt;
-    sensor_service_handle_t sensors;      /**< ISensorService — latest readings.    */
-    alarm_service_handle_t alarms;        /**< IAlarmService — alarm subscription.  */
     modbus_poller_handle_t poller;        /**< IModbusPoller — FD readings.         */
     store_and_forward_handle_t saf;       /**< IStoreAndForward — offline buffer.   */
     health_monitor_handle_t health_read;  /**< IHealthSnapshot — health payload.    */
@@ -327,7 +288,7 @@ void cloud_publisher_task_step_for_test(cloud_publisher_handle_t handle);
  * AlarmService(GW) implementation).
  */
 void cloud_publisher_inject_alarm_for_test(cloud_publisher_handle_t handle,
-                                           const alarm_event_t *event);
+                                           const cp_alarm_event_t *event);
 
 /**
  * @brief Test-only injection of an inbound MQTT command, as if delivered
