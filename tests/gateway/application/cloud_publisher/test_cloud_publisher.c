@@ -873,6 +873,34 @@ void test_CP_T22_telemetry_reports_invalid_channel_as_zero(void)
     (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER");
 
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\":0,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[\"temperature_deci_c\","));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\""));
+}
+
+void test_CP_T27_invalid_channels_is_empty_when_all_valid(void)
+{
+    char buf[1024];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+    for (uint32_t i = 0u; i < (uint32_t) SENSOR_ID_COUNT; i++)
+    {
+        g_spy_snapshot.readings[i].valid = true;
+    }
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
+                                                               &fd, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[],"));
+}
+
+void test_CP_T28_all_channels_invalid_fits_the_list_buffer(void)
+{
+    char buf[2048];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
+                                                               &fd, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"mag_z_mgauss\"],"));
 }
 
 void test_CP_T23_telemetry_skipped_when_snapshot_unavailable(void)

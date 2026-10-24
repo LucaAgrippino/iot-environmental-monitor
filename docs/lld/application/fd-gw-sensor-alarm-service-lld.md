@@ -994,7 +994,7 @@ treated as a fault. Fixed and covered by TC-SS-110 (SS-D17).
 | SS-O9 | Hardware validation of the pipeline (TC-HW-SS-*), the 5 ms GW WCET (SS-O4) and the 384-word stack. | TC-HW-SS-001..009 PASS on 2026-10-15; tilt / rotate / breathe check done (see §13.5). SensorTask stack: 233 of 384 words free, so it could shrink to 192 words later. | Closed |
 | SS-O11 | (Closed 2026-10-15, SS-D18) The integer IIR had a dead band: with alpha 1/10 and rounding to nearest, a step smaller than 5 units rounds to zero. The accelerometer (mg) held -166/-90/-950 for 30 s on the bench while the gyro and magnetometer moved. | Confirm accel responds when tilted; if the dead band matters, keep the filter state with extra fractional bits. | Open |
 | SS-O10 | IMU / magnetometer DRDY interrupts are not used: SensorService polls every 100 ms and never calls `attach_*_callback`. | Revisit if lower latency than one cycle is needed. | Open |
-| SS-O11 | Telemetry for an invalid channel (driver fault, out of range, or no sample yet) reports `0`, because the cloud wire format has no per-channel validity flag; the cloud cannot tell a failed sensor from a true zero. | Decide with the cloud schema (same conversation as CP-O4): add a `*_valid` field or omit the key. | Open |
+| SS-O12 | Telemetry for an invalid channel (driver fault, out of range, or no sample yet) reported `0`, indistinguishable from a true zero. | **Resolved.** The value is still `0`, and the channel's wire name is listed in a new additive `invalid_channels` array (empty when every channel is valid). Old consumers ignore the extra key. TC-CP-T22/T27/T28. | Closed |
 
 ---
 

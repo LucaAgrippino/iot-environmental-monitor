@@ -16,6 +16,7 @@
 #include "cloud_publisher_json.h"
 
 #include <stdio.h>
+#include <stddef.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -71,7 +72,7 @@ static int32_t prv_clamp(int32_t value, int32_t lo, int32_t hi)
     return (value < lo) ? lo : ((value > hi) ? hi : value);
 }
 
-/* An invalid channel reports 0 (the wire has no per-channel validity flag; CP-O7). */
+/* An invalid channel reports 0 and is named in invalid_channels (SS-O12). */
 static int32_t prv_channel(const sensor_snapshot_t *snap, sensor_id_t id)
 {
     return snap->readings[id].valid ? snap->readings[id].value : 0;
@@ -99,45 +100,78 @@ static cp_wire_reading_t prv_to_wire(const sensor_snapshot_t *snap)
     return w;
 }
 
+/* Wire names in sensor_id_t order, used for the invalid_channels list (SS-O12). */
+static const char *const s_channel_names[SENSOR_ID_COUNT] = {
+    "temperature_deci_c", "humidity_pct", "pressure_hpa", "accel_x_mg",
+    "accel_y_mg",         "accel_z_mg",   "gyro_x_mdps",  "gyro_y_mdps",
+    "gyro_z_mdps",        "mag_x_mgauss", "mag_y_mgauss", "mag_z_mgauss",
+};
+
+/* Comma-separated quoted names of the channels whose reading is not valid. */
+static void prv_invalid_list(const sensor_snapshot_t *snap, char *out, size_t out_size)
+{
+    size_t len = 0U;
+    out[0] = '\0';
+    for (uint32_t i = 0U; i < (uint32_t) SENSOR_ID_COUNT; i++)
+    {
+        if (snap->readings[i].valid)
+        {
+            continue;
+        }
+        const int n = snprintf(&out[len], out_size - len, "%s\"%s\"", (len > 0U) ? "," : "",
+                               s_channel_names[i]);
+        if ((n < 0) || ((size_t) n >= (out_size - len)))
+        {
+            out[len] = '\0'; /* cannot happen: buffer sized for every channel */
+            return;
+        }
+        len += (size_t) n;
+    }
+}
+
 uint32_t cp_serialise_telemetry(char *buf, uint32_t buf_size, const sensor_snapshot_t *snap,
                                 const modbus_poller_fd_reading_t *fd, const char *device_serial)
 {
     const cp_wire_reading_t w = prv_to_wire(snap);
+    char invalid[256];
     int n;
+
+    prv_invalid_list(snap, invalid, sizeof(invalid));
 
     if (fd->valid)
     {
-        n = snprintf(buf, buf_size,
-                     "{\"schema_version\":\"1.0\",\"device_id\":\"%s\",\"timestamp\":%lu,"
-                     "\"sync_state\":\"%s\","
-                     "\"temperature_deci_c\":%d,\"humidity_pct\":%u,\"pressure_hpa\":%u,"
-                     "\"accel_x_mg\":%d,\"accel_y_mg\":%d,\"accel_z_mg\":%d,"
-                     "\"gyro_x_mdps\":%d,\"gyro_y_mdps\":%d,\"gyro_z_mdps\":%d,"
-                     "\"mag_x_mgauss\":%d,\"mag_y_mgauss\":%d,\"mag_z_mgauss\":%d,"
-                     "\"field_device_temp_deci_c\":%d,\"field_device_humidity_pct\":%u,"
-                     "\"field_device_pressure_hpa\":%u,\"field_device_valid\":true}",
-                     device_serial, (unsigned long) xTaskGetTickCount(),
-                     w.time_synchronised ? "synchronised" : "unsynchronised", w.temperature_deci_c,
-                     w.humidity_pct, w.pressure_hpa, w.accel_x_mg, w.accel_y_mg, w.accel_z_mg,
-                     w.gyro_x_mdps, w.gyro_y_mdps, w.gyro_z_mdps, w.mag_x_mgauss, w.mag_y_mgauss,
-                     w.mag_z_mgauss, fd->temp_deci_c, fd->humidity_pct, fd->pressure_hpa);
+        n = snprintf(
+            buf, buf_size,
+            "{\"schema_version\":\"1.0\",\"device_id\":\"%s\",\"timestamp\":%lu,"
+            "\"sync_state\":\"%s\","
+            "\"temperature_deci_c\":%d,\"humidity_pct\":%u,\"pressure_hpa\":%u,"
+            "\"accel_x_mg\":%d,\"accel_y_mg\":%d,\"accel_z_mg\":%d,"
+            "\"gyro_x_mdps\":%d,\"gyro_y_mdps\":%d,\"gyro_z_mdps\":%d,"
+            "\"mag_x_mgauss\":%d,\"mag_y_mgauss\":%d,\"mag_z_mgauss\":%d,\"invalid_channels\":[%s],"
+            "\"field_device_temp_deci_c\":%d,\"field_device_humidity_pct\":%u,"
+            "\"field_device_pressure_hpa\":%u,\"field_device_valid\":true}",
+            device_serial, (unsigned long) xTaskGetTickCount(),
+            w.time_synchronised ? "synchronised" : "unsynchronised", w.temperature_deci_c,
+            w.humidity_pct, w.pressure_hpa, w.accel_x_mg, w.accel_y_mg, w.accel_z_mg, w.gyro_x_mdps,
+            w.gyro_y_mdps, w.gyro_z_mdps, w.mag_x_mgauss, w.mag_y_mgauss, w.mag_z_mgauss, invalid,
+            fd->temp_deci_c, fd->humidity_pct, fd->pressure_hpa);
     }
     else
     {
         /* REQ-SA-160: field_device_* fields omitted when the FD is offline. */
-        n = snprintf(buf, buf_size,
-                     "{\"schema_version\":\"1.0\",\"device_id\":\"%s\",\"timestamp\":%lu,"
-                     "\"sync_state\":\"%s\","
-                     "\"temperature_deci_c\":%d,\"humidity_pct\":%u,\"pressure_hpa\":%u,"
-                     "\"accel_x_mg\":%d,\"accel_y_mg\":%d,\"accel_z_mg\":%d,"
-                     "\"gyro_x_mdps\":%d,\"gyro_y_mdps\":%d,\"gyro_z_mdps\":%d,"
-                     "\"mag_x_mgauss\":%d,\"mag_y_mgauss\":%d,\"mag_z_mgauss\":%d,"
-                     "\"field_device_valid\":false}",
-                     device_serial, (unsigned long) xTaskGetTickCount(),
-                     w.time_synchronised ? "synchronised" : "unsynchronised", w.temperature_deci_c,
-                     w.humidity_pct, w.pressure_hpa, w.accel_x_mg, w.accel_y_mg, w.accel_z_mg,
-                     w.gyro_x_mdps, w.gyro_y_mdps, w.gyro_z_mdps, w.mag_x_mgauss, w.mag_y_mgauss,
-                     w.mag_z_mgauss);
+        n = snprintf(
+            buf, buf_size,
+            "{\"schema_version\":\"1.0\",\"device_id\":\"%s\",\"timestamp\":%lu,"
+            "\"sync_state\":\"%s\","
+            "\"temperature_deci_c\":%d,\"humidity_pct\":%u,\"pressure_hpa\":%u,"
+            "\"accel_x_mg\":%d,\"accel_y_mg\":%d,\"accel_z_mg\":%d,"
+            "\"gyro_x_mdps\":%d,\"gyro_y_mdps\":%d,\"gyro_z_mdps\":%d,"
+            "\"mag_x_mgauss\":%d,\"mag_y_mgauss\":%d,\"mag_z_mgauss\":%d,\"invalid_channels\":[%s],"
+            "\"field_device_valid\":false}",
+            device_serial, (unsigned long) xTaskGetTickCount(),
+            w.time_synchronised ? "synchronised" : "unsynchronised", w.temperature_deci_c,
+            w.humidity_pct, w.pressure_hpa, w.accel_x_mg, w.accel_y_mg, w.accel_z_mg, w.gyro_x_mdps,
+            w.gyro_y_mdps, w.gyro_z_mdps, w.mag_x_mgauss, w.mag_y_mgauss, w.mag_z_mgauss, invalid);
     }
 
     if ((n < 0) || ((uint32_t) n >= buf_size))
