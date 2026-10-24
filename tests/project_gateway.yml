@@ -52,6 +52,7 @@
     - gateway/application/cloud_publisher/**
     - gateway/application/time_service/**
     - gateway/application/config_service/**
+    - gateway/application/console_service/**
     - gateway/middleware/ntp_client/**
     - gateway/drivers/humidity_temp_driver/**
     - gateway/drivers/barometer_driver/**
@@ -76,6 +77,7 @@
     - ../firmware/gateway/application/cloud_publisher/**
     - ../firmware/gateway/application/time_service/**
     - ../firmware/gateway/application/config_service/**
+    - ../firmware/gateway/application/console_service/**
     - ../firmware/gateway/application/device_profile_registry/**
     - ../firmware/gateway/middleware/ntp_client/**
     # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
@@ -166,6 +168,26 @@
     - BOARD_GATEWAY
     - TEST
   :test_config_service:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_chart:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_ui_state:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_render:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_console_service_gw_tui:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_fmt:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
