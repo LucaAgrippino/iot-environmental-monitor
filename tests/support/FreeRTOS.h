@@ -166,6 +166,7 @@ extern uint32_t    g_mock_uxTaskGetStackHighWaterMark_call_count;
 /* xTimerCreateStatic / xTimerStart / xTimerStop mock */
 extern TimerHandle_t g_mock_xTimerCreateStatic_return;
 extern uint32_t      g_mock_xTimerCreateStatic_call_count;
+extern TimerCallbackFunction_t g_mock_xTimerCreateStatic_last_cb; /* callback of the last create */
 extern BaseType_t    g_mock_xTimerStart_return;
 extern uint32_t      g_mock_xTimerStart_call_count;
 extern BaseType_t    g_mock_xTimerStop_return;

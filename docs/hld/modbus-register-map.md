@@ -281,11 +281,25 @@ prevent accidental triggers from incorrect writes.
 | 0x0200 | CMD_ACK_ALARM | uint16 | `0x0001` | Acknowledges all currently active alarms; clears `ALARM_FLAGS`. *(Requirement to be derived from UC-08/UC-09 in F-07 SRS fix pass.)* | ModbusPoller | AlarmService |
 | 0x0201 | CMD_RESET_METRICS | uint16 | `0x0001` | Resets all Modbus and sensor metrics counters to 0. Does not affect uptime. REQ-LD-070. | ModbusPoller | LifecycleController |
 | 0x0202 | CMD_SOFT_RESTART | uint16 | `0xA5A5` | Triggers soft restart of the Field Device (UC-17). Any other value is rejected with exception **0x03**. Magic value prevents accidental triggers. | ModbusPoller | LifecycleController |
-| 0x0203 – 0x02FF | *(reserved)* | — | — | Returns exception **0x02 — Illegal Data Address** on any access. | — | — |
+| 0x0203 – 0x020F | *(reserved)* | — | — | Returns exception **0x02 — Illegal Data Address** on any access. | — | — |
+| 0x0210 | CMD_SET_TIME_HI | uint16 | high word of UTC | High word of the Unix UTC time (seconds) the Gateway pushes after each NTP sync *(REQ-TS-030)*. Latched, not applied on its own. | ModbusPoller | TimeProvider |
+| 0x0211 | CMD_SET_TIME_LO | uint16 | low word of UTC | Low word of the Unix UTC time. The Field Device sets its clock from HI:LO when this write completes. Reading either register returns the last value written. | ModbusPoller | TimeProvider |
+| 0x0212 – 0x02FF | *(reserved)* | — | — | Returns exception **0x02 — Illegal Data Address** on any access. | — | — |
 
 An FC16 write that spans more than one command register (0x0200–0x02FF)
 returns exception **0x03 — Illegal Data Value**. The master must use
 FC06 to write each command register individually.
+
+**Exception — `CMD_SET_TIME`.** The 32-bit UTC value spans two registers
+and must arrive as a unit, so `CMD_SET_TIME_HI` and `CMD_SET_TIME_LO`
+(0x0210–0x0211) are written with **one FC16 request of exactly two
+registers starting at 0x0210**. The Field Device applies the time only
+when both words arrive in that single request; an FC16 touching only one
+of them, or any other span, returns exception **0x03**. FC06 to either
+register is also rejected with **0x03**, because a half-written time
+would otherwise be applied or latched inconsistently. The GW-side sender
+is `TimeService` (`time-service-lld.md` §7); the FD-side handler is not
+yet implemented (TS-O5).
 
 ---
 
@@ -420,6 +434,12 @@ harness phase.
   Write `CMD_ACK_ALARM` with `0x0001`. Verify `ALARM_FLAGS` clears.
 - **TC-RM-032** — Write `CMD_RESET_METRICS`. Verify metrics counters
   go to 0 but `UPTIME_SECONDS` continues counting.
+- **TC-RM-033** — FC16 write of two registers at 0x0210 with a Unix UTC
+  value split high/low. Verify the FD clock reads that time within 2 s
+  and `UPTIME_SECONDS` is unaffected. Then verify an FC06 write to
+  0x0210 and an FC16 write of one register at 0x0211 both return
+  exception **0x03** and leave the clock unchanged. *(Pending the FD
+  implementation, TS-O5.)*
 
 ---
 

@@ -19,6 +19,7 @@
     - -:gateway/application/sensor_service/**
     - -:gateway/application/alarm_service/**
     - -:gateway/application/cloud_publisher/**
+    - -:gateway/application/time_service/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
@@ -56,6 +57,7 @@
     - -:../firmware/gateway/application/sensor_service/**
     - -:../firmware/gateway/application/alarm_service/**
     - -:../firmware/gateway/application/cloud_publisher/**
+    - -:../firmware/gateway/application/time_service/**
     - -:../firmware/gateway/application/device_profile_registry/**
     - ../vendor/coreMQTT/source/**
     - ../vendor/mbedtls/include/**

@@ -73,6 +73,7 @@ uint32_t          g_mock_uxTaskGetStackHighWaterMark_call_count;
 
 TimerHandle_t g_mock_xTimerCreateStatic_return;
 uint32_t      g_mock_xTimerCreateStatic_call_count;
+TimerCallbackFunction_t g_mock_xTimerCreateStatic_last_cb;
 BaseType_t    g_mock_xTimerStart_return;
 uint32_t      g_mock_xTimerStart_call_count;
 BaseType_t    g_mock_xTimerStop_return;
@@ -191,6 +192,7 @@ void mock_freertos_reset(void)
 
     g_mock_xTimerCreateStatic_return          = DUMMY_HANDLE;
     g_mock_xTimerCreateStatic_call_count      = 0U;
+    g_mock_xTimerCreateStatic_last_cb         = NULL;
     g_mock_xTimerStart_return                 = pdTRUE;
     g_mock_xTimerStart_call_count             = 0U;
     g_mock_xTimerStop_return                  = pdTRUE;
@@ -410,6 +412,7 @@ TimerHandle_t xTimerCreateStatic(const char *name, TickType_t period,
     (void)id;
     (void)cb;
     (void)buf;
+    g_mock_xTimerCreateStatic_last_cb = cb;
     g_mock_xTimerCreateStatic_call_count++;
     return g_mock_xTimerCreateStatic_return;
 }
