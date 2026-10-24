@@ -13,7 +13,7 @@ companion with the line-oriented CLI design.
 
 **Version:** 1.1
 **Date:** October 2026
-**Status:** Pass H — Implementation ready · Gateway implemented (host-tested, 171 console tests, bench-validated 2026-10-24)
+**Status:** Pass H — Implementation ready · Gateway implemented (host-tested, 177 console tests, bench-validated 2026-10-24, 47 of 47 hardware checks)
 
 **HLD anchor:** ConsoleService in `components.md` (GW application layer)
 **Design source:** B1 Cockpit design bundle (`design_handoff_envmon_console/`)
@@ -46,6 +46,8 @@ table, this table wins.
 | `IConsoleService` task created by LifecycleController | No LifecycleController or Gateway `main()` yet | `console_task_body()` is provided; the bring-up harness creates the task. |
 | Confirm prompt timeout via the data-tick counter (CS-O7) | | Implemented: 30 ticks of the 1 Hz timer; CS-O7 closed. |
 | Terminal size by `ESC[18t` handshake | Not every terminal answers (minicom) | The query is sent at start and every 5th tick. **GCS-D11 (new):** a terminal that joins late sees only changes, so **Ctrl-L repaints the whole screen**, and the first size answer (or a changed size) repaints once. |
+| (not specified) the console and TLS share one 96 KB RAM bank | The first bench image with console, sensors, config **and** WiFi/MQTT had 33 KB of C heap left (mbedTLS allocates from it); `mbedtls_ssl_setup` failed, so MQTT never connected. The Gateway has a 32 KB SRAM2 bank nothing used. | **GCS-D12:** the two cell grids and the scrollback (24.6 KB) live in SRAM2 via `CONSOLE_BIG_BUFFER` (`port/console_mem.h`, section `.bss.sram2`). New zero-initialised, not-loaded `.sram2_bss` output section in both linker scripts, cleared by the startup code. Main-bank `.bss` fell from 62.6 KB to 36.4 KB and MQTT connects. This also closes the RAM-budget question for the console in MQTT-O1. |
+| (not specified) PgUp / PgDn | | **GCS-D13 (closes GCS-O7):** `ESC [ 5 ~` / `ESC [ 6 ~` scroll the console history 4 lines at a time; a `↓ N more` marker shows when scrolled back; running a command returns to the live view. Beyond the reference design, added to fix the usability gap. |
 | (not specified) lone Esc followed at once by a key | | The parser returns Escape and hands the follow-up byte back (`input_take_pending`). |
 | (not specified) startup time | | The task draws the first frame immediately; the screen-setup sequence goes out then, not at init (§17). |
 
@@ -1391,8 +1393,8 @@ These are covered by the §23 integration test plan.
 
 ### 22.15 Results (v1.1)
 
-Host (Ceedling, Gateway project): `test_console_service_gw_tui` 82, `test_chart` 19, `test_ui_state` 35,
-`test_render` 27, `test_fmt` 8 — all pass, 0 ignored. DebugUart raw-RX: 7 added to the driver suite.
+Host (Ceedling, Gateway project): `test_console_service_gw_tui` 84, `test_chart` 19, `test_ui_state` 38,
+`test_render` 28, `test_fmt` 8 — all pass, 0 ignored. DebugUart raw-RX: 7 added to the driver suite.
 The 4-file split in §22.0 became 5 files (formatting helpers have their own suite); the spies live in
 `console_spies.h`. Where §22 expected a wording or a staged value that §0 changed, the test checks the
 reconciled behaviour.
@@ -1435,7 +1437,7 @@ ST-Link VCP at 115200 8N1.
 | IT-GCS-028 | Cursor blink | Console input cursor blinks at ~2 Hz when panel focused |
 | IT-GCS-029 | Validation: `prov set modbus-addr 300` | `[ERR]` in scrollback; no change |
 
-**Bench result, 2026-10-24** (`integration-tests/console_service` driven by `scripts/console_bench.py` over the ST-Link VCP, real sensors, ConfigStore on QSPI): **30 of 30 checks PASS**, covering IT-GCS-001..014, 016, 018, 019, 024, 027, 029, the confirm prompt, and persistence (`set t.hi 31`, `reboot`, the value is still 31.0 afterwards). Not exercised on the bench: IT-GCS-015 and 017 (a committed provisioning change surviving a reboot; the 30 s prompt timeout), IT-GCS-020 to 023 (profiles add, WiFi / MQTT / Modbus status against real links: those services do not run in the harness), IT-GCS-025 / 026 (a real small terminal), IT-GCS-028 (cursor blink by eye).
+**Bench result, 2026-10-24** (`integration-tests/console_service` driven by `scripts/console_bench.py` over the ST-Link VCP; real sensors, ConfigService on ConfigStore, WiFi associated, TLS broker on the laptop; two consecutive runs from a clean reset): **47 of 47 checks PASS**, covering IT-GCS-001..019, 021..029 (including the 30 s prompt timeout, the `y` commit, a committed broker address surviving a reboot, the small-terminal notice and its recovery, the cursor blink, PgUp / PgDn paging, status commands against the real WiFi and MQTT links, and the Modbus link correctly reported offline with no Field Device). Not applicable by design: IT-GCS-020 (`profiles add`, GCS-O5).
 
 ---
 
@@ -1454,9 +1456,10 @@ ST-Link VCP at 115200 8N1.
 | **GCS-O4** | WiFi credentials (`prov set wifi-ssid / wifi-pass`) have no back-end: no credential store exists on the Gateway. | Needs its own design pass (storage, encryption, WifiTask hand-off). | Open |
 | **GCS-O5** | Modbus line settings (`prov set modbus-baud / modbus-parity`) are not configurable; `DeviceProfileRegistry` is read-only (`profiles add / remove`); certificate provisioning (CS-O6) is not implemented. | Registry and Modbus settings modules first; CS-O6 UX later. | Open |
 | **GCS-O6** | `selftest` has no flash round-trip and its result is not persisted (CS-O5). | Needs a ConfigService / ConfigStore self-test hook. | Open |
-| **GCS-O7** | The REPL panel shows only the last 8 lines, so a long output (`help`, 29 commands) scrolls out of view; there is no paging. Same as the reference design. | Add PgUp / PgDn or a `--more` mode if wanted (beyond the reference). | Open |
-| **GCS-O8** | Banner and Status uptime reads `00:00`: HealthMonitor only counts uptime once a lifecycle state update arrives, and there is no LifecycleController. The connectivity dots are red in the console harness for the same reason (no WiFi / MQTT / Modbus tasks run in it). | Settles with the Gateway `main()` / LifecycleController. | Open |
+| **GCS-O7** | The REPL panel showed only the last 8 lines, so a long output (`help`) scrolled out of view. | Closed by GCS-D13 (PgUp / PgDn, bench-verified). | Closed |
+| **GCS-O8** | Connectivity dots and the link status commands show what HealthMonitor holds. In a production image the producers (WifiTask RSSI polling, CloudPublisher connect events, ModbusPoller link events) are not wired because there is no Gateway `main()`; the console harness stands in with a small link-monitor task. (An earlier note here said uptime never advanced: that was wrong. HealthMonitor computes it from the tick counter; the banner shows `HH:MM`, so the first minute reads 00:00.) | Gateway entry point. | Open |
 | **GCS-O9** | Network panel cannot show the WiFi SSID or IP (HealthMonitor does not carry them). | Add to the health snapshot or a WifiTask accessor. | Open |
+| **GCS-O11** | Logger and ConsoleTask both write to USART1. The bench image leaves the Logger uninitialised so its messages are dropped; in a production image Logger output would be interleaved with the TUI. | Route log lines into the console scrollback, or give the Logger a different sink, when the Gateway `main()` is built. | Open |
 | **GCS-O10** | Nothing creates ConsoleTask in a production image (no Gateway `main()`); `console_service` and `sensor_service` / `alarm_service` stay excluded from the default `.cproject` image only because the `cloud_publisher` harness stubs the latter two. | Gateway entry point. | Open |
 | **GW-CS-O3** | Host simulator `main_host.c` placement | Placed in `tools/console_simulator/` (with `build.sh`). | Closed |
 
