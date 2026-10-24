@@ -200,9 +200,12 @@ static bool cell_same_look(const cell_t *a, const cell_t *b)
     return cell_equal(a, b) || (cell_blank(a) && cell_blank(b));
 }
 
-size_t termout_flush(const cell_grid_t *cur, const cell_grid_t *prev, termout_sink_t sink,
-                     void *ctx)
+size_t termout_flush_cols(const cell_grid_t *cur, const cell_grid_t *prev, uint8_t col_lo,
+                          uint8_t col_hi, termout_sink_t sink, void *ctx)
 {
+    const uint32_t lo = col_lo;
+    const uint32_t hi = (col_hi > GRID_COLS) ? GRID_COLS : col_hi;
+
     tx_t tx;
 
     tx.len = 0U;
@@ -213,9 +216,9 @@ size_t termout_flush(const cell_grid_t *cur, const cell_grid_t *prev, termout_si
 
     for (uint32_t row = 0U; row < GRID_ROWS; row++)
     {
-        uint32_t col = 0U;
+        uint32_t col = lo;
 
-        while (col < GRID_COLS)
+        while (col < hi)
         {
             if (cell_same_look(&cur->cells[row][col], &prev->cells[row][col]))
             {
@@ -228,7 +231,7 @@ size_t termout_flush(const cell_grid_t *cur, const cell_grid_t *prev, termout_si
             uint32_t last = col;
             uint32_t scan = col + 1U;
 
-            while (scan < GRID_COLS)
+            while (scan < hi)
             {
                 if (!cell_same_look(&cur->cells[row][scan], &prev->cells[row][scan]))
                 {
@@ -285,6 +288,25 @@ size_t termout_flush(const cell_grid_t *cur, const cell_grid_t *prev, termout_si
     }
     tx_flush(&tx);
     return tx.total;
+}
+
+size_t termout_flush(const cell_grid_t *cur, const cell_grid_t *prev, termout_sink_t sink,
+                     void *ctx)
+{
+    return termout_flush_cols(cur, prev, 0U, (uint8_t) GRID_COLS, sink, ctx);
+}
+
+void grid_copy_cols(cell_grid_t *dst, const cell_grid_t *src, uint8_t col_lo, uint8_t col_hi)
+{
+    const uint32_t hi = (col_hi > GRID_COLS) ? GRID_COLS : col_hi;
+
+    for (uint32_t row = 0U; row < GRID_ROWS; row++)
+    {
+        for (uint32_t col = col_lo; col < hi; col++)
+        {
+            dst->cells[row][col] = src->cells[row][col];
+        }
+    }
 }
 
 bool termout_raw(termout_sink_t sink, void *ctx, const char *seq)

@@ -523,6 +523,52 @@ void test_a_cell_cleared_back_to_blank_is_erased_with_a_space(void)
     TEST_ASSERT_NOT_NULL(strstr((char *) cap.bytes, "\x1b[2;2H "));
 }
 
+/* The menu is sent without the panel when asked for columns 0..30 only. */
+void test_flush_cols_sends_only_the_requested_columns_and_copy_records_them(void)
+{
+    static capture_t cap;
+    static cell_grid_t a;
+    static cell_grid_t b;
+
+    cap.len = 0U;
+    grid_clear(&a);
+    b = a;
+    (void) grid_puts(&b, 3U, 2U, "MENU", PAL_OK, PAL_BG, false, 4U);
+    (void) grid_puts(&b, 3U, 40U, "PANEL", PAL_WARN, PAL_BG, false, 5U);
+
+    (void) termout_flush_cols(&b, &a, 0U, 31U, cap_sink, &cap);
+    cap.bytes[cap.len] = 0U;
+    TEST_ASSERT_NOT_NULL(strstr((char *) cap.bytes, "MENU"));
+    TEST_ASSERT_NULL(strstr((char *) cap.bytes, "PANEL"));
+
+    grid_copy_cols(&a, &b, 0U, 31U);
+    cap.len = 0U;
+    (void) termout_flush_cols(&b, &a, 0U, 31U, cap_sink, &cap);
+    TEST_ASSERT_EQUAL_size_t(0U, cap.len); /* the menu half is now known to the terminal */
+
+    (void) termout_flush_cols(&b, &a, 31U, (uint8_t) GRID_COLS, cap_sink, &cap);
+    cap.bytes[cap.len] = 0U;
+    TEST_ASSERT_NOT_NULL(strstr((char *) cap.bytes, "PANEL"));
+    TEST_ASSERT_NULL(strstr((char *) cap.bytes, "MENU"));
+}
+
+void test_a_span_never_runs_past_the_column_window(void)
+{
+    static capture_t cap;
+    static cell_grid_t a;
+    static cell_grid_t b;
+
+    cap.len = 0U;
+    grid_clear(&a);
+    b = a;
+    (void) grid_puts(&b, 0U, 28U, "ABCDEFGH", PAL_OK, PAL_BG, false, 8U); /* crosses column 31 */
+
+    (void) termout_flush_cols(&b, &a, 0U, 31U, cap_sink, &cap);
+    cap.bytes[cap.len] = 0U;
+    TEST_ASSERT_NOT_NULL(strstr((char *) cap.bytes, "ABC"));
+    TEST_ASSERT_NULL(strstr((char *) cap.bytes, "ABCD"));
+}
+
 static bool failing_sink(const uint8_t *d, size_t n, void *ctx)
 {
     (void) d;

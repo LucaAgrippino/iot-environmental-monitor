@@ -166,6 +166,7 @@ static uint8_t g_spy_tx[65536];
 static size_t g_spy_tx_len;
 static debug_uart_err_t g_spy_send_rc;
 static debug_uart_err_t g_spy_attach_rc;
+static void (*g_spy_send_hook)(void); /* called inside every send: lets a test inject a key mid-frame */
 static debug_uart_byte_callback_t g_spy_rx_cb;
 
 static debug_uart_err_t spy_send(const uint8_t *data, size_t len, uint32_t timeout_ms)
@@ -175,6 +176,10 @@ static debug_uart_err_t spy_send(const uint8_t *data, size_t len, uint32_t timeo
     {
         (void) memcpy(&g_spy_tx[g_spy_tx_len], data, len);
         g_spy_tx_len += len;
+    }
+    if (g_spy_send_hook != NULL)
+    {
+        g_spy_send_hook();
     }
     return g_spy_send_rc;
 }
@@ -277,6 +282,7 @@ static void spy_reset(void)
     g_spy_send_rc = DEBUG_UART_OK;
     g_spy_attach_rc = DEBUG_UART_OK;
     g_spy_rx_cb = NULL;
+    g_spy_send_hook = NULL;
 }
 
 #endif /* CONSOLE_SPIES_H */

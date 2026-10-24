@@ -1155,6 +1155,51 @@ void test_the_first_size_report_repaints_once_and_a_repeat_does_not(void)
     TEST_ASSERT_GREATER_THAN_size_t(2000U, g_spy_tx_len - t0 - first - repeat);
 }
 
+static uint32_t s_inject_calls;
+
+static void inject_arrow_down_once(void)
+{
+    if (s_inject_calls == 0U)
+    {
+        s_inject_calls++;
+        console_service_rx_for_test((const uint8_t *) "\x1b[B", 3U);
+    }
+}
+
+static bool sent_since(size_t mark, const char *needle)
+{
+    g_spy_tx[g_spy_tx_len] = 0U;
+    return strstr((char *) &g_spy_tx[mark], needle) != NULL;
+}
+
+void test_menu_goes_out_first_and_the_panel_is_skipped_when_another_key_is_already_waiting(void)
+{
+    start();
+    const size_t mark = g_spy_tx_len;
+
+    s_inject_calls = 0U;
+    g_spy_send_hook = inject_arrow_down_once; /* a second arrow arrives while the menu is being sent */
+    type("\x1b[B");
+    g_spy_send_hook = NULL;
+
+    TEST_ASSERT_FALSE(sent_since(mark, "SYSTEM STATUS")); /* the intermediate panel was never sent */
+    TEST_ASSERT_TRUE(sent_since(mark, "System status")); /* but the menu highlight moved */
+
+    (void) console_service_cycle_for_test(0U); /* the waiting key is handled, nothing is waiting now */
+    TEST_ASSERT_TRUE(sent_since(mark, "ACTIVE ALARMS"));
+    TEST_ASSERT_FALSE(sent_since(mark, "SYSTEM STATUS"));
+}
+
+void test_a_single_key_sends_menu_and_panel_in_the_same_cycle(void)
+{
+    start();
+    const size_t mark = g_spy_tx_len;
+
+    type("\x1b[B");
+
+    TEST_ASSERT_TRUE(sent_since(mark, "SYSTEM STATUS"));
+}
+
 void test_an_unchanged_screen_costs_no_bytes(void)
 {
     start();

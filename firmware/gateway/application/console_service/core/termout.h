@@ -126,6 +126,18 @@ const char *glyph_utf8(uint8_t glyph);
 size_t termout_flush(const cell_grid_t *cur, const cell_grid_t *prev, termout_sink_t sink,
                      void *ctx);
 
+/**
+ * @brief Like termout_flush(), but only for the columns [col_lo, col_hi).
+ *
+ * Lets the caller send one part of the screen (the menu, for instant feedback) and the rest
+ * later. The caller records what was sent with grid_copy_cols().
+ */
+size_t termout_flush_cols(const cell_grid_t *cur, const cell_grid_t *prev, uint8_t col_lo,
+                          uint8_t col_hi, termout_sink_t sink, void *ctx);
+
+/** @brief Copy the columns [col_lo, col_hi) of every row from @p src to @p dst. */
+void grid_copy_cols(cell_grid_t *dst, const cell_grid_t *src, uint8_t col_lo, uint8_t col_hi);
+
 /** @brief Send a raw escape string through the sink (init / teardown sequences). */
 bool termout_raw(termout_sink_t sink, void *ctx, const char *seq);
 

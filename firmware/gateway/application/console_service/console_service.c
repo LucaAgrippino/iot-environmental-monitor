@@ -44,6 +44,7 @@
 #define REBOOT_SETTLE_MS (100U)
 
 #define SEQ_CLEAR "\x1b[2J\x1b[H"
+#define MENU_COLS (31U) /* menu box (30) + the gap column: sent first */
 #define SEQ_ENTER "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H"
 #define SEQ_QUERY_SIZE "\x1b[18t"
 #define SEQ_LEAVE "\x1b[?25h\x1b[?1049l\x1b[0m"
@@ -116,6 +117,12 @@ static void prv_rx_isr(uint8_t byte, void *ctx)
         (void) xTaskNotifyFromISR(s_task, NOTIFY_RX, eSetBits, &woken);
         portYIELD_FROM_ISR(woken);
     }
+}
+
+/* Bytes are waiting in the receive ring. */
+static bool prv_input_waiting(void)
+{
+    return s_ring_tail != s_ring_head;
 }
 
 static void prv_tick_cb(TimerHandle_t t)
@@ -285,8 +292,18 @@ static void prv_render(void)
         grid_clear(&s_grid_prev);
         s_redraw = false;
     }
-    (void) termout_flush(&s_grid_cur, &s_grid_prev, prv_sink, NULL);
-    (void) memcpy(&s_grid_prev, &s_grid_cur, sizeof(s_grid_prev));
+    /* Menu first: the highlight follows the key at once, whatever the panel costs to send. */
+    (void) termout_flush_cols(&s_grid_cur, &s_grid_prev, 0U, MENU_COLS, prv_sink, NULL);
+    grid_copy_cols(&s_grid_prev, &s_grid_cur, 0U, MENU_COLS);
+    if (prv_input_waiting())
+    {
+        /* More keys already arrived while the menu was going out (arrow held down): skip this
+         * panel, it would be replaced at once. The next cycle picks the keys up. */
+        return;
+    }
+    (void) termout_flush_cols(&s_grid_cur, &s_grid_prev, MENU_COLS, (uint8_t) GRID_COLS, prv_sink,
+                              NULL);
+    grid_copy_cols(&s_grid_prev, &s_grid_cur, MENU_COLS, (uint8_t) GRID_COLS);
 }
 
 static console_service_err_t prv_cycle(uint32_t bits)

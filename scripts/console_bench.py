@@ -81,6 +81,17 @@ def wait_for_menu(con, timeout=25.0):
     return False
 
 
+def wait_for_text(con, text, timeout=12.0):
+    """Wait until `text` is on screen. The console is the lowest-priority task, so for a few
+    seconds after boot (WiFi association, TLS handshake) it can answer slowly."""
+    end = time.time() + timeout
+    while time.time() < end:
+        if con.has(text):
+            return True
+        con.pump(0.25)
+    return con.has(text)
+
+
 def check(name, ok, detail=""):
     results.append((name, ok))
     print(("PASS  " if ok else "FAIL  ") + name + (("  - " + detail) if (detail and not ok) else ""))
@@ -270,12 +281,12 @@ def main():
     check("the console is back after the reboot", wait_for_menu(con))
     con.send("6", 0.8)
     con.send("\r", 0.8)
-    con.send("thresholds\r", 1.5)
+    con.send("thresholds\r", 0.5)
+    check("persistence: t.hi 31.0 survived the reset", wait_for_text(con, "31.0"))
     show(con, "after reboot: thresholds")
-    check("persistence: t.hi 31.0 survived the reset", con.has("31.0"))
     con.send("clear\r", 0.6)
-    con.send("mqtt status\r", 1.5)
-    check("IT-GCS-015 the committed broker survived the reset", con.has("192.168.0.218:8883"))
+    con.send("mqtt status\r", 0.5)
+    check("IT-GCS-015 the committed broker survived the reset", wait_for_text(con, "192.168.0.218:8883"))
 
     # put the default back
     con.send("set t.hi 40\r", 1.5)
