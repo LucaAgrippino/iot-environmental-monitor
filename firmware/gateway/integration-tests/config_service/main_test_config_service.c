@@ -36,13 +36,16 @@
  *   TC-HW-CFG-005  The change callback fires once per successful write and not on a reject.
  *   TC-HW-CFG-006  String parameters (MQTT broker, NTP servers and count) round-trip.
  *   TC-HW-CFG-007  set_param duration including the flash write (printed, informational).
- *   TC-HW-CFG-008  The persistence configuration is flushed and a software reset follows.
+ *   TC-HW-CFG-008  The persistence configuration is flushed and a software reset follows; the
+ *                  sentinel filter alpha goes through the deferred path (TC-HW-CFG-011).
+ *   TC-HW-CFG-011  set_param_deferred returns without a flash write (timed), the change is
+ *                  pending until persist_pending writes it (timed), then nothing is pending.
  *   Phase B (after the reset)
  *   TC-HW-CFG-009  Every value Phase A left is active after load + apply_loaded.
  *   TC-HW-CFG-010  Factory erase clears the partition; ConfigStore then reports NO_VALID_SLOT.
  *
  * Integration checklist:
- *   [ ] set_param duration noted (a flash write happens under the mutex)
+ *   [ ] set_param and persist_pending durations noted; set_param_deferred is microseconds
  *   [ ] Phase B reports the Phase A values after the reset
  */
 
@@ -280,17 +283,51 @@ static void phase_a(config_store_handle_t cs)
     }
     bringup_pass("TC-HW-CFG-007 set_param duration recorded");
 
+    /* TC-HW-CFG-011 */
+    {
+        char msg[96];
+        poll = 650U;
+        uint32_t start = DWT->CYCCNT;
+
+        expect_cfg(config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &poll),
+                   CONFIG_SERVICE_OK, "TC-HW-CFG-011 deferred set");
+        const uint32_t deferred_us = dwt_elapsed_us(start);
+
+        (void) snprintf(msg, sizeof(msg), "TC-HW-CFG-011 set_param_deferred %lu us",
+                        (unsigned long) deferred_us);
+        bringup_info(msg);
+        check(deferred_us < (US_PER_MS * 10UL), "TC-HW-CFG-011 deferred set is not instant");
+        check(p->polling_interval_ms == 650U, "TC-HW-CFG-011 value live at once");
+        check(config_service_has_pending(), "TC-HW-CFG-011 change should be pending");
+        blob = stored_blob(cs, "TC-HW-CFG-011 load before persist");
+        check(blob.params.polling_interval_ms == 700U,
+              "TC-HW-CFG-011 flash must not have changed yet");
+
+        start = DWT->CYCCNT;
+        expect_cfg(config_service_persist_pending(), CONFIG_SERVICE_OK,
+                   "TC-HW-CFG-011 persist_pending");
+        (void) snprintf(msg, sizeof(msg), "TC-HW-CFG-011 persist_pending %lu ms",
+                        (unsigned long) (dwt_elapsed_us(start) / US_PER_MS));
+        bringup_info(msg);
+        check(!config_service_has_pending(), "TC-HW-CFG-011 nothing should be pending");
+        blob = stored_blob(cs, "TC-HW-CFG-011 load after persist");
+        check(blob.params.polling_interval_ms == 650U, "TC-HW-CFG-011 value persisted");
+    }
+    bringup_pass("TC-HW-CFG-011 deferred set is immediate, persist_pending writes it once");
+
     /* TC-HW-CFG-008: leave the sentinel configuration behind and reset */
     poll = SENTINEL_POLL_MS;
     expect_cfg(config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &poll), CONFIG_SERVICE_OK,
                "TC-HW-CFG-008 poll");
-    uint16_t alpha = SENTINEL_ALPHA;
-    expect_cfg(config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha), CONFIG_SERVICE_OK,
-               "TC-HW-CFG-008 alpha");
     int16_t high = SENTINEL_TEMP_HIGH;
     expect_cfg(config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH, &high), CONFIG_SERVICE_OK,
                "TC-HW-CFG-008 temperature high");
-    expect_cfg(config_service_flush(), CONFIG_SERVICE_OK, "TC-HW-CFG-008 flush");
+    uint16_t alpha = SENTINEL_ALPHA;
+    expect_cfg(config_service_set_param_deferred(CONFIG_PARAM_FILTER_ALPHA, &alpha),
+               CONFIG_SERVICE_OK, "TC-HW-CFG-008 alpha");
+    check(config_service_has_pending(), "TC-HW-CFG-008 alpha should be pending");
+    expect_cfg(config_service_persist_pending(), CONFIG_SERVICE_OK,
+               "TC-HW-CFG-008 persist_pending");
     bringup_pass("TC-HW-CFG-008 sentinel configuration flushed; resetting the MCU");
 
     for (volatile uint32_t i = 0U; i < SETTLE_BEFORE_RESET_LOOPS; i++)
