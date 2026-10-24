@@ -616,3 +616,121 @@ void test_debug_uart_vtable_send_matches_free_function(void)
     TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart->send(data, sizeof(data), 1000U));
     TEST_ASSERT_EQUAL_HEX32(0x99u, USART1->TDR);
 }
+
+/* ------------------------------------------------------------------ */
+/* Raw byte RX mode (console TUI)                                      */
+/* ------------------------------------------------------------------ */
+
+static struct
+{
+    uint32_t count;
+    uint8_t bytes[8];
+    void *last_context_seen;
+} s_byte_capture;
+
+static void test_byte_callback(uint8_t byte, void *ctx)
+{
+    if (s_byte_capture.count < sizeof(s_byte_capture.bytes))
+    {
+        s_byte_capture.bytes[s_byte_capture.count] = byte;
+    }
+    s_byte_capture.count++;
+    s_byte_capture.last_context_seen = ctx;
+}
+
+static void fire_rx_byte(uint8_t byte)
+{
+    USART1->ISR = USART_ISR_RXNE;
+    USART1->RDR = byte;
+    USART1_IRQHandler();
+}
+
+void test_attach_rx_byte_happy_path_enables_rxneie_and_vector(void)
+{
+    s_byte_capture.count = 0U;
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_init());
+
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_attach_rx_byte(test_byte_callback, NULL));
+
+    TEST_ASSERT_BITS_HIGH((1u << 2) | (1u << 5), USART1->CR1);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_nvic_enable_count[USART1_IRQn]);
+}
+
+void test_attach_rx_byte_rejects_bad_state_and_arguments(void)
+{
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NOT_INITIALISED,
+                          debug_uart_attach_rx_byte(test_byte_callback, NULL));
+
+    (void) debug_uart_init();
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NULL_POINTER, debug_uart_attach_rx_byte(NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_attach_rx_byte(test_byte_callback, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
+                          debug_uart_attach_rx_byte(test_byte_callback, NULL));
+}
+
+void test_raw_and_line_modes_are_mutually_exclusive(void)
+{
+    (void) debug_uart_init();
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_attach_rx_byte(test_byte_callback, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
+                          debug_uart_attach_rx(test_dummy_callback, NULL));
+
+    debug_uart_reset_for_test();
+    (void) debug_uart_init();
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_OK, debug_uart_attach_rx(test_dummy_callback, NULL));
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_RX_ALREADY_ATTACHED,
+                          debug_uart_attach_rx_byte(test_byte_callback, NULL));
+}
+
+void test_raw_mode_delivers_every_byte_including_line_terminators(void)
+{
+    void *const ctx = (void *) 0xBEEF1234u;
+    s_byte_capture.count = 0U;
+    (void) debug_uart_init();
+    (void) debug_uart_attach_rx_byte(test_byte_callback, ctx);
+
+    fire_rx_byte(0x1Bu);
+    fire_rx_byte('[');
+    fire_rx_byte('A');
+    fire_rx_byte(DEBUG_UART_CR);
+    fire_rx_byte(DEBUG_UART_LF);
+
+    TEST_ASSERT_EQUAL_UINT32(5u, s_byte_capture.count);
+    TEST_ASSERT_EQUAL_HEX8(0x1Bu, s_byte_capture.bytes[0]);
+    TEST_ASSERT_EQUAL_HEX8(DEBUG_UART_CR, s_byte_capture.bytes[3]);
+    TEST_ASSERT_EQUAL_HEX8(DEBUG_UART_LF, s_byte_capture.bytes[4]);
+    TEST_ASSERT_EQUAL_PTR(ctx, s_byte_capture.last_context_seen);
+}
+
+void test_raw_mode_does_not_build_a_line(void)
+{
+    s_byte_capture.count = 0U;
+    (void) debug_uart_init();
+    (void) debug_uart_attach_rx_byte(test_byte_callback, NULL);
+    fire_rx_byte('a');
+    fire_rx_byte(DEBUG_UART_CR);
+
+    uint8_t buf[DEBUG_UART_LINE_MAX_LEN + 1U];
+    size_t length = 0U;
+    debug_uart_line_flag_t flag;
+    TEST_ASSERT_EQUAL_INT(DEBUG_UART_ERR_NO_LINE_AVAILABLE,
+                          debug_uart_read_line(buf, sizeof(buf), &length, &flag));
+}
+
+void test_raw_mode_still_drops_a_byte_that_arrives_with_an_error(void)
+{
+    s_byte_capture.count = 0U;
+    (void) debug_uart_init();
+    (void) debug_uart_attach_rx_byte(test_byte_callback, NULL);
+
+    USART1->ISR = USART_ISR_RXNE | USART_ISR_FE;
+    USART1->RDR = 'x';
+    USART1_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, s_byte_capture.count);
+}
+
+void test_vtable_exposes_attach_rx_byte(void)
+{
+    TEST_ASSERT_TRUE(debug_uart->attach_rx_byte == debug_uart_attach_rx_byte);
+}

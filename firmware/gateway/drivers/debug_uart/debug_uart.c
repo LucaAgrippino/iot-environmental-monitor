@@ -57,6 +57,8 @@ typedef struct
     bool rx_attached;                              /**< Set by debug_uart_attach_rx(). */
     debug_uart_line_callback_t line_callback;      /**< ISR invokes on line-complete. */
     void *line_callback_context;                   /**< Caller context for the callback. */
+    debug_uart_byte_callback_t byte_callback;      /**< Raw mode: ISR invokes per byte. */
+    void *byte_callback_context;                   /**< Caller context for the raw callback. */
     uint32_t (*get_ms)(void);                      /**< Tick source for send timeout, or NULL. */
     uint8_t rx_accum_buf[DEBUG_UART_LINE_MAX_LEN]; /**< ISR accumulation buffer. */
     volatile size_t rx_accum_len;                  /**< Bytes currently in accum_buf. */
@@ -73,6 +75,7 @@ static const idebug_uart_t s_debug_uart_vtable = {
     .send = debug_uart_send,
     .read_line = debug_uart_read_line,
     .attach_rx = debug_uart_attach_rx,
+    .attach_rx_byte = debug_uart_attach_rx_byte,
 };
 const idebug_uart_t *const debug_uart = &s_debug_uart_vtable;
 
@@ -157,6 +160,32 @@ debug_uart_err_t debug_uart_attach_rx(debug_uart_line_callback_t callback, void 
     /* Enable the USART1 NVIC vector. The consumer is responsible for
      * setting an appropriate priority via NVIC_SetPriority() before
      * the first interrupt arrives (see DUART-O5). */
+    NVIC_EnableIRQ(USART1_IRQn);
+
+    s_debug_uart.rx_attached = true;
+    return DEBUG_UART_OK;
+}
+
+debug_uart_err_t debug_uart_attach_rx_byte(debug_uart_byte_callback_t callback, void *context)
+{
+    if (!s_debug_uart.initialised)
+    {
+        return DEBUG_UART_ERR_NOT_INITIALISED;
+    }
+    if (callback == NULL)
+    {
+        return DEBUG_UART_ERR_NULL_POINTER;
+    }
+    if (s_debug_uart.rx_attached)
+    {
+        return DEBUG_UART_ERR_RX_ALREADY_ATTACHED;
+    }
+
+    s_debug_uart.byte_callback = callback;
+    s_debug_uart.byte_callback_context = context;
+
+    /* Enable RX in the peripheral: RE and RXNEIE, and the USART1 vector (DUART-O5 applies). */
+    USART1->CR1 |= USART_CR1_RE | USART_CR1_RXNEIE;
     NVIC_EnableIRQ(USART1_IRQn);
 
     s_debug_uart.rx_attached = true;
@@ -274,6 +303,13 @@ void USART1_IRQHandler(void)
     }
 
     const uint8_t byte = (uint8_t) (USART1->RDR & 0xFFU);
+
+    /* 3a. Raw mode: hand every byte, line terminators included, to the consumer. */
+    if (s_debug_uart.byte_callback != NULL)
+    {
+        s_debug_uart.byte_callback(byte, s_debug_uart.byte_callback_context);
+        return;
+    }
 
     /* 3b. Line terminator? */
     if ((byte == DEBUG_UART_CR) || (byte == DEBUG_UART_LF))
