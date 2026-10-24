@@ -85,8 +85,6 @@ struct cloud_publisher_inst
 {
     /* Injected dependencies (all opaque handles) */
     mqtt_client_handle_t mqtt;
-    sensor_service_handle_t sensors;
-    alarm_service_handle_t alarms;
     modbus_poller_handle_t poller;
     store_and_forward_handle_t saf;
     health_monitor_handle_t health_read;
@@ -117,6 +115,8 @@ struct cloud_publisher_inst
     TimerHandle_t stats_timer;
     TaskHandle_t task_handle;
 
+    alarm_event_t last_raised[SENSOR_ID_COUNT]; /**< Side last raised, for CLEARED payloads. */
+
     bool in_use;
 };
 
@@ -128,7 +128,7 @@ static uint8_t g_count;
  * surface) reach the instance without needing xTimerGetTimerID(). */
 static struct cloud_publisher_inst *g_active_inst;
 
-static uint8_t s_alarm_queue_storage[CP_ALARM_QUEUE_LEN * sizeof(alarm_event_t)];
+static uint8_t s_alarm_queue_storage[CP_ALARM_QUEUE_LEN * sizeof(cp_alarm_event_t)];
 static StaticQueue_t s_alarm_queue_ctrl;
 static uint8_t s_command_queue_storage[CP_CMD_QUEUE_LEN * sizeof(cp_command_entry_t)];
 static StaticQueue_t s_command_queue_ctrl;
@@ -157,7 +157,9 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry);
-static void prv_alarm_event_cb(const alarm_event_t *event, void *ctx);
+static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
+                               const sensor_reading_t *reading);
+static void prv_enqueue_alarm(struct cloud_publisher_inst *inst, const cp_alarm_event_t *event);
 static void prv_msg_cb(struct cloud_publisher_inst *inst, const char *topic, uint16_t topic_len,
                        const uint8_t *payload, uint32_t payload_len);
 static void prv_build_topics(struct cloud_publisher_inst *inst);
@@ -187,8 +189,6 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     g_count++;
 
     inst->mqtt = config->mqtt;
-    inst->sensors = config->sensors;
-    inst->alarms = config->alarms;
     inst->poller = config->poller;
     inst->saf = config->saf;
     inst->health_read = config->health_read;
@@ -206,8 +206,9 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     prv_read_device_serial(inst->device_serial, (uint32_t) sizeof(inst->device_serial));
     prv_build_topics(inst);
 
-    inst->alarm_queue = xQueueCreateStatic(CP_ALARM_QUEUE_LEN, (UBaseType_t) sizeof(alarm_event_t),
-                                           s_alarm_queue_storage, &s_alarm_queue_ctrl);
+    inst->alarm_queue =
+        xQueueCreateStatic(CP_ALARM_QUEUE_LEN, (UBaseType_t) sizeof(cp_alarm_event_t),
+                           s_alarm_queue_storage, &s_alarm_queue_ctrl);
     inst->command_queue =
         xQueueCreateStatic(CP_CMD_QUEUE_LEN, (UBaseType_t) sizeof(cp_command_entry_t),
                            s_command_queue_storage, &s_command_queue_ctrl);
@@ -237,7 +238,9 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->stats_timer = xTimerCreateStatic("cp_stats", pdMS_TO_TICKS(CP_STATS_PERIOD_MS), pdTRUE,
                                            NULL, prv_timer_stats_cb, &s_stats_timer_ctrl);
 
-    alarm_service_subscribe(inst->alarms, prv_alarm_event_cb, inst);
+    /* AlarmService's callback carries no context pointer, so it finds this
+     * instance through g_active_inst (set above). */
+    (void) alarm_service->subscribe(prv_alarm_event_cb);
 
     (void) xTimerStart(inst->telemetry_timer, 0u);
     (void) xTimerStart(inst->health_timer, 0u);
@@ -353,10 +356,15 @@ static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst 
 
 static void prv_publish_telemetry(struct cloud_publisher_inst *inst)
 {
-    sensor_reading_t reading = sensor_service_get_latest(inst->sensors);
+    sensor_snapshot_t snap;
+    if (sensor_service->get_snapshot(&snap) != SENSOR_SERVICE_ERR_OK)
+    {
+        LOG_WARN(CP_LOG_MODULE, "telemetry skipped: no sensor snapshot");
+        return;
+    }
     modbus_poller_fd_reading_t fd = modbus_poller_get_latest_fd(inst->poller);
 
-    uint32_t n = cp_serialise_telemetry(inst->scratch_buf, CP_JSON_BUF_SIZE, &reading, &fd,
+    uint32_t n = cp_serialise_telemetry(inst->scratch_buf, CP_JSON_BUF_SIZE, &snap, &fd,
                                         inst->device_serial);
     if (n == 0u)
     {
@@ -493,7 +501,7 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst)
 
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
 {
-    alarm_event_t ev;
+    cp_alarm_event_t ev;
     while (xQueueReceive(inst->alarm_queue, &ev, 0u) == pdTRUE)
     {
         uint32_t n =
@@ -527,11 +535,68 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
 /* Alarm subscriber callback (runs in SensorTask context)                */
 /* ===================================================================== */
 
-static void prv_alarm_event_cb(const alarm_event_t *event, void *ctx)
+static void prv_enqueue_alarm(struct cloud_publisher_inst *inst, const cp_alarm_event_t *event)
 {
-    struct cloud_publisher_inst *inst = (struct cloud_publisher_inst *) ctx;
     (void) xQueueSend(inst->alarm_queue, event, 0u); /* non-blocking */
     (void) xTaskNotify(inst->task_handle, CP_NOTIFY_ALARM_PENDING, eSetBits);
+}
+
+static const char *prv_sensor_name(sensor_id_t sensor)
+{
+    switch (sensor)
+    {
+    case SENSOR_ID_TEMPERATURE:
+        return "temperature";
+    case SENSOR_ID_HUMIDITY:
+        return "humidity";
+    case SENSOR_ID_PRESSURE:
+        return "pressure";
+    default:
+        return NULL; /* IMU / magnetometer channels never alarm (SS-O3) */
+    }
+}
+
+static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
+                               const sensor_reading_t *reading)
+{
+    struct cloud_publisher_inst *inst = g_active_inst;
+    const char *name = prv_sensor_name(sensor);
+    if ((inst == NULL) || (name == NULL) || (reading == NULL))
+    {
+        return;
+    }
+
+    /* A CLEARED event no longer says which limit was crossed, so remember the
+     * side that was last raised for this sensor. Only SensorTask calls here. */
+    if (event == ALARM_EVENT_RAISED_HIGH)
+    {
+        inst->last_raised[sensor] = ALARM_EVENT_RAISED_HIGH;
+    }
+    else if (event == ALARM_EVENT_RAISED_LOW)
+    {
+        inst->last_raised[sensor] = ALARM_EVENT_RAISED_LOW;
+    }
+    else
+    {
+        /* CLEARED keeps the remembered side. */
+    }
+
+    cp_alarm_event_t ev;
+    (void) memset(&ev, 0, sizeof(ev));
+    (void) strncpy(ev.sensor_name, name, sizeof(ev.sensor_name) - 1u);
+    ev.alarm_type = (event == ALARM_EVENT_RAISED_HIGH)  ? CP_ALARM_TYPE_HIGH
+                    : (event == ALARM_EVENT_RAISED_LOW) ? CP_ALARM_TYPE_LOW
+                                                        : CP_ALARM_TYPE_CLEAR;
+    ev.measured_value_raw = reading->value;
+    ev.source = CP_ALARM_SOURCE_GATEWAY;
+
+    int32_t limit = 0;
+    if (alarm_service->get_limit(sensor, inst->last_raised[sensor], &limit) == ALARM_SERVICE_ERR_OK)
+    {
+        ev.threshold_value_raw = limit;
+    }
+
+    prv_enqueue_alarm(inst, &ev);
 }
 
 /* ===================================================================== */
@@ -672,9 +737,9 @@ void cloud_publisher_task_step_for_test(cloud_publisher_handle_t handle)
 }
 
 void cloud_publisher_inject_alarm_for_test(cloud_publisher_handle_t handle,
-                                           const alarm_event_t *event)
+                                           const cp_alarm_event_t *event)
 {
-    prv_alarm_event_cb(event, handle);
+    prv_enqueue_alarm(handle, event);
 }
 
 void cloud_publisher_inject_command_for_test(cloud_publisher_handle_t handle, const char *topic,

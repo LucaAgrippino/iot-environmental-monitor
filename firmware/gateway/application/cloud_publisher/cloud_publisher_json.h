@@ -14,11 +14,11 @@
 
 #include "cloud_publisher.h"
 
-uint32_t cp_serialise_telemetry(char *buf, uint32_t buf_size, const sensor_reading_t *reading,
+uint32_t cp_serialise_telemetry(char *buf, uint32_t buf_size, const sensor_snapshot_t *snap,
                                 const modbus_poller_fd_reading_t *fd, const char *device_serial);
 uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const cp_health_snapshot_t *snap,
                              const char *device_serial);
-uint32_t cp_serialise_alarm(char *buf, uint32_t buf_size, const alarm_event_t *event,
+uint32_t cp_serialise_alarm(char *buf, uint32_t buf_size, const cp_alarm_event_t *event,
                             const char *device_serial);
 
 #endif /* CLOUD_PUBLISHER_JSON_H */

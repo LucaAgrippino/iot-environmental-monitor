@@ -71,7 +71,7 @@
  *                 is then observed arriving at bringup_msg_cb() (CP-O5:
  *                 logging stand-in only, not routed into CloudPublisher)
  *   TC-HW-CP-006  cloud_publisher_create() returns CP_ERR_OK (queues,
- *                 timers, task all created; alarm_service_subscribe()
+ *                 timers, task all created; alarm_service->subscribe()
  *                 called on the bring-up stand-in) — handle is already
  *                 connected+subscribed, so prv_maybe_reconnect()'s first
  *                 tick is a no-op (CP-D9's is_connected() early-return)
@@ -281,8 +281,7 @@ static uint32_t s_bringup_publish_count;
 /* TC-HW-CP-011 — alarm subscriber captured from CloudPublisher, and the
  * fire/outcome bookkeeping shared between this task (fires) and
  * CloudPublisherTask (reports outcome via health_report_push_event()). */
-static alarm_event_cb_t s_alarm_cb;
-static void *s_alarm_ctx;
+static void (*s_alarm_cb)(sensor_id_t, alarm_event_t, const sensor_reading_t *);
 static volatile TickType_t s_alarm_fire_tick;
 static volatile bool s_alarm_in_flight;
 static uint32_t s_alarm_fired;
@@ -305,17 +304,27 @@ static uint32_t s_di_corrupt;
 static uint32_t s_di_out_of_order;
 static uint32_t s_di_bytes;
 
-sensor_reading_t sensor_service_get_latest(sensor_service_handle_t handle)
+/* The real SensorService / AlarmService are excluded from this image (.cproject), so
+ * these stand-ins define their singleton vtables; the real modules are bench-tested by
+ * integration-tests/sensor_service. */
+static sensor_service_err_t bringup_sensor_get_snapshot(sensor_snapshot_t *snap)
 {
-    (void) handle;
-    sensor_reading_t reading = {
-        .temperature_deci_c = 225,
-        .humidity_pct = 45U,
-        .pressure_hpa = 1013U,
-        .time_synchronised = true,
-    };
-    return reading;
+    (void) memset(snap, 0, sizeof(*snap));
+    snap->readings[SENSOR_ID_TEMPERATURE].value = 2250; /* 22.50 degC */
+    snap->readings[SENSOR_ID_HUMIDITY].value = 4500;    /* 45.00 %RH  */
+    snap->readings[SENSOR_ID_PRESSURE].value = 10130;   /* 1013.0 hPa */
+    for (uint32_t i = 0U; i < (uint32_t) SENSOR_ID_COUNT; i++)
+    {
+        snap->readings[i].valid = true;
+    }
+    snap->readings[SENSOR_ID_TEMPERATURE].timestamp.sync_state = TIME_SYNC_SYNCHRONISED;
+    return SENSOR_SERVICE_ERR_OK;
 }
+
+static const isensor_service_t s_bringup_sensor_vtable = {
+    .get_snapshot = bringup_sensor_get_snapshot,
+};
+const isensor_service_t *const sensor_service = &s_bringup_sensor_vtable;
 
 modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t handle)
 {
@@ -325,14 +334,29 @@ modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t ha
     return fd;
 }
 
-void alarm_service_subscribe(alarm_service_handle_t handle, alarm_event_cb_t cb, void *ctx)
+static alarm_service_err_t bringup_alarm_subscribe(void (*cb)(sensor_id_t, alarm_event_t,
+                                                              const sensor_reading_t *))
 {
-    (void) handle;
     s_alarm_cb = cb;
-    s_alarm_ctx = ctx;
     LOG_INFO("CloudPub",
-             "TC-HW-CP-006  alarm_service_subscribe() called (captured for TC-HW-CP-011)");
+             "TC-HW-CP-006  alarm_service->subscribe() called (captured for TC-HW-CP-011)");
+    return ALARM_SERVICE_ERR_OK;
 }
+
+static alarm_service_err_t bringup_alarm_get_limit(sensor_id_t sensor, alarm_event_t event,
+                                                   int32_t *limit_out)
+{
+    (void) sensor;
+    (void) event;
+    *limit_out = (int32_t) CP_BRINGUP_ALARM_BUDGET_MS;
+    return ALARM_SERVICE_ERR_OK;
+}
+
+static const ialarm_service_t s_bringup_alarm_vtable = {
+    .subscribe = bringup_alarm_subscribe,
+    .get_limit = bringup_alarm_get_limit,
+};
+const ialarm_service_t *const alarm_service = &s_bringup_alarm_vtable;
 
 saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
                                     const uint8_t *buf, uint32_t len, mqtt_qos_t qos)
@@ -679,8 +703,6 @@ static void cloud_publisher_bringup_task(void *arg)
     /* TC-HW-CP-006 */
     cloud_publisher_config_t cp_config = {
         .mqtt = mqtt_handle,
-        .sensors = (sensor_service_handle_t) 1,
-        .alarms = (alarm_service_handle_t) 1,
         .poller = (modbus_poller_handle_t) 1,
         .saf = (store_and_forward_handle_t) 1,
         .health_read = (health_monitor_handle_t) 1,
@@ -734,17 +756,15 @@ static void cloud_publisher_bringup_task(void *arg)
                       "TC-HW-CP-011  alarm #%lu still unhandled after %u ms — OVER budget",
                       (unsigned long) s_alarm_fired, (unsigned) CP_BRINGUP_ALARM_PERIOD_MS);
         }
-        alarm_event_t ev = {
-            .alarm_type = CP_ALARM_TYPE_HIGH,
-            .measured_value_raw = (int32_t) s_alarm_fired,
-            .threshold_value_raw = (int32_t) CP_BRINGUP_ALARM_BUDGET_MS,
-            .source = CP_ALARM_SOURCE_GATEWAY,
+        sensor_reading_t reading = {
+            .value = (int32_t) s_alarm_fired,
+            .valid = true,
         };
-        (void) snprintf(ev.sensor_name, sizeof(ev.sensor_name), "bringup");
         s_alarm_fired++;
         s_alarm_in_flight = true;
         s_alarm_fire_tick = xTaskGetTickCount();
-        s_alarm_cb(&ev, s_alarm_ctx); /* production: SensorTask context; here: this task */
+        s_alarm_cb(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH,
+                   &reading); /* production: SensorTask context; here: this task */
     }
 }
 

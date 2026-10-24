@@ -81,14 +81,19 @@ void logger_log(log_level_t level, const char *module, const char *msg)
     (void) msg;
 }
 
-static sensor_reading_t g_spy_sensor_reading;
-static uint32_t g_spy_sensor_get_latest_calls;
-sensor_reading_t sensor_service_get_latest(sensor_service_handle_t handle)
+/* SensorService / AlarmService are linked as spies: the test never includes their
+ * headers directly, so Ceedling does not pull in the real .c files. */
+static sensor_snapshot_t g_spy_snapshot;
+static sensor_service_err_t g_spy_snapshot_return;
+static uint32_t g_spy_sensor_get_snapshot_calls;
+static sensor_service_err_t spy_sensor_get_snapshot(sensor_snapshot_t *snap)
 {
-    (void) handle;
-    g_spy_sensor_get_latest_calls++;
-    return g_spy_sensor_reading;
+    g_spy_sensor_get_snapshot_calls++;
+    *snap = g_spy_snapshot;
+    return g_spy_snapshot_return;
 }
+static const isensor_service_t g_spy_sensor_vtable = {.get_snapshot = spy_sensor_get_snapshot};
+const isensor_service_t *const sensor_service = &g_spy_sensor_vtable;
 
 static modbus_poller_fd_reading_t g_spy_fd_reading;
 modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t handle)
@@ -97,16 +102,29 @@ modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t ha
     return g_spy_fd_reading;
 }
 
-static alarm_event_cb_t g_spy_alarm_cb;
-static void *g_spy_alarm_cb_ctx;
+static void (*g_spy_alarm_cb)(sensor_id_t, alarm_event_t, const sensor_reading_t *);
 static uint32_t g_spy_alarm_subscribe_calls;
-void alarm_service_subscribe(alarm_service_handle_t handle, alarm_event_cb_t cb, void *ctx)
+static int32_t g_spy_alarm_limit;
+static sensor_id_t g_spy_alarm_limit_sensor;
+static alarm_event_t g_spy_alarm_limit_event;
+static alarm_service_err_t spy_alarm_subscribe(void (*cb)(sensor_id_t, alarm_event_t,
+                                                          const sensor_reading_t *))
 {
-    (void) handle;
     g_spy_alarm_subscribe_calls++;
     g_spy_alarm_cb = cb;
-    g_spy_alarm_cb_ctx = ctx;
+    return ALARM_SERVICE_ERR_OK;
 }
+static alarm_service_err_t spy_alarm_get_limit(sensor_id_t sensor, alarm_event_t event,
+                                               int32_t *limit_out)
+{
+    g_spy_alarm_limit_sensor = sensor;
+    g_spy_alarm_limit_event = event;
+    *limit_out = g_spy_alarm_limit;
+    return ALARM_SERVICE_ERR_OK;
+}
+static const ialarm_service_t g_spy_alarm_vtable = {.subscribe = spy_alarm_subscribe,
+                                                    .get_limit = spy_alarm_get_limit};
+const ialarm_service_t *const alarm_service = &g_spy_alarm_vtable;
 
 static saf_err_t g_spy_saf_enqueue_return;
 static uint32_t g_spy_saf_enqueue_calls;
@@ -293,12 +311,13 @@ void setUp(void)
     mock_freertos_reset();
     cloud_publisher_reset_for_test();
 
-    (void) memset(&g_spy_sensor_reading, 0, sizeof(g_spy_sensor_reading));
-    g_spy_sensor_get_latest_calls = 0u;
+    (void) memset(&g_spy_snapshot, 0, sizeof(g_spy_snapshot));
+    g_spy_snapshot_return = SENSOR_SERVICE_ERR_OK;
+    g_spy_sensor_get_snapshot_calls = 0u;
+    g_spy_alarm_limit = 0;
     (void) memset(&g_spy_fd_reading, 0, sizeof(g_spy_fd_reading));
 
     g_spy_alarm_cb = NULL;
-    g_spy_alarm_cb_ctx = NULL;
     g_spy_alarm_subscribe_calls = 0u;
 
     g_spy_saf_enqueue_return = SAF_ERR_OK;
@@ -339,8 +358,6 @@ void setUp(void)
 
     (void) memset(&g_cfg, 0, sizeof(g_cfg));
     g_cfg.mqtt = (mqtt_client_handle_t) 0x1000;
-    g_cfg.sensors = (sensor_service_handle_t) 0x1001;
-    g_cfg.alarms = (alarm_service_handle_t) 0x1002;
     g_cfg.poller = (modbus_poller_handle_t) 0x1003;
     g_cfg.saf = (store_and_forward_handle_t) 0x1004;
     g_cfg.health_read = (health_monitor_handle_t) 0x1005;
@@ -399,7 +416,7 @@ void test_CP_T04_telemetry_connected(void)
 
     cloud_publisher_task_step_for_test(g_handle);
 
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_sensor_get_latest_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_sensor_get_snapshot_calls);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/telemetry"));
     TEST_ASSERT_EQUAL(MQTT_QOS_0, g_spy_mqtt_publish_last_qos);
@@ -441,7 +458,7 @@ void test_CP_T06_health_connected(void)
 /* CP-T07..T08, T15 — alarms                                              */
 /* ======================================================================= */
 
-static void prv_load_alarm_event(alarm_event_t *ev)
+static void prv_load_alarm_event(cp_alarm_event_t *ev)
 {
     (void) memset(ev, 0, sizeof(*ev));
     (void) strncpy(ev->sensor_name, "temperature", sizeof(ev->sensor_name) - 1u);
@@ -456,7 +473,7 @@ void test_CP_T07_alarm_connected(void)
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
 
-    alarm_event_t ev;
+    cp_alarm_event_t ev;
     prv_load_alarm_event(&ev);
     g_mock_xQueueSend_last_item_size = sizeof(ev); /* enable xQueueSend capture */
     cloud_publisher_inject_alarm_for_test(g_handle, &ev);
@@ -484,7 +501,7 @@ void test_CP_T08_alarm_disconnected(void)
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
     g_spy_mqtt_is_connected_return = false;
 
-    alarm_event_t ev;
+    cp_alarm_event_t ev;
     prv_load_alarm_event(&ev);
     g_mock_xQueueSend_last_item_size = sizeof(ev); /* enable xQueueSend capture */
     cloud_publisher_inject_alarm_for_test(g_handle, &ev);
@@ -512,7 +529,7 @@ void test_CP_T15_alarm_queue_full(void)
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
     g_mock_xQueueSend_return = pdFALSE;
 
-    alarm_event_t ev;
+    cp_alarm_event_t ev;
     prv_load_alarm_event(&ev);
     g_mock_xQueueSend_last_item_size = sizeof(ev); /* enable xQueueSend capture */
     cloud_publisher_inject_alarm_for_test(g_handle, &ev);
@@ -803,18 +820,172 @@ void test_CP_T21_wifi_recv_ready_bit_cleared_no_busy_loop(void)
 }
 
 /* ======================================================================= */
+/* CP-T20..T24 — real SensorService / AlarmService integration (SS-O8)    */
+/* ======================================================================= */
+
+static void prv_set_reading(sensor_id_t id, int32_t value)
+{
+    g_spy_snapshot.readings[id].value = value;
+    g_spy_snapshot.readings[id].valid = true;
+}
+
+void test_CP_T20_telemetry_converts_fixed_point_to_wire_units(void)
+{
+    char buf[512];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+    prv_set_reading(SENSOR_ID_TEMPERATURE, 2345);  /* 23.45 degC -> 235 deci-C (rounded) */
+    prv_set_reading(SENSOR_ID_HUMIDITY, 5049);     /* 50.49 %RH  -> 50                   */
+    prv_set_reading(SENSOR_ID_PRESSURE, 10132);    /* 1013.2 hPa -> 1013                 */
+    prv_set_reading(SENSOR_ID_GYRO_X, -1500);      /* mdps, passed through               */
+    g_spy_snapshot.readings[SENSOR_ID_TEMPERATURE].timestamp.sync_state = TIME_SYNC_SYNCHRONISED;
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
+                                                               &fd, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"temperature_deci_c\":235,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"humidity_pct\":50,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pressure_hpa\":1013,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"gyro_x_mdps\":-1500,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"sync_state\":\"synchronised\""));
+}
+
+void test_CP_T21_telemetry_rounds_negative_temperature_away_from_zero(void)
+{
+    char buf[512];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+    prv_set_reading(SENSOR_ID_TEMPERATURE, -1005); /* -10.05 degC -> -101 deci-C */
+
+    (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER");
+
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"temperature_deci_c\":-101,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"sync_state\":\"unsynchronised\""));
+}
+
+void test_CP_T22_telemetry_reports_invalid_channel_as_zero(void)
+{
+    char buf[512];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+    prv_set_reading(SENSOR_ID_ACCEL_X, 900);
+    g_spy_snapshot.readings[SENSOR_ID_ACCEL_X].valid = false;
+
+    (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER");
+
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\":0,"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[\"temperature_deci_c\","));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\""));
+}
+
+void test_CP_T27_invalid_channels_is_empty_when_all_valid(void)
+{
+    char buf[1024];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+    for (uint32_t i = 0u; i < (uint32_t) SENSOR_ID_COUNT; i++)
+    {
+        g_spy_snapshot.readings[i].valid = true;
+    }
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
+                                                               &fd, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[],"));
+}
+
+void test_CP_T28_all_channels_invalid_fits_the_list_buffer(void)
+{
+    char buf[2048];
+    modbus_poller_fd_reading_t fd;
+    (void) memset(&fd, 0, sizeof(fd));
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
+                                                               &fd, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"mag_z_mgauss\"],"));
+}
+
+void test_CP_T23_telemetry_skipped_when_snapshot_unavailable(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_snapshot_return = SENSOR_SERVICE_ERR_NOT_INIT;
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_sensor_get_snapshot_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_enqueue_calls);
+}
+
+static cp_alarm_event_t prv_fire_alarm(sensor_id_t sensor, alarm_event_t event, int32_t value)
+{
+    cp_alarm_event_t out;
+    sensor_reading_t reading;
+    (void) memset(&reading, 0, sizeof(reading));
+    reading.value = value;
+    reading.valid = true;
+
+    g_mock_xQueueSend_last_item_size = sizeof(out); /* enable xQueueSend capture */
+    g_spy_alarm_cb(sensor, event, &reading);
+    (void) memcpy(&out, g_mock_xQueueSend_last_item, sizeof(out));
+    return out;
+}
+
+void test_CP_T24_alarm_callback_builds_payload_from_real_types(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_NOT_NULL(g_spy_alarm_cb);
+    g_spy_alarm_limit = 3500;
+
+    cp_alarm_event_t ev = prv_fire_alarm(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH, 3612);
+
+    TEST_ASSERT_EQUAL_STRING("temperature", ev.sensor_name);
+    TEST_ASSERT_EQUAL(CP_ALARM_TYPE_HIGH, ev.alarm_type);
+    TEST_ASSERT_EQUAL_INT32(3612, ev.measured_value_raw);
+    TEST_ASSERT_EQUAL_INT32(3500, ev.threshold_value_raw);
+    TEST_ASSERT_EQUAL(CP_ALARM_SOURCE_GATEWAY, ev.source);
+    TEST_ASSERT_EQUAL(SENSOR_ID_TEMPERATURE, g_spy_alarm_limit_sensor);
+    TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_HIGH, g_spy_alarm_limit_event);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_ALARM_PENDING, g_mock_xTaskNotify_last_value);
+}
+
+void test_CP_T25_cleared_alarm_reports_the_limit_that_was_raised(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_alarm_limit = 9500;
+    (void) prv_fire_alarm(SENSOR_ID_PRESSURE, ALARM_EVENT_RAISED_LOW, 9400);
+
+    cp_alarm_event_t ev = prv_fire_alarm(SENSOR_ID_PRESSURE, ALARM_EVENT_CLEARED, 9600);
+
+    TEST_ASSERT_EQUAL_STRING("pressure", ev.sensor_name);
+    TEST_ASSERT_EQUAL(CP_ALARM_TYPE_CLEAR, ev.alarm_type);
+    TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_LOW, g_spy_alarm_limit_event);
+}
+
+void test_CP_T26_alarm_for_unthresholded_sensor_is_ignored(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    sensor_reading_t reading;
+    (void) memset(&reading, 0, sizeof(reading));
+
+    g_spy_alarm_cb(SENSOR_ID_ACCEL_X, ALARM_EVENT_RAISED_HIGH, &reading);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xQueueSend_call_count);
+}
+
+/* ======================================================================= */
 /* CP-T14 — JSON truncation                                               */
 /* ======================================================================= */
 
 void test_CP_T14_json_truncation(void)
 {
     char tiny_buf[8];
-    sensor_reading_t reading;
+    sensor_snapshot_t snap;
     modbus_poller_fd_reading_t fd;
-    (void) memset(&reading, 0, sizeof(reading));
+    (void) memset(&snap, 0, sizeof(snap));
     (void) memset(&fd, 0, sizeof(fd));
 
-    uint32_t n = cp_serialise_telemetry(tiny_buf, (uint32_t) sizeof(tiny_buf), &reading, &fd,
+    uint32_t n = cp_serialise_telemetry(tiny_buf, (uint32_t) sizeof(tiny_buf), &snap, &fd,
                                         "0011223344556677889900aa");
 
     TEST_ASSERT_EQUAL_UINT32(0u, n);

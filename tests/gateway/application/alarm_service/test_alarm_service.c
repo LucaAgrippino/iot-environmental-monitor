@@ -102,6 +102,8 @@ void test_calls_before_init_return_not_init(void)
     TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NOT_INIT, alarm_service_get_all_states(all));
     TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NOT_INIT, alarm_service_subscribe(on_alarm));
     TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NOT_INIT, alarm_service_ack_all());
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NOT_INIT,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH, &(int32_t){0}));
 }
 
 /* TC-AS-014 */
@@ -117,6 +119,36 @@ void test_argument_checks(void)
                       alarm_service_get_state(SENSOR_ID_COUNT, &s));
     TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_INVALID_ARG,
                       alarm_service_get_state((sensor_id_t) -1, &s));
+}
+
+/* TC-AS-016 */
+void test_get_limit_returns_the_crossed_threshold(void)
+{
+    int32_t limit = -1;
+    (void) alarm_service_init();
+
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH, &limit));
+    TEST_ASSERT_EQUAL_INT32(TEMP_HIGH, limit);
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK,
+                      alarm_service_get_limit(SENSOR_ID_PRESSURE, ALARM_EVENT_RAISED_LOW, &limit));
+    TEST_ASSERT_EQUAL_INT32(9500, limit);
+}
+
+/* TC-AS-017 */
+void test_get_limit_rejects_bad_arguments(void)
+{
+    int32_t limit = 0;
+    (void) alarm_service_init();
+
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NULL_ARG,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH, NULL));
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_INVALID_ARG,
+                      alarm_service_get_limit(SENSOR_ID_COUNT, ALARM_EVENT_RAISED_HIGH, &limit));
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_INVALID_ARG,
+                      alarm_service_get_limit(SENSOR_ID_ACCEL_X, ALARM_EVENT_RAISED_HIGH, &limit));
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_INVALID_ARG,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_CLEARED, &limit));
 }
 
 /* TC-AS-013 */
@@ -138,6 +170,7 @@ void test_vtable_exposes_the_public_functions(void)
     TEST_ASSERT_TRUE(alarm_service->get_state == alarm_service_get_state);
     TEST_ASSERT_TRUE(alarm_service->get_all_states == alarm_service_get_all_states);
     TEST_ASSERT_TRUE(alarm_service->subscribe == alarm_service_subscribe);
+    TEST_ASSERT_TRUE(alarm_service->get_limit == alarm_service_get_limit);
     TEST_ASSERT_TRUE(alarm_service->ack_all == alarm_service_ack_all);
 }
 
