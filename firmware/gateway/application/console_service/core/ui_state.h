@@ -16,7 +16,7 @@
 #define UI_MENU_COUNT (7U)
 #define UI_INPUT_MAX (120U) /* buffer size including the terminator */
 #define UI_SCROLL_STEP (4U) /* lines per PgUp / PgDn */
-#define UI_SCROLL_STEP (4U) /* lines per PgUp / PgDn */
+#define UI_FW_ACTIONS (2U)  /* Firmware panel: 0 check for update, 1 reboot */
 
 typedef enum
 {
@@ -45,6 +45,8 @@ typedef struct
     bool cursor_on;      /**< Blink phase.                                    */
     bool confirm_active; /**< A y/N prompt replaces the REPL input line.      */
     uint16_t scroll;     /**< Lines the console view is scrolled back (0 = live). */
+    uint8_t fw_sel;      /**< Firmware panel action under the cursor.         */
+    bool confirm_reboot; /**< The pending y/N prompt is the reboot question.  */
 } ui_state_t;
 
 /** @brief What the caller must do after a key was handled. */
@@ -55,6 +57,8 @@ typedef enum
     UI_ACT_LINE_OVERFLOW, /**< The input line was full; it was cleared.              */
     UI_ACT_CONFIRM_YES,   /**< Confirm prompt answered y / Y.                        */
     UI_ACT_CONFIRM_NO,    /**< Confirm prompt declined (any other key).              */
+    UI_ACT_FW_CHECK,      /**< Enter on "Check for update" in the Firmware panel.   */
+    UI_ACT_FW_REBOOT,     /**< Enter on "Reboot" in the Firmware panel.              */
 } ui_action_t;
 
 /** @brief Reset to the start state: first item selected, menu focus, temperature channel. */

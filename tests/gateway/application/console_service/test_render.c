@@ -19,6 +19,7 @@
 #include "unity.h"
 
 static ui_state_t s_ui;
+static const char *s_fw_check;
 static console_model_t s_model;
 static chart_history_t s_hist;
 static cell_grid_t s_grid;
@@ -31,6 +32,7 @@ void setUp(void)
     commands_init(&s_deps);
     repl_init();
     ui_init(&s_ui);
+    s_fw_check = NULL;
     chart_history_reset(&s_hist);
     grid_clear(&s_grid);
 }
@@ -49,6 +51,7 @@ static void compose(bool size_ok, bool overflow)
     in.history = &s_hist;
     in.size_ok = size_ok;
     in.rx_overflow = overflow;
+    in.fw_check = s_fw_check;
     render_compose(&s_grid, &in);
 }
 
@@ -170,7 +173,7 @@ void test_menu_lists_all_seven_items(void)
     TEST_ASSERT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[16][27].glyph); /* console */
     TEST_ASSERT_NOT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[14][27].glyph); /* thresholds */
     TEST_ASSERT_NOT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[15][27].glyph); /* network */
-    TEST_ASSERT_NOT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[17][27].glyph); /* firmware */
+    TEST_ASSERT_EQUAL_UINT8(GLYPH_PTR_R, s_grid.cells[17][27].glyph); /* firmware */
 }
 
 /* TC-GCS-082 */
@@ -362,6 +365,37 @@ void test_menu_hint_does_not_offer_a_panel_for_read_only_screens(void)
     compose(true, false);
     TEST_ASSERT_TRUE(row_has(20U, "↑↓ select · 1–7 jump"));
     TEST_ASSERT_FALSE(row_has(20U, "Enter / Tab"));
+}
+
+void test_firmware_panel_lists_both_actions_and_marks_the_selected_one(void)
+{
+    s_ui.sel = 6U;
+    s_ui.focus = FOCUS_PANEL;
+    s_ui.fw_sel = 1U;
+    compose(true, false);
+
+    TEST_ASSERT_TRUE(row_has(15U, "Check for update"));
+    TEST_ASSERT_TRUE(row_has(16U, "Reboot gateway"));
+    TEST_ASSERT_TRUE(row_has(16U, "▸"));
+    TEST_ASSERT_FALSE(row_has(15U, "▸"));
+    TEST_ASSERT_TRUE(row_has(20U, "↑↓ select · Enter run · Esc → menu"));
+}
+
+void test_firmware_panel_shows_the_reboot_question_and_the_update_result(void)
+{
+    s_ui.sel = 6U;
+    s_ui.focus = FOCUS_PANEL;
+    s_ui.confirm_active = true;
+    s_ui.confirm_reboot = true;
+    compose(true, false);
+    TEST_ASSERT_TRUE(row_has(18U, "Reboot the gateway now? [y/N]"));
+    TEST_ASSERT_FALSE(row_has(15U, "▸")); /* the cursor is hidden while the question is open */
+
+    s_ui.confirm_active = false;
+    s_ui.confirm_reboot = false;
+    s_fw_check = "not available: no update source yet";
+    compose(true, false);
+    TEST_ASSERT_TRUE(row_has(18U, "not available: no update source"));
 }
 
 /* TC-GCS-084 */

@@ -67,6 +67,22 @@ const cmd_entry_t *commands_table(size_t *count);
 /** @brief Whether a y/N prompt is waiting for an answer. */
 bool commands_confirm_active(void);
 
+/** @brief True when the pending y/N prompt asks whether to reboot. */
+bool commands_confirm_is_reboot(void);
+
+/** @brief Ask "Reboot?" (y/N, same timeout as the other prompts). Used by the Firmware panel. */
+void commands_request_reboot_confirm(void);
+
+/**
+ * @brief Check for a firmware update. No update source exists on the Gateway yet, so this
+ *        records and logs "not available"; the text stays readable through
+ *        commands_fw_check_result().
+ */
+console_service_err_t commands_fw_check(void);
+
+/** @brief Result line of the last update check, or NULL if none was run. */
+const char *commands_fw_check_result(void);
+
 /**
  * @brief Answer the prompt: apply the staged change (yes) or discard it (no).
  * @return The apply result; CONSOLE_SERVICE_OK for a decline.

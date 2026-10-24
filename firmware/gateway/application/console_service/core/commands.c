@@ -51,6 +51,7 @@ typedef enum
     CONFIRM_NONE,
     CONFIRM_CFG,
     CONFIRM_PROV,
+    CONFIRM_REBOOT,
 } confirm_kind_t;
 
 /* Operational parameters `config set` can stage (thresholds go through `set`). */
@@ -110,6 +111,7 @@ static confirm_kind_t s_confirm;
 static uint32_t s_confirm_ticks;
 static bool s_persist_due;
 static bool s_reboot_requested;
+static const char *s_fw_check_result; /* NULL until a check ran */
 
 /* ---------------------------------------------------------------------- */
 /* Helpers                                                                 */
@@ -1231,6 +1233,28 @@ bool commands_confirm_active(void)
     return s_confirm != CONFIRM_NONE;
 }
 
+bool commands_confirm_is_reboot(void)
+{
+    return s_confirm == CONFIRM_REBOOT;
+}
+
+void commands_request_reboot_confirm(void)
+{
+    s_confirm = CONFIRM_REBOOT;
+    s_confirm_ticks = CONFIRM_TIMEOUT_TICKS;
+}
+
+console_service_err_t commands_fw_check(void)
+{
+    s_fw_check_result = "not available: no update source yet";
+    return prv_not_available("firmware update check (no update source on this Gateway yet)");
+}
+
+const char *commands_fw_check_result(void)
+{
+    return s_fw_check_result;
+}
+
 console_service_err_t commands_confirm_answer(bool yes)
 {
     const confirm_kind_t kind = s_confirm;
@@ -1238,6 +1262,19 @@ console_service_err_t commands_confirm_answer(bool yes)
     s_confirm = CONFIRM_NONE;
     if (kind == CONFIRM_NONE)
     {
+        return CONSOLE_SERVICE_ERR_OK;
+    }
+    if (kind == CONFIRM_REBOOT)
+    {
+        if (yes)
+        {
+            SAY(PAL_WARN, "  Rebooting …");
+            s_reboot_requested = true;
+        }
+        else
+        {
+            SAY(PAL_MUTED, "[INFO] Reboot cancelled.");
+        }
         return CONSOLE_SERVICE_ERR_OK;
     }
     if (!yes)
@@ -1270,8 +1307,11 @@ console_service_err_t commands_tick(void)
     {
         return CONSOLE_SERVICE_ERR_OK;
     }
+    const bool was_reboot = (s_confirm == CONFIRM_REBOOT);
+
     (void) commands_confirm_answer(false);
-    SAY(PAL_ERR, "[ERR] timed out: staged changes discarded");
+    SAY(PAL_ERR, was_reboot ? "[ERR] timed out: reboot cancelled"
+                            : "[ERR] timed out: staged changes discarded");
     LOG_DEBUG(MODULE_TAG, "confirm prompt timed out");
     return CONSOLE_SERVICE_ERR_TIMEOUT;
 }
@@ -1317,4 +1357,5 @@ void commands_init(const console_deps_t *deps)
     s_confirm_ticks = 0U;
     s_persist_due = false;
     s_reboot_requested = false;
+    s_fw_check_result = NULL;
 }

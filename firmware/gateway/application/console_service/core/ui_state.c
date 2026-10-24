@@ -30,9 +30,10 @@ void ui_clear_input(ui_state_t *ui)
 
 bool ui_screen_is_interactive(screen_t screen)
 {
-    /* Only the graph (channel select) and the console (command line) take keys; the other
-     * panels are read-only views, so there is nothing to focus. */
-    return (screen == SCR_GRAPH) || (screen == SCR_CONSOLE);
+    /* Only the graph (channel select), the console (command line) and the firmware actions take
+     * keys; the other panels are read-only views, so there is nothing to focus. The firmware panel
+     * has two actions (check for update, reboot). */
+    return (screen == SCR_GRAPH) || (screen == SCR_CONSOLE) || (screen == SCR_FIRMWARE);
 }
 
 static ui_action_t prv_menu_key(ui_state_t *ui, const key_event_t *key)
@@ -122,6 +123,27 @@ static ui_action_t prv_graph_key(ui_state_t *ui, const key_event_t *key)
     return UI_ACT_NONE;
 }
 
+static ui_action_t prv_firmware_key(ui_state_t *ui, const key_event_t *key)
+{
+    switch (key->kind)
+    {
+    case KEY_ESCAPE:
+        ui->focus = FOCUS_MENU;
+        break;
+    case KEY_UP:
+        ui->fw_sel = (uint8_t) ((ui->fw_sel + UI_FW_ACTIONS - 1U) % UI_FW_ACTIONS);
+        break;
+    case KEY_DOWN:
+        ui->fw_sel = (uint8_t) ((ui->fw_sel + 1U) % UI_FW_ACTIONS);
+        break;
+    case KEY_ENTER:
+        return (ui->fw_sel == 0U) ? UI_ACT_FW_CHECK : UI_ACT_FW_REBOOT;
+    default:
+        break;
+    }
+    return UI_ACT_NONE;
+}
+
 ui_action_t ui_handle_key(ui_state_t *ui, const key_event_t *key)
 {
     /* The y/N prompt takes over the keyboard: y / Y confirms, any other key declines. */
@@ -144,6 +166,8 @@ ui_action_t ui_handle_key(ui_state_t *ui, const key_event_t *key)
         return prv_console_key(ui, key);
     case SCR_GRAPH:
         return prv_graph_key(ui, key);
+    case SCR_FIRMWARE:
+        return prv_firmware_key(ui, key);
     default:
         if (key->kind == KEY_ESCAPE)
         {

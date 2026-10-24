@@ -133,7 +133,7 @@ def main():
     con.send("\r", 0.8)
     check("... nor on Enter", con.has("focus MENU"))
     check("... and the menu has no \u25ba marker on the read-only items",
-          not any("\u25ba" in l for l in con.screen.display[13:18] if "Thresholds" in l or "Network" in l or "Firmware" in l))
+          not any("\u25ba" in l for l in con.screen.display[13:18] if "Thresholds" in l or "Network" in l))
     con.send("1", 0.8)
     con.send("\t", 0.8)
     check("IT-GCS-005 Tab moves focus to the graph", con.has("focus PANEL"))
@@ -160,6 +160,19 @@ def main():
     con.send("5", 1.2)
     check("IT-GCS-011 network panel", con.has("NETWORK") and con.has("MQTT"))
     show(con, "network")
+
+    # Firmware panel: actions without the console
+    con.send("7", 0.8)
+    con.send("\r", 0.8)
+    check("firmware panel takes focus on Enter", con.has("focus PANEL") and con.has("Check for update") and con.has("Reboot gateway"))
+    con.send("\r", 0.8)
+    check("firmware: check for update reports 'not available'", con.has("no update source"))
+    con.send("\x1b[B", 0.6)
+    con.send("\r", 0.8)
+    check("firmware: Enter on Reboot asks first", con.has("Reboot the gateway now? [y/N]"))
+    con.send("n", 0.8)
+    check("firmware: n cancels, the board keeps running", not con.has("[y/N]") and not (b"\x1b[?1049l" in con.raw[-400:]))
+    con.send("\x1b", 0.6)
 
     # Console
     con.send("6", 0.6)
@@ -210,11 +223,18 @@ def main():
     # IT-GCS-021..023 and the banner dots: link status against reality (WiFi joined, broker up,
     # no Field Device attached)
     con.send("clear\r", 0.6)
-    con.send("wifi status\r", 1.2)
+    con.send("wifi status\r", 0.5)
+    wait_for_text(con, "rssi", 30.0)  # the link is still coming up for ~40 s after a reset
     m = re.search(r"rssi\s+(-\d+) dBm", con.text())
     check("IT-GCS-021 wifi status: connected with a plausible RSSI", con.has("● connected") and bool(m) and -95 <= int(m.group(1)) <= -20)
     con.send("clear\r", 0.6)
-    con.send("mqtt status\r", 1.2)
+    con.send("mqtt status\r", 0.5)
+    wait_for_text(con, ":8883", 5.0)
+    for _ in range(12):  # TLS handshake can still be running just after boot
+        if con.has("● connected"):
+            break
+        con.send("clear\r", 0.4)
+        con.send("mqtt status\r", 2.0)
     check("IT-GCS-022 mqtt status: connected to the broker", con.has("● connected") and con.has(":8883"))
     con.send("clear\r", 0.6)
     con.send("modbus status\r", 1.2)
@@ -296,8 +316,20 @@ def main():
     check("IT-GCS-015 the committed broker survived the reset", wait_for_text(con, "192.168.0.218:8883"))
 
     # put the default back
-    con.send("set t.hi 40\r", 1.5)
-    check("restored t.hi 40", con.has("applied"))
+    con.send("set t.hi 40\r", 0.5)
+    check("restored t.hi 40", wait_for_text(con, "applied"))
+
+    # reboot from the firmware panel, no console involved
+    con.send("\x1b", 0.6)
+    con.send("7", 0.8)
+    con.send("\r", 0.8)
+    con.send("\x1b[B", 0.6)
+    con.send("\r", 0.8)
+    mark = len(con.raw)
+    con.send("y", 0.5)
+    con.pump(4.0)
+    check("firmware: y reboots the board from the panel", b"\x1b[?1049l" in con.raw[mark:])
+    check("firmware: the console is back after the panel reboot", wait_for_menu(con))
 
     bad = [n for n, ok in results if not ok]
     print("\n%d checks, %d failed" % (len(results), len(bad)))

@@ -1233,6 +1233,61 @@ void test_reboot_tears_the_screen_down_then_resets(void)
     TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[?25h\x1b[?1049l\x1b[0m"));
 }
 
+void test_firmware_panel_reboots_only_after_the_user_confirms(void)
+{
+    start();
+    type("7\r");  /* firmware panel, cursor on "Check for update" */
+    type("\x1b[B"); /* cursor on "Reboot gateway" */
+    const size_t mark = g_spy_tx_len;
+
+    type("\r");
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
+    TEST_ASSERT_TRUE(sent_since(mark, "Reboot the gateway now? [y/N]"));
+
+    type("y");
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_reset_calls);
+    g_spy_tx[g_spy_tx_len] = 0U;
+    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[?1049l"));
+}
+
+void test_firmware_panel_reboot_is_cancelled_by_any_other_key(void)
+{
+    start();
+    type("7\r\x1b[B\r");
+    type("n");
+
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
+    TEST_ASSERT_FALSE(commands_confirm_active());
+    TEST_ASSERT_FALSE(commands_take_reboot_request());
+}
+
+void test_firmware_panel_reboot_question_times_out_without_rebooting(void)
+{
+    start();
+    type("7\r\x1b[B\r");
+
+    for (uint32_t i = 0U; i < 40U; i++)
+    {
+        (void) commands_tick();
+    }
+    TEST_ASSERT_FALSE(commands_confirm_active());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
+    TEST_ASSERT_FALSE(commands_take_reboot_request());
+}
+
+void test_firmware_panel_update_check_reports_not_available(void)
+{
+    start();
+    const size_t mark = g_spy_tx_len;
+
+    type("7\r"); /* cursor on "Check for update" */
+    type("\r");
+
+    TEST_ASSERT_TRUE(sent_since(mark, "no update source"));
+    TEST_ASSERT_NOT_NULL(commands_fw_check_result());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
+}
+
 /* TC-GCS-192 / 191 : a failing sink must never crash the loop */
 void test_a_failing_uart_does_not_stop_the_loop(void)
 {

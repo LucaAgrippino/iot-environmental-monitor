@@ -33,8 +33,9 @@ typedef struct
     const ui_state_t *ui;
     const console_model_t *model;
     const chart_history_t *history;
-    bool size_ok;     /**< False when the terminal is smaller than 88x30.        */
-    bool rx_overflow; /**< The receive ring overflowed since the last frame.     */
+    bool size_ok;         /**< False when the terminal is smaller than 88x30.        */
+    bool rx_overflow;     /**< The receive ring overflowed since the last frame.     */
+    const char *fw_check; /**< Result line of the last update check, or NULL.      */
 } render_input_t;
 
 /** @brief Clear @p grid and compose one full frame into it. */

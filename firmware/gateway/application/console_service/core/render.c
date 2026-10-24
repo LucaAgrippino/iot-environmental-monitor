@@ -39,7 +39,7 @@ static const struct
 } s_menu[UI_MENU_COUNT] = {
     {"Live sensor readings", true}, {"System status", false}, {"Active alarms", false},
     {"Thresholds", false},          {"Network", false},       {"Console", true},
-    {"Firmware · Reboot", false},
+    {"Firmware · Reboot", true},
 };
 
 /* ---------------------------------------------------------------------- */
@@ -510,18 +510,48 @@ static void prv_network(cell_grid_t *g, const render_input_t *in, bool active)
     prv_kv(g, 8U, "  SSID / IP    ", "not reported yet", PAL_MUTED);
 }
 
+static void prv_action(cell_grid_t *g, uint8_t line, const char *text, bool selected)
+{
+    const uint8_t row = (uint8_t) (R_BOX_ROW + line);
+    const uint8_t limit = (uint8_t) (R_PANEL_COL + R_PANEL_W - 1U);
+    uint8_t c = (uint8_t) (prv_in_col() + 2U);
+    char label[40];
+
+    (void) snprintf(label, sizeof(label), " %-24s", text);
+    if (selected)
+    {
+        prv_seg(g, row, &c, limit, "▸", PAL_ACCENT);
+        (void) grid_puts(g, row, c, label, PAL_SEL_FG, PAL_SEL_BG, false, (size_t) (limit - c));
+    }
+    else
+    {
+        c = (uint8_t) (c + 1U);
+        prv_seg(g, row, &c, limit, label, PAL_INK);
+    }
+}
+
 static void prv_firmware(cell_grid_t *g, const render_input_t *in, bool active)
 {
     char buf[48];
+    const bool sel_on = active && !in->ui->confirm_active;
+    const char *check = in->fw_check;
 
-    (void) in;
     prv_panel_frame(g, "FIRMWARE · REBOOT", active);
     (void) snprintf(buf, sizeof(buf), "%s", FW_VERSION_STRING);
     prv_kv(g, 2U, "  installed    ", buf, PAL_NUM);
     (void) snprintf(buf, sizeof(buf), "%s %s", FW_BUILD_DATE, FW_BUILD_TIME);
     prv_kv(g, 3U, "  built        ", buf, PAL_MUTED);
     prv_kv(g, 4U, "  mcu          ", "STM32L475VGT6", PAL_NUM);
-    prv_kv(g, 6U, "  reboot       ", "type `reboot` in the console", PAL_MUTED);
+    prv_action(g, 6U, "Check for update", sel_on && (in->ui->fw_sel == 0U));
+    prv_action(g, 7U, "Reboot gateway", sel_on && (in->ui->fw_sel == 1U));
+    if (in->ui->confirm_active && in->ui->confirm_reboot)
+    {
+        prv_kv(g, 9U, "  ", "Reboot the gateway now? [y/N]", PAL_WARN);
+    }
+    else if (check != NULL)
+    {
+        prv_kv(g, 9U, "  update       ", check, PAL_ERR);
+    }
 }
 
 static void prv_console(cell_grid_t *g, const render_input_t *in)
@@ -605,6 +635,8 @@ const char *render_hint(const ui_state_t *ui)
         return "type a command · Enter run · PgUp/PgDn scroll · Esc → menu";
     case SCR_GRAPH:
         return "↑↓ change channel · Esc → menu";
+    case SCR_FIRMWARE:
+        return "↑↓ select · Enter run · Esc → menu";
     default:
         return "Esc → menu";
     }

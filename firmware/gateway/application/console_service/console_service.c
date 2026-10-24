@@ -175,6 +175,12 @@ static void prv_apply_action(ui_action_t act)
     case UI_ACT_CONFIRM_NO:
         (void) commands_confirm_answer(false);
         break;
+    case UI_ACT_FW_CHECK:
+        (void) commands_fw_check();
+        break;
+    case UI_ACT_FW_REBOOT:
+        commands_request_reboot_confirm();
+        break;
     default:
         break;
     }
@@ -203,6 +209,7 @@ static void prv_handle_key(const key_event_t *key)
     }
     prv_apply_action(ui_handle_key(&s_ui, key));
     s_ui.confirm_active = commands_confirm_active();
+    s_ui.confirm_reboot = commands_confirm_is_reboot();
 }
 
 static void prv_drain_input(void)
@@ -285,6 +292,7 @@ static void prv_render(void)
     in.history = &s_history;
     in.size_ok = s_size_ok;
     in.rx_overflow = s_ring_overflow;
+    in.fw_check = commands_fw_check_result();
     s_ring_overflow = false;
     render_compose(&s_grid_cur, &in);
     if (s_redraw)
@@ -330,6 +338,7 @@ static console_service_err_t prv_cycle(uint32_t bits)
         s_ui.cursor_on = !s_ui.cursor_on;
     }
     s_ui.confirm_active = commands_confirm_active();
+    s_ui.confirm_reboot = commands_confirm_is_reboot();
     {
         /* PgUp may have asked for more than there is: keep the view inside the history. */
         const uint16_t held = repl_count();

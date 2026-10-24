@@ -166,10 +166,6 @@ void test_read_only_panels_cannot_be_entered(void)
         TEST_ASSERT_EQUAL(FOCUS_MENU, s_ui.focus);
         TEST_ASSERT_EQUAL_UINT8((uint8_t) (digit - 1U), s_ui.sel);
     }
-    ui_init(&s_ui);
-    (void) press(KEY_DIGIT, 7U);
-    (void) press(KEY_ENTER, 0U);
-    TEST_ASSERT_EQUAL(FOCUS_MENU, s_ui.focus);
 }
 
 void test_only_graph_and_console_are_interactive(void)
@@ -180,7 +176,29 @@ void test_only_graph_and_console_are_interactive(void)
     TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_ALARMS));
     TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_CONFIG));
     TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_NETWORK));
-    TEST_ASSERT_FALSE(ui_screen_is_interactive(SCR_FIRMWARE));
+    TEST_ASSERT_TRUE(ui_screen_is_interactive(SCR_FIRMWARE));
+}
+
+void test_firmware_panel_moves_between_its_two_actions_and_runs_the_selected_one(void)
+{
+    into_panel(6U);
+    TEST_ASSERT_EQUAL(FOCUS_PANEL, s_ui.focus);
+    TEST_ASSERT_EQUAL_UINT8(0U, s_ui.fw_sel);
+    TEST_ASSERT_EQUAL(UI_ACT_FW_CHECK, press(KEY_ENTER, 0U));
+
+    (void) press(KEY_DOWN, 0U);
+    TEST_ASSERT_EQUAL_UINT8(1U, s_ui.fw_sel);
+    TEST_ASSERT_EQUAL(UI_ACT_FW_REBOOT, press(KEY_ENTER, 0U));
+
+    (void) press(KEY_DOWN, 0U); /* wraps */
+    TEST_ASSERT_EQUAL_UINT8(0U, s_ui.fw_sel);
+    (void) press(KEY_UP, 0U); /* wraps the other way */
+    TEST_ASSERT_EQUAL_UINT8(1U, s_ui.fw_sel);
+
+    (void) press(KEY_PRINTABLE, 'a');
+    TEST_ASSERT_EQUAL(FOCUS_PANEL, s_ui.focus);
+    (void) press(KEY_ESCAPE, 0U);
+    TEST_ASSERT_EQUAL(FOCUS_MENU, s_ui.focus);
 }
 
 /* ---------------------------------------------------------------------- */
