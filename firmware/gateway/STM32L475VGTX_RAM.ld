@@ -170,6 +170,19 @@ SECTIONS
     _esram2 = .;       /* create a global symbol at sram2 end */
   } >SRAM2 AT> RAM
 
+  /* Zero-initialised SRAM2 data: large buffers that do not need flash space or the 96 KB bank.
+   * Not loaded (NOLOAD); the startup code clears it. Use __attribute__((section(".bss.sram2"))). */
+  .sram2_bss (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _ssram2_bss = .;
+    *(.bss.sram2)
+    *(.bss.sram2.*)
+
+    . = ALIGN(4);
+    _esram2_bss = .;
+  } >SRAM2
+
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);
   .bss :
