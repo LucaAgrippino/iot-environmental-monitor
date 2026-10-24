@@ -142,19 +142,26 @@ static struct
     config_params_t params;
     config_params_t snapshot;
     bool snapshot_valid;
-    SemaphoreHandle_t mutex;
+    SemaphoreHandle_t mutex; /* guards params, snapshot and the callback table; held briefly */
     StaticSemaphore_t mutex_buf;
+    SemaphoreHandle_t persist_mutex; /* serialises flash writes; held for the whole save */
+    StaticSemaphore_t persist_mutex_buf;
+    volatile bool dirty; /* a change is live in RAM but not yet in flash */
     config_change_cb_t change_cbs[CONFIG_MAX_CHANGE_CALLBACKS];
     uint8_t change_cb_count;
 } s_cs;
 
 static config_service_err_t prv_set_param(void *ctx, config_param_id_t id, const void *value);
 static config_service_err_t prv_validate_param(void *ctx, config_param_id_t id, const void *value);
+static config_service_err_t prv_set_param_deferred(void *ctx, config_param_id_t id,
+                                                   const void *value);
 static const config_params_t *prv_get_params(void *ctx);
 
 static const iconfig_provider_t s_provider = {.ctx = NULL, .get_params = prv_get_params};
-static const iconfig_manager_t s_manager = {
-    .ctx = NULL, .set_param = prv_set_param, .validate_param = prv_validate_param};
+static const iconfig_manager_t s_manager = {.ctx = NULL,
+                                            .set_param = prv_set_param,
+                                            .validate_param = prv_validate_param,
+                                            .set_param_deferred = prv_set_param_deferred};
 
 /* ======================================================================= */
 /* Field access                                                             */
@@ -370,16 +377,30 @@ static void prv_apply_defaults(config_params_t *p)
     p->health_interval_ms = DEFAULT_HEALTH_INTERVAL_MS;
 }
 
-/* Store the parameters; call with the mutex held. */
-static config_service_err_t prv_persist(const config_params_t *p)
+/* Write the current parameters to flash. Call with NO mutex held.
+ *
+ * The data mutex is taken only to copy the parameters into a local blob; the slow ConfigStore
+ * save then runs under the persist mutex alone, so readers and writers of the in-memory
+ * configuration never wait on flash (CFG-D15). A save that starts later always sees the
+ * newest values, so concurrent persists cannot leave older data behind. */
+static config_service_err_t prv_persist(void)
 {
     config_blob_t blob;
     (void) memset(&blob, 0, sizeof(blob));
     blob.schema_version = CONFIG_SCHEMA_VERSION;
-    (void) memcpy(&blob.params, p, sizeof(blob.params));
 
-    if (config_store_save(s_cs.store, &blob, (uint32_t) sizeof(blob)) != CONFIG_STORE_ERR_OK)
+    (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
+    (void) memcpy(&blob.params, &s_cs.params, sizeof(blob.params));
+    s_cs.dirty = false; /* everything live at this instant is in the blob */
+    (void) xSemaphoreGive(s_cs.mutex);
+
+    (void) xSemaphoreTake(s_cs.persist_mutex, portMAX_DELAY);
+    const config_store_err_t rc = config_store_save(s_cs.store, &blob, (uint32_t) sizeof(blob));
+    (void) xSemaphoreGive(s_cs.persist_mutex);
+
+    if (rc != CONFIG_STORE_ERR_OK)
     {
+        s_cs.dirty = true; /* retry on the next persist_pending() */
         LOG_WARN(MODULE_TAG, "persist failed");
         return CONFIG_SERVICE_ERR_PERSIST;
     }
@@ -451,8 +472,10 @@ config_service_err_t config_service_init(config_store_handle_t store)
 
     s_cs.store = store;
     s_cs.mutex = xSemaphoreCreateMutexStatic(&s_cs.mutex_buf);
+    s_cs.persist_mutex = xSemaphoreCreateMutexStatic(&s_cs.persist_mutex_buf);
     prv_apply_defaults(&s_cs.params);
     s_cs.snapshot_valid = false;
+    s_cs.dirty = false;
     s_cs.change_cb_count = 0U;
     s_cs.initialised = true;
     return CONFIG_SERVICE_OK;
@@ -528,7 +551,8 @@ config_service_err_t config_service_validate_param(config_param_id_t id, const v
     return prv_validate(id, value, &s_cs.params) ? CONFIG_SERVICE_OK : CONFIG_SERVICE_ERR_INVALID;
 }
 
-config_service_err_t config_service_set_param(config_param_id_t id, const void *value)
+/* Validate and write one parameter in memory; the data mutex is held only for that. */
+static config_service_err_t prv_apply(config_param_id_t id, const void *value)
 {
     if (!s_cs.initialised)
     {
@@ -550,12 +574,46 @@ config_service_err_t config_service_set_param(config_param_id_t id, const void *
         return CONFIG_SERVICE_ERR_INVALID;
     }
     prv_write_field(&s_cs.params, id, value);
-    const config_service_err_t rc = prv_persist(&s_cs.params);
+    s_cs.dirty = true;
     (void) xSemaphoreGive(s_cs.mutex);
+    return CONFIG_SERVICE_OK;
+}
 
-    /* The value changed in memory even if persisting failed, so consumers are told. */
+config_service_err_t config_service_set_param(config_param_id_t id, const void *value)
+{
+    const config_service_err_t rc = prv_apply(id, value);
+    if (rc != CONFIG_SERVICE_OK)
+    {
+        return rc;
+    }
+
+    /* The value changed in memory even if persisting fails below, so consumers are told. */
     prv_fire_callbacks(id);
+    return prv_persist();
+}
+
+config_service_err_t config_service_set_param_deferred(config_param_id_t id, const void *value)
+{
+    const config_service_err_t rc = prv_apply(id, value);
+    if (rc == CONFIG_SERVICE_OK)
+    {
+        prv_fire_callbacks(id); /* the flash write is left to config_service_persist_pending() */
+    }
     return rc;
+}
+
+config_service_err_t config_service_persist_pending(void)
+{
+    if (!s_cs.initialised)
+    {
+        return CONFIG_SERVICE_ERR_NOT_INIT;
+    }
+    return s_cs.dirty ? prv_persist() : CONFIG_SERVICE_OK;
+}
+
+bool config_service_has_pending(void)
+{
+    return s_cs.initialised && s_cs.dirty;
 }
 
 config_service_err_t config_service_snapshot(void)
@@ -585,9 +643,9 @@ config_service_err_t config_service_restore_snapshot(void)
         return CONFIG_SERVICE_ERR_INVALID;
     }
     s_cs.params = s_cs.snapshot;
-    const config_service_err_t rc = prv_persist(&s_cs.params);
+    s_cs.dirty = true;
     (void) xSemaphoreGive(s_cs.mutex);
-    return rc;
+    return prv_persist();
 }
 
 config_service_err_t config_service_flush(void)
@@ -596,10 +654,7 @@ config_service_err_t config_service_flush(void)
     {
         return CONFIG_SERVICE_ERR_NOT_INIT;
     }
-    (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
-    const config_service_err_t rc = prv_persist(&s_cs.params);
-    (void) xSemaphoreGive(s_cs.mutex);
-    return rc;
+    return prv_persist();
 }
 
 config_service_err_t config_service_register_change_cb(config_change_cb_t cb)
@@ -657,6 +712,13 @@ static config_service_err_t prv_validate_param(void *ctx, config_param_id_t id, 
 {
     (void) ctx;
     return config_service_validate_param(id, value);
+}
+
+static config_service_err_t prv_set_param_deferred(void *ctx, config_param_id_t id,
+                                                   const void *value)
+{
+    (void) ctx;
+    return config_service_set_param_deferred(id, value);
 }
 
 #ifdef TEST

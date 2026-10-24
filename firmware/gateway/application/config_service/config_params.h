@@ -9,9 +9,11 @@
  *   - Pressure    : uint16_t x10  (deci-hPa)
  *   - filter_alpha: uint16_t x1000 (per-mille), 100 = 0.100
  *
- * The field names, widths and order match the Field Device schema. The struct is packed
- * so the stored blob has no compiler-dependent padding, which means some wider fields sit
- * at odd offsets and are not single-copy atomic (CFG-O5).
+ * The field names, widths and order match the Field Device schema. Unlike the Field Device
+ * struct this one is not packed: every field sits at its natural alignment, with explicit
+ * reserved bytes where the Field Device layout would have left a field misaligned. A read of
+ * any integer field is therefore a single access and cannot tear against a write (CFG-D3);
+ * only the string fields need config_service_lock() (CFG-O5, closed).
  *
  * @note Companion: docs/lld/application/config-service-lld.md §2
  */
@@ -19,6 +21,7 @@
 #ifndef CONFIG_PARAMS_H
 #define CONFIG_PARAMS_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define CONFIG_MAX_NTP_SERVERS (4U)   /**< Number of NTP server slots.         */
@@ -26,7 +29,7 @@
 #define CONFIG_MAX_NTP_HOST_LEN (64U) /**< One NTP host string size, with NUL. */
 
 /** @brief Live configuration. All fields are in the units listed above. */
-typedef struct __attribute__((packed))
+typedef struct
 {
     /* -- Sensor acquisition (REQ-SA-070, SA-140) -- */
     uint32_t polling_interval_ms; /**< ms; default 1000; range [100, 60000]               */
@@ -53,17 +56,30 @@ typedef struct __attribute__((packed))
 
     /* -- Modbus -- */
     uint8_t modbus_slave_addr;      /**< Field Device address; unused on the Gateway; default 1 */
+    uint8_t reserved_a[3];          /**< Padding so the next field is 4-byte aligned; zero      */
     uint32_t modbus_poll_period_ms; /**< Poll period; default 1000; range [100, 60000]          */
 
     /* -- Cloud connectivity -- */
     char mqtt_broker[CONFIG_MAX_BROKER_LEN]; /**< Host, NUL-terminated; default empty        */
     uint16_t mqtt_port;                      /**< default 8883                                */
-    uint32_t telemetry_interval_ms;          /**< default 60000; range [1000, 3600000]        */
-    uint32_t health_interval_ms;             /**< default 600000; range [10000, 86400000]     */
+    uint8_t reserved_b[2];          /**< Padding so the next field is 4-byte aligned; zero */
+    uint32_t telemetry_interval_ms; /**< default 60000; range [1000, 3600000]        */
+    uint32_t health_interval_ms;    /**< default 600000; range [10000, 86400000]     */
 
     /* -- Time sync -- */
     char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN]; /**< IPv4 literals  */
     uint8_t ntp_server_count;                                          /**< default 0       */
+    uint8_t reserved_c[3];                                             /**< Tail padding; zero */
 } config_params_t;
+
+/* The layout is part of the stored blob: any change must bump CONFIG_SCHEMA_VERSION. */
+_Static_assert((offsetof(config_params_t, polling_interval_ms) % 4U) == 0U, "polling_interval_ms");
+_Static_assert((offsetof(config_params_t, modbus_poll_period_ms) % 4U) == 0U,
+               "modbus_poll_period_ms");
+_Static_assert((offsetof(config_params_t, mqtt_port) % 2U) == 0U, "mqtt_port");
+_Static_assert((offsetof(config_params_t, telemetry_interval_ms) % 4U) == 0U,
+               "telemetry_interval_ms");
+_Static_assert((offsetof(config_params_t, health_interval_ms) % 4U) == 0U, "health_interval_ms");
+_Static_assert((sizeof(config_params_t) % 4U) == 0U, "config_params_t size");
 
 #endif /* CONFIG_PARAMS_H */

@@ -4,8 +4,10 @@
  *
  * Holds the system configuration in RAM, validates every change against the parameter
  * rules, persists it through ConfigStore and notifies registered consumers. It has no
- * task: every call runs in the caller's context, serialised by a mutex. The read side
- * (iconfig_provider_t) and write side (iconfig_manager_t) are separate interfaces.
+ * task: every call runs in the caller's context. Two mutexes keep readers fast: one guards
+ * the in-memory configuration (held for microseconds), the other serialises flash writes
+ * (held for the whole ~0.8 s ConfigStore save), so a flash write never blocks a reader.
+ * The read side (iconfig_provider_t) and write side (iconfig_manager_t) are separate.
  *
  * LifecycleController is meant to drive load, snapshot and restore; the Gateway has no
  * LifecycleController yet, so callers do it directly.
@@ -29,12 +31,14 @@
 #define CONFIG_SCHEMA_VERSION (1U)
 
 /** @brief Stored form of the configuration: schema version followed by the parameters. */
-typedef struct __attribute__((packed))
+typedef struct
 {
     uint32_t schema_version;
     config_params_t params;
 } config_blob_t;
 
+_Static_assert(sizeof(config_blob_t) == (sizeof(uint32_t) + sizeof(config_params_t)),
+               "config blob has unexpected padding");
 _Static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
                "config blob exceeds ConfigStore capacity");
 
@@ -81,10 +85,10 @@ config_service_err_t config_service_apply_loaded(const void *blob, uint32_t len)
 /**
  * @brief Get the live configuration.
  *
- * The pointer is valid for the system lifetime. Naturally aligned fields are read in one
- * access; misaligned 32-bit fields and the string fields are not atomic, so readers of
- * those must bracket the read with config_service_lock() / config_service_unlock()
- * (CFG-D3, CFG-O5).
+ * The pointer is valid for the system lifetime. Every integer field is naturally aligned and
+ * is read in one access, so it needs no lock. The string fields (mqtt_broker, ntp_servers)
+ * are not atomic: bracket their reads with config_service_lock() / config_service_unlock()
+ * (CFG-D3).
  *
  * @return The live parameters, or NULL until init has succeeded.
  * @note Threading: any task.
@@ -102,9 +106,43 @@ const config_params_t *config_service_get_params(void);
  * @param[in] value  New value; its type is listed with config_param_id_t.
  * @return CONFIG_SERVICE_OK; _ERR_NOT_INIT; _ERR_NULL_ARG; _ERR_INVALID (bad id or value);
  *         _ERR_PERSIST.
- * @note Threading: task context; takes the mutex and may block on a flash write.
+ * @note Threading: task context; blocks for the flash write (about 0.8 s). Readers are not
+ *       blocked meanwhile. Use config_service_set_param_deferred() where that is too long.
  */
 config_service_err_t config_service_set_param(config_param_id_t id, const void *value);
+
+/**
+ * @brief Validate and apply one parameter now; persist it later (CFG-D16).
+ *
+ * Does everything config_service_set_param() does except the flash write, so it returns in
+ * microseconds. The value is live and callbacks have fired, but it is lost on a reset until
+ * config_service_persist_pending() has run, so a caller that uses this must make sure that
+ * is called from a context that may block (for example an idle or housekeeping task).
+ *
+ * @param[in] id     Parameter identifier.
+ * @param[in] value  New value; its type is listed with config_param_id_t.
+ * @return CONFIG_SERVICE_OK; _ERR_NOT_INIT; _ERR_NULL_ARG; _ERR_INVALID.
+ * @note Threading: any task; takes the data mutex only, never blocks on flash.
+ */
+config_service_err_t config_service_set_param_deferred(config_param_id_t id, const void *value);
+
+/**
+ * @brief Write the configuration to flash if a deferred change is waiting.
+ *
+ * Does nothing and returns CONFIG_SERVICE_OK when nothing is pending. On a ConfigStore failure
+ * the change stays pending so the next call retries.
+ *
+ * @return CONFIG_SERVICE_OK; CONFIG_SERVICE_ERR_NOT_INIT; CONFIG_SERVICE_ERR_PERSIST.
+ * @note Threading: task context that may block for the flash write (about 0.8 s).
+ */
+config_service_err_t config_service_persist_pending(void);
+
+/**
+ * @brief Report whether a deferred change has not been written to flash yet.
+ * @return true if config_service_persist_pending() has work to do.
+ * @note Threading: any task.
+ */
+bool config_service_has_pending(void);
 
 /**
  * @brief Check a proposed value against the rules and the current configuration.

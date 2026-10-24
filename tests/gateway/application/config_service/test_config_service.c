@@ -7,6 +7,7 @@
  * freertos_mock. Test IDs follow companion §12 (TC-CFG-001..024); TC-CFG-025.. are additions.
  */
 
+#include <stddef.h>
 #include <string.h>
 
 #include "config_service.h"
@@ -23,11 +24,14 @@ static config_store_err_t s_save_result;
 static uint32_t s_save_calls;
 static uint32_t s_save_len;
 static config_blob_t s_saved;
+static int32_t s_save_locks_held; /* mutexes taken and not yet given while the save runs */
 
 config_store_err_t config_store_save(config_store_handle_t self, const void *data, uint32_t len)
 {
     TEST_ASSERT_EQUAL_PTR(STORE_HANDLE, self);
     s_save_calls++;
+    s_save_locks_held = (int32_t) g_mock_xSemaphoreTake_call_count -
+                        (int32_t) g_mock_xSemaphoreGive_call_count;
     s_save_len = len;
     if (len == sizeof(s_saved))
     {
@@ -60,6 +64,7 @@ void setUp(void)
     s_save_result = CONFIG_STORE_ERR_OK;
     s_save_calls = 0U;
     s_save_len = 0U;
+    s_save_locks_held = -1;
     (void) memset(&s_saved, 0, sizeof(s_saved));
     s_cb_calls = 0U;
     s_cb_last = CONFIG_PARAM_COUNT;
@@ -463,16 +468,36 @@ void test_callback_table_is_bounded(void)
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_register_change_cb(on_change));
 }
 
-/* TC-CFG-036: the mutex is released before callbacks run */
-void test_set_param_takes_and_gives_the_mutex_once(void)
+/* TC-CFG-036: every mutex taken is given back (apply, snapshot copy, flash save) */
+void test_set_param_takes_and_gives_every_mutex(void)
 {
     init_service();
     const uint32_t value = 500U;
 
     (void) config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value);
 
-    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xSemaphoreTake_call_count);
-    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xSemaphoreGive_call_count);
+    TEST_ASSERT_EQUAL_UINT32(3U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(3U, g_mock_xSemaphoreGive_call_count);
+}
+
+/* TC-CFG-041 (CFG-D15): the flash save runs holding only the persist mutex, never the
+ * data mutex, so readers are not blocked for the length of a flash write */
+void test_flash_save_holds_only_the_persist_mutex(void)
+{
+    init_service();
+    const uint32_t value = 500U;
+
+    (void) config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value);
+    TEST_ASSERT_EQUAL_INT32(1, s_save_locks_held);
+
+    s_save_locks_held = -1;
+    (void) config_service_flush();
+    TEST_ASSERT_EQUAL_INT32(1, s_save_locks_held);
+
+    (void) config_service_snapshot();
+    s_save_locks_held = -1;
+    (void) config_service_restore_snapshot();
+    TEST_ASSERT_EQUAL_INT32(1, s_save_locks_held);
 }
 
 /* ======================================================================= */
@@ -511,6 +536,113 @@ void test_flush_reports_a_store_failure(void)
     s_save_result = CONFIG_STORE_ERR_FLASH_ERASE;
 
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_PERSIST, config_service_flush());
+}
+
+/* ======================================================================= */
+/* Deferred persistence (CFG-D16)                                           */
+/* ======================================================================= */
+
+/* TC-CFG-042 */
+void test_deferred_set_applies_and_notifies_without_touching_flash(void)
+{
+    init_service();
+    (void) config_service_register_change_cb(on_change);
+    const uint32_t value = 500U;
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value));
+
+    TEST_ASSERT_EQUAL_UINT32(500U, params()->polling_interval_ms);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_cb_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_save_calls);
+    TEST_ASSERT_TRUE(config_service_has_pending());
+}
+
+/* TC-CFG-043 */
+void test_persist_pending_writes_once_and_clears_the_flag(void)
+{
+    init_service();
+    const uint32_t value = 500U;
+    (void) config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value);
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_persist_pending());
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_save_calls);
+    TEST_ASSERT_EQUAL_UINT32(500U, s_saved.params.polling_interval_ms);
+    TEST_ASSERT_FALSE(config_service_has_pending());
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_persist_pending());
+    TEST_ASSERT_EQUAL_UINT32(1U, s_save_calls); /* nothing pending: no second write */
+}
+
+/* TC-CFG-044: several deferred changes need one write */
+void test_several_deferred_changes_share_one_write(void)
+{
+    init_service();
+    uint32_t poll = 500U;
+    uint16_t alpha = 200U;
+    (void) config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &poll);
+    (void) config_service_set_param_deferred(CONFIG_PARAM_FILTER_ALPHA, &alpha);
+
+    (void) config_service_persist_pending();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_save_calls);
+    TEST_ASSERT_EQUAL_UINT32(500U, s_saved.params.polling_interval_ms);
+    TEST_ASSERT_EQUAL_UINT16(200U, s_saved.params.filter_alpha);
+}
+
+/* TC-CFG-045: a failed write leaves the change pending for the next attempt */
+void test_persist_failure_keeps_the_change_pending(void)
+{
+    init_service();
+    const uint32_t value = 500U;
+    (void) config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value);
+    s_save_result = CONFIG_STORE_ERR_FLASH_WRITE;
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_PERSIST, config_service_persist_pending());
+    TEST_ASSERT_TRUE(config_service_has_pending());
+
+    s_save_result = CONFIG_STORE_ERR_OK;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_persist_pending());
+    TEST_ASSERT_FALSE(config_service_has_pending());
+}
+
+/* TC-CFG-046 */
+void test_deferred_set_rejects_what_set_param_rejects(void)
+{
+    init_service();
+    const uint32_t bad = 50U;
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &bad));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, NULL));
+    TEST_ASSERT_FALSE(config_service_has_pending());
+}
+
+/* TC-CFG-047: a durable write also flushes whatever was deferred before it */
+void test_durable_set_param_flushes_earlier_deferred_changes(void)
+{
+    init_service();
+    uint16_t alpha = 200U;
+    uint32_t poll = 500U;
+    (void) config_service_set_param_deferred(CONFIG_PARAM_FILTER_ALPHA, &alpha);
+
+    (void) config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &poll);
+
+    TEST_ASSERT_EQUAL_UINT16(200U, s_saved.params.filter_alpha);
+    TEST_ASSERT_FALSE(config_service_has_pending());
+}
+
+/* TC-CFG-048: guards, and the manager interface exposes the deferred setter */
+void test_deferred_api_guards_and_vtable(void)
+{
+    const uint32_t value = 500U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_persist_pending());
+    TEST_ASSERT_FALSE(config_service_has_pending());
+
+    init_service();
+    const iconfig_manager_t *manager = config_service_get_manager();
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->set_param_deferred(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_TRUE(config_service_has_pending());
 }
 
 /* ======================================================================= */
@@ -642,4 +774,18 @@ void test_blob_size_is_recorded_and_fits_the_store(void)
 {
     TEST_ASSERT_LESS_THAN_UINT32(CONFIG_STORE_MAX_DATA_BYTES, (uint32_t) sizeof(config_blob_t));
     TEST_ASSERT_LESS_THAN_UINT32(1024U, (uint32_t) sizeof(config_blob_t));
+}
+
+/* TC-CFG-049 (CFG-D3): every integer field is naturally aligned, so a read cannot tear */
+void test_every_integer_field_is_naturally_aligned(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, polling_interval_ms) % 4U);
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, modbus_poll_period_ms) % 4U);
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, mqtt_port) % 2U);
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, telemetry_interval_ms) % 4U);
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, health_interval_ms) % 4U);
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, filter_alpha) % 2U);
+    TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, temp_alarm_high) % 2U);
+    TEST_ASSERT_EQUAL_UINT32(0U, sizeof(config_params_t) % 4U);
+    TEST_ASSERT_EQUAL_UINT32(sizeof(uint32_t) + sizeof(config_params_t), sizeof(config_blob_t));
 }
