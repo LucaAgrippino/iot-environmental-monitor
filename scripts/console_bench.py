@@ -70,6 +70,17 @@ class Console:
         return self.screen.buffer[row][col]
 
 
+def wait_for_menu(con, timeout=25.0):
+    """After a reset the board needs a few seconds before the console runs: nudge with Ctrl-L until
+    the menu is on screen."""
+    end = time.time() + timeout
+    while time.time() < end:
+        con.send("\x0c", 1.5)
+        if con.has("MAIN MENU"):
+            return True
+    return False
+
+
 def check(name, ok, detail=""):
     results.append((name, ok))
     print(("PASS  " if ok else "FAIL  ") + name + (("  - " + detail) if (detail and not ok) else ""))
@@ -90,8 +101,11 @@ def main():
     # IT-GCS-001: the board drew its first frame before this script attached, so a terminal that
     # joins late only sees changes. Ctrl-L repaints the whole screen.
     con.send("\x0c", 2.5)
-    con.send("1", 1.5)
-    con.pump(2.0)
+    con.send("\x1b", 1.0)  # leave any panel a previous run left focused ...
+    con.send("\x1b", 1.0)
+    con.send("1", 1.5)     # ... and start on the live graph
+    con.send("\x0c", 2.0)
+    con.pump(1.0)
     show(con, "boot / graph")
     check("IT-GCS-001 TUI renders: banner, menu, chart", con.has("ENVIRONMENTAL GATEWAY") and con.has("MAIN MENU") and con.has("LIVE · TEMPERATURE"))
     check("IT-GCS-002 banner fields", con.has("uptime") and con.has("sensors online") and con.has("wifi"))
@@ -175,7 +189,72 @@ def main():
     con.send("bogus\r", 1.0)
     check("unknown command", con.has("unknown command"))
 
-    # IT-GCS-015/016: confirm flow
+    # IT-GCS-021..023 and the banner dots: link status against reality (WiFi joined, broker up,
+    # no Field Device attached)
+    con.send("clear\r", 0.6)
+    con.send("wifi status\r", 1.2)
+    m = re.search(r"rssi\s+(-\d+) dBm", con.text())
+    check("IT-GCS-021 wifi status: connected with a plausible RSSI", con.has("● connected") and bool(m) and -95 <= int(m.group(1)) <= -20)
+    con.send("clear\r", 0.6)
+    con.send("mqtt status\r", 1.2)
+    check("IT-GCS-022 mqtt status: connected to the broker", con.has("● connected") and con.has(":8883"))
+    con.send("clear\r", 0.6)
+    con.send("modbus status\r", 1.2)
+    check("IT-GCS-023 modbus status: offline (no Field Device)", con.has("● offline"))
+    banner = con.screen.display[4]
+    dots = [i for i, ch in enumerate(banner) if ch == "\u25cf"]
+    cols = [con.cell(4, i).fg for i in dots]
+    check("banner dots: wifi and mqtt green, modbus red", len(dots) == 3 and cols[0] == "6fbf8e" and cols[1] == "6fbf8e" and cols[2] == "cc6666", str(cols))
+    con.send("clear\r", 0.6)
+    con.send("selftest\r", 1.5)
+    check("selftest comms fails only because Modbus is offline", con.has("sensors   PASS") and con.has("comms     FAIL"))
+
+    # GCS-O7: paging
+    con.send("clear\r", 0.6)
+    con.send("help\r", 1.5)
+    check("help tail is visible, header scrolled out", con.has("restart the gateway") and not con.has("Available commands"))
+    for _ in range(8):
+        con.send("\x1b[5~", 0.25)
+    con.pump(0.5)
+    check("GCS-O7 PgUp reveals the top of the help list", con.has("Available commands") and con.has("more"))
+    for _ in range(8):
+        con.send("\x1b[6~", 0.25)
+    con.pump(0.5)
+    check("GCS-O7 PgDn returns to the live view", con.has("restart the gateway") and not con.has("more"))
+
+    # IT-GCS-028: the cursor blinks while the panel has focus
+    seen = set()
+    end = time.time() + 3.0
+    while time.time() < end:
+        con.pump(0.2)
+        seen.add("\u2588" in "".join(con.screen.display[18]))
+    check("IT-GCS-028 cursor blinks", seen == {True, False}, str(seen))
+
+    # IT-GCS-025/026: a terminal that is too small, then big enough
+    con.send("\x1b[8;24;80t", 1.5)
+    check("IT-GCS-025 small terminal gets only the resize notice", con.has("Resize the terminal") and not con.has("MAIN MENU"))
+    con.send("\x1b[8;40;120t", 2.5)
+    check("IT-GCS-026 big enough again: the UI returns", con.has("MAIN MENU") and not con.has("Resize the terminal"))
+    con.send("6\r", 0.8)
+
+    # IT-GCS-015: provisioning commit, answered y, applied
+    con.send("clear\r", 0.6)
+    con.send("prov set mqtt-endpoint 192.168.0.218\r", 0.8)
+    con.send("prov set modbus-addr 9\r", 0.8)
+    con.send("prov commit\r", 1.0)
+    check("IT-GCS-015 commit shows the staged values and asks", con.has("Apply? [y/N]") or con.has("modbus-addr = 9"))
+    con.send("y", 3.0)
+    check("IT-GCS-015 y applies provisioning", con.has("provisioning applied"))
+
+    # IT-GCS-017: the prompt times out after 30 s and discards
+    con.send("clear\r", 0.6)
+    con.send("prov set modbus-addr 10\r", 0.8)
+    con.send("prov commit\r", 1.0)
+    check("IT-GCS-017 prompt is up", con.has("Apply? [y/N]"))
+    con.pump(31.5)
+    check("IT-GCS-017 prompt timed out and discarded", con.has("timed out") and not con.has("Apply? [y/N]"))
+
+    # IT-GCS-016: n discards
     con.send("clear\r", 0.6)
     con.send("prov set modbus-addr 9\r", 0.8)
     con.send("prov commit\r", 1.0)
@@ -188,12 +267,15 @@ def main():
     con.send("reboot\r", 0.5)
     con.pump(4.0)
     check("IT-GCS-024 reboot restores the screen setup", b"\x1b[?1049l" in con.raw)
-    con.send("\x1b", 1.0)
+    check("the console is back after the reboot", wait_for_menu(con))
     con.send("6", 0.8)
     con.send("\r", 0.8)
     con.send("thresholds\r", 1.5)
     show(con, "after reboot: thresholds")
     check("persistence: t.hi 31.0 survived the reset", con.has("31.0"))
+    con.send("clear\r", 0.6)
+    con.send("mqtt status\r", 1.5)
+    check("IT-GCS-015 the committed broker survived the reset", con.has("192.168.0.218:8883"))
 
     # put the default back
     con.send("set t.hi 40\r", 1.5)
