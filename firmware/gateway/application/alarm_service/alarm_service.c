@@ -65,6 +65,7 @@ static const ialarm_service_t s_alarm_service_vtable = {
     .get_state = alarm_service_get_state,
     .get_all_states = alarm_service_get_all_states,
     .subscribe = alarm_service_subscribe,
+    .get_limit = alarm_service_get_limit,
     .ack_all = alarm_service_ack_all,
 };
 
@@ -152,6 +153,35 @@ alarm_service_err_t alarm_service_subscribe(void (*cb)(sensor_id_t sensor, alarm
     s_as.subscribers[s_as.subscriber_count] = cb;
     s_as.subscriber_count++;
     return ALARM_SERVICE_ERR_OK;
+}
+
+alarm_service_err_t alarm_service_get_limit(sensor_id_t sensor, alarm_event_t event,
+                                            int32_t *limit_out)
+{
+    if (!s_as.initialised)
+    {
+        return ALARM_SERVICE_ERR_NOT_INIT;
+    }
+    if (limit_out == NULL)
+    {
+        return ALARM_SERVICE_ERR_NULL_ARG;
+    }
+    if (((unsigned) sensor >= (unsigned) SENSOR_ID_COUNT) || !s_as.thresholds[sensor].enabled)
+    {
+        return ALARM_SERVICE_ERR_INVALID_ARG;
+    }
+
+    switch (event)
+    {
+    case ALARM_EVENT_RAISED_HIGH:
+        *limit_out = s_as.thresholds[sensor].high;
+        return ALARM_SERVICE_ERR_OK;
+    case ALARM_EVENT_RAISED_LOW:
+        *limit_out = s_as.thresholds[sensor].low;
+        return ALARM_SERVICE_ERR_OK;
+    default:
+        return ALARM_SERVICE_ERR_INVALID_ARG;
+    }
 }
 
 alarm_service_err_t alarm_service_ack_all(void)

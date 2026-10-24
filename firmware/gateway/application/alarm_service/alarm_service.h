@@ -94,6 +94,23 @@ alarm_service_err_t alarm_service_subscribe(void (*cb)(sensor_id_t sensor, alarm
                                                        const sensor_reading_t *reading));
 
 /**
+ * @brief Get the threshold that a raised alarm event crossed.
+ *
+ * ALARM_EVENT_RAISED_HIGH yields the high limit and ALARM_EVENT_RAISED_LOW the low
+ * limit, in the units of sensor_reading_t.value. The subscriber callback carries the
+ * reading but not the limit, so CloudPublisher reads it here for the alarm payload.
+ *
+ * @param[in]  sensor     Sensor ID.
+ * @param[in]  event      ALARM_EVENT_RAISED_HIGH or ALARM_EVENT_RAISED_LOW.
+ * @param[out] limit_out  Receives the limit; must not be NULL.
+ * @return ALARM_SERVICE_ERR_OK; _NOT_INIT; _NULL_ARG; _INVALID_ARG if @p sensor is out of
+ *         range, has no threshold (IMU / magnetometer) or @p event is ALARM_EVENT_CLEARED.
+ * @note Threading: any task.
+ */
+alarm_service_err_t alarm_service_get_limit(sensor_id_t sensor, alarm_event_t event,
+                                            int32_t *limit_out);
+
+/**
  * @brief Force-clear every alarm (bulk acknowledge, LLD-D14).
  *
  * A condition that is still breached re-raises on the next cycle.
@@ -118,6 +135,8 @@ typedef struct
     /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
     alarm_service_err_t (*subscribe)(void (*cb)(sensor_id_t, alarm_event_t,
                                                 const sensor_reading_t *));
+    /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
+    alarm_service_err_t (*get_limit)(sensor_id_t sensor, alarm_event_t event, int32_t *limit_out);
     /* cppcheck-suppress unusedStructMember -- called via vtable by the command path */
     alarm_service_err_t (*ack_all)(void);
 } ialarm_service_t;
