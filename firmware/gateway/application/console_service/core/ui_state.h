@@ -15,6 +15,8 @@
 
 #define UI_MENU_COUNT (7U)
 #define UI_INPUT_MAX (120U) /* buffer size including the terminator */
+#define UI_SCROLL_STEP (4U) /* lines per PgUp / PgDn */
+#define UI_SCROLL_STEP (4U) /* lines per PgUp / PgDn */
 
 typedef enum
 {
@@ -42,6 +44,7 @@ typedef struct
     uint8_t input_len;
     bool cursor_on;      /**< Blink phase.                                    */
     bool confirm_active; /**< A y/N prompt replaces the REPL input line.      */
+    uint16_t scroll;     /**< Lines the console view is scrolled back (0 = live). */
 } ui_state_t;
 
 /** @brief What the caller must do after a key was handled. */

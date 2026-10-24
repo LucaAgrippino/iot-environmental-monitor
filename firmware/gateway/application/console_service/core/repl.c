@@ -9,12 +9,13 @@
 #include <string.h>
 
 #include "commands.h"
+#include "console_service/port/console_mem.h"
 #include "theme.h"
 
 #define MAX_ARGS (8U)
 #define LINE_COPY_MAX (121U)
 
-static scrollback_line_t s_lines[REPL_SCROLLBACK_MAX];
+CONSOLE_BIG_BUFFER static scrollback_line_t s_lines[REPL_SCROLLBACK_MAX];
 static uint16_t s_head; /* next write position */
 static uint16_t s_count;
 

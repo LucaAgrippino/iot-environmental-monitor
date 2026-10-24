@@ -315,6 +315,30 @@ void test_console_panel_shows_the_confirm_prompt_instead_of_the_input_line(void)
     TEST_ASSERT_FALSE(row_has(18U, "envmon>"));
 }
 
+void test_a_scrolled_console_shows_older_lines_and_how_many_are_below(void)
+{
+    s_ui.sel = 5U;
+    s_ui.focus = FOCUS_PANEL;
+    repl_clear();
+    for (uint32_t i = 0U; i < 30U; i++)
+    {
+        char t[16];
+
+        (void) snprintf(t, sizeof(t), "line %02u", (unsigned) i);
+        repl_puts(PAL_INK, t);
+    }
+    compose(true, false);
+    TEST_ASSERT_TRUE(row_has(17U, "line 29"));
+    TEST_ASSERT_FALSE(row_has(18U, "more"));
+
+    s_ui.scroll = 8U;
+    compose(true, false);
+    TEST_ASSERT_TRUE(row_has(17U, "line 21"));
+    TEST_ASSERT_FALSE(row_has(16U, "line 29"));
+    TEST_ASSERT_TRUE(row_has(18U, "↓ 8 more"));
+    TEST_ASSERT_TRUE(row_has(18U, "envmon>"));
+}
+
 void test_a_long_input_line_keeps_its_tail_visible(void)
 {
     s_ui.sel = 5U;
@@ -342,7 +366,7 @@ void test_footer_hint_matches_focus_and_screen(void)
 
     s_ui.sel = 5U;
     compose(true, false);
-    TEST_ASSERT_TRUE(row_has(20U, "type a command · Enter run · Esc → menu"));
+    TEST_ASSERT_TRUE(row_has(20U, "type a command · Enter run · PgUp/PgDn scroll · Esc → menu"));
 
     s_ui.sel = 1U;
     compose(true, false);

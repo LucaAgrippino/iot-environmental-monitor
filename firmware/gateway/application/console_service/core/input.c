@@ -185,6 +185,17 @@ bool input_feed(uint8_t byte, uint32_t now_ms, key_event_t *out)
             {
                 return parse_size_report(out);
             }
+            if ((byte == '~') && (s_csi_len == 1U))
+            {
+                if (s_csi[0] == '5')
+                {
+                    return emit(out, KEY_PGUP, 0U);
+                }
+                if (s_csi[0] == '6')
+                {
+                    return emit(out, KEY_PGDN, 0U);
+                }
+            }
             return false; /* a CSI sequence we do not use (Home, Delete, function keys, ...) */
         }
         if (s_csi_len < CSI_MAX_LEN)

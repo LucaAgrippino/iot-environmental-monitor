@@ -533,7 +533,9 @@ static void prv_console(cell_grid_t *g, const render_input_t *in)
     const ui_state_t *ui = in->ui;
     const bool active = (ui->focus == FOCUS_PANEL);
     const uint8_t limit = (uint8_t) (R_PANEL_COL + R_PANEL_W - 1U);
-    const uint16_t total = repl_count();
+    const uint16_t total_all = repl_count();
+    const uint16_t scroll = (ui->scroll < total_all) ? ui->scroll : total_all;
+    const uint16_t total = (uint16_t) (total_all - scroll); /* newest line of the window */
     const uint16_t shown = (total < REPL_VISIBLE_LINES) ? total : (uint16_t) REPL_VISIBLE_LINES;
 
     prv_panel_frame(g, "CONSOLE", active);
@@ -574,6 +576,15 @@ static void prv_console(cell_grid_t *g, const render_input_t *in)
     {
         grid_put_glyph(g, irow, c, GLYPH_FULL, PAL_ACCENT, PAL_BG, false);
     }
+    if (scroll > 0U)
+    {
+        char more[16];
+        uint8_t mc;
+
+        (void) snprintf(more, sizeof(more), "↓ %u more", (unsigned) scroll);
+        mc = (uint8_t) (limit - fmt_cols(more) - 1U);
+        prv_seg(g, irow, &mc, limit, more, PAL_WARN);
+    }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -593,7 +604,7 @@ const char *render_hint(const ui_state_t *ui)
     switch (ui_screen(ui))
     {
     case SCR_CONSOLE:
-        return "type a command · Enter run · Esc → menu";
+        return "type a command · Enter run · PgUp/PgDn scroll · Esc → menu";
     case SCR_GRAPH:
         return "↑↓ change channel · Esc → menu";
     default:

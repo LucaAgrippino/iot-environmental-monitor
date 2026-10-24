@@ -348,6 +348,38 @@ void test_printable_and_digit_bytes_decode(void)
     TEST_ASSERT_EQUAL(KEY_PRINTABLE, k.kind);
 }
 
+void test_page_keys_decode(void)
+{
+    static const uint8_t up[] = {0x1B, '[', '5', '~'};
+    static const uint8_t down[] = {0x1B, '[', '6', '~'};
+    static const uint8_t home[] = {0x1B, '[', '1', '~'};
+
+    TEST_ASSERT_EQUAL(KEY_PGUP, feed_all(up, sizeof(up)).kind);
+    TEST_ASSERT_EQUAL(KEY_PGDN, feed_all(down, sizeof(down)).kind);
+    TEST_ASSERT_EQUAL(KEY_NONE, feed_all(home, sizeof(home)).kind);
+}
+
+void test_page_keys_scroll_the_console_view_in_steps_and_stop_at_live(void)
+{
+    into_panel(5U);
+    (void) press(KEY_PGUP, 0U);
+    TEST_ASSERT_EQUAL_UINT16(UI_SCROLL_STEP, s_ui.scroll);
+    (void) press(KEY_PGUP, 0U);
+    TEST_ASSERT_EQUAL_UINT16(2U * UI_SCROLL_STEP, s_ui.scroll);
+    (void) press(KEY_PGDN, 0U);
+    TEST_ASSERT_EQUAL_UINT16(UI_SCROLL_STEP, s_ui.scroll);
+    (void) press(KEY_PGDN, 0U);
+    (void) press(KEY_PGDN, 0U);
+    TEST_ASSERT_EQUAL_UINT16(0U, s_ui.scroll);
+}
+
+void test_page_keys_do_nothing_outside_the_console(void)
+{
+    into_panel(0U);
+    (void) press(KEY_PGUP, 0U);
+    TEST_ASSERT_EQUAL_UINT16(0U, s_ui.scroll);
+}
+
 void test_ctrl_l_decodes_as_a_redraw_request(void)
 {
     key_event_t k;

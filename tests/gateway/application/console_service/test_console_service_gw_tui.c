@@ -999,6 +999,50 @@ void test_set_through_the_keyboard_persists_after_the_frame_is_drawn(void)
     TEST_ASSERT_TRUE(screen_has(17U, "applied") || screen_has(16U, "applied"));
 }
 
+void test_page_up_reveals_scrolled_out_output_and_a_new_command_snaps_back(void)
+{
+    start();
+    type("6\r");
+    type("help\r");
+    TEST_ASSERT_FALSE(screen_has(10U, "Available commands"));
+
+    for (uint32_t i = 0U; i < 8U; i++) /* help prints 30 lines: 8 pages of 4 back to its header */
+    {
+        type("\x1b[5~");
+    }
+    bool header_visible = false;
+
+    for (uint8_t row = 10U; row <= 17U; row++)
+    {
+        header_visible = header_visible || screen_has(row, "Available commands");
+    }
+    TEST_ASSERT_TRUE(header_visible);
+    TEST_ASSERT_TRUE(screen_has(18U, "more"));
+    TEST_ASSERT_TRUE(screen_has(20U, "PgUp/PgDn scroll"));
+
+    for (uint32_t i = 0U; i < 8U; i++)
+    {
+        type("\x1b[6~");
+    }
+    TEST_ASSERT_FALSE(screen_has(18U, "more"));
+
+    type("\x1b[5~");
+    type("uptime\r");
+    TEST_ASSERT_FALSE(screen_has(18U, "more")); /* new output: back to the live view */
+}
+
+void test_scrolling_stops_at_the_oldest_line(void)
+{
+    start();
+    type("6\r");
+    for (uint32_t i = 0U; i < 40U; i++)
+    {
+        type("\x1b[5~");
+    }
+    type("\x1b[6~");
+    TEST_ASSERT_TRUE(screen_has(9U, "CONSOLE")); /* still sane after over-scrolling */
+}
+
 void test_the_confirm_prompt_is_answered_from_the_keyboard(void)
 {
     start();

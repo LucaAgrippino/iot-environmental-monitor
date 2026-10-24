@@ -30,6 +30,8 @@ typedef enum
     KEY_ESCAPE,
     KEY_DIGIT,      /**< '1'..'7'; ch holds the digit value 1..7.            */
     KEY_PRINTABLE,  /**< Any other 0x20..0x7E character; ch holds it.        */
+    KEY_PGUP,       /**< Page Up (ESC [ 5 ~): scroll the console back.         */
+    KEY_PGDN,       /**< Page Down (ESC [ 6 ~): scroll the console forward.    */
     KEY_REDRAW,     /**< Ctrl-L: repaint the whole screen.                    */
     KEY_SIZE_REPORT /**< Terminal size report; rows / cols are filled in.     */
 } key_kind_t;

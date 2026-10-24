@@ -15,6 +15,7 @@
 #include "core/render.h"
 #include "core/repl.h"
 #include "core/ui_state.h"
+#include "port/console_mem.h"
 #include "port/console_port.h"
 #include "task.h"
 #include "timers.h"
@@ -54,8 +55,8 @@ static bool s_started;
 static ui_state_t s_ui;
 static console_model_t s_model;
 static chart_history_t s_history;
-static cell_grid_t s_grid_cur;
-static cell_grid_t s_grid_prev;
+CONSOLE_BIG_BUFFER static cell_grid_t s_grid_cur;
+CONSOLE_BIG_BUFFER static cell_grid_t s_grid_prev;
 
 static volatile uint8_t s_ring[RING_SIZE];
 static volatile uint16_t s_ring_head; /* written by the ISR */
@@ -145,6 +146,7 @@ static void prv_run_line(void)
 
     (void) memcpy(line, s_ui.input, sizeof(line));
     ui_clear_input(&s_ui);
+    s_ui.scroll = 0U; /* new output: back to the live view */
     (void) repl_execute(line);
 }
 
@@ -309,6 +311,14 @@ static console_service_err_t prv_cycle(uint32_t bits)
         s_ui.cursor_on = !s_ui.cursor_on;
     }
     s_ui.confirm_active = commands_confirm_active();
+    {
+        /* PgUp may have asked for more than there is: keep the view inside the history. */
+        const uint16_t held = repl_count();
+        const uint16_t max_scroll =
+            (held > REPL_VISIBLE_LINES) ? (uint16_t) (held - REPL_VISIBLE_LINES) : 0U;
+
+        s_ui.scroll = (s_ui.scroll > max_scroll) ? max_scroll : s_ui.scroll;
+    }
 
     model_refresh(&s_deps, &s_model); /* a command may have changed what is shown */
     prv_render();

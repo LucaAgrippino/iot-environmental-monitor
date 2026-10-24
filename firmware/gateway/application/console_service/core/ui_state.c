@@ -60,6 +60,13 @@ static ui_action_t prv_console_key(ui_state_t *ui, const key_event_t *key)
         return UI_ACT_NONE;
     case KEY_ENTER:
         return UI_ACT_RUN_LINE;
+    case KEY_PGUP:
+        ui->scroll =
+            (uint16_t) (ui->scroll + UI_SCROLL_STEP); /* the caller clamps to the history */
+        return UI_ACT_NONE;
+    case KEY_PGDN:
+        ui->scroll = (ui->scroll > UI_SCROLL_STEP) ? (uint16_t) (ui->scroll - UI_SCROLL_STEP) : 0U;
+        return UI_ACT_NONE;
     case KEY_BACKSPACE:
         if (ui->input_len > 0U)
         {
