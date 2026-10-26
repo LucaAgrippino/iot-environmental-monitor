@@ -338,6 +338,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 | Barometer LPS22HB                            | I2C2 + GPIO                |
 | Humidity and Temperature HTS221              | I2C2 + GPIO                |
 | 64 Mbit QSPI NOR flash MX25R6435F            | QSPI                       |
+| On-chip flash, 1 MB, two banks               | FLASH controller           |
 | RS-485 transceiver for Modbus                | UARTx (RS-485 half-duplex) |
 | On-board LEDs                                | GPIO                       |
 | RTC (backup-domain)                          | RTC peripheral             |
@@ -352,6 +353,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - BarometerDriver
 - HumidityTempDriver
 - QspiFlashDriver
+- InternalFlashDriver
 - ModbusUartDriver
 - LedDriver
 - RtcDriver
@@ -413,6 +415,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - BarometerDriver
 - HumidityTempDriver
 - QspiFlashDriver
+- InternalFlashDriver
 - ModbusUartDriver
 - LedDriver
 - RtcDriver
@@ -464,8 +467,14 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** QspiFlashDriver
 **LAYER:** Driver
-**RESPONSIBILITY:** Reads, writes, and erases sectors of the external QSPI flash memory (REQ-NF-405, REQ-DM-074).
+**RESPONSIBILITY:** Reads, writes, and erases sectors of the external QSPI flash memory (REQ-NF-405).
 **PROVIDES (upward):** IQspiFlash
+**USES (downward):** CMSIS, FreeRTOS *(one mutex taken per call, so the three consumers ConfigStore, CircularFlashLog and FirmwareStore are serialised; QSPID-O1, QSPID-D11)*
+
+**NAME:** InternalFlashDriver
+**LAYER:** Driver
+**RESPONSIBILITY:** Erases, programs and reads the on-chip flash of the Gateway MCU — the firmware slots, the boot metadata and the slot descriptors — and selects the hardware bank itself (REQ-DM-070, REQ-DM-073, REQ-DM-074).
+**PROVIDES (upward):** IInternalFlash
 **USES (downward):** CMSIS
 
 **NAME:** ModbusUartDriver
@@ -568,9 +577,9 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** FirmwareStore
 **LAYER:** Middleware
-**RESPONSIBILITY:** Manages firmware image storage in flash partitions. Writes image data to the inactive slot, verifies image integrity (REQ-DM-060) and cryptographic signature (REQ-DM-080), tracks active/inactive slot state, and commits a slot switch on successful verification (REQ-DM-070).
-**PROVIDES (upward):** IFirmwareStore
-**USES (downward):** QspiFlashDriver, ILogger
+**RESPONSIBILITY:** Manages firmware image storage. Stages the downloaded image on QSPI with a resumable journal, verifies image integrity (REQ-DM-060) and cryptographic signature (REQ-DM-080), copies the verified image into the inactive on-chip slot (REQ-DM-073), records the boot state shared with the bootloader (active slot, trial, rollback; REQ-DM-070, -071, -072) and reports it to its consumers.
+**PROVIDES (upward):** IFirmwareImageStore *(UpdateService)*, IFirmwareBootControl *(UpdateService, LifecycleController)*
+**USES (downward):** QspiFlashDriver, InternalFlashDriver, Logger
 
 ### Application layer
 
@@ -580,7 +589,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Application
 **RESPONSIBILITY:** Coordinates the gateway's top-level lifecycle: orchestrates controlled restart (UC-17), hands off firmware-update entry to UpdateService (UC-18), performs a ConfigStore integrity check at boot (REQ-NF-214), and sequences normal-reset and watchdog-reset recovery per REQ-NF-202 and REQ-NF-213. Dispatches remote commands (CMD_RESET_METRICS, CMD_SOFT_RESTART) received via Modbus or MQTT to the appropriate component (LLD-D12, LLD-D15).
 **PROVIDES (upward):** ILifecycle *(state-query interface — current state, last reset cause, remote command dispatch)*
-**USES (downward):** SensorService, AlarmService, CloudPublisher, ModbusPoller, UpdateService, TimeService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, ResetDriver, HealthMonitor *(IHealthAdmin — reset_metrics dispatch)*, Logger
+**USES (downward):** SensorService, AlarmService, CloudPublisher, ModbusPoller, UpdateService, TimeService, ConsoleService, ConfigService, ConfigStore *(integrity check at boot)*, FirmwareStore *(IFirmwareBootControl — boot state, confirm, rollback)*, ResetDriver, HealthMonitor *(IHealthAdmin — reset_metrics dispatch)*, Logger
 
 **NAME:** HealthMonitor
 **LAYER:** Application
