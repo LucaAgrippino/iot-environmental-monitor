@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "FreeRTOS.h"
+#include "semphr.h"
 #include "stm32l475xx.h"
 
 #include "qspi_flash/qspi_flash_hw.h"
@@ -105,6 +107,11 @@
 
 static uint32_t s_device_size = 0U;
 static bool s_initialised = false;
+
+/* One priority-inheritance mutex serialises every QUADSPI access (QSPID-O1, FirmwareStore
+ * FS-D12). Statically allocated; created once by qspi_flash_init(). */
+static StaticSemaphore_t s_mutex_buf;
+static SemaphoreHandle_t s_mutex = NULL;
 
 /* ------------------------------------------------------------------ */
 /* Private helpers                                                     */
@@ -267,6 +274,16 @@ qspi_flash_err_t qspi_flash_init(void)
         return QSPI_FLASH_OK;
     }
 
+    /* 0. The lock every later call takes (QSPID-O1). Created once, kept across a failed init. */
+    if (s_mutex == NULL)
+    {
+        s_mutex = xSemaphoreCreateMutexStatic(&s_mutex_buf);
+        if (s_mutex == NULL)
+        {
+            return QSPI_FLASH_ERR_MUTEX;
+        }
+    }
+
     /* 1. Clocks and pins */
     RCC->AHB3ENR |= RCC_AHB3ENR_QSPIEN;
     (void) RCC->AHB3ENR; /* dummy read — wait for clock to propagate */
@@ -324,7 +341,7 @@ qspi_flash_err_t qspi_flash_init(void)
     return QSPI_FLASH_OK;
 }
 
-qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len)
+static qspi_flash_err_t read_unlocked(uint32_t addr, uint8_t *buf, uint32_t len)
 {
     qspi_flash_err_t err;
     uint32_t i;
@@ -368,7 +385,7 @@ qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len)
     return poll_tcf();
 }
 
-qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint16_t len)
+static qspi_flash_err_t write_page_unlocked(uint32_t addr, const uint8_t *data, uint16_t len)
 {
     qspi_flash_err_t err;
     uint32_t last;
@@ -431,7 +448,7 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint1
     return poll_wip();
 }
 
-qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr)
+static qspi_flash_err_t erase_sector_unlocked(uint32_t addr)
 {
     qspi_flash_err_t err;
 
@@ -467,6 +484,65 @@ qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr)
 }
 
 /* ------------------------------------------------------------------ */
+/* Public operations: take the mutex around the whole call            */
+/* ------------------------------------------------------------------ */
+
+/* An uninitialised driver has no mutex yet, so that check comes first and
+ * touches nothing. portMAX_DELAY never times out; a failed take (never seen
+ * in practice) is refused as BUSY rather than run unprotected. */
+
+qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len)
+{
+    qspi_flash_err_t err;
+
+    if (!s_initialised)
+    {
+        return QSPI_FLASH_ERR_NOT_INITIALISED;
+    }
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return QSPI_FLASH_ERR_BUSY;
+    }
+    err = read_unlocked(addr, buf, len);
+    (void) xSemaphoreGive(s_mutex);
+    return err;
+}
+
+qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint16_t len)
+{
+    qspi_flash_err_t err;
+
+    if (!s_initialised)
+    {
+        return QSPI_FLASH_ERR_NOT_INITIALISED;
+    }
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return QSPI_FLASH_ERR_BUSY;
+    }
+    err = write_page_unlocked(addr, data, len);
+    (void) xSemaphoreGive(s_mutex);
+    return err;
+}
+
+qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr)
+{
+    qspi_flash_err_t err;
+
+    if (!s_initialised)
+    {
+        return QSPI_FLASH_ERR_NOT_INITIALISED;
+    }
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return QSPI_FLASH_ERR_BUSY;
+    }
+    err = erase_sector_unlocked(addr);
+    (void) xSemaphoreGive(s_mutex);
+    return err;
+}
+
+/* ------------------------------------------------------------------ */
 /* IQspiFlash vtable singleton (P2 — Dependency Inversion)            */
 /* ------------------------------------------------------------------ */
 
@@ -487,5 +563,6 @@ void qspi_flash_reset_for_test(void)
 {
     s_device_size = 0U;
     s_initialised = false;
+    s_mutex = NULL;
 }
 #endif
