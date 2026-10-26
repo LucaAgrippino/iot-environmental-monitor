@@ -45,6 +45,12 @@
 #define MBEDTLS_ECP_C
 #define MBEDTLS_ECP_DP_SECP256R1_ENABLED
 
+/* --- ECDSA-P256 verification of OTA images (FirmwareStore, FS-O4) ---
+ * Not used by the TLS handshake: the key exchange above stays ECDHE-RSA and no ECDSA
+ * cipher suite is enabled. Only ota_crypto.c calls mbedtls_ecdsa_verify(). Needs ECP, BIGNUM
+ * and the ASN.1 modules, all of which are on. */
+#define MBEDTLS_ECDSA_C
+
 /* --- Certificates: X.509 mutual auth, RSA, DER at load time -------- */
 #define MBEDTLS_X509_CRT_PARSE_C
 #define MBEDTLS_X509_USE_C
