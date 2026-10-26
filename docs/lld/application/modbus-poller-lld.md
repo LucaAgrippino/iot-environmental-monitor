@@ -871,6 +871,7 @@ queue/delay stubs.
 | TC-MP-025 | Empty registry | No transactions; health still reported |
 | TC-MP-026 | `get_stats()` fails | No `update_modbus_master_stats()` call |
 | TC-MP-028 | `reset_for_test()` | Queue deleted, state cleared, `send_command()` → `ERR_NOT_INIT` |
+| TC-MP-029..033 | `modbus_poller_is_ready()`: false before init, true after, false after a rejected init, true with the link down, false after reset (MBP-D7) |
 | TC-MP-029 | `send_command()` with FC03 | `ERR_INVALID_ARG`; nothing queued |
 | TC-MP-030 | FC16 count 0, 124, 123 | `ERR_INVALID_ARG`, `ERR_INVALID_ARG`, `ERR_OK` |
 | TC-MP-031 | Command whose transaction fails | Response carries the error status and `data_len == 0` |
@@ -905,6 +906,7 @@ queue/delay stubs.
 | MBP-D4 | Commands drained before polls in each cycle | Ensures time-push writes and config writes arrive before the next poll reads back stale values. Prevents one-cycle data staleness. |
 | MBP-D6 | As-built deviations from the first draft: (1) HealthMonitor is fed through `update_modbus_master_stats()` and `push_event(LINK_UP/DOWN)`, not `health_report_update(METRIC_MB_*)` and an event group; `init()` takes the handle. (2) Slave state is found by address, not by iterator index. (3) `modbus_command_t` has `response_queue` first and `send_command()` takes `const`. (4) `ERR_INVALID_ARG` added; commands are validated on the way in and again on the way out. (5) `poll_cycle()` and `execute_command()` are split to keep stack frames apart; `poll_cycle()` is also the unit-test seam. | The draft's API did not exist on `main`. The rest keep a corrupt command from overrunning `modbus_frame_t`, keep the task inside 2 KB, and let the host FreeRTOS mock capture the whole command. |
 | MBP-D5 | Health report every poll cycle (default) | Simplest approach. Profile at integration; add a down-counter if `IHealthReport` call volume is too high. |
+| MBP-D7 | `modbus_poller_is_ready()` returns true once `modbus_poller_init()` has succeeded. It does not require an online link or a started task. | LifecycleController's SelfChecking probe (LC-O6): a Field Device may be absent at boot, and ModbusPollerTask waits on the start gate that opens only after the probe passes, so "started" would deadlock boot. Hardware: TC-HW-MBP-001 checks it before and after init (PASS); TC-HW-MBP-002..009 need the D1-D0 loopback jumper and were not re-run. |
 
 ---
 
