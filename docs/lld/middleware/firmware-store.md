@@ -116,7 +116,7 @@ asks for the image matching the inactive slot (`get_boot_info`).
 
 | # | Dependency | Needed for |
 |---|---|---|
-| P-1 | `InternalFlashDriver` LLD + implementation (small: unlock, page erase with bank select, double-word programming, error flags, cache reset after writes) | Host tests need only its header; on-target needs the driver |
+| P-1 | **Done 2026-10-26** — `InternalFlashDriver` LLD + implementation (small: unlock, page erase with bank select, double-word programming, error flags, cache reset after writes) | Host tests need only its header; on-target needs the driver |
 | P-2 | QSPID-O1 resolved: QspiFlashDriver takes its own mutex **per call** (closes CFL-O7 for all three consumers). Longest hold = one 4 KB erase (81 ms measured) | On-target; FirmwareStore becomes the third QSPI user |
 | P-3 | A Slot-A linker script and a minimal boot stub at `0x0800_0000` (set MSP/VTOR, jump to `0x0800_6000`) | On-target tests only. A development image linked at `0x0800_0000` overlaps the metadata partition, and FirmwareStore refuses OTA operations there by design (§13.1) |
 
@@ -935,7 +935,7 @@ below has been executed.
 | FS-O9 | Two signed images per release (one per slot) need two linker scripts and a build step | Bootloader/build LLD | Open |
 | FS-O10 | Fetch stall from metadata writes in hardware bank 1 while running from Slot A (≤ 3 per OTA) | Measure in TC-HW-FS-006; Modbus retries (REQ-MB-060) absorb one lost frame | Open |
 | FS-O11 | HLD amendments A1–A4 (§4.1) are **not applied**: `flash-partition-layout.md` §5.1/§7, `components.md`, `sequence-diagrams.md` and `state-machines.md` still show the old Slot B address, the `pending_self_check` byte and no InternalFlashDriver. The code follows this companion, not the HLD | Apply A1–A4 in the VP model and the HLD documents before the bootloader and InternalFlashDriver LLDs | Open |
-| FS-O12 | InternalFlashDriver (P-1), the per-call QSPI mutex (P-2, QSPID-O1) and the Slot-A linker script with a boot stub (P-3) do not exist. FirmwareStore is excluded from the firmware image (`.cproject`), its harness cannot link, and TC-HW-FS-001..009 are not run | Separate LLD and PR per prerequisite; then enable the module and run the harness | Open |
+| FS-O12 | **P-1 InternalFlashDriver now exists and is hardware-validated** (`docs/lld/drivers/internal-flash-driver.md`, 2026-10-26; page erase 22.1 ms, 2 KB program 22.3 ms). Still missing: the per-call QSPI mutex (P-2, QSPID-O1) and the Slot-A linker script with a boot stub (P-3). FirmwareStore is excluded from the firmware image (`.cproject`), its harness cannot link, and TC-HW-FS-001..009 are not run | Separate LLD and PR per prerequisite; then enable the module and run the harness | Open |
 | FS-O13 | No production caller: UpdateService and FirmwareStore wiring in LifecycleController (`get_boot_info` → `pending_self_check`, `pending_rollback`) are stand-ins | UpdateService implementation; LifecycleController adapter per §7.3 | Open |
 
 ### 24.2 Decisions
