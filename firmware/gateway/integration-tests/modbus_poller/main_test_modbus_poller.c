@@ -28,6 +28,7 @@
  *
  * Automated test sequence:
  *   TC-HW-MBP-001  init; poller task started; modbus_master_start() done by run().
+ *                  modbus_poller_is_ready() is false before init and true after it.
  *   TC-HW-MBP-002  Three loopback polls bring the link up (HEALTH_EVENT_MODBUS_LINK_UP).
  *   TC-HW-MBP-003  FC06 command executes; the echoed words come back on the response queue.
  *   TC-HW-MBP-004  FC16 command (3 registers) executes; echo is identical.
@@ -108,6 +109,8 @@ static TaskHandle_t s_poller_handle;
 
 static StaticQueue_t s_resp_storage;
 static uint8_t s_resp_buf[sizeof(modbus_command_response_t)];
+static volatile bool s_ready_before_init;
+static volatile bool s_ready_after_init;
 static QueueHandle_t s_resp_queue;
 
 static health_monitor_handle_t s_hm;
@@ -232,6 +235,8 @@ static void driver_task(void *arg)
     (void) arg;
 
     /* TC-HW-MBP-001: init ran before the scheduler; the poller task is already looping. */
+    check(!s_ready_before_init, "TC-HW-MBP-001 is_ready true before init");
+    check(s_ready_after_init, "TC-HW-MBP-001 is_ready false after init");
     bringup_pass("TC-HW-MBP-001 init; ModbusPollerTask running (master started by run())");
 
     /* TC-HW-MBP-002 */
@@ -415,10 +420,12 @@ int main(void)
     modbus_uart_set_tick_source(tick_ms);
 
     /* Init order per companion §7: uart, master (phase 1), registry, poller. */
+    s_ready_before_init = modbus_poller_is_ready();
     if (modbus_poller_init(POLL_PERIOD_MS, s_hm) != MODBUS_POLLER_ERR_OK)
     {
         bringup_fail("modbus_poller_init");
     }
+    s_ready_after_init = modbus_poller_is_ready();
 
     s_resp_queue =
         xQueueCreateStatic(1U, sizeof(modbus_command_response_t), s_resp_buf, &s_resp_storage);

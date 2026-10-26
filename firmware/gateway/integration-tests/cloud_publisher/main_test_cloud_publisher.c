@@ -86,6 +86,12 @@
  *                 and restarted, this same tick's prv_maybe_reconnect()
  *                 is what exercises CP-D10's ticked reconnect for real
  *
+ *   TC-HW-CP-013  LifecycleController operations (CP-D16): is_ready() is true,
+ *                 flush() and report_rollback_result() post their requests, and
+ *                 {"event":"ota","result":"rolled_back"} arrives on
+ *                 dt/iotmonitor/<serial>/results (watch with mosquitto_sub; the
+ *                 publishes_sent counter of TC-HW-CP-009 rises by one)
+ *
  * WIFITASK-O1 Phase 4 (wifi-task.md §10) — the non-blocking recv path
  * under real traffic. These need the laptop side too:
  *   TC-HW-CP-010  data-integrity (TC-HW-WIFITASK-data-integrity): run
@@ -719,6 +725,22 @@ static void cloud_publisher_bringup_task(void *arg)
         bringup_fail("TC-HW-CP-006  cloud_publisher_create() failed");
     }
     LOG_INFO("CloudPub", "TC-HW-CP-006  cloud_publisher_create() returned CP_ERR_OK");
+
+    /* TC-HW-CP-013: the operations LifecycleController uses (CP-D16). */
+    if (!cloud_publisher_is_ready(cp_handle))
+    {
+        bringup_fail("TC-HW-CP-013  cloud_publisher_is_ready() false after create");
+    }
+    if (cloud_publisher_flush(cp_handle) != CP_ERR_OK)
+    {
+        bringup_fail("TC-HW-CP-013  cloud_publisher_flush() failed");
+    }
+    if (cloud_publisher_report_rollback_result(cp_handle) != CP_ERR_OK)
+    {
+        bringup_fail("TC-HW-CP-013  cloud_publisher_report_rollback_result() failed");
+    }
+    LOG_INFO("CloudPub", "TC-HW-CP-013  is_ready true; flush and rollback report posted - expect "
+                         "{\"event\":\"ota\",\"result\":\"rolled_back\"} on .../results");
 
     /* TC-HW-CP-007/008/009: the telemetry (10 s), health (20 s) and stats
      * (1 Hz) timers now drive CloudPublisherTask on their own. The handle

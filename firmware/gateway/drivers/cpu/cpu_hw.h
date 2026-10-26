@@ -22,15 +22,20 @@
 void cpu_hw_disable_irq(void);
 void cpu_hw_breakpoint(void);
 void cpu_hw_system_reset(void);
+void cpu_hw_data_barrier(void);
 
 /** Call counters — test TUs read these after exercising the module. */
 extern uint32_t g_cpu_hw_disable_irq_count;
 extern uint32_t g_cpu_hw_breakpoint_count;
 extern uint32_t g_cpu_hw_system_reset_count;
+extern uint32_t g_cpu_hw_data_barrier_count;
+/** Barriers already issued when the most recent system reset was requested (ResetDriver). */
+extern uint32_t g_cpu_hw_barriers_at_reset;
 
 #define CPU_HW_DISABLE_IRQ() cpu_hw_disable_irq()
 #define CPU_HW_BREAKPOINT() cpu_hw_breakpoint()
 #define CPU_HW_SYSTEM_RESET() cpu_hw_system_reset()
+#define CPU_HW_DATA_BARRIER() cpu_hw_data_barrier()
 
 #else /* TARGET BUILD */
 
@@ -41,6 +46,7 @@ extern uint32_t g_cpu_hw_system_reset_count;
 #define CPU_HW_DISABLE_IRQ() __disable_irq()
 #define CPU_HW_BREAKPOINT() __BKPT(0)
 #define CPU_HW_SYSTEM_RESET() NVIC_SystemReset()
+#define CPU_HW_DATA_BARRIER() __DSB()
 
 #endif /* TEST */
 

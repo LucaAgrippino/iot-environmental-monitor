@@ -289,6 +289,43 @@ void test_TC_MP_019_init_null_health_is_rejected(void)
     TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueCreateStatic_call_count);
 }
 
+/* TC-MP-029 */
+void test_TC_MP_029_is_ready_is_false_before_init(void)
+{
+    TEST_ASSERT_FALSE(modbus_poller_is_ready());
+}
+
+/* TC-MP-030 */
+void test_TC_MP_030_is_ready_is_true_after_a_successful_init(void)
+{
+    init_ok();
+    TEST_ASSERT_TRUE(modbus_poller_is_ready());
+}
+
+/* TC-MP-031 */
+void test_TC_MP_031_is_ready_stays_false_after_a_rejected_init(void)
+{
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_NULL_ARG, modbus_poller_init(POLL_PERIOD_MS, NULL));
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_INVALID_ARG, modbus_poller_init(0U, HEALTH_HANDLE));
+    TEST_ASSERT_FALSE(modbus_poller_is_ready());
+}
+
+/* TC-MP-032 - readiness does not depend on a Field Device answering */
+void test_TC_MP_032_is_ready_does_not_require_an_online_link(void)
+{
+    init_ok();
+    poll_n(MODBUS_MASTER_ERR_TIMEOUT, 5U);
+    TEST_ASSERT_TRUE(modbus_poller_is_ready());
+}
+
+/* TC-MP-033 */
+void test_TC_MP_033_reset_clears_readiness(void)
+{
+    init_ok();
+    modbus_poller_reset_for_test();
+    TEST_ASSERT_FALSE(modbus_poller_is_ready());
+}
+
 void test_TC_MP_020_init_zero_period_is_rejected(void)
 {
     TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_INVALID_ARG, modbus_poller_init(0U, HEALTH_HANDLE));
