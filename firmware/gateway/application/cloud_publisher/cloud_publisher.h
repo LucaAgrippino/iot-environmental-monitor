@@ -274,6 +274,46 @@ typedef struct
 cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *config,
                                              cloud_publisher_handle_t *handle);
 
+/**
+ * @brief Report whether the instance exists and its task is running.
+ *
+ * LifecycleController's SelfChecking probe (REQ-DM-040). "Ready" means able to accept messages, not
+ * connected: while the broker is unreachable CloudPublisher buffers in StoreAndForward, so an
+ * offline start is a normal state and must not fault the boot (LC-O7).
+ *
+ * @param[in] handle  Handle from cloud_publisher_create().
+ * @return true if @p handle is a created instance; false for NULL or an unused handle.
+ * @note Threading: any task.
+ */
+bool cloud_publisher_is_ready(cloud_publisher_handle_t handle);
+
+/**
+ * @brief Ask CloudPublisherTask to hand over everything that is waiting (CP-D16).
+ *
+ * Asynchronous: it posts a request and returns. The task publishes the pending alarms and, if the
+ * broker is connected, drains the offline buffer. Anything it cannot send stays in the flash-backed
+ * buffer. Called before a controlled restart, which waits for a confirmation, so the task has time.
+ *
+ * @param[in] handle  Handle from cloud_publisher_create().
+ * @return CP_ERR_OK if the request was posted; CP_ERR_NULL_PTR; CP_ERR_NOT_INIT if the instance is
+ *         not created; CP_ERR_NO_RESOURCE if the notification could not be posted.
+ * @note Threading: task context. Not ISR-safe.
+ */
+cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle);
+
+/**
+ * @brief Ask CloudPublisherTask to publish that a firmware update was rolled back (CP-D16).
+ *
+ * Publishes {"event":"ota","result":"rolled_back"} on the results topic at QoS 1 through the normal
+ * connectivity gate, so it is buffered if the broker is unreachable. Asynchronous.
+ *
+ * @param[in] handle  Handle from cloud_publisher_create().
+ * @return CP_ERR_OK if the request was posted; CP_ERR_NULL_PTR; CP_ERR_NOT_INIT;
+ *         CP_ERR_NO_RESOURCE.
+ * @note Threading: task context. Not ISR-safe.
+ */
+cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_handle_t handle);
+
 #ifdef TEST
 
 /** @brief Reset all internal static state for unit testing. */

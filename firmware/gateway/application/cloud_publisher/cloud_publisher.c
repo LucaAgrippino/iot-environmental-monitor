@@ -53,6 +53,12 @@
 #define CP_NOTIFY_STATS_TICK (1u << 2)
 #define CP_NOTIFY_ALARM_PENDING (1u << 3)
 #define CP_NOTIFY_COMMAND_PENDING (1u << 4)
+/* Bit 5 is MQTT_CLIENT_WIFI_RECV_READY_BIT, below. */
+#define CP_NOTIFY_FLUSH_REQUEST                                                                    \
+    (1u << 6) /**< LifecycleController: drain what is pending (CP-D16). */
+#define CP_NOTIFY_ROLLBACK_REPORT                                                                  \
+    (1u << 7) /**< LifecycleController: report a rollback (CP-D16).                                \
+               */
 /* Bit 5 (MQTT_CLIENT_WIFI_RECV_READY_BIT, mqtt_client.h) is set by MqttClient
  * itself, not CloudPublisher — included here so xTaskNotifyWait()'s
  * clear-on-exit mask actually clears it (WIFITASK-O1 Phase 3). Leaving it
@@ -60,7 +66,8 @@
  * unblocks xTaskNotifyWait regardless of mask), but the bit would never be
  * cleared afterwards, so every following wait call would return
  * immediately — a busy-loop, not a missed wake. */
-#define CP_NOTIFY_ALL_BITS (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT)
+#define CP_NOTIFY_ALL_BITS                                                                         \
+    (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT | CP_NOTIFY_FLUSH_REQUEST | CP_NOTIFY_ROLLBACK_REPORT)
 
 #define CP_DEVICE_SERIAL_LEN 25u /**< 24 hex chars (96-bit UID) + null. */
 #define CP_TOPIC_MAX_LEN 64u
@@ -156,6 +163,8 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst);
 static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
+static void prv_flush(struct cloud_publisher_inst *inst);
+static void prv_publish_rollback_report(struct cloud_publisher_inst *inst);
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry);
 static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
                                const sensor_reading_t *reading);
@@ -282,6 +291,14 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     if ((notif & CP_NOTIFY_COMMAND_PENDING) != 0u)
     {
         prv_drain_command_queue(inst);
+    }
+    if ((notif & CP_NOTIFY_FLUSH_REQUEST) != 0u)
+    {
+        prv_flush(inst);
+    }
+    if ((notif & CP_NOTIFY_ROLLBACK_REPORT) != 0u)
+    {
+        prv_publish_rollback_report(inst);
     }
     if ((notif & CP_NOTIFY_TELEMETRY_TICK) != 0u)
     {
@@ -497,6 +514,28 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst)
             break; /* stop drain; re-attempt on next stats tick */
         }
     }
+}
+
+/* Flush (CP-D16): hand over what is waiting. Alarms first (CP-D3), then the offline buffer if the
+ * broker is up. Anything that cannot go out stays in the store-and-forward log, which is
+ * flash-backed and so survives the reset that follows a restart. */
+static void prv_flush(struct cloud_publisher_inst *inst)
+{
+    prv_drain_alarm_queue(inst);
+    if (mqtt_client_is_connected(inst->mqtt))
+    {
+        prv_drain_saf(inst);
+    }
+}
+
+/* Rollback report (CP-D16): goes through the same gate as every other message, so while the broker
+ * is unreachable it is buffered and delivered after the next connect. */
+static void prv_publish_rollback_report(struct cloud_publisher_inst *inst)
+{
+    static const char payload[] = "{\"event\":\"ota\",\"result\":\"rolled_back\"}";
+
+    (void) prv_enqueue_or_publish(inst, inst->topic_results, (const uint8_t *) payload,
+                                  (uint32_t) (sizeof(payload) - 1u), MQTT_QOS_1);
 }
 
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
@@ -720,6 +759,45 @@ static void prv_read_device_serial(char *out, uint32_t out_size)
     (void) snprintf(out, out_size, "%08lx%08lx%08lx", (unsigned long) uid[0],
                     (unsigned long) uid[1], (unsigned long) uid[2]);
 #endif
+}
+
+/* ===================================================================== */
+/* LifecycleController operations (CP-D16)                               */
+/* ===================================================================== */
+
+bool cloud_publisher_is_ready(cloud_publisher_handle_t handle)
+{
+    return (handle != NULL) && handle->in_use && (handle->task_handle != NULL);
+}
+
+cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return CP_ERR_NULL_PTR;
+    }
+    if (!cloud_publisher_is_ready(handle))
+    {
+        return CP_ERR_NOT_INIT;
+    }
+    return (xTaskNotify(handle->task_handle, CP_NOTIFY_FLUSH_REQUEST, eSetBits) == pdTRUE)
+               ? CP_ERR_OK
+               : CP_ERR_NO_RESOURCE;
+}
+
+cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return CP_ERR_NULL_PTR;
+    }
+    if (!cloud_publisher_is_ready(handle))
+    {
+        return CP_ERR_NOT_INIT;
+    }
+    return (xTaskNotify(handle->task_handle, CP_NOTIFY_ROLLBACK_REPORT, eSetBits) == pdTRUE)
+               ? CP_ERR_OK
+               : CP_ERR_NO_RESOURCE;
 }
 
 #ifdef TEST
