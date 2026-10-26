@@ -113,6 +113,19 @@ typedef enum
 typedef void (*debug_uart_line_callback_t)(void *context);
 
 /* ------------------------------------------------------------------ */
+/* Raw byte RX callback                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Per-byte receive callback, invoked from the USART1 ISR (raw mode).
+ *
+ * Must be short and ISR-safe: no blocking, no FreeRTOS API without the FromISR
+ * variant. Used by the console TUI, which needs single keystrokes and escape
+ * sequences that the line-oriented mode would swallow.
+ */
+typedef void (*debug_uart_byte_callback_t)(uint8_t byte, void *context);
+
+/* ------------------------------------------------------------------ */
 /* API                                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -236,6 +249,34 @@ debug_uart_err_t debug_uart_read_line(uint8_t *out_buf, size_t buf_size, size_t 
  */
 void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
 
+/**
+ * @brief Attach a per-byte receive callback (raw mode), mutually exclusive with line mode.
+ *
+ * Enables the receiver and its interrupt exactly as debug_uart_attach_rx() does, but every
+ * received byte, including CR and LF, goes to @p callback and no line is accumulated.
+ * Line mode (attach_rx / read_line) is untouched and keeps its own behaviour.
+ *
+ * @param[in] callback  ISR-context function; must not be NULL.
+ * @param[in] context   Opaque pointer handed back to every call.
+ * @return DEBUG_UART_OK; DEBUG_UART_ERR_NOT_INITIALISED; DEBUG_UART_ERR_NULL_POINTER;
+ *         DEBUG_UART_ERR_RX_ALREADY_ATTACHED if either RX mode is already attached.
+ * @note Threading: call once, before the first byte is expected.
+ */
+debug_uart_err_t debug_uart_attach_rx_byte(debug_uart_byte_callback_t callback, void *context);
+
+/**
+ * @brief Change the line speed after debug_uart_init().
+ *
+ * Waits for the bytes already queued to leave the shifter, then reprograms BRR with the
+ * transmitter and receiver settings (and the RX interrupt) left as they were. The default
+ * after init stays 115200, so harnesses that never call this keep their terminal setting.
+ *
+ * @param[in] baud Requested rate in bit/s (8N1, 16x oversampling, from PCLK2 = 80 MHz).
+ * @return DEBUG_UART_OK; DEBUG_UART_ERR_NOT_INITIALISED; DEBUG_UART_ERR_INVALID_PARAM if the
+ *         rate cannot be produced (BRR below 16, i.e. above 5 Mbit/s, or zero).
+ */
+debug_uart_err_t debug_uart_set_baud(uint32_t baud);
+
 /* ------------------------------------------------------------------ */
 /* IDebugUart vtable (P2 — Dependency Inversion)                       */
 /* ------------------------------------------------------------------ */
@@ -245,8 +286,8 @@ void debug_uart_set_tick_source(uint32_t (*get_ms)(void));
  *
  * Consumed by ConsoleService (send + read_line + attach_rx).
  * Logger uses the free function directly (P4 cross-cutting exception).
- * Mirrors the Field Device header exactly so both boards' ConsoleService
- * can share the same tests/support/debug_uart_stub.h.
+ * Mirrors the Field Device header, plus attach_rx_byte (raw mode) appended at the end
+ * for the Gateway TUI.
  */
 typedef struct idebug_uart_s
 {
@@ -254,6 +295,8 @@ typedef struct idebug_uart_s
     debug_uart_err_t (*read_line)(uint8_t *out_buf, size_t buf_size, size_t *out_length,
                                   debug_uart_line_flag_t *out_flag);
     debug_uart_err_t (*attach_rx)(debug_uart_line_callback_t callback, void *context);
+    debug_uart_err_t (*attach_rx_byte)(debug_uart_byte_callback_t callback, void *context);
+    debug_uart_err_t (*set_baud)(uint32_t baud);
 } idebug_uart_t;
 
 extern const idebug_uart_t *const debug_uart;

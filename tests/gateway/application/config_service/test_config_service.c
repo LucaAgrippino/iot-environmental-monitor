@@ -643,6 +643,9 @@ void test_deferred_api_guards_and_vtable(void)
     const iconfig_manager_t *manager = config_service_get_manager();
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->set_param_deferred(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
     TEST_ASSERT_TRUE(config_service_has_pending());
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->persist_pending(manager->ctx));
+    TEST_ASSERT_FALSE(config_service_has_pending());
+    TEST_ASSERT_EQUAL_UINT32(1U, s_save_calls);
 }
 
 /* ======================================================================= */

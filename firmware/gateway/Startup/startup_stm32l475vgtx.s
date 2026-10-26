@@ -91,6 +91,20 @@ LoopFillZerobss:
   cmp r2, r4
   bcc FillZerobss
 
+/* Zero fill the SRAM2 bss segment (.sram2_bss). */
+  ldr r2, =_ssram2_bss
+  ldr r4, =_esram2_bss
+  movs r3, #0
+  b LoopFillZeroSram2
+
+FillZeroSram2:
+  str  r3, [r2]
+  adds r2, r2, #4
+
+LoopFillZeroSram2:
+  cmp r2, r4
+  bcc FillZeroSram2
+
 
 /* Call static constructors */
   bl __libc_init_array
