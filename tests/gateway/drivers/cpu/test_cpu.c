@@ -191,6 +191,19 @@ void test_TC_CPU_008_get_pclk2_hz_returns_80mhz_after_init(void)
     TEST_ASSERT_EQUAL_UINT32(80000000U, cpu_get_pclk2_hz());
 }
 
+void test_TC_CPU_040_get_vector_table_base_reports_vtor(void)
+{
+    /* A development image started from the flash alias: VTOR is 0. */
+    TEST_ASSERT_EQUAL_HEX32(0U, cpu_get_vector_table_base());
+
+    /* Slot A and Slot B, as set by the boot stub or the bootloader. */
+    g_mock_scb.VTOR = 0x08006000UL;
+    TEST_ASSERT_EQUAL_HEX32(0x08006000UL, cpu_get_vector_table_base());
+
+    g_mock_scb.VTOR = 0x08080000UL;
+    TEST_ASSERT_EQUAL_HEX32(0x08080000UL, cpu_get_vector_table_base());
+}
+
 void test_TC_CPU_009_init_starts_lse_and_unlocks_backup_domain(void)
 {
     /* Arrange */

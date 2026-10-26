@@ -89,6 +89,17 @@ uint32_t cpu_get_pclk1_hz(void);
 uint32_t cpu_get_pclk2_hz(void);
 
 /**
+ * @brief Return the vector-table base the CPU is using (SCB->VTOR).
+ *
+ * Tells FirmwareStore which firmware slot the running image is in: 0x0800_6000 for Slot A,
+ * 0x0808_0000 for Slot B. 0 means the image was started straight from the flash alias, i.e.
+ * a development build that is not in a slot.
+ *
+ * @return The VTOR value; valid at any time, before and after cpu_init().
+ */
+uint32_t cpu_get_vector_table_base(void);
+
+/**
  * @brief Perform a software system reset.
  *
  * Wraps NVIC_SystemReset().  Does not return.  Absorbs the ResetDriver
