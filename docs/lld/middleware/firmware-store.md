@@ -732,6 +732,10 @@ firmware/gateway/middleware/firmware_store/
 firmware/gateway/drivers/internal_flash/
 └── iinternal_flash.h           IInternalFlash contract only; the driver is prerequisite P-1
 
+firmware/gateway/boot-stub/            P-3: boot_stub.c, boot_stub.ld (116 bytes at 0x0800_0000: set VTOR and MSP, jump to Slot A)
+firmware/gateway/STM32L475VGTX_SLOT_A.ld  the normal linker script with the FLASH region at 0x0800_6000, 480 KB
+scripts/build-slot-a.sh         re-links the last Debug build for Slot A and builds the stub
+
 tools/ota/
 ├── make_image.py               genkey, sign (link-base check), vectors (TEST ONLY)
 └── README.md                   key handling: release private key never in git
@@ -897,11 +901,28 @@ mutant that overwrites the selected metadata copy: all four metadata sweeps fail
 
 ## 23. Integration test plan (on target, Slot-A harness, P-3)
 
-**Status (v1.0):** the harness `integration-tests/firmware_store/main_test_firmware_store.c` and the
-host feeder `scripts/ota_feed.py` are written and the harness compiles for the target, but it
-**cannot link or run** until InternalFlashDriver (P-1) and the Slot-A link (P-3) exist (FS-O12).
-TC-HW-FS-006 is measured with a 1 kHz TIM7 interrupt instead of a logic analyser. None of the rows
-below has been executed.
+**Status:** executed on the B-L475E-IOT01A on 2026-10-26, running from Slot A behind the boot stub
+(`scripts/build-slot-a.sh`, bench-local `.cproject` that un-excludes the module), with a throw-away
+signing key and synthetic images (`tools/ota/make_image.py sign`; a 6 KB and a 480 KB body for Slot B,
+a 6 KB body for Slot A) streamed by `scripts/ota_feed.py` at 921 600 baud. TC-HW-FS-006 is measured
+with a 1 kHz TIM7 interrupt instead of a logic analyser.
+
+| TC | Result |
+|---|---|
+| 001 | PASS: capable, Slot A, CONFIRMED (metadata seeded by the harness) |
+| 001b | **Not run** (needs an image that is not in a slot) |
+| 002 | PASS: 491 648 bytes staged, 25.0 s end to end (UART at 921 600 baud, QSPI erase and program bound) |
+| 003 | PASS with **resets** instead of power pulls: cut after 70 656 / 250 880 / 400 384 bytes, the board reset mid-transfer, resumed at 69 632 / 249 856 / 397 312 (4 KB checkpoints, never beyond what was sent), completed, verified OK. Fewer than five cuts |
+| 004 | PASS: `verify` 1.32 s (480 KB), 0.32 s (6 KB); real ECDSA-P256 and SHA-256; arena peak not measured (FS-O4) |
+| 005 | PASS: 240 steps, 11.96 s, worst step 50.2 ms; slot contents verified by the install read-back. The CPU keeps running: worst interrupt gap over the copy 1000 µs. SensorTask and ModbusPoller were not running (no scheduler in the harness) |
+| 006 | PASS: `install_begin` 22.1 ms and `activate` 22.1 ms stalls, limit 30 ms; `confirm` not reachable without a bootloader |
+| 007 | PASS: one flipped body byte → `HASH_MISMATCH` (err 13) |
+| 008 | PASS: image linked for Slot A → `WRONG_SLOT` (err 11) |
+| 009 | PASS: after `activate`, copy B = valid, active B, TRIAL_PENDING, generation 2; copy A = valid, active A, CONFIRMED, generation 1 (intact) |
+| 010 | Deferred to the bootloader (FS-O7) |
+
+After `activate` the harness cannot be run again without erasing the metadata (`TRIAL_PENDING` at boot
+is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages with openocd.
 
 | TC | Setup | Pass criterion |
 |---|---|---|
@@ -924,18 +945,18 @@ below has been executed.
 
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
-| FS-O1 | Install time: estimated ~43 ms per page, ~10.3 s for 240 pages, from datasheet figures | Measure in TC-HW-FS-005 | Open |
+| FS-O1 | Install time: estimated ~43 ms per page, ~10.3 s for 240 pages, from datasheet figures | **Measured on the board 2026-10-26 (TC-HW-FS-005):** 240 steps in 11.96 s, worst step 50.2 ms (22.1 ms erase + 22.3 ms program + read-back), i.e. ~15% above the estimate. Step-wise API and the watchdog budget are unaffected | Closed |
 | FS-O2 | OTA public-key location | Compiled into the image (FS-D5) | **Closed** |
 | FS-O3 | Streaming hash buffer | Static 2 KB `s_work`; QSPI reads split by FirmwareStore | **Closed** |
-| FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | **Checked at implementation:** `mbedtls_config_gateway.h` has `MBEDTLS_ECP_C`, `MBEDTLS_ECP_DP_SECP256R1_ENABLED`, `MBEDTLS_SHA256_C`, `MBEDTLS_BIGNUM_C`, `MBEDTLS_ASN1_PARSE_C` and `MBEDTLS_ASN1_WRITE_C`, but **not `MBEDTLS_ECDSA_C`**, and no `MBEDTLS_MEMORY_BUFFER_ALLOC_C`. Enabling `MBEDTLS_ECDSA_C` in the TLS configuration is a prerequisite for linking `ota_crypto.c` (until then the module is excluded from the firmware image). The arena and its peak are still to be measured in TC-HW-FS-004 | Open |
-| FS-O5 | `verify` duration (target < 2 s) | Measure in TC-HW-FS-004 | Open |
-| FS-O6 | Source of `running_image_base`: CpuDriver accessor for VTOR, or the linker symbol of the vector table | **Checked at implementation:** `cpu.h` has no VTOR accessor. The harness reads `SCB->VTOR` directly; the real wiring (LifecycleController `main()`) must supply it, and a CpuDriver accessor is the cleaner home | Open |
+| FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | **`MBEDTLS_ECDSA_C` is now enabled in `mbedtls_config_gateway.h`** (ECP, secp256r1, SHA-256, BIGNUM and the ASN.1 modules were already on; no ECDSA cipher suite is enabled, so the TLS handshake is unchanged) and the module links into a 116 KB image. **Still open:** the Gateway build has no `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena, so `verify` allocates from the heap, and verify has not been run while a TLS session is open | Open |
+| FS-O5 | `verify` duration (target < 2 s) | **Measured on the board (TC-HW-FS-004):** 1.32 s for the 480 KB maximum image (SHA-256 of the body plus one ECDSA-P256 verify, software mbedTLS); 0.32 s for a 6 KB image | Closed |
+| FS-O6 | Source of `running_image_base`: CpuDriver accessor for VTOR, or the linker symbol of the vector table | **`cpu_get_vector_table_base()` added to CpuDriver** (returns `SCB->VTOR`; 0 for a development image started from the flash alias). The wiring must pass its result as `running_image_base`; the bring-up harness already does | Closed |
 | FS-O7 | Bootloader not built: on-target swap, trial and rollback deferred | Bootloader component LLD (D36); reuse `firmware_image_format.h` and the §13.2 table | Open |
 | FS-O8 | Bind `IQspiFlash` names and its address convention for `FIRMWARE_STORE_STAGING_BASE` | Bound to `iqspi_flash_t` (`read`, `write_page`, `erase_sector`) and the device-offset convention: `FIRMWARE_STORE_STAGING_BASE` = `0x0012_0000`, i.e. `0x9012_0000 − 0x9000_0000`, as ConfigStore does | **Closed** |
 | FS-O9 | Two signed images per release (one per slot) need two linker scripts and a build step | Bootloader/build LLD | Open |
-| FS-O10 | Fetch stall from metadata writes in hardware bank 1 while running from Slot A (≤ 3 per OTA) | Measure in TC-HW-FS-006; Modbus retries (REQ-MB-060) absorb one lost frame | Open |
+| FS-O10 | Fetch stall from metadata writes in hardware bank 1 while running from Slot A (≤ 3 per OTA) | **Measured on the board (TC-HW-FS-006, 1 kHz interrupt, gap meter validated against the InternalFlashDriver harness):** `install_begin` (descriptor erase) 22.1 ms and `activate` (metadata erase) 22.1 ms, both inside the 30 ms limit and stable over 5 + 1 runs; **the whole 240-page copy into bank 2 stalls nothing (worst gap 1000 µs over 11.96 s)**, confirming amendment A1. `confirm`, `rollback` and `acknowledge_rollback` are the same page erase in bank 1 but cannot be reached without a bootloader, so they are not measured. Modbus retries (REQ-MB-060) absorb one lost frame | Open (confirm/rollback unmeasured) |
 | FS-O11 | HLD amendments A1–A4 (§4.1) | **Applied to the HLD documents 2026-10-26** (branch `docs/hld-firmware-store-amendments`: `flash-partition-layout.md` §5.1/§7 and D42, `hld.md` §13 and D42, `components.md`, `sequence-diagrams.md` SD-06c/d, `state-machines.md` Machine 3). **Still open:** the Visual Paradigm model and the PNG diagrams generated from it | Update the VP model and regenerate the diagrams | Open |
-| FS-O12 | **P-1 InternalFlashDriver now exists and is hardware-validated** (`docs/lld/drivers/internal-flash-driver.md`, 2026-10-26; page erase 22.1 ms, 2 KB program 22.3 ms). Still missing: the per-call QSPI mutex (P-2, QSPID-O1) and the Slot-A linker script with a boot stub (P-3). FirmwareStore is excluded from the firmware image (`.cproject`), its harness cannot link, and TC-HW-FS-001..009 are not run | Separate LLD and PR per prerequisite; then enable the module and run the harness | Open |
+| FS-O12 | Prerequisites P-1, P-2 and P-3 | **All three now exist and are validated on the board:** P-1 InternalFlashDriver (`docs/lld/drivers/internal-flash-driver.md`), P-2 the per-call QSPI mutex (QspiFlashDriver, QSPID-O1 closed, contention-tested), P-3 `STM32L475VGTX_SLOT_A.ld`, `firmware/gateway/boot-stub/` and `scripts/build-slot-a.sh` (a full image runs from Slot A behind a 116-byte stub). FirmwareStore is still excluded from the default firmware image (`.cproject`) until it has a caller (FS-O13) | Closed |
 | FS-O13 | No production caller: UpdateService and FirmwareStore wiring in LifecycleController (`get_boot_info` → `pending_self_check`, `pending_rollback`) are stand-ins | UpdateService implementation; LifecycleController adapter per §7.3 | Open |
 
 ### 24.2 Decisions
