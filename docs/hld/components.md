@@ -469,7 +469,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Driver
 **RESPONSIBILITY:** Reads, writes, and erases sectors of the external QSPI flash memory (REQ-NF-405).
 **PROVIDES (upward):** IQspiFlash
-**USES (downward):** CMSIS
+**USES (downward):** CMSIS, FreeRTOS *(one mutex taken per call, so the three consumers ConfigStore, CircularFlashLog and FirmwareStore are serialised; QSPID-O1, QSPID-D11)*
 
 **NAME:** InternalFlashDriver
 **LAYER:** Driver
