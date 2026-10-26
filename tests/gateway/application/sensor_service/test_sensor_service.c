@@ -267,6 +267,7 @@ void test_vtable_exposes_the_public_functions(void)
     TEST_ASSERT_TRUE(sensor_service->subscribe == sensor_service_subscribe);
     TEST_ASSERT_TRUE(sensor_service->read_on_demand == sensor_service_read_on_demand);
     TEST_ASSERT_TRUE(sensor_service->is_ready == sensor_service_is_ready);
+    TEST_ASSERT_TRUE(sensor_service->reconfigure == sensor_service_reconfigure);
 }
 
 /* ===================================================================== */
@@ -608,4 +609,242 @@ void test_group_a_is_retried_every_cycle_until_the_first_sample(void)
     (void) sensor_service_get_snapshot(&snap);
     TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
     TEST_ASSERT_EQUAL_UINT32(3U, s_ht_read_calls);
+}
+
+/* ===================================================================== */
+/* Reconfiguration (SS-O6, SS-D20)                                       */
+/* ===================================================================== */
+
+/* The ConfigService defaults, with the polling interval at one acquisition period so every cycle
+ * reads Group A, as setUp() arranges. */
+static config_params_t every_cycle_params(void)
+{
+    config_params_t p;
+
+    (void) memset(&p, 0, sizeof(p));
+    p.polling_interval_ms = 100U;
+    p.filter_alpha = 100U;
+    p.temp_range_min = -4000;
+    p.temp_range_max = 8500;
+    p.humidity_range_min = 0U;
+    p.humidity_range_max = 10000U;
+    p.pressure_range_min = 3000U;
+    p.pressure_range_max = 11000U;
+    return p;
+}
+
+/* TC-SS-120 */
+void test_reconfigure_before_init_returns_not_init(void)
+{
+    const config_params_t p = every_cycle_params();
+
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_NOT_INIT, sensor_service_reconfigure(&p));
+}
+
+/* TC-SS-121 */
+void test_reconfigure_rejects_null(void)
+{
+    (void) sensor_service_init(HEALTH_HANDLE);
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_NULL_ARG, sensor_service_reconfigure(NULL));
+}
+
+/* TC-SS-122 */
+void test_reconfigure_rejects_an_alpha_outside_1_to_999(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.filter_alpha = 0U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+    p.filter_alpha = 1000U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+}
+
+/* TC-SS-123 */
+void test_reconfigure_rejects_a_polling_interval_below_one_cycle(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.polling_interval_ms = 99U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+}
+
+/* TC-SS-124 */
+void test_reconfigure_rejects_an_inverted_or_empty_range(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+
+    p.temp_range_max = p.temp_range_min;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+
+    p = every_cycle_params();
+    p.humidity_range_min = 6000U;
+    p.humidity_range_max = 5000U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+
+    p = every_cycle_params();
+    p.pressure_range_min = 11000U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+}
+
+/* TC-SS-125 - one bad value rejects the whole configuration and changes nothing */
+void test_a_rejected_configuration_changes_nothing(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.temp_range_max = 3000; /* valid on its own ... */
+    p.filter_alpha = 0U;     /* ... but this is not */
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_INVALID_ARG, sensor_service_reconfigure(&p));
+
+    s_ht_data.temperature_x100 = 3500; /* inside the default range, outside the rejected one */
+    (void) sensor_service_run_cycle();
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+}
+
+/* TC-SS-126 */
+void test_reconfigure_applies_the_filter_coefficient_from_the_next_cycle(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    s_ht_data.temperature_x100 = 2000;
+    (void) sensor_service_run_cycle(); /* seeds the filter at 2000 */
+
+    p.filter_alpha = 500U; /* 0.5 */
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_reconfigure(&p));
+    s_ht_data.temperature_x100 = 3000;
+    (void) sensor_service_run_cycle();
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_EQUAL_INT32(2500, snap.readings[SENSOR_ID_TEMPERATURE].value);
+}
+
+/* TC-SS-127 - the filter keeps its state: no second seeding after a reconfigure */
+void test_reconfigure_does_not_reseed_the_filter(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    s_ht_data.temperature_x100 = 2000;
+    (void) sensor_service_run_cycle();
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_reconfigure(&p)); /* alpha 0.1 */
+    s_ht_data.temperature_x100 = 3000;
+    (void) sensor_service_run_cycle();
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_EQUAL_INT32(2100, snap.readings[SENSOR_ID_TEMPERATURE].value);
+}
+
+/* TC-SS-128 */
+void test_reconfigure_applies_the_temperature_range(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.temp_range_max = 3000;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_reconfigure(&p));
+
+    s_ht_data.temperature_x100 = 3500;
+    sensor_service_set_alpha_for_test(ALPHA_OFF_NUM, ALPHA_OFF_DEN);
+    (void) sensor_service_run_cycle();
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_FALSE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+    TEST_ASSERT_EQUAL_INT32(3000, snap.readings[SENSOR_ID_TEMPERATURE].value);
+}
+
+/* TC-SS-129 */
+void test_reconfigure_applies_the_humidity_and_pressure_ranges(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.humidity_range_max = 5000U;
+    p.pressure_range_min = 10500U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_reconfigure(&p));
+
+    s_ht_data.humidity_x100 = 5500;
+    s_baro_data.pressure_x10 = 10132;
+    sensor_service_set_alpha_for_test(ALPHA_OFF_NUM, ALPHA_OFF_DEN);
+    (void) sensor_service_run_cycle();
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_FALSE(snap.readings[SENSOR_ID_HUMIDITY].valid);
+    TEST_ASSERT_EQUAL_INT32(5000, snap.readings[SENSOR_ID_HUMIDITY].value);
+    TEST_ASSERT_FALSE(snap.readings[SENSOR_ID_PRESSURE].valid);
+    TEST_ASSERT_EQUAL_INT32(10500, snap.readings[SENSOR_ID_PRESSURE].value);
+}
+
+/* TC-SS-130 */
+void test_reconfigure_sets_how_often_group_a_is_read(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.polling_interval_ms = 500U; /* every fifth 100 ms cycle */
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_reconfigure(&p));
+
+    for (uint8_t i = 0U; i < 10U; i++)
+    {
+        (void) sensor_service_run_cycle();
+    }
+    TEST_ASSERT_EQUAL_UINT32(2U, s_ht_read_calls);
+    TEST_ASSERT_EQUAL_UINT32(10U, s_imu_read_calls);
+}
+
+/* TC-SS-131 - alpha 0.999 on a gyro-sized value overflowed the 32-bit filter arithmetic */
+void test_a_high_per_mille_alpha_does_not_overflow_on_a_large_channel(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    s_imu_data.gyro_x = 0;
+    (void) sensor_service_run_cycle(); /* seeds at 0 */
+
+    p.filter_alpha = 999U;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_reconfigure(&p));
+    s_imu_data.gyro_x = 28571; /* 249 996 mdps */
+    (void) sensor_service_run_cycle();
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_INT32_WITHIN(2, 249746, snap.readings[SENSOR_ID_GYRO_X].value);
+}
+
+/* TC-SS-132 */
+void test_init_restores_the_default_ranges_after_a_reconfigure(void)
+{
+    config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    p.temp_range_max = 3000;
+    (void) sensor_service_reconfigure(&p);
+
+    (void) sensor_service_init(HEALTH_HANDLE); /* a fresh boot */
+    sensor_service_set_alpha_for_test(ALPHA_OFF_NUM, ALPHA_OFF_DEN);
+    s_ht_data.temperature_x100 = 8000;
+    (void) sensor_service_run_cycle();
+
+    sensor_snapshot_t snap;
+    (void) sensor_service_get_snapshot(&snap);
+    TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+}
+
+/* TC-SS-133 - the vtable entry reaches the same function */
+void test_reconfigure_through_the_vtable(void)
+{
+    const config_params_t p = every_cycle_params();
+
+    (void) sensor_service_init(HEALTH_HANDLE);
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service->reconfigure(&p));
 }
