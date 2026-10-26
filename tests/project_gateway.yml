@@ -47,6 +47,8 @@
     # firmware_store: its fakes/, sim/, vectors/ and mbedtls_host/ folders are support
     # code (linked by a test's own #include), not tests, so this entry is not recursive.
     - gateway/middleware/firmware_store
+    # internal_flash: the fake/ folder holds the controller model, linked by the test's #include.
+    - gateway/drivers/internal_flash
     - gateway/drivers/modbus_uart_driver/**
     - gateway/middleware/modbus_master/**
     - gateway/application/modbus_poller/**
@@ -110,6 +112,7 @@
     - gateway/middleware/firmware_store/sim
     - gateway/middleware/firmware_store/mbedtls_host
     - gateway/middleware/firmware_store/vectors
+    - gateway/drivers/internal_flash/fake
   # config_store.h includes "health_monitor/health_monitor.h", so the parent of the
   # health_monitor directory has to be an include root.
   # health_monitor.h includes "modbus_master/modbus_master.h", so the parent of that
@@ -237,6 +240,10 @@
     - BOARD_GATEWAY
     - TEST
   :test_stm32l4xx_it:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_internal_flash:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
