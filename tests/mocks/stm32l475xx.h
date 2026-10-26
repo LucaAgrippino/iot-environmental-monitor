@@ -283,6 +283,7 @@ typedef struct
     volatile uint32_t HFSR;  /**< Hard Fault Status Register.          */
     volatile uint32_t BFAR;  /**< Bus Fault Address Register.          */
     volatile uint32_t MMFAR; /**< MemManage Fault Address Register.    */
+    volatile uint32_t VTOR;  /**< Vector Table Offset Register.        */
 } SCB_TypeDef;
 
 extern SCB_TypeDef g_mock_scb;

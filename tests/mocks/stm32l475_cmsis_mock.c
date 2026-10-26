@@ -207,6 +207,7 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_scb.HFSR  = 0;
     g_mock_scb.BFAR  = 0;
     g_mock_scb.MMFAR = 0;
+    g_mock_scb.VTOR  = 0;
 
     /* §RTC */
     g_mock_rtc.TR     = 0;

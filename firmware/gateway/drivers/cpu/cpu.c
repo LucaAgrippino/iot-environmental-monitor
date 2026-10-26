@@ -519,6 +519,11 @@ uint32_t cpu_get_pclk2_hz(void)
     return g_pclk2_hz;
 }
 
+uint32_t cpu_get_vector_table_base(void)
+{
+    return SCB->VTOR;
+}
+
 #ifdef TEST
 void cpu_reset(void)
 #else
