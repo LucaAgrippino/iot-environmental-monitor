@@ -8,8 +8,8 @@
 **Date:** October 2026
 
 **HLD anchor:** InternalFlashDriver in `components.md` (GW driver layer) — added by amendment **A3**
-of `firmware-store.md` §4.1, which is **not yet applied** to the HLD (FS-O11). Until it is, this
-companion and `firmware-store.md` are the authority for the component.
+of `firmware-store.md` §4.1, applied to the HLD documents on 2026-10-26 (the VP model is still to be
+updated, FS-O11).
 
 ---
 
@@ -260,7 +260,7 @@ Scratch regions only: `0x0807_E000–0x0807_FFFF` (bank 1, 8 KB) and `0x080F_800
 |---|---|---|---|
 | IFD-O1 | Erase and program times are datasheet figures | **Measured 2026-10-26:** page erase 22.10 ms (both banks); 2 KB program (256 double words) 22.26–22.27 ms, i.e. 87 µs per double word; both match the datasheet typicals. Feeds FS-O1: a 240-page install is about 240 × (22.1 + 22.3) ≈ 10.7 s | Closed |
 | IFD-O2 | Size of the fetch stall in the same bank, as seen by an interrupt | **Measured 2026-10-26** (TC-HW-IFD-008/008b): longest gap of a 1 kHz interrupt = 1000 µs while erasing a page in the bank that holds the vectors, the ISR and the polling loop, with the caches on and off, and 1000–1045 µs while programming 2 KB. The expected ~22 ms stall was **not observed**; the cause is not understood. Not proof for a cold or large ISR. Feeds FS-O10 | Open |
-| IFD-O3 | The HLD does not yet list the component (amendment A3, FS-O11) | Apply A3 in the VP model and `components.md` | Open |
+| IFD-O3 | The component is in `components.md` since 2026-10-26 (amendment A3); the Visual Paradigm model and the component diagram are not updated (FS-O11) | Update the VP model | Open |
 | IFD-O4 | The bootloader needs its own flash routines; sharing this driver's code is not decided | Bootloader LLD (FS-O7) | Open |
 
 ## 10. Decisions
@@ -291,4 +291,4 @@ Scratch regions only: `0x0807_E000–0x0807_FFFF` (bank 1, 8 KB) and `0x080F_800
 | H-05 | Unit-test plan with TC identifiers covering all functions and error codes | Done (§7) |
 | H-06 | Hardware test plan | Done (§8) |
 | H-07 | Open items with IDs and resolution paths; decisions with rationale | Done (§9, §10) |
-| H-08 | HLD amendment A3 applied | **No** — IFD-O3 |
+| H-08 | HLD amendment A3 applied | Done in `components.md`; the VP model is still to be updated — IFD-O3 |

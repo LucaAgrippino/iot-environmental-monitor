@@ -934,7 +934,7 @@ below has been executed.
 | FS-O8 | Bind `IQspiFlash` names and its address convention for `FIRMWARE_STORE_STAGING_BASE` | Bound to `iqspi_flash_t` (`read`, `write_page`, `erase_sector`) and the device-offset convention: `FIRMWARE_STORE_STAGING_BASE` = `0x0012_0000`, i.e. `0x9012_0000 − 0x9000_0000`, as ConfigStore does | **Closed** |
 | FS-O9 | Two signed images per release (one per slot) need two linker scripts and a build step | Bootloader/build LLD | Open |
 | FS-O10 | Fetch stall from metadata writes in hardware bank 1 while running from Slot A (≤ 3 per OTA) | Measure in TC-HW-FS-006; Modbus retries (REQ-MB-060) absorb one lost frame | Open |
-| FS-O11 | HLD amendments A1–A4 (§4.1) are **not applied**: `flash-partition-layout.md` §5.1/§7, `components.md`, `sequence-diagrams.md` and `state-machines.md` still show the old Slot B address, the `pending_self_check` byte and no InternalFlashDriver. The code follows this companion, not the HLD | Apply A1–A4 in the VP model and the HLD documents before the bootloader and InternalFlashDriver LLDs | Open |
+| FS-O11 | HLD amendments A1–A4 (§4.1) | **Applied to the HLD documents 2026-10-26** (branch `docs/hld-firmware-store-amendments`: `flash-partition-layout.md` §5.1/§7 and D42, `hld.md` §13 and D42, `components.md`, `sequence-diagrams.md` SD-06c/d, `state-machines.md` Machine 3). **Still open:** the Visual Paradigm model and the PNG diagrams generated from it | Update the VP model and regenerate the diagrams | Open |
 | FS-O12 | **P-1 InternalFlashDriver now exists and is hardware-validated** (`docs/lld/drivers/internal-flash-driver.md`, 2026-10-26; page erase 22.1 ms, 2 KB program 22.3 ms). Still missing: the per-call QSPI mutex (P-2, QSPID-O1) and the Slot-A linker script with a boot stub (P-3). FirmwareStore is excluded from the firmware image (`.cproject`), its harness cannot link, and TC-HW-FS-001..009 are not run | Separate LLD and PR per prerequisite; then enable the module and run the harness | Open |
 | FS-O13 | No production caller: UpdateService and FirmwareStore wiring in LifecycleController (`get_boot_info` → `pending_self_check`, `pending_rollback`) are stand-ins | UpdateService implementation; LifecycleController adapter per §7.3 | Open |
 
@@ -983,7 +983,7 @@ below has been executed.
 | H-13 | SRS traces verified against section content | Done (§2) |
 | H-14 | Decisions logged with rationale | Done (§24.2) |
 | H-15 | On-flash formats with exact offsets and power-loss analysis | Done (§6, §14) |
-| H-16 | Blocking HLD amendments identified | Done (§4). **Not yet applied** — FS-O11 |
+| H-16 | Blocking HLD amendments identified | Done (§4). Applied to the HLD documents; the VP model is still to be updated — FS-O11 |
 
 ---
 
