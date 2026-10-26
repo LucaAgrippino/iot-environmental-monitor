@@ -14,6 +14,7 @@
 #include "task.h"
 
 #include "sensor_service_internal.h"
+#include "sensor_task.h"
 
 #ifdef TEST
 #define LOG_ERROR(m, f, ...) ((void) 0)
@@ -32,6 +33,11 @@
 /* Default IIR coefficient alpha = NUM / DEN = 0.1 (SS-O1). */
 #define SENSOR_ALPHA_NUM_DEFAULT (1U)
 #define SENSOR_ALPHA_DEN_DEFAULT (10U)
+
+/* ConfigService carries alpha in per-mille (config_params_t.filter_alpha, range 1..999). */
+#define CONFIG_ALPHA_DEN (1000U)
+#define CONFIG_ALPHA_MIN (1U)
+#define CONFIG_ALPHA_MAX (999U)
 
 /* Raw LSB -> engineering units. Sensitivities come from the sensor drivers' headers:
  * LSM6DSL +/-2 g = 16384 LSB/g, +/-250 dps = 8.75 mdps/LSB; LIS3MDL +/-4 gauss =
@@ -54,7 +60,7 @@
 /* Plausibility range per channel, in the units of sensor_reading_t.value. The three
  * scalar ranges are the sensor operating limits (REQ-SA-120); the IMU and
  * magnetometer ranges are the configured full scales. */
-static const int32_t s_range_min[SENSOR_ID_COUNT] = {
+static const int32_t k_range_min_default[SENSOR_ID_COUNT] = {
     [SENSOR_ID_TEMPERATURE] = -4000, /* -40.00 degC  */
     [SENSOR_ID_HUMIDITY] = 0,        /*   0.00 %RH   */
     [SENSOR_ID_PRESSURE] = 2600,     /* 260.0 hPa    */
@@ -63,7 +69,7 @@ static const int32_t s_range_min[SENSOR_ID_COUNT] = {
     [SENSOR_ID_MAG_X] = -4000,       [SENSOR_ID_MAG_Y] = -4000,    [SENSOR_ID_MAG_Z] = -4000,
 };
 
-static const int32_t s_range_max[SENSOR_ID_COUNT] = {
+static const int32_t k_range_max_default[SENSOR_ID_COUNT] = {
     [SENSOR_ID_TEMPERATURE] = 12000, /* 120.00 degC  */
     [SENSOR_ID_HUMIDITY] = 10000,    /* 100.00 %RH   */
     [SENSOR_ID_PRESSURE] = 12600,    /* 1260.0 hPa   */
@@ -71,6 +77,10 @@ static const int32_t s_range_max[SENSOR_ID_COUNT] = {
     [SENSOR_ID_GYRO_X] = 250000,     [SENSOR_ID_GYRO_Y] = 250000, [SENSOR_ID_GYRO_Z] = 250000,
     [SENSOR_ID_MAG_X] = 4000,        [SENSOR_ID_MAG_Y] = 4000,    [SENSOR_ID_MAG_Z] = 4000,
 };
+
+/* Working copies: the three scalar channels' limits can be narrowed by reconfigure() (SS-D20). */
+static int32_t s_range_min[SENSOR_ID_COUNT];
+static int32_t s_range_max[SENSOR_ID_COUNT];
 
 /* ======================================================================= */
 /* Module state                                                             */
@@ -88,8 +98,8 @@ static struct
     bool filter_seeded[SENSOR_ID_COUNT];    /* first accepted sample seeds the filter */
     bool driver_failed[SENSOR_ID_COUNT];    /* permanent: init failed */
     bool fail_reported[SENSOR_ID_COUNT];    /* HEALTH_EVENT_SENSOR_FAIL sent, not yet recovered */
-    uint8_t alpha_num;
-    uint8_t alpha_den;
+    uint16_t alpha_num;
+    uint16_t alpha_den;
     void (*subscribers[SENSOR_MAX_SUBSCRIBERS])(const sensor_snapshot_t *);
     uint8_t subscriber_count;
 } s_ss;
@@ -100,6 +110,7 @@ static struct
 
 static int32_t prv_convert(sensor_id_t id, int16_t raw);
 static int32_t prv_div_round(int32_t numerator, int32_t divisor);
+static int64_t prv_div_round64(int64_t numerator, int64_t divisor);
 static void prv_accept(sensor_snapshot_t *snap, sensor_id_t id, int32_t value);
 static void prv_fail(sensor_snapshot_t *snap, sensor_id_t id);
 static void prv_fail_range(sensor_snapshot_t *snap, sensor_id_t first, uint8_t count);
@@ -108,6 +119,7 @@ static void prv_read_barometer(sensor_snapshot_t *snap);
 static void prv_read_imu(sensor_snapshot_t *snap);
 static void prv_read_magnetometer(sensor_snapshot_t *snap);
 static void prv_init_driver(bool ok, sensor_id_t first, uint8_t count, const char *name);
+static void prv_load_defaults(void);
 
 /* ======================================================================= */
 /* Singleton vtable                                                         */
@@ -120,6 +132,7 @@ static const isensor_service_t s_sensor_service_vtable = {
     .subscribe = sensor_service_subscribe,
     .read_on_demand = sensor_service_read_on_demand,
     .is_ready = sensor_service_is_ready,
+    .reconfigure = sensor_service_reconfigure,
 };
 
 const isensor_service_t *const sensor_service = &s_sensor_service_vtable;
@@ -137,8 +150,7 @@ sensor_service_err_t sensor_service_init(health_monitor_handle_t health)
 
     (void) memset(&s_ss, 0, sizeof(s_ss));
     s_ss.health = health;
-    s_ss.alpha_num = SENSOR_ALPHA_NUM_DEFAULT;
-    s_ss.alpha_den = SENSOR_ALPHA_DEN_DEFAULT;
+    prv_load_defaults();
 
     prv_init_driver(humidity_temp_driver->init() == HUMIDITY_TEMP_ERR_OK, SENSOR_ID_TEMPERATURE, 2U,
                     "humidity_temp");
@@ -150,6 +162,49 @@ sensor_service_err_t sensor_service_init(health_monitor_handle_t health)
 
     s_ss.initialised = true;
     LOG_INFO(MODULE_TAG, "SensorService initialised");
+    return SENSOR_SERVICE_ERR_OK;
+}
+
+sensor_service_err_t sensor_service_reconfigure(const config_params_t *params)
+{
+    if (!s_ss.initialised)
+    {
+        return SENSOR_SERVICE_ERR_NOT_INIT;
+    }
+    if (params == NULL)
+    {
+        return SENSOR_SERVICE_ERR_NULL_ARG;
+    }
+
+    /* Validate everything first so a bad configuration changes nothing (SS-D20). */
+    if ((params->filter_alpha < CONFIG_ALPHA_MIN) || (params->filter_alpha > CONFIG_ALPHA_MAX) ||
+        (params->polling_interval_ms < SENSOR_TASK_PERIOD_MS) ||
+        (params->temp_range_min >= params->temp_range_max) ||
+        (params->humidity_range_min >= params->humidity_range_max) ||
+        (params->pressure_range_min >= params->pressure_range_max))
+    {
+        LOG_WARN(MODULE_TAG, "reconfigure: configuration rejected");
+        return SENSOR_SERVICE_ERR_INVALID_ARG;
+    }
+
+    /* Group A (temperature, humidity, pressure) is the 1 Hz group: its read period is the
+     * configured polling interval in acquisition cycles. */
+    const uint32_t group_a_cycles = params->polling_interval_ms / SENSOR_TASK_PERIOD_MS;
+
+    taskENTER_CRITICAL();
+    s_ss.alpha_num = params->filter_alpha;
+    s_ss.alpha_den = (uint16_t) CONFIG_ALPHA_DEN;
+    s_range_min[SENSOR_ID_TEMPERATURE] = (int32_t) params->temp_range_min;
+    s_range_max[SENSOR_ID_TEMPERATURE] = (int32_t) params->temp_range_max;
+    s_range_min[SENSOR_ID_HUMIDITY] = (int32_t) params->humidity_range_min;
+    s_range_max[SENSOR_ID_HUMIDITY] = (int32_t) params->humidity_range_max;
+    s_range_min[SENSOR_ID_PRESSURE] = (int32_t) params->pressure_range_min;
+    s_range_max[SENSOR_ID_PRESSURE] = (int32_t) params->pressure_range_max;
+    s_group_a_period = group_a_cycles;
+    taskEXIT_CRITICAL();
+
+    LOG_INFO(MODULE_TAG, "reconfigured: alpha=%u/1000, group A every %lu cycles",
+             (unsigned) params->filter_alpha, (unsigned long) group_a_cycles);
     return SENSOR_SERVICE_ERR_OK;
 }
 
@@ -288,6 +343,20 @@ static int32_t prv_div_round(int32_t numerator, int32_t divisor)
     return (numerator + ((numerator >= 0) ? half : -half)) / divisor;
 }
 
+static int64_t prv_div_round64(int64_t numerator, int64_t divisor)
+{
+    const int64_t half = divisor / 2;
+    return (numerator + ((numerator >= 0) ? half : -half)) / divisor;
+}
+
+static void prv_load_defaults(void)
+{
+    s_ss.alpha_num = SENSOR_ALPHA_NUM_DEFAULT;
+    s_ss.alpha_den = SENSOR_ALPHA_DEN_DEFAULT;
+    (void) memcpy(s_range_min, k_range_min_default, sizeof(s_range_min));
+    (void) memcpy(s_range_max, k_range_max_default, sizeof(s_range_max));
+}
+
 /* Convert a raw IMU / magnetometer LSB count into the channel's engineering unit. */
 static int32_t prv_convert(sensor_id_t id, int16_t raw)
 {
@@ -348,10 +417,13 @@ static void prv_accept(sensor_snapshot_t *snap, sensor_id_t id, int32_t value)
         s_ss.filter_seeded[id] = true;
     }
 
-    const int32_t num = (int32_t) s_ss.alpha_num;
-    const int32_t den = (int32_t) s_ss.alpha_den;
-    const int32_t sum = (num * scaled) + ((den - num) * s_ss.prev_filtered[id]);
-    s_ss.prev_filtered[id] = prv_div_round(sum, den);
+    /* 64-bit: a per-mille alpha (den 1000) times a gyro value in mdps scaled by FILTER_SCALE
+     * would overflow int32_t (SS-D20). The result is a weighted mean of two int32_t values, so
+     * it fits back. */
+    const int64_t num = (int64_t) s_ss.alpha_num;
+    const int64_t den = (int64_t) s_ss.alpha_den;
+    const int64_t sum = (num * (int64_t) scaled) + ((den - num) * (int64_t) s_ss.prev_filtered[id]);
+    s_ss.prev_filtered[id] = (int32_t) prv_div_round64(sum, den);
 
     /* Back to the channel's unit. C division truncates toward zero, so the half-divisor
      * bias must follow the sign (SS-D13); a plain "+ half" rounds negative axes wrongly. */
@@ -497,9 +569,10 @@ void sensor_service_reset_for_test(void)
 {
     (void) memset(&s_ss, 0, sizeof(s_ss));
     s_group_a_period = GROUP_A_PERIOD_CYCLES_DEFAULT;
+    prv_load_defaults();
 }
 
-void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den)
+void sensor_service_set_alpha_for_test(uint16_t num, uint16_t den)
 {
     s_ss.alpha_num = num;
     s_ss.alpha_den = den;
