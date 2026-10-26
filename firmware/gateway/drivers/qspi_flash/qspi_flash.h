@@ -4,8 +4,10 @@
  *
  * Provides IQspiFlash (per components.md). Uses the CMSIS QUADSPI peripheral
  * in indirect mode (1-1-1 SPI) only. No memory-mapped mode; no quad mode.
- * No internal synchronisation — callers serialise concurrent access
- * (companion §3.3, QSPID-O1).
+ * Every operation takes one priority-inheritance mutex for its whole duration,
+ * so concurrent callers (ConfigStore, CircularFlashLog, FirmwareStore) are
+ * serialised by the driver itself (QSPID-O1, closed by FirmwareStore FS-D12).
+ * The longest hold is one 4 KB sector erase (81 ms measured).
  *
  * Board: B-L475E-IOT01A (STM32L475), MX25R6435F 8 MB on PE10..PE15 (AF10).
  * The Field Device counterpart
@@ -57,7 +59,8 @@ typedef enum
     QSPI_FLASH_ERR_LEN = 4,             /**< len == 0, len > 256, or write crosses a page. */
     QSPI_FLASH_ERR_DEVICE = 5,          /**< RDID response does not match expected ID. */
     QSPI_FLASH_ERR_NOT_INITIALISED = 6, /**< qspi_flash_init() has not succeeded yet. */
-    QSPI_FLASH_ERR_NULL_POINTER = 7     /**< A required pointer argument was NULL. */
+    QSPI_FLASH_ERR_NULL_POINTER = 7,    /**< A required pointer argument was NULL. */
+    QSPI_FLASH_ERR_MUTEX = 8 /**< The driver's mutex could not be created (qspi_flash_init). */
 } qspi_flash_err_t;
 
 /* ------------------------------------------------------------------ */
@@ -96,7 +99,7 @@ qspi_flash_err_t qspi_flash_init(void);
  * of bytes starting at addr; wraps at the device boundary are not
  * supported (QSPI_FLASH_ERR_ADDR if addr + len exceeds device capacity).
  *
- * Caller serialises concurrent calls — see companion §3.3 and QSPID-O1.
+ * Concurrent calls are serialised by the driver's mutex (QSPID-O1).
  *
  * @param addr  Byte address within the flash (0 .. device_size - 1).
  * @param buf   Destination buffer (must not be NULL; must be >= len bytes).
@@ -105,7 +108,7 @@ qspi_flash_err_t qspi_flash_init(void);
  *         QSPI_FLASH_ERR_NULL_POINTER on guard failure; QSPI_FLASH_ERR_ADDR
  *         or QSPI_FLASH_ERR_LEN on constraint violation;
  *         QSPI_FLASH_ERR_BUSY or QSPI_FLASH_ERR_TIMEOUT on hardware error.
- * @note Threading: task-context only, non-blocking. Not ISR-safe.
+ * @note Threading: task-context only. Takes the driver mutex. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
 
@@ -132,7 +135,7 @@ qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
  * @param data  Pointer to data to write (must not be NULL).
  * @param len   Number of bytes to program (1 .. 256, within one page).
  * @return QSPI_FLASH_OK on success; error code on failure.
- * @note Threading: task-context only, may block. Not ISR-safe.
+ * @note Threading: task-context only. Takes the driver mutex and may block. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint16_t len);
 
@@ -150,7 +153,7 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint1
  * @return QSPI_FLASH_OK on success; QSPI_FLASH_ERR_TIMEOUT if WIP
  *         does not clear within the bounded window (~500 ms);
  *         QSPI_FLASH_ERR_ADDR if addr exceeds device capacity.
- * @note Threading: task-context only, may block. Not ISR-safe.
+ * @note Threading: task-context only. Takes the driver mutex and may block. Not ISR-safe.
  */
 qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr);
 

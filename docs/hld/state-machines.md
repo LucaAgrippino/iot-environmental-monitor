@@ -434,14 +434,15 @@ authentication and overlap checks).
 
 ### Downloading — simple
 
-Receive firmware image and write it to the inactive flash bank.
+Receive firmware image and stage it in the QSPI OTA staging area *(D41)*; the
+inactive on-chip slot is not touched until Applying.
 
-- **Entry action:** lock inactive bank; reset retry counter; persist
+- **Entry action:** begin a staging session; reset retry counter; persist
   offset = 0.
-- **Do activity:** receive next chunk; write to inactive bank; persist
-  offset (REQ-DM-051 resumability); on chunk failure, increment retry
-  counter.
-- **Exit action:** finalise inactive bank contents.
+- **Do activity:** receive next chunk; stage it; persist the offset as a
+  4 KB checkpoint (REQ-DM-051 resumability); on chunk failure, increment
+  retry counter.
+- **Exit action:** mark the staged file complete.
 
 **Traceability:** DM-050, -051, -052, -053.
 
@@ -543,7 +544,7 @@ Update did not complete successfully (download, validation, or self-check
 
 | #   | In state    | Event                       | Guard               | Action                                              |
 |-----|-------------|-----------------------------|---------------------|-----------------------------------------------------|
-| I1  | Downloading | `download_chunk_success`    | —                   | `write_to_inactive_bank(chunk); persist_offset()`   |
+| I1  | Downloading | `download_chunk_success`    | —                   | `stage_chunk(chunk); persist_offset()`   |
 | I2  | Downloading | `download_chunk_failure`    | `[retries < 3]`     | `retries++`; retry chunk (DM-051)                   |
 
 ---
