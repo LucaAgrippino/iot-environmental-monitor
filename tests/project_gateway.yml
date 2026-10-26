@@ -44,6 +44,9 @@
     - gateway/middleware/time_provider/**
     - gateway/application/health_monitor/**
     - gateway/middleware/config_store/**
+    # firmware_store: its fakes/, sim/, vectors/ and mbedtls_host/ folders are support
+    # code (linked by a test's own #include), not tests, so this entry is not recursive.
+    - gateway/middleware/firmware_store
     - gateway/drivers/modbus_uart_driver/**
     - gateway/middleware/modbus_master/**
     - gateway/application/modbus_poller/**
@@ -71,6 +74,7 @@
     - ../firmware/gateway/middleware/time_provider/**
     - ../firmware/gateway/application/health_monitor/**
     - ../firmware/gateway/middleware/config_store/**
+    - ../firmware/gateway/middleware/firmware_store/**
     - ../firmware/gateway/middleware/modbus_master/**
     - ../firmware/gateway/application/modbus_poller/**
     - ../firmware/gateway/application/sensor_service/**
@@ -100,6 +104,12 @@
     - ../firmware/gateway/drivers/**
   :support:
     - support
+    # FirmwareStore test infrastructure: NOR/ECC flash fakes, the power-cut injector, the
+    # fake and real crypto, the bootloader simulator and the generated signed-image vectors.
+    - gateway/middleware/firmware_store/fakes
+    - gateway/middleware/firmware_store/sim
+    - gateway/middleware/firmware_store/mbedtls_host
+    - gateway/middleware/firmware_store/vectors
   # config_store.h includes "health_monitor/health_monitor.h", so the parent of the
   # health_monitor directory has to be an include root.
   # health_monitor.h includes "modbus_master/modbus_master.h", so the parent of that
@@ -107,6 +117,8 @@
   :include:
     - ../firmware/gateway/application
     - ../firmware/gateway/middleware
+    # ota_crypto.c includes mbedtls/*.h (test_fs_crypto_vectors only).
+    - ../vendor/mbedtls/include
 
 :defines:
   :common: &common_defines []
@@ -227,6 +239,32 @@
   :test_stm32l4xx_it:
     - STM32L475xx
     - BOARD_GATEWAY
+    - TEST
+  :test_firmware_store:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_fs_staging:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_fs_metadata:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_fs_power_loss:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_fs_crypto_vectors:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - MBEDTLS_CONFIG_FILE=\"mbedtls_config_fs_test.h\"
+    - TEST
+  :test_fs_crypto_placeholder:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - MBEDTLS_CONFIG_FILE=\"mbedtls_config_fs_test.h\"
     - TEST
 
 :cmock:
