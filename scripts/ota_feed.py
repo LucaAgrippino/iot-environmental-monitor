@@ -85,6 +85,8 @@ def main():
 
     port = serial.Serial(args.port, COMMAND_BAUD, timeout=1)
     port.reset_input_buffer()
+    # The harness may have booted before we opened the port: an empty line makes it say READY.
+    port.write(b"\n")
     wait_for(port, "READY")
 
     command = "OTA %X %d %d\n" % (image_id, len(data), 1 if args.install else 0)

@@ -2,13 +2,11 @@
  * @file main_test_firmware_store.c
  * @brief Hardware bring-up test for FirmwareStore (B-L475E-IOT01A, Gateway).
  *
- * NOT compiled by default, and CANNOT RUN YET. It is written against the contract in
- * docs/lld/middleware/firmware-store.md §23. P-1 (the InternalFlashDriver,
- * `internal_flash_driver`) now exists; it still needs:
- *   P-3  a Slot-A linker script and a boot stub at 0x0800_0000 that jumps to 0x0800_6000,
- *        so that this image runs from Slot A (VTOR = 0x0800_6000).
- * Call internal_flash_init() before firmware_store_create(). On an image that is not in a
- * slot the harness reports that FirmwareStore correctly refuses OTA (TC-HW-FS-001b) and stops.
+ * NOT compiled by default. Written against the contract in docs/lld/middleware/firmware-store.md
+ * §23. It needs the image linked for Slot A and the boot stub that jumps to it (P-3):
+ *   scripts/build-slot-a.sh builds firmware/gateway/Debug/gateway_slot_a.elf (0x0800_6000)
+ *   and boot_stub.elf (0x0800_0000); flash both. On an image that is not in a slot the harness
+ *   reports that FirmwareStore correctly refuses OTA (TC-HW-FS-001b) and stops.
  *
  * To activate, in firmware/gateway/.cproject (bench-local, do not commit):
  *   1. Add cloud_publisher (the current harness) to the `excluding=` list of the
@@ -89,6 +87,9 @@
 #define BRINGUP_UART_AF (7U)
 #define BRINGUP_TX_TIMEOUT_MS (100U)
 #define BRINGUP_TRANSFER_BAUD (921600U)
+
+/* After the transfer both sides switch back to 115 200; the host needs about 50 ms. */
+#define BAUD_SETTLE_MS (150U)
 
 #define RX_RING_SIZE (2048U) /* power of two */
 #define LINE_MAX_LEN (96U)
@@ -232,7 +233,10 @@ static void gap_timer_start(void)
 static void gap_reset(void)
 {
     s_gap_max_cycles = 0U;
-    s_gap_last = 0U;
+
+    /* Seed the previous sample with "now". Starting from zero would discard the first
+     * interrupt, and so hide a stall that begins right after the reset (the erase). */
+    s_gap_last = DWT->CYCCNT;
 }
 
 static uint32_t gap_max_us(void)
@@ -383,7 +387,15 @@ static void run_ota(firmware_store_t *fs, uint32_t image_id, uint32_t file_len, 
 
         for (uint32_t i = 0U; i < n; i++)
         {
-            check(rx_get(&s_block[i], BLOCK_TIMEOUT_MS), "host stopped sending");
+            if (!rx_get(&s_block[i], BLOCK_TIMEOUT_MS))
+            {
+                /* The host went away mid-transfer (TC-HW-FS-003). Keep the staged bytes and
+                 * their checkpoints: the next OTA command resumes from the journal. */
+                (void) debug_uart_set_baud(115200U);
+                cpu_delay_ms(BAUD_SETTLE_MS);
+                bringup_puts("ERR host stopped sending\r\n");
+                return;
+            }
         }
 
         expect_fs(firmware_store_image_ops.write_chunk(fs, pos, s_block, n), FIRMWARE_STORE_ERR_OK,
@@ -393,6 +405,8 @@ static void run_ota(firmware_store_t *fs, uint32_t image_id, uint32_t file_len, 
     }
 
     (void) debug_uart_set_baud(115200U);
+    cpu_delay_ms(
+        BAUD_SETTLE_MS); /* the host switches back too; a reply sent now would be garbled */
     bringup_printf("RECEIVED %lu %lu\r\n", file_len, dwt_elapsed_ms(t_stage));
 
     /* TC-HW-FS-004, -007, -008 */
@@ -424,6 +438,12 @@ static void run_ota(firmware_store_t *fs, uint32_t image_id, uint32_t file_len, 
     gap_reset();
     expect_fs(firmware_store_image_ops.install_begin(fs), FIRMWARE_STORE_ERR_OK, "install_begin");
 
+    /* install_begin erases the target descriptor, which is in bank 1 with the running image:
+     * that one stall is measured apart from the 240-page copy into bank 2 (amendment A1). */
+    const uint32_t gap_begin_us = gap_max_us();
+
+    gap_reset();
+
     while (!done)
     {
         const uint32_t t_step = dwt_now();
@@ -439,7 +459,8 @@ static void run_ota(firmware_store_t *fs, uint32_t image_id, uint32_t file_len, 
     }
 
     bringup_printf("INSTALL steps=%lu total_ms=%lu\r\n", steps, dwt_elapsed_ms(t_install));
-    bringup_printf("INSTALL worst_step_us=%lu max_isr_gap_us=%lu\r\n", worst_us, gap_max_us());
+    bringup_printf("INSTALL worst_step_us=%lu begin_gap_us=%lu\r\n", worst_us, gap_begin_us);
+    bringup_printf("INSTALL copy_gap_us=%lu limit_us=%lu\r\n", gap_max_us(), GAP_LIMIT_US);
 
     /* TC-HW-FS-006, -009 */
     gap_reset();
@@ -506,7 +527,7 @@ int main(void)
     check(qspi_flash_init() == QSPI_FLASH_OK, "TC-HW-FS-001 qspi_flash_init failed");
     check(internal_flash_init() == INTERNAL_FLASH_OK, "TC-HW-FS-001 internal_flash_init failed");
 
-    const uint32_t running_base = SCB->VTOR;
+    const uint32_t running_base = cpu_get_vector_table_base();
     const firmware_store_config_t cfg = {
         .qspi = qspi_flash_driver,
         .iflash = internal_flash_driver,
@@ -568,7 +589,7 @@ int main(void)
 
         if ((strncmp(line, "OTA ", 4U) != 0) || (file_len == 0U))
         {
-            bringup_puts("ERR unknown command\r\n");
+            bringup_puts("ERR unknown command\r\nREADY\r\n");
             continue;
         }
 
