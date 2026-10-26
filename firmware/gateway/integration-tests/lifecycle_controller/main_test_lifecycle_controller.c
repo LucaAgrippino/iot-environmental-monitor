@@ -64,6 +64,7 @@
 #include "led/led_driver.h"
 #include "lifecycle_controller/lifecycle_controller.h"
 #include "logger/logger.h"
+#include "rtc/rtc.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
@@ -926,7 +927,8 @@ int main(void)
     };
 
     if ((gpio_init() != GPIO_OK) || (gpio_configure_pin(&uart_tx_config) != GPIO_OK) ||
-        (gpio_configure_pin(&uart_rx_config) != GPIO_OK) || (debug_uart_init() != DEBUG_UART_OK))
+        (gpio_configure_pin(&uart_rx_config) != GPIO_OK) || (debug_uart_init() != DEBUG_UART_OK) ||
+        (rtc_init() != RTC_OK)) /* Logger timestamps from the RTC */
     {
         for (;;)
         {
