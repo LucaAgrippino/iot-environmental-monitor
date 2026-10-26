@@ -132,13 +132,23 @@ Firmware Update sub-machine).
 
 | Partition | Start | End | Size | Sectors | Purpose | Lifetime |
 |---|---|---|---|---|---|---|
-| Bootloader | `0x0800_0000` | `0x0800_3FFF` | 16 KB | 8 × 2 KB | Custom secondary bootloader: image-header check, boot-pointer dispatch, self-check supervision *(D36)* | Rarely updated |
-| Metadata | `0x0800_4000` | `0x0800_5FFF` | 8 KB | 4 × 2 KB | Boot pointer (active bank), pending_self_check flag, image headers (version, CRC, signature), rollback count | Written during OTA commit and on self-check |
-| Bank A (firmware) | `0x0800_6000` | `0x0807_DFFF` | 480 KB | 240 × 2 KB | Active or inactive firmware image; XIP from either bank | Written during OTA |
-| Bank B (firmware) | `0x0807_E000` | `0x080F_5FFF` | 480 KB | 240 × 2 KB | Active or inactive firmware image; XIP from either bank | Written during OTA |
-| *(reserved)* | `0x080F_6000` | `0x080F_FFFF` | 40 KB | 20 × 2 KB | Future expansion (extended metadata, factory area, etc.) | — |
+| Bootloader | `0x0800_0000` | `0x0800_3FFF` | 16 KB | 8 × 2 KB | Custom secondary bootloader: image-descriptor check, boot-state handling, self-check supervision *(D36)* | Rarely updated |
+| Metadata | `0x0800_4000` | `0x0800_5FFF` | 8 KB | 4 × 2 KB | Boot metadata copies A and B (active slot, `boot_state`, previous slot, rollback count, generation) and one slot descriptor per slot *(§7.1)* | Written during OTA commit and on every trial transition |
+| Slot A (firmware) | `0x0800_6000` | `0x0807_DFFF` | 480 KB | 240 × 2 KB | Active or inactive firmware image; XIP. Entirely in hardware bank 1 | Written during OTA |
+| *(reserved)* | `0x0807_E000` | `0x0807_FFFF` | 8 KB | 4 × 2 KB | Bank 1 remainder; also the bring-up scratch region for the flash driver | — |
+| Slot B (firmware) | `0x0808_0000` | `0x080F_7FFF` | 480 KB | 240 × 2 KB | Active or inactive firmware image; XIP. Entirely in hardware bank 2 *(D42)* | Written during OTA |
+| *(reserved)* | `0x080F_8000` | `0x080F_FFFF` | 32 KB | 16 × 2 KB | Future expansion (extended metadata, factory area, etc.); bring-up scratch region for the flash driver | — |
 
-**Total:** 16 + 8 + 480 + 480 + 40 = 1024 KB = 1 MB ✓
+**Slots versus hardware banks.** The STM32L475VG on-chip flash is two 512 KB *hardware banks*
+(bank 2 starts at `0x0808_0000`), and read-while-write is possible only **across** banks. Each
+firmware *slot* therefore sits entirely inside one bank: Slot A in bank 1 and Slot B in bank 2
+*(D42)*. The running image never shares a bank with the slot being installed, so a ~10 s
+installation does not stall the CPU's own flash fetches. Because the slots are execute-in-place and
+not position-independent, **each release produces two signed images**, one linked for Slot A and one
+for Slot B; the signed header carries the load address and the installer rejects an image linked for
+the wrong slot.
+
+**Total:** 16 + 8 + 480 + 8 + 480 + 32 = 1024 KB = 1 MB ✓
 
 ### 5.2 External QSPI flash *(8 MB)*
 
@@ -147,18 +157,22 @@ Firmware Update sub-machine).
 | `ConfigStore` | `0x9000_0000` | `0x9000_FFFF` | 64 KB | Operational config + `DeviceProfileRegistry` profiles *(D17, D18)* | A/B sector rotation (§6.1) |
 | `CertStore` | `0x9001_0000` | `0x9001_FFFF` | 64 KB | X.509 client certificates and private keys *(CON-006, REQ-NF-302)*; one slot per provisioned device identity | Write-once; re-provisioned by secure channel only |
 | `CircularFlashLog` | `0x9002_0000` | `0x9011_FFFF` | 1 MB | Diagnostic log ring buffer (REQ-NF-500 series); also the non-volatile backing store for `StoreAndForward` during cloud outages (REQ-BF-000..-020, REQ-NF-407) | Circular overwrite (§6.2) |
-| OTA staging | `0x9012_0000` | `0x9051_FFFF` | 4 MB | Download buffer for OTA images; allows the full image to be received, validated, and signature-checked before any on-chip write to Bank B | Erased per OTA cycle |
+| OTA staging | `0x9012_0000` | `0x9051_FFFF` | 4 MB | Download buffer for OTA images; allows the full image to be received, validated, and signature-checked before any on-chip write to Slot B | Erased per OTA cycle |
 | *(reserved)* | `0x9052_0000` | `0x907F_FFFF` | ~2.75 MB | Future use | — |
 
 The OTA staging region is retained to support resumable downloads
 (if the connection drops mid-OTA, the staged bytes survive a reboot)
 and to allow full-image signature verification on QSPI before any
 on-chip write is made. This avoids a partial-write failure mode in
-which Bank B is corrupted by an interrupted streaming write *(D41)*.
+which Slot B is corrupted by an interrupted streaming write *(D41)*.
 
 ### 5.3 Gateway partition diagram
 
 ![Flash layout — Gateway](../diagrams/flash-layout-gateway.png)
+
+*The diagram predates D42: it still shows the previous Slot B address and a single
+metadata block. The tables above are authoritative; the image is to be regenerated from
+the Visual Paradigm model (the same pending update as the `components.md` diagrams).*
 
 ---
 
@@ -217,7 +231,7 @@ cycles. At a 5× higher combined write rate (diagnostic logging and
 
 ### 6.3 Firmware banks — no wear concern
 
-Bank A and Bank B are written during OTA only, which occurs at most a
+Slot A and Slot B are written during OTA only, which occurs at most a
 few times per year per device. Even pessimistic endurance figures
 (10 000 cycles) far exceed the device lifetime.
 
@@ -234,32 +248,39 @@ pending_self_check flag, rollback count) to spread the wear *(D38)*.
 ## 7. Bootloader contract *(Gateway)*
 
 The secondary bootloader, occupying `0x0800_0000 – 0x0800_3FFF`,
-performs the following at every reset:
+performs the following at every reset. The sequence is driven by a `boot_state`
+field *(§7.1)*, not by a single flag: a flag cannot tell the **first** boot of a
+new image from a reboot **during** its self-check, so a bootloader built on one
+would roll back every update immediately.
 
-1. **Read the boot pointer** from metadata (`0x0800_4000`).
-2. **Verify the indicated bank's image header** — magic word, version,
-   image CRC32, signature (if signature verification is enabled in this
-   build). On failure: switch the boot pointer to the other bank, log a
-   rollback event in metadata, and reboot.
-3. **Check the `pending_self_check` flag.** If set, the bootloader
-   leaves it set and jumps to the indicated bank; the firmware is then
-   responsible for clearing the flag after a successful self-check
-   (SD-06d), or for triggering a rollback on failure.
+1. **Select the metadata record.** Read both copies; a copy is valid when its
+   magic, CRC32, bank values and state value are all legal. Use the valid copy
+   with the higher generation (copy A on a tie). If none is valid, see §7.2.
+2. **Apply the `boot_state` rule.**
 
-   **Rollback trigger protocol (step 3a).** Firmware signals a
-   self-check failure by performing a software reset
-   (`NVIC_SystemReset()`) *without* first clearing
-   `pending_self_check`. On the subsequent boot, the bootloader finds
-   `pending_self_check` still set, interprets this as a failed
-   self-check, increments the rollback count in metadata, switches the
-   active bank pointer to the other bank, and reboots. If the rollback
-   count reaches a configurable maximum, the bootloader halts in a safe
-   fault state rather than cycling indefinitely. This protocol is
-   aligned with the Firmware Update sub-machine in `state-machines.md`
-   (SD-06d).
+   | `boot_state` at reset | Bootloader action |
+   |---|---|
+   | `CONFIRMED` | Boot the active slot. |
+   | `TRIAL_PENDING` (the application armed a new image) | Write `TRIAL_RUNNING`, then boot the active slot. |
+   | `TRIAL_RUNNING` (the application never confirmed: crash, watchdog, power loss, or a self-check failure that reset) | Roll back: `active` = previous slot, `previous` = the failed slot, `ROLLED_BACK`, rollback count + 1; then boot. |
+   | `ROLLED_BACK` | Boot the active slot (the application acknowledges the rollback to the cloud). |
 
-4. **Jump to the indicated bank's reset vector** at `0x0800_6000`
-   (Bank A) or `0x0807_E000` (Bank B).
+3. **Verify the active slot's descriptor** *(§7.1)*: magic, CRC32, load address
+   equal to the slot base, and the CRC32 of the image body. If it fails and the
+   other slot's descriptor is valid, switch to it as `ROLLED_BACK` with the
+   rollback count incremented; otherwise halt in a safe fault state. If the
+   rollback count reaches a configurable maximum the bootloader also halts
+   rather than cycling indefinitely.
+
+   **Rollback trigger protocol (step 3a).** The application signals a failed
+   self-check by writing `ROLLED_BACK` itself (and then resetting); if it
+   crashes before doing so, step 2 performs the same rollback on the next boot.
+   Both routes converge on the same record. This protocol is aligned with the
+   Firmware Update sub-machine in `state-machines.md` (SD-06d).
+
+4. **Jump** to the reset vector of the active slot: the vector table sits at
+   the slot base (`0x0800_6000` for Slot A, `0x0808_0000` for Slot B), which is
+   also the value the application finds in `SCB->VTOR`.
 
 The bootloader never accepts firmware over a network interface. OTA is
 the application firmware's responsibility, using the OTA staging
@@ -268,55 +289,72 @@ only at boot.
 
 ### 7.1 Metadata partition layout
 
-The 8 KB metadata partition (4 × 2 KB sectors) is split into two
-zones: two sectors of A/B-rotated mutable fields, and two sectors of
-static image headers.
+The 8 KB metadata partition (4 × 2 KB pages) holds two A/B-rotated copies of the
+boot record and one descriptor page per slot. Every record is a multiple of
+8 bytes (double-word programming with ECC), the double word holding the CRC is
+programmed **last**, and all multi-byte fields are little-endian. The CRC is
+CRC-32/ISO-HDLC, the same routine as `ConfigStore`.
 
-**Physical sector map:**
+**Physical page map:**
 
-| Sector | Address range | Zone |
+| Page | Address range | Content |
 |---|---|---|
-| Sector 0 — Copy A | `0x0800_4000` – `0x0800_47FF` | Mutable fields, copy A |
-| Sector 1 — Copy B | `0x0800_4800` – `0x0800_4FFF` | Mutable fields, copy B |
-| Sectors 2–3 | `0x0800_5000` – `0x0800_5FFF` | Bank image headers (static) |
+| 0 — Copy A | `0x0800_4000` – `0x0800_47FF` | Boot record, copy A |
+| 1 — Copy B | `0x0800_4800` – `0x0800_4FFF` | Boot record, copy B |
+| 2 — Slot A descriptor | `0x0800_5000` – `0x0800_57FF` | Descriptor of Slot A |
+| 3 — Slot B descriptor | `0x0800_5800` – `0x0800_5FFF` | Descriptor of Slot B |
 
-The active copy is the one with the higher generation counter whose
-CRC32 is valid. On every metadata write, the writer: (1) reads the
-active copy; (2) erases the *other* sector; (3) writes the updated
-fields, increments the generation counter, then writes the CRC32 as
-the final field. This ordering ensures a partially-written copy is
-never chosen over a valid one.
+Each descriptor has its own page so that rewriting one never erases the other:
+with both in one page, updating Slot B's descriptor would erase Slot A's and a
+power loss would leave the running image without one.
 
-**Mutable-fields layout (Copy A and Copy B — identical structure):**
+The selected copy is the valid one with the higher generation. On every write the
+writer: (1) erases the copy that is **not** selected (copy A if neither is valid);
+(2) programs the record, CRC double word last; (3) reads it back and validates
+it. A failure leaves the selected copy untouched, so at every instant at least
+one valid copy names a slot whose descriptor was valid when the record was written.
 
-| Offset | Size | Field | Purpose |
-|---|---|---|---|
-| 0x0000 | 4 B | Magic word | Identifies a valid copy (`0xC0DE_BEEF`) |
-| 0x0004 | 1 B | Active bank | `0x0A` for Bank A, `0x0B` for Bank B |
-| 0x0005 | 1 B | `pending_self_check` flag | `0x01` if the active bank is post-OTA and awaiting self-check |
-| 0x0006 | 2 B | Reserved | Alignment padding |
-| 0x0008 | 4 B | Rollback count | Number of self-check failures since the last successful OTA commit |
-| 0x000C | 4 B | Generation counter | Monotonically increasing; governs copy selection alongside CRC validity |
-| 0x0010 | 4 B | CRC32 | Integrity check over preceding 16 bytes; written last in every commit |
-| 0x0014 | 2 KB − 0x0014 | Reserved | Future mutable fields |
-
-**Image header layout (Sectors 2–3, base `0x0800_5000`):**
+**Boot record (24 B, copies A and B — identical structure):**
 
 | Offset | Size | Field | Purpose |
 |---|---|---|---|
-| 0x0000 | 64 B | Bank A image header | Magic, version, image size, CRC32, signature |
-| 0x0040 | 64 B | Bank B image header | Magic, version, image size, CRC32, signature |
-| 0x0080 | 4 KB − 0x0080 | Reserved | Future image header fields |
+| 0x00 | 4 B | `magic` | `0xC0DE_BEEF` |
+| 0x04 | 1 B | `active_bank` | `0x0A` for Slot A, `0x0B` for Slot B |
+| 0x05 | 1 B | `boot_state` | `0x01` CONFIRMED · `0x02` TRIAL_PENDING · `0x03` TRIAL_RUNNING · `0x04` ROLLED_BACK |
+| 0x06 | 1 B | `previous_bank` | `0x0A` / `0x0B` |
+| 0x07 | 1 B | Reserved | `0xFF` |
+| 0x08 | 4 B | `rollback_count` | Incremented on every rollback |
+| 0x0C | 4 B | `generation` | Strictly increasing; selects the copy |
+| 0x10 | 4 B | `crc32` | Over bytes `0x00`–`0x0F`; programmed last |
+| 0x14 | 4 B | Pad | `0xFFFF_FFFF` |
 
-Image headers are written only on OTA commit and do not rotate.
+**Slot descriptor (32 B; present only once its slot is completely installed and checked):**
+
+| Offset | Size | Field |
+|---|---|---|
+| 0x00 | 4 B | `magic` = `0x4657_4453` |
+| 0x04 | 4 B | `image_len` |
+| 0x08 | 4 B | `version` |
+| 0x0C | 4 B | `load_addr` (must equal the slot base) |
+| 0x10 | 4 B | `body_crc32` (over the body as programmed) |
+| 0x14 | 4 B | Reserved, `0xFFFF_FFFF` |
+| 0x18 | 4 B | `desc_crc32` over bytes `0x00`–`0x17`; programmed last |
+| 0x1C | 4 B | Pad, `0xFFFF_FFFF` |
+
+The 128-byte signed image header is **not** stored on chip: the signature is
+verified in the QSPI staging area before anything is installed, and the
+descriptor records only what the bootloader needs to check integrity. The
+bitwise layout is `firmware_image_format.h`, shared with the bootloader.
+
+State transitions of the application side (`FirmwareStore`) and the bootloader
+side are specified in `docs/lld/middleware/firmware-store.md` §13.2.
 
 ### 7.2 Behaviour on uninitialised metadata
 
-The bootloader is robust to a blank or corrupted metadata partition:
-if the magic word does not match, the bootloader assumes Bank A holds
-the factory image, writes a fresh metadata block declaring Bank A
-active with `pending_self_check = 0`, and proceeds to boot Bank A.
-This handles the very first power-on after manufacturing.
+The bootloader is robust to a blank or corrupted metadata partition: if no copy
+is valid, it assumes Slot A holds the factory image and writes a fresh record
+declaring Slot A active, previous Slot B, `CONFIRMED`, generation 1, then proceeds
+to boot Slot A. This handles the very first power-on after manufacturing.
 
 ---
 
@@ -347,7 +385,8 @@ Summary of decisions appended to `hld.md` §15 (decisions log).
 | **D38** — Metadata partition uses A/B sector rotation for frequently updated fields | Spreads wear on the most write-hot fields; protects against power loss during metadata update |
 | **D39** — `ConfigStore` uses A/B sector rotation across two 32 KB slots | Doubles effective endurance per logical config; power-loss-safe (previous slot remains valid until new slot CRC-verified) |
 | **D40** — `CircularFlashLog` is a sector-wrap ring buffer with persistent head pointer | Continuous logging without endurance concern; head pointer in dedicated A/B-rotated sector |
-| **D41** — OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Bank B |
+| **D41** — OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Slot B |
+| **D42** — Gateway firmware slots are placed one per hardware bank (Slot B at `0x0808_0000`) | Read-while-write works only across the two 512 KB banks. With the previous Slot B at `0x0807_E000` it straddled both banks, including its vector table; installing into Slot A while running from Slot B would stall every fetch for ~22 ms per page erase, 240 times |
 
 ---
 
