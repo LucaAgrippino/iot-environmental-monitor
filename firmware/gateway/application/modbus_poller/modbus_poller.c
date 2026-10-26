@@ -344,6 +344,11 @@ modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_h
     return MODBUS_POLLER_ERR_OK;
 }
 
+bool modbus_poller_is_ready(void)
+{
+    return s_poller.initialised;
+}
+
 modbus_poller_err_t modbus_poller_send_command(const modbus_command_t *cmd)
 {
     if (!s_poller.initialised)

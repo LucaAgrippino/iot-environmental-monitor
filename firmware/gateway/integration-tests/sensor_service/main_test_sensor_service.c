@@ -39,6 +39,10 @@
  *   TC-HW-SS-009  With SensorTask suspended, 50 run_cycle() calls timed with the DWT counter:
  *                  worst case under 10 ms, a tenth of the period (SS-O4); SensorTask stack
  * high-water mark leaves at least 64 of 384 words free (SS-O9).
+ *   TC-HW-SS-010  sensor_service_reconfigure(): a bad configuration is rejected and changes
+ *                  nothing; a temperature range just below the live reading makes it invalid
+ *                  within 2 s on the real pipeline (the clamped sample then reaches the output
+ * through the IIR); restoring the defaults makes it valid again.
  *
  * Integration checklist:
  *   [ ] All TC-HW-SS pass, then watch the live lines:
@@ -89,7 +93,7 @@
 #define BRINGUP_UART_AF (7U)
 #define BRINGUP_TX_TIMEOUT_MS (100U)
 
-#define TEST_TASK_STACK_WORDS (512U)
+#define TEST_TASK_STACK_WORDS (768U) /* TC-HW-SS-010 holds a 480 B config struct and snapshots */
 #define TEST_TASK_PRIORITY (2U)
 
 #define READY_TIMEOUT_MS (3000U)
@@ -391,6 +395,59 @@ static void test_wcet_and_stack(void)
     bringup_pass("TC-HW-SS-009 cycle time within budget, stack margin adequate");
 }
 
+/* TC-HW-SS-010 */
+static config_params_t reconfigure_defaults(void)
+{
+    config_params_t p;
+
+    (void) memset(&p, 0, sizeof(p));
+    p.polling_interval_ms = 1000U; /* what the 10-cycle Group A period was before */
+    p.filter_alpha = 100U;
+    p.temp_range_min = -4000;
+    p.temp_range_max = 8500;
+    p.humidity_range_min = 0U;
+    p.humidity_range_max = 10000U;
+    p.pressure_range_min = 3000U;
+    p.pressure_range_max = 11000U;
+    return p;
+}
+
+static void test_reconfigure(void)
+{
+    static config_params_t p; /* 480 B: off the 3 KB test stack */
+
+    p = reconfigure_defaults();
+    const sensor_snapshot_t before = take_snapshot();
+    const int32_t temp_now = before.readings[SENSOR_ID_TEMPERATURE].value;
+
+    /* A bad configuration is refused as a whole. */
+    p.filter_alpha = 0U;
+    p.temp_range_max = (int16_t) (temp_now - 100);
+    expect_true("TC-HW-SS-010 a bad alpha was accepted",
+                sensor_service_reconfigure(&p) == SENSOR_SERVICE_ERR_INVALID_ARG);
+    vTaskDelay(pdMS_TO_TICKS(1500U));
+    expect_true("TC-HW-SS-010 a rejected configuration still took effect",
+                take_snapshot().readings[SENSOR_ID_TEMPERATURE].valid);
+
+    /* A valid one with the ceiling just under the live temperature. */
+    p.filter_alpha = 100U;
+    expect_true("TC-HW-SS-010 reconfigure refused a valid configuration",
+                sensor_service_reconfigure(&p) == SENSOR_SERVICE_ERR_OK);
+    vTaskDelay(pdMS_TO_TICKS(2000U));
+    const sensor_snapshot_t narrowed = take_snapshot();
+    expect_true("TC-HW-SS-010 temperature still valid above the new ceiling",
+                !narrowed.readings[SENSOR_ID_TEMPERATURE].valid);
+
+    /* Back to the defaults. */
+    p = reconfigure_defaults();
+    expect_true("TC-HW-SS-010 restoring the defaults failed",
+                sensor_service_reconfigure(&p) == SENSOR_SERVICE_ERR_OK);
+    vTaskDelay(pdMS_TO_TICKS(2500U));
+    expect_true("TC-HW-SS-010 temperature not valid again after the restore",
+                take_snapshot().readings[SENSOR_ID_TEMPERATURE].valid);
+    bringup_pass("TC-HW-SS-010 reconfigure: bad config refused, range applied live, restored");
+}
+
 /* Live line once a second so the operator can tilt, rotate and warm the board. */
 static void live_loop(void)
 {
@@ -435,6 +492,7 @@ static void test_task(void *arg)
     test_timestamps();
     test_alarm_states();
     test_health();
+    test_reconfigure();
     test_wcet_and_stack();
 
     bringup_puts("\r\n[PASS] All automated tests complete. Live snapshot follows.\r\n");
