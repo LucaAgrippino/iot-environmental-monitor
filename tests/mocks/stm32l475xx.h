@@ -29,6 +29,7 @@
 /*   CR       — CpuDriver (PLLON, PLLRDY, MSIPLLEN)                      */
 /*   CFGR     — CpuDriver (SW, SWS)                                       */
 /*   PLLCFGR  — CpuDriver (PLLSRC, PLLM, PLLN, PLLR, PLLREN)            */
+/*   CSR      — LifecycleController (RMVF, PINRSTF, BORRSTF, SFTRSTF, IWDGRSTF) */
 /* ====================================================================== */
 
 typedef struct
@@ -43,6 +44,7 @@ typedef struct
     volatile uint32_t PLLSAI1CFGR; /**< PLLSAI1 configuration register (MqttClient: 48 MHz RNG clock). */
     volatile uint32_t CCIPR;    /**< Peripherals independent clock configuration register (MqttClient: CLK48SEL). */
     volatile uint32_t AHB3ENR;  /**< AHB3 peripheral clock enable register (QspiFlashDriver: QSPIEN). */
+    volatile uint32_t CSR;      /**< Control/status register (LifecycleController: reset-cause flags). */
 } RCC_TypeDef;
 
 extern RCC_TypeDef g_mock_rcc_l4;
@@ -60,6 +62,18 @@ extern RCC_TypeDef g_mock_rcc_l4;
 #define RCC_CR_PLLSAI1ON      (1UL << RCC_CR_PLLSAI1ON_Pos)
 #define RCC_CR_PLLSAI1RDY_Pos (27U)
 #define RCC_CR_PLLSAI1RDY     (1UL << RCC_CR_PLLSAI1RDY_Pos)
+
+/* --- RCC_CSR bits (LifecycleController: reset-cause detection) -------- */
+#define RCC_CSR_RMVF_Pos     (23U)
+#define RCC_CSR_RMVF         (1UL << RCC_CSR_RMVF_Pos)
+#define RCC_CSR_PINRSTF_Pos  (26U)
+#define RCC_CSR_PINRSTF      (1UL << RCC_CSR_PINRSTF_Pos)
+#define RCC_CSR_BORRSTF_Pos  (27U)
+#define RCC_CSR_BORRSTF      (1UL << RCC_CSR_BORRSTF_Pos)
+#define RCC_CSR_SFTRSTF_Pos  (28U)
+#define RCC_CSR_SFTRSTF      (1UL << RCC_CSR_SFTRSTF_Pos)
+#define RCC_CSR_IWDGRSTF_Pos (29U)
+#define RCC_CSR_IWDGRSTF     (1UL << RCC_CSR_IWDGRSTF_Pos)
 
 /* --- RCC_CFGR bits (CpuDriver) --------------------------------------- */
 #define RCC_CFGR_SW_Pos     (0U)
