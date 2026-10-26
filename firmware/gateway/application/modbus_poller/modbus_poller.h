@@ -91,6 +91,19 @@ typedef struct
 modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_handle_t health);
 
 /**
+ * @brief Report whether modbus_poller_init() has succeeded.
+ *
+ * LifecycleController's SelfChecking probe (REQ-DM-040). "Ready" means initialised and able to
+ * accept commands; it does not mean a Field Device answers (the link may legitimately be down at
+ * boot) and it does not mean the task has started, because ModbusPollerTask waits on the start
+ * gate that opens only after this probe passes.
+ *
+ * @return true after a successful modbus_poller_init(); false before it or after a failed one.
+ * @note Threading: any task.
+ */
+bool modbus_poller_is_ready(void);
+
+/**
  * @brief Post a command for ModbusPoller to execute on behalf of the caller.
  *
  * Non-blocking.  The command is copied into the queue and executed before the
