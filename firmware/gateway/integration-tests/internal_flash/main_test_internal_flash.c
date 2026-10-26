@@ -24,11 +24,11 @@
  *   TC-HW-IFD-005  The same sequence on a bank-1 page.
  *   TC-HW-IFD-006  Erase every page of the bank-2 scratch region; all 0xFF.
  *   TC-HW-IFD-007  Cache coherence: read a programmed page twice, erase it, read again: 0xFF.
- *   TC-HW-IFD-008  A 1 kHz TIM7 interrupt while erasing a bank-2 page, then a bank-1 page;
- *                  the longest gap between interrupts is logged for each. The vector table,
- *                  the ISR and the polling loop are all in bank 1.
- *   TC-HW-IFD-008b The same with the instruction and data caches switched off, so that every
- *                  fetch must reach the flash. Logged, not asserted.
+ *   TC-HW-IFD-008  A 1 kHz TIM7 interrupt while erasing a bank-2 page, then a bank-1 page. The
+ *                  vector table, the ISR and the polling loop are all in bank 1, so erasing in
+ *                  bank 2 must not delay the interrupt (read-while-write) and erasing in bank 1
+ *                  must stall it for about one page erase (22 ms).
+ *   TC-HW-IFD-008b The same with the instruction and data caches switched off.
  *   TC-HW-IFD-009  Program 2 KB in each bank with the 1 kHz interrupt running: no error; time
  *                  and longest gap logged.
  *
@@ -67,6 +67,11 @@
 
 #define US_PER_S (1000000UL)
 #define GAP_TIMER_HZ (1000UL)
+
+/* Interrupt gaps: no stall is the 1 ms period plus jitter; a stall is one 22 ms page erase. */
+#define GAP_NO_STALL_US (3000UL)
+#define GAP_STALL_MIN_US (15000UL)
+#define GAP_STALL_MAX_US (30000UL)
 
 /* Scratch regions (flash-partition-layout.md §5, reserved). */
 #define SCRATCH_BANK1 (0x0807E000UL)
@@ -196,7 +201,10 @@ static void gap_timer_start(void)
 static void gap_reset(void)
 {
     s_gap_max_cycles = 0U;
-    s_gap_last = 0U;
+
+    /* Seed the previous sample with "now". Starting from zero would discard the first
+     * interrupt, and so hide a stall that begins right after the reset (the erase). */
+    s_gap_last = DWT->CYCCNT;
 }
 
 static uint32_t gap_max_us(void)
@@ -372,7 +380,11 @@ int main(void)
 
     report("  longest 1 kHz interrupt gap: erase in bank 2 = %lu us, in bank 1 = %lu us",
            gap_bank2_erase, gap_bank1_erase);
-    bringup_pass("TC-HW-IFD-008 gaps recorded");
+    check(gap_bank2_erase < GAP_NO_STALL_US,
+          "TC-HW-IFD-008 an erase in bank 2 delayed the interrupt");
+    check((gap_bank1_erase > GAP_STALL_MIN_US) && (gap_bank1_erase < GAP_STALL_MAX_US),
+          "TC-HW-IFD-008 an erase in bank 1 did not stall the interrupt for about one page erase");
+    bringup_pass("TC-HW-IFD-008 read-while-write across banks; a same-bank erase stalls fetches");
 
     /* TC-HW-IFD-008b: nothing is cached, so the fetches of the ISR and of the polling loop
      * must reach the flash. A fetch from the bank being erased waits for the erase. */
@@ -392,8 +404,10 @@ int main(void)
 
     report("  caches OFF, longest gap: erase in bank 2 = %lu us, in bank 1 = %lu us",
            gap_bank2_cold, gap_bank1_cold);
-    bringup_pass(
-        "TC-HW-IFD-008b recorded (no assertion: see IFD-O2 for how to read these figures)");
+    check(gap_bank2_cold < GAP_NO_STALL_US, "TC-HW-IFD-008b a bank-2 erase delayed the interrupt");
+    check((gap_bank1_cold > GAP_STALL_MIN_US) && (gap_bank1_cold < GAP_STALL_MAX_US),
+          "TC-HW-IFD-008b a bank-1 erase did not stall the interrupt for about one page erase");
+    bringup_pass("TC-HW-IFD-008b the same with both caches off");
 
     /* TC-HW-IFD-009 */
     fill_pattern(0x3AU);

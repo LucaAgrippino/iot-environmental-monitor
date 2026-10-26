@@ -160,14 +160,14 @@ No dynamic memory. One `bool` of state. Stack: a handful of locals, < 64 B.
 | `FLASH->ACR` | `ICEN`, `DCEN`, `ICRST`, `DCRST` for the cache flush |
 
 * The flash interface is always clocked: no `RCC` enable is needed (unlike a peripheral).
-* **Fetch stall.** The reference manual says that while a page erase or a program runs, an
-  instruction or data fetch from the **same bank** is stalled until it finishes, and a fetch from the
-  other bank continues. **Measured on the board (IFD-O2): no stall was observed**, with the vector
-  table, the ISR and the polling loop all in the bank being erased and with the caches both on
-  and off. The figure is a 1 kHz interrupt whose gap stayed at 1.0 ms during a 22 ms erase. It is
-  one hot, tiny ISR, not a proof for every code path; the design therefore still keeps the
-  target slot in the other bank from the running image (amendment A1) and treats the stall as
-  possible (FS-O10).
+* **Fetch stall.** While a page erase or a program runs, an instruction or data fetch from the
+  **same bank** is stalled until it finishes, and a fetch from the other bank continues
+  (read-while-write). **Confirmed on the board (IFD-O2):** with the vector table, the ISR and the
+  polling loop in bank 1, a 1 kHz interrupt keeps its 1 ms spacing while a page in bank 2 is erased,
+  and is delayed by 22.1 ms (one page erase) while a page in bank 1 is erased, with the caches on
+  and with both off. FirmwareStore therefore keeps the target slot in the other bank from the
+  running image (amendment A1); only the metadata and descriptor writes, which are in bank 1,
+  stall the running image (FS-O10).
 * The two stores of a double word must be consecutive. An interrupt between them can run a handler
   from the same bank, whose fetch would stall inside the programming sequence; hence the short
   `PRIMASK` window (IFD-D5).
@@ -249,7 +249,7 @@ Scratch regions only: `0x0807_E000–0x0807_FFFF` (bank 1, 8 KB) and `0x080F_800
 | TC-HW-IFD-005 | Same on a bank-1 scratch page | As 002–004 |
 | TC-HW-IFD-006 | Erase every page of the bank-2 scratch region | All erased; no error |
 | TC-HW-IFD-007 | Cache coherence: read the page (cached), erase it, read again | The second read is `0xFF`, not the old data |
-| TC-HW-IFD-008 | 1 kHz timer interrupt while erasing a bank-2 page, then a bank-1 page; then the same with both caches off (008b) | Recorded, not asserted: the reference manual predicts a stall in the same bank, and the result is IFD-O2 |
+| TC-HW-IFD-008 | 1 kHz timer interrupt while erasing a bank-2 page, then a bank-1 page; then the same with both caches off (008b) | Bank 2: gap < 3 ms (read-while-write). Bank 1: gap between 15 and 30 ms (one page erase) |
 | TC-HW-IFD-009 | Program a double word, with the program running with interrupts active | No `PGSERR`; time logged |
 
 ---
@@ -259,7 +259,7 @@ Scratch regions only: `0x0807_E000–0x0807_FFFF` (bank 1, 8 KB) and `0x080F_800
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
 | IFD-O1 | Erase and program times are datasheet figures | **Measured 2026-10-26:** page erase 22.10 ms (both banks); 2 KB program (256 double words) 22.26–22.27 ms, i.e. 87 µs per double word; both match the datasheet typicals. Feeds FS-O1: a 240-page install is about 240 × (22.1 + 22.3) ≈ 10.7 s | Closed |
-| IFD-O2 | Size of the fetch stall in the same bank, as seen by an interrupt | **Measured 2026-10-26** (TC-HW-IFD-008/008b): longest gap of a 1 kHz interrupt = 1000 µs while erasing a page in the bank that holds the vectors, the ISR and the polling loop, with the caches on and off, and 1000–1045 µs while programming 2 KB. The expected ~22 ms stall was **not observed**; the cause is not understood. Not proof for a cold or large ISR. Feeds FS-O10 | Open |
+| IFD-O2 | Size of the fetch stall in the same bank, as seen by an interrupt | **Measured 2026-10-26** (TC-HW-IFD-008/008b, repeated): longest gap of a 1 kHz interrupt = 1000 µs while erasing a page in bank 2, **22 092-22 097 µs (one page erase) while erasing a page in bank 1**, identical with the caches off; 1000-1042 µs while programming 2 KB in either bank (the stall is per double word, 87 µs). The datasheet behaviour is confirmed. *History:* a first run of this harness reported no stall; that was a bug in the gap meter, which discarded the first interrupt after each reset and so hid a stall that starts at the erase. Feeds FS-O10 | Closed |
 | IFD-O3 | The component is in `components.md` since 2026-10-26 (amendment A3); the Visual Paradigm model and the component diagram are not updated (FS-O11) | Update the VP model | Open |
 | IFD-O4 | The bootloader needs its own flash routines; sharing this driver's code is not decided | Bootloader LLD (FS-O7) | Open |
 
