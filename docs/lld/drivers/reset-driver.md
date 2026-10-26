@@ -1,10 +1,10 @@
 # ResetDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/reset-driver.md`
-**Version:** 0.1 (draft — pending Luca review)
+**Version:** 1.0 (implemented; hardware-validated 2026-10-26)
 **Board scope:** Gateway (B-L475E-IOT01A) only
 **Layer:** Driver
-**Status:** Draft
+**Status:** Implemented
 **Date:** May 2026
 
 **HLD anchor:** ResetDriver in `components.md` (GW driver layer)
@@ -198,7 +198,9 @@ Test file: `tests/drivers/test_reset_driver.c`.
 
 ## 8. Open items
 
-None. This driver has no unresolved dependencies. The implementation is complete at the companion stage — the code is one line plus a DSB.
+None.
+
+**Implementation notes (v1.0).** The function is `reset_trigger()` as in section 2.4; the names `reset_driver_trigger_reset` and `reset_driver_request_reset` in sections 3.4 and 5 are superseded. The module is `drivers/reset_driver/` with no vtable: LifecycleController reaches it through its own `lc_reset_driver_if_t` adapter. The data barrier and the reset go through `cpu/cpu_hw.h` (`CPU_HW_DATA_BARRIER`, `CPU_HW_SYSTEM_RESET`) so the host test can observe them. Bench: TC-HW-RST-001..004 PASS; the next boot reported `SFTRSTF`, the RTC backup register survived, `.bss` was re-zeroed. The test file is `tests/gateway/drivers/reset_driver/test_reset_driver.c` (the companion's `tests/drivers/` path is superseded). This driver has no unresolved dependencies. The implementation is complete at the companion stage — the code is one line plus a DSB.
 
 ---
 

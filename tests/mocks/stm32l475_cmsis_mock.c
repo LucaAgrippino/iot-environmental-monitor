@@ -146,6 +146,8 @@ uint32_t g_mock_nvic_priority[NVIC_IRQ_COUNT_MAX];
 uint32_t g_cpu_hw_disable_irq_count;
 uint32_t g_cpu_hw_breakpoint_count;
 uint32_t g_cpu_hw_system_reset_count;
+uint32_t g_cpu_hw_data_barrier_count;
+uint32_t g_cpu_hw_barriers_at_reset;
 
 
 /* ====================================================================== */
@@ -341,6 +343,8 @@ void stm32l475_cmsis_mock_reset(void)
     g_cpu_hw_disable_irq_count  = 0;
     g_cpu_hw_breakpoint_count   = 0;
     g_cpu_hw_system_reset_count = 0;
+    g_cpu_hw_data_barrier_count = 0;
+    g_cpu_hw_barriers_at_reset  = 0;
 }
 
 
@@ -387,9 +391,15 @@ void cpu_hw_breakpoint(void)
     g_cpu_hw_breakpoint_count++;
 }
 
+void cpu_hw_data_barrier(void)
+{
+    g_cpu_hw_data_barrier_count++;
+}
+
 void cpu_hw_system_reset(void)
 {
     g_cpu_hw_system_reset_count++;
+    g_cpu_hw_barriers_at_reset = g_cpu_hw_data_barrier_count;
 }
 
 

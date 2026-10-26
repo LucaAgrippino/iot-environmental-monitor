@@ -57,6 +57,7 @@
     - gateway/application/config_service/**
     - gateway/application/console_service/**
     - gateway/application/lifecycle_controller/**
+    - gateway/application/lifecycle_wiring/**
     - gateway/middleware/ntp_client/**
     - gateway/drivers/humidity_temp_driver/**
     - gateway/drivers/barometer_driver/**
@@ -84,6 +85,7 @@
     - ../firmware/gateway/application/config_service/**
     - ../firmware/gateway/application/console_service/**
     - ../firmware/gateway/application/lifecycle_controller/**
+    - ../firmware/gateway/application/lifecycle_wiring/**
     - ../firmware/gateway/application/device_profile_registry/**
     - ../firmware/gateway/middleware/ntp_client/**
     # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
@@ -206,6 +208,10 @@
     - BOARD_GATEWAY
     - TEST
   :test_lifecycle_controller:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_lifecycle_wiring:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST

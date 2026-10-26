@@ -834,14 +834,14 @@ void test_CP_T20_telemetry_converts_fixed_point_to_wire_units(void)
     char buf[512];
     modbus_poller_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
-    prv_set_reading(SENSOR_ID_TEMPERATURE, 2345);  /* 23.45 degC -> 235 deci-C (rounded) */
-    prv_set_reading(SENSOR_ID_HUMIDITY, 5049);     /* 50.49 %RH  -> 50                   */
-    prv_set_reading(SENSOR_ID_PRESSURE, 10132);    /* 1013.2 hPa -> 1013                 */
-    prv_set_reading(SENSOR_ID_GYRO_X, -1500);      /* mdps, passed through               */
+    prv_set_reading(SENSOR_ID_TEMPERATURE, 2345); /* 23.45 degC -> 235 deci-C (rounded) */
+    prv_set_reading(SENSOR_ID_HUMIDITY, 5049);    /* 50.49 %RH  -> 50                   */
+    prv_set_reading(SENSOR_ID_PRESSURE, 10132);   /* 1013.2 hPa -> 1013                 */
+    prv_set_reading(SENSOR_ID_GYRO_X, -1500);     /* mdps, passed through               */
     g_spy_snapshot.readings[SENSOR_ID_TEMPERATURE].timestamp.sync_state = TIME_SYNC_SYNCHRONISED;
 
-    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
-                                                               &fd, "SER"));
+    TEST_ASSERT_GREATER_THAN_UINT32(
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"temperature_deci_c\":235,"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"humidity_pct\":50,"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"pressure_hpa\":1013,"));
@@ -887,8 +887,8 @@ void test_CP_T27_invalid_channels_is_empty_when_all_valid(void)
         g_spy_snapshot.readings[i].valid = true;
     }
 
-    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
-                                                               &fd, "SER"));
+    TEST_ASSERT_GREATER_THAN_UINT32(
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[],"));
 }
 
@@ -898,8 +898,8 @@ void test_CP_T28_all_channels_invalid_fits_the_list_buffer(void)
     modbus_poller_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
 
-    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot,
-                                                               &fd, "SER"));
+    TEST_ASSERT_GREATER_THAN_UINT32(
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"mag_z_mgauss\"],"));
 }
 
@@ -1005,4 +1005,163 @@ void test_CP_T16_configurable_intervals(void)
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTimerChangePeriod_call_count);
     TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(30u * 1000u), g_mock_xTimerChangePeriod_last_period);
+}
+
+/* ======================================================================= */
+/* CP-T30..T42 - LifecycleController operations (CP-D16)                   */
+/* ======================================================================= */
+
+#define TC_FLUSH_REQUEST (1u << 6)
+#define TC_ROLLBACK_REPORT (1u << 7)
+
+static void prv_load_buffered_entry(void)
+{
+    saf_entry_t entry;
+
+    (void) memset(&entry, 0, sizeof(entry));
+    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX_LEN - 1u);
+    entry.len = 2u;
+    entry.qos = MQTT_QOS_0;
+    g_spy_saf_dequeue_entry = entry;
+    g_spy_saf_dequeue_return = SAF_ERR_OK;
+    g_spy_saf_dequeue_available = 1u;
+}
+
+void test_CP_T30_is_ready_is_false_for_null_and_before_create(void)
+{
+    TEST_ASSERT_FALSE(cloud_publisher_is_ready(NULL));
+}
+
+void test_CP_T31_is_ready_is_true_after_create_even_when_the_broker_is_down(void)
+{
+    g_spy_mqtt_is_connected_return = false;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_TRUE(cloud_publisher_is_ready(g_handle));
+}
+
+void test_CP_T32_flush_rejects_null(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_flush(NULL));
+}
+
+void test_CP_T33_flush_posts_the_flush_request_to_the_task(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_mock_xTaskNotify_call_count = 0u;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_flush(g_handle));
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_FLUSH_REQUEST, g_mock_xTaskNotify_last_value);
+    TEST_ASSERT_EQUAL(eSetBits, g_mock_xTaskNotify_last_action);
+}
+
+void test_CP_T34_flush_reports_a_notification_that_could_not_be_posted(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_mock_xTaskNotify_return = pdFALSE;
+    TEST_ASSERT_EQUAL(CP_ERR_NO_RESOURCE, cloud_publisher_flush(g_handle));
+}
+
+void test_CP_T35_the_task_drains_the_offline_buffer_on_a_flush_request(void)
+{
+    g_mock_xQueueReceive_available = 0u; /* no pending alarms: the flush drains an empty queue */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    prv_load_buffered_entry();
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+
+    g_mock_xTaskNotifyWait_next_value = TC_FLUSH_REQUEST;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_confirm_calls);
+}
+
+void test_CP_T36_a_flush_request_with_the_broker_down_leaves_the_buffer_alone(void)
+{
+    g_mock_xQueueReceive_available = 0u; /* no pending alarms: the flush drains an empty queue */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    prv_load_buffered_entry();
+    g_spy_mqtt_is_connected_return = false;
+
+    g_mock_xTaskNotifyWait_next_value = TC_FLUSH_REQUEST;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_dequeue_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T37_a_flush_request_publishes_pending_alarms_first(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+
+    cp_alarm_event_t ev;
+    prv_load_alarm_event(&ev);
+    g_mock_xQueueSend_last_item_size = sizeof(ev);
+    cloud_publisher_inject_alarm_for_test(g_handle, &ev);
+    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item, sizeof(ev));
+    g_mock_xQueueReceive_next_item_size = sizeof(ev);
+    g_mock_xQueueReceive_return = pdTRUE;
+    g_mock_xQueueReceive_available = 1u;
+    prv_load_buffered_entry();
+
+    g_mock_xTaskNotifyWait_next_value = TC_FLUSH_REQUEST;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_confirm_calls);
+}
+
+void test_CP_T38_report_rollback_result_rejects_null(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_report_rollback_result(NULL));
+}
+
+void test_CP_T39_report_rollback_result_posts_the_request_to_the_task(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_mock_xTaskNotify_call_count = 0u;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_report_rollback_result(g_handle));
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_ROLLBACK_REPORT, g_mock_xTaskNotify_last_value);
+}
+
+void test_CP_T40_the_task_publishes_the_rollback_result_at_qos1_when_connected(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+
+    g_mock_xTaskNotifyWait_next_value = TC_ROLLBACK_REPORT;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/results"));
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"result\":\"rolled_back\"}",
+                             g_spy_mqtt_publish_last_payload);
+}
+
+void test_CP_T41_the_rollback_result_is_buffered_when_the_broker_is_down(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_is_connected_return = false;
+
+    g_mock_xTaskNotifyWait_next_value = TC_ROLLBACK_REPORT;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/results"));
+}
+
+void test_CP_T42_the_notify_mask_clears_the_new_bits(void)
+{
+    g_mock_xQueueReceive_available = 0u; /* no pending alarms: the flush drains an empty queue */
+    /* A bit missing from the clear-on-exit mask would wake the task forever (see the comment on
+     * CP_NOTIFY_ALL_BITS). Both new bits must be consumed by one step. */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_mock_xTaskNotifyWait_next_value = TC_FLUSH_REQUEST | TC_ROLLBACK_REPORT;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotifyWait_next_value);
 }
