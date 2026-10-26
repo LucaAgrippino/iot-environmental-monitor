@@ -8,13 +8,18 @@ of a downloaded OTA image on QSPI, its authentication, installation into
 the inactive on-chip slot, and the boot-control metadata shared with the
 bootloader.
 
-**Version:** 0.2
+**Version:** 1.0
 **Date:** October 2026
-**Status:** Ready for code implementation — gated by the prerequisites in §4
+**Status:** Released — implemented and tested on the host (PR `feature/phase-4-gw-firmware_store`); on-target validation blocked on the §4 prerequisites
 
 **HLD anchor:** FirmwareStore in `components.md` (GW middleware layer);
 `flash-partition-layout.md` §5, §7; `state-machines.md` Machine 3;
 `sequence-diagrams.md` SD-00c, SD-06b, SD-06c, SD-06d.
+
+**Changes from v0.2:** implementation notes only; the design is unchanged. §1, §7.1 and §7.3
+(Logger, `get_boot_info` constness), §9 (failed `begin`), §21 (as-built file layout), §22 (delivered
+test suites) and §24 (FS-O4, FS-O6 and FS-O8 findings, FS-O11..O13, FS-D15..D19) were updated, and
+the status moved to Released.
 
 **Changes from v0.1:** full rewrite. v0.1 could not be implemented as
 written: on-chip flash access without a driver, a header layout whose
@@ -30,7 +35,7 @@ did not exist in the API. Decisions are logged in §24.
 | Field | Value |
 |---|---|
 | **Provides** | `IFirmwareImageStore` (consumer: UpdateService) · `IFirmwareBootControl` (consumers: UpdateService, LifecycleController) |
-| **Uses** | `IQspiFlash` (QspiFlashDriver) · `IInternalFlash` (InternalFlashDriver — **new, §4**) · `ILogger` · mbedTLS (SHA-256, ECDSA-P256 verify) behind a private seam (§21) |
+| **Uses** | `IQspiFlash` (QspiFlashDriver) · `IInternalFlash` (InternalFlashDriver — **new, §4**) · Logger (`LOG_*` macros; FS-D15) · mbedTLS (SHA-256, ECDSA-P256 verify) behind a private seam (§21) |
 | **Hosted in task** | Called from `UpdateServiceTask` (prio 1, 4 KB) and `LifecycleTask` (prio 1). No task of its own |
 | **Activation** | Synchronous calls only |
 | **Instances** | One (GW ADT convention with a static pool of size 1 — one set of physical partitions) |
@@ -266,7 +271,6 @@ typedef struct firmware_store firmware_store_t;   /* opaque */
 typedef struct {
     const iqspi_flash_t     *qspi;                /* staging            */
     const iinternal_flash_t *iflash;              /* slots + metadata   */
-    const ilogger_t         *log;
     uint32_t                 running_image_base;  /* VTOR value at boot (FS-O6) */
 } firmware_store_config_t;
 
@@ -308,7 +312,7 @@ void firmware_store_reset_for_test(void);
 
 | Function | Purpose | Allowed boot state | Result |
 |---|---|---|---|
-| `get_boot_info(self, firmware_boot_info_t *info_out)` | Report cached boot state; no flash access | any | — |
+| `get_boot_info(const self, firmware_boot_info_t *info_out)` | Report cached boot state; no flash access | any | — |
 | `confirm(self)` | Self-check passed | TRIAL_RUNNING (CONFIRMED → OK, no-op) | CONFIRMED; previous slot's descriptor erased |
 | `rollback(self)` | Self-check failed | TRIAL_RUNNING | `active = previous`, ROLLED_BACK, `rollback_count + 1` |
 | `acknowledge_rollback(self)` | Result reported to the cloud | ROLLED_BACK (CONFIRMED → OK, no-op) | CONFIRMED; failed slot's descriptor erased |
@@ -423,7 +427,7 @@ Op-state transitions:
 
 | From | Call | To | On error |
 |---|---|---|---|
-| any except ACTIVATED | `begin` | RECEIVING | unchanged |
+| any except ACTIVATED | `begin` | RECEIVING | IDLE if the journal was touched (FS-D17), else unchanged |
 | any except ACTIVATED | `resume` | RECEIVING / RECEIVED | unchanged (`NO_SESSION`) |
 | RECEIVING | `write_chunk` (last byte) | RECEIVED | IDLE (caller must `resume`) |
 | RECEIVED | `verify` | VERIFIED | RECEIVED |
@@ -712,46 +716,72 @@ floating point, no heap.
 
 ```
 firmware/gateway/middleware/firmware_store/
-├── firmware_store.h            create, config, error/types, ops externs, reset_for_test
+├── firmware_store.h            create, config, ops externs, reset_for_test
+├── firmware_store_types.h      error codes, enums, info structs (shared by both interface headers)
 ├── ifirmware_image_store.h     vtable only
 ├── ifirmware_boot_control.h    vtable only
 ├── firmware_image_format.h     §6 structs, magics, geometry, static asserts (bootloader will share)
-├── firmware_store.c            public API, op-state machine, mutex
-├── fs_metadata.c / .h          A/B metadata, descriptors, boot resolution  (private)
-├── fs_staging.c / .h           journal, lazy erase, checkpoints            (private)
-├── ota_crypto.c / .h           SHA-256 + ECDSA-P256 verify over mbedTLS     (private seam)
-└── ota_public_key.c            generated; 64 B release public key
+├── firmware_store.c            public API, op-state machine, verify, install, mutex
+├── fs_metadata.c / .h          on-chip flash access, A/B metadata, descriptors   (private)
+├── fs_staging.c / .h           QSPI access, journal, lazy erase, checkpoints     (private)
+├── ota_crypto_types.h          crypto seam types and prototypes (no mbedTLS types, no .c)
+├── ota_crypto.c / .h           SHA-256 + ECDSA-P256 verify over mbedTLS          (private seam)
+├── ota_public_key.c / .h       64 B release public key: committed as an all-zero placeholder
+└── (generated by tools/ota/make_image.py genkey: the real ota_public_key.c)
+
+firmware/gateway/drivers/internal_flash/
+└── iinternal_flash.h           IInternalFlash contract only; the driver is prerequisite P-1
 
 tools/ota/
-├── make_image.py               link-base check, header build, sign (Python `cryptography`)
+├── make_image.py               genkey, sign (link-base check), vectors (TEST ONLY)
 └── README.md                   key handling: release private key never in git
 
 tests/gateway/middleware/firmware_store/
-├── test_firmware_store.c       API, op states, install, boot control
-├── test_fs_staging.c           journal and resume
-├── test_fs_metadata.c          selection and write protocol
-├── test_fs_power_loss.c        cut-at-every-operation sweeps
-├── test_fs_crypto_vectors.c    real mbedTLS on host with generated vectors
+├── test_firmware_store.c       handle checks, verification, install, mutex, format      (31)
+├── test_fs_staging.c           download, journal, resume, discard                       (28)
+├── test_fs_metadata.c          boot resolution, metadata protocol, boot control, sim    (34)
+├── test_fs_power_loss.c        cut-at-every-operation sweeps                             (6)
+├── test_fs_crypto_vectors.c    real mbedTLS on host with generated vectors              (12)
+├── test_fs_crypto_placeholder.c the all-zero placeholder key fails closed                (3)
 ├── fakes/fake_qspi_flash.c     NOR semantics: erase→0xFF, program only clears bits
-├── fakes/fake_internal_flash.c ECC semantics: programming a non-erased double word fails; write-guard ranges
+├── fakes/fake_internal_flash.c ECC semantics: programming a non-erased double word fails; write guards; op log
 ├── fakes/power_cut.c           fail after N operations, leaving a torn write
+├── fakes/fake_ota_crypto.c     deterministic stand-in for the crypto seam
+├── fakes/fs_test_util.c        logger spy, seeding, drivers over the public API (no crypto)
+├── fakes/fs_test_image.c       signed-image builder using the fake crypto
 ├── sim/bootloader_sim.c        §13.2 bootloader rows
-└── vectors/test_key_*.pem, test_vectors.h   TEST ONLY key, generated by make_image.py
+├── mbedtls_host/               unity build of the mbedTLS sources + a minimal test config
+└── vectors/test_key_*.pem, test_vectors.h   TEST ONLY keys and images, generated by make_image.py
 
-firmware/gateway/integration-tests/firmware_store/   bring-up harness (Slot-A linked, P-3)
+firmware/gateway/integration-tests/firmware_store/   bring-up harness (Slot-A linked, P-1 and P-3)
 scripts/ota_feed.py             streams an image over the debug UART to the harness
 ```
 
+Tests run in `tests/project_gateway.yml` (not the default project): `config_store_crc.c` is shared
+with ConfigStore and the Gateway and Field Device ConfigStore share basenames. `test-module.sh`
+runs `test_firmware_store` only; the other five suites are run by name.
+
 **Fakes, not mocks, for flash.** A mock only checks call sequences. A
 fake with real NOR and ECC semantics catches whole classes of bugs, such
-as v0.1's in-place counter rewrite. CMock is still used for `ILogger`,
-FreeRTOS, and `ota_crypto` error injection.
+as v0.1's in-place counter rewrite. The crypto is a hand-written fake with
+error injection (`fake_ota_crypto`), and the Logger a spy; CMock is not used. FreeRTOS comes from
+the project mock.
 
 ---
 
 ## 22. Unit test plan (host)
 
 Each case runs after `firmware_store_reset_for_test()` and fresh fakes.
+
+**Delivered (v1.0):** all 70 cases below are implemented, as 114 test functions in six suites (§21),
+none ignored. Cases
+with a letter suffix (`TC-FS-023b`, `-031c` ...) are extra guards found while writing the test and
+trace to the same row. `TC-FS-M01..M05` cover the metadata write protocol of `fs_metadata.c` (§6.3),
+`TC-FS-C01..C06` and `C10..C12` the crypto seam itself (known-answer SHA-256, independently signed
+ECDSA vectors, degenerate signatures, the placeholder key). `TC-FS-041/044/045/046/047` run twice: with
+the fake crypto for the state flow, and with real mbedTLS in `test_fs_crypto_vectors.c`. The power-loss
+sweeps (`TC-FS-085..088`) cut at every mutating flash operation of the run and were checked against a
+mutant that overwrites the selected metadata copy: all four metadata sweeps fail on it.
 
 **Create and boot resolution**
 
@@ -867,6 +897,12 @@ Each case runs after `firmware_store_reset_for_test()` and fresh fakes.
 
 ## 23. Integration test plan (on target, Slot-A harness, P-3)
 
+**Status (v1.0):** the harness `integration-tests/firmware_store/main_test_firmware_store.c` and the
+host feeder `scripts/ota_feed.py` are written and the harness compiles for the target, but it
+**cannot link or run** until InternalFlashDriver (P-1) and the Slot-A link (P-3) exist (FS-O12).
+TC-HW-FS-006 is measured with a 1 kHz TIM7 interrupt instead of a logic analyser. None of the rows
+below has been executed.
+
 | TC | Setup | Pass criterion |
 |---|---|---|
 | TC-HW-FS-001 | Harness seeds CONFIRMED / active A; create | `get_boot_info` = capable, Slot A, CONFIRMED |
@@ -891,13 +927,16 @@ Each case runs after `firmware_store_reset_for_test()` and fresh fakes.
 | FS-O1 | Install time: estimated ~43 ms per page, ~10.3 s for 240 pages, from datasheet figures | Measure in TC-HW-FS-005 | Open |
 | FS-O2 | OTA public-key location | Compiled into the image (FS-D5) | **Closed** |
 | FS-O3 | Streaming hash buffer | Static 2 KB `s_work`; QSPI reads split by FirmwareStore | **Closed** |
-| FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | Check config at implementation; measure arena peak in TC-HW-FS-004 | Open |
+| FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | **Checked at implementation:** `mbedtls_config_gateway.h` has `MBEDTLS_ECP_C`, `MBEDTLS_ECP_DP_SECP256R1_ENABLED`, `MBEDTLS_SHA256_C`, `MBEDTLS_BIGNUM_C`, `MBEDTLS_ASN1_PARSE_C` and `MBEDTLS_ASN1_WRITE_C`, but **not `MBEDTLS_ECDSA_C`**, and no `MBEDTLS_MEMORY_BUFFER_ALLOC_C`. Enabling `MBEDTLS_ECDSA_C` in the TLS configuration is a prerequisite for linking `ota_crypto.c` (until then the module is excluded from the firmware image). The arena and its peak are still to be measured in TC-HW-FS-004 | Open |
 | FS-O5 | `verify` duration (target < 2 s) | Measure in TC-HW-FS-004 | Open |
-| FS-O6 | Source of `running_image_base`: CpuDriver accessor for VTOR, or the linker symbol of the vector table | Check CpuDriver at implementation; add an accessor if missing | Open |
+| FS-O6 | Source of `running_image_base`: CpuDriver accessor for VTOR, or the linker symbol of the vector table | **Checked at implementation:** `cpu.h` has no VTOR accessor. The harness reads `SCB->VTOR` directly; the real wiring (LifecycleController `main()`) must supply it, and a CpuDriver accessor is the cleaner home | Open |
 | FS-O7 | Bootloader not built: on-target swap, trial and rollback deferred | Bootloader component LLD (D36); reuse `firmware_image_format.h` and the §13.2 table | Open |
-| FS-O8 | Bind `IQspiFlash` names and its address convention for `FIRMWARE_STORE_STAGING_BASE` | Read `qspi_flash_driver.h` at implementation | Open |
+| FS-O8 | Bind `IQspiFlash` names and its address convention for `FIRMWARE_STORE_STAGING_BASE` | Bound to `iqspi_flash_t` (`read`, `write_page`, `erase_sector`) and the device-offset convention: `FIRMWARE_STORE_STAGING_BASE` = `0x0012_0000`, i.e. `0x9012_0000 − 0x9000_0000`, as ConfigStore does | **Closed** |
 | FS-O9 | Two signed images per release (one per slot) need two linker scripts and a build step | Bootloader/build LLD | Open |
 | FS-O10 | Fetch stall from metadata writes in hardware bank 1 while running from Slot A (≤ 3 per OTA) | Measure in TC-HW-FS-006; Modbus retries (REQ-MB-060) absorb one lost frame | Open |
+| FS-O11 | HLD amendments A1–A4 (§4.1) are **not applied**: `flash-partition-layout.md` §5.1/§7, `components.md`, `sequence-diagrams.md` and `state-machines.md` still show the old Slot B address, the `pending_self_check` byte and no InternalFlashDriver. The code follows this companion, not the HLD | Apply A1–A4 in the VP model and the HLD documents before the bootloader and InternalFlashDriver LLDs | Open |
+| FS-O12 | InternalFlashDriver (P-1), the per-call QSPI mutex (P-2, QSPID-O1) and the Slot-A linker script with a boot stub (P-3) do not exist. FirmwareStore is excluded from the firmware image (`.cproject`), its harness cannot link, and TC-HW-FS-001..009 are not run | Separate LLD and PR per prerequisite; then enable the module and run the harness | Open |
+| FS-O13 | No production caller: UpdateService and FirmwareStore wiring in LifecycleController (`get_boot_info` → `pending_self_check`, `pending_rollback`) are stand-ins | UpdateService implementation; LifecycleController adapter per §7.3 | Open |
 
 ### 24.2 Decisions
 
@@ -917,6 +956,11 @@ Each case runs after `firmware_store_reset_for_test()` and fresh fakes.
 | FS-D12 | Module mutex; QSPI lock inside the driver; lock order FS → QSPI | Two caller tasks; three QSPI users (closes CFL-O7 with P-2) |
 | FS-D13 | Not OTA-capable is a state, not a boot failure | The gateway keeps operating without OTA |
 | FS-D14 | `confirm` and `acknowledge_rollback` erase the descriptor of the slot left behind | Machine 3 Committed entry action; bootloader fallback can never boot a superseded or known-bad image |
+| FS-D15 | Logging uses the `LOG_*` macros of Logger; there is no `ilogger_t` in the repository and the `log` member of `firmware_store_config_t` is dropped. Flash failures are logged at the failing call with the address; other failures once, at the level of §19 | Logger is a cross-cutting component used directly (P4); an interface nobody else implements would only add a seam |
+| FS-D16 | `firmware_store_types.h` holds the error codes, enums and info structs; `ota_crypto_types.h` holds the crypto types and prototypes and has no matching `.c`; `ota_public_key.h` is a marker header | Two interface headers must share the types without including the creation API; Ceedling links a `.c` only when a test includes its header, so the real and fake crypto can each be selected by a test |
+| FS-D17 | A failed `begin` (journal erase, program or read-back) leaves the operation state IDLE, not unchanged as §9 said for v0.2 | The journal sector has already been erased, so an older RECEIVING session no longer exists; leaving it RECEIVING would accept chunks that no resume could find |
+| FS-D18 | `get_boot_info` takes `const firmware_store_t *self` | It is a pure query; the vtable type says so |
+| FS-D19 | The committed `ota_public_key.c` is an all-zero placeholder, which is not a point on P-256. `ota_ecdsa_p256_verify` then returns the library-failure result, and `verify` returns `CRYPTO`, never `SIG_INVALID`. No image can be installed until `make_image.py genkey` provisions a key. A failed mutex creation maps to `NO_INSTANCE` (the code list has no resource error) | Fail closed, and do not report an unprovisioned device as a forged image |
 
 ---
 
@@ -939,7 +983,7 @@ Each case runs after `firmware_store_reset_for_test()` and fresh fakes.
 | H-13 | SRS traces verified against section content | Done (§2) |
 | H-14 | Decisions logged with rationale | Done (§24.2) |
 | H-15 | On-flash formats with exact offsets and power-loss analysis | Done (§6, §14) |
-| H-16 | Blocking HLD amendments identified | Done (§4) — **to be applied before implementation** |
+| H-16 | Blocking HLD amendments identified | Done (§4). **Not yet applied** — FS-O11 |
 
 ---
 
