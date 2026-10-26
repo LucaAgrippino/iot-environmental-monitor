@@ -10,6 +10,8 @@
 
 #include "unity.h"
 
+#include "FreeRTOS.h"
+#include "freertos_mock.h" /* causes Ceedling to auto-link freertos_mock.c */
 #include "stm32l475_cmsis_mock.h"
 #include "stm32l475xx.h"
 
@@ -98,13 +100,16 @@ static void helper_init_driver(void)
 
 void setUp(void)
 {
+    mock_freertos_reset();
     stm32l475_cmsis_mock_reset();
     qspi_flash_reset_for_test();
     /* Companion §7.2 default: BUSY = 0, TCF = 1, FTF = 1 */
     g_mock_quadspi.SR = SR_IDLE_READY;
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 /* ====================================================================== */
 /* qspi_flash_init                                                        */
@@ -501,4 +506,147 @@ void test_qspi_flash_vtable_binds_public_functions(void)
     TEST_ASSERT_EQUAL_PTR(qspi_flash_read, qspi_flash_driver->read);
     TEST_ASSERT_EQUAL_PTR(qspi_flash_write_page, qspi_flash_driver->write_page);
     TEST_ASSERT_EQUAL_PTR(qspi_flash_erase_sector, qspi_flash_driver->erase_sector);
+}
+
+/* ====================================================================== */
+/* Mutex discipline (QSPID-O1, FirmwareStore FS-D12)                      */
+/* ====================================================================== */
+
+/** Mutex counters back to zero after the init helper. */
+static void helper_clear_mutex_counts(void)
+{
+    g_mock_xSemaphoreTake_call_count = 0U;
+    g_mock_xSemaphoreGive_call_count = 0U;
+}
+
+/* TC-QSPI-040 */
+void test_qspi_flash_init_reports_a_mutex_that_cannot_be_created(void)
+{
+    g_mock_xSemaphoreCreateMutexStatic_return = NULL;
+    helper_push_rdid();
+
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_MUTEX, qspi_flash_init());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_quadspi_ccr_count); /* the hardware was not touched */
+
+    /* The driver stays unusable, and a later init with a working kernel recovers. */
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED, qspi_flash_erase_sector(0x0000U));
+    g_mock_xSemaphoreCreateMutexStatic_return = (SemaphoreHandle_t) 1;
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, qspi_flash_init());
+}
+
+/* TC-QSPI-041 */
+void test_qspi_flash_each_operation_takes_and_gives_the_mutex_once(void)
+{
+    uint8_t buf[8];
+    const uint8_t data[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    helper_init_driver();
+    helper_clear_mutex_counts();
+
+    for (uint32_t i = 0U; i < sizeof(buf); i++)
+    {
+        mock_quadspi_push_dr(0xA0U);
+    }
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, qspi_flash_read(0x0000U, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xSemaphoreGive_call_count);
+
+    mock_quadspi_push_dr(0x00U);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, qspi_flash_write_page(0x0000U, data, sizeof(data)));
+    TEST_ASSERT_EQUAL_UINT32(2U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(2U, g_mock_xSemaphoreGive_call_count);
+
+    mock_quadspi_push_dr(0x00U);
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, qspi_flash_erase_sector(0x1000U));
+    TEST_ASSERT_EQUAL_UINT32(3U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(3U, g_mock_xSemaphoreGive_call_count);
+}
+
+/* TC-QSPI-042 */
+void test_qspi_flash_the_mutex_is_released_on_every_error_path(void)
+{
+    uint8_t buf[8];
+    const uint8_t data[8] = {0};
+
+    helper_init_driver();
+    helper_clear_mutex_counts();
+
+    /* Argument errors found after the lock was taken. */
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NULL_POINTER, qspi_flash_read(0x0000U, NULL, 4U));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_LEN, qspi_flash_read(0x0000U, buf, 0U));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_ADDR, qspi_flash_erase_sector(QSPI_FLASH_DEVICE_SIZE_BYTES));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_LEN,
+                      qspi_flash_write_page(0x00F8U, data, sizeof(data) + 250U));
+
+    /* A peripheral that is busy. */
+    g_mock_quadspi.SR = SR_IDLE_READY | QUADSPI_SR_BUSY;
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_BUSY, qspi_flash_erase_sector(0x0000U));
+
+    TEST_ASSERT_EQUAL_UINT32(5U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(5U, g_mock_xSemaphoreGive_call_count);
+}
+
+/* TC-QSPI-043 */
+void test_qspi_flash_the_mutex_is_released_after_a_timeout(void)
+{
+    const uint8_t data[8] = {0};
+
+    helper_init_driver();
+    helper_clear_mutex_counts();
+
+    /* WIP never clears: the bounded poll gives up. */
+    for (uint32_t i = 0U; i < 400100U; i++)
+    {
+        mock_quadspi_push_dr(0x01U);
+    }
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_TIMEOUT, qspi_flash_write_page(0x0000U, data, sizeof(data)));
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xSemaphoreGive_call_count);
+}
+
+/* TC-QSPI-044 */
+void test_qspi_flash_an_uninitialised_driver_never_touches_the_mutex(void)
+{
+    uint8_t buf[4];
+    const uint8_t data[4] = {0};
+
+    helper_clear_mutex_counts();
+
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED, qspi_flash_read(0x0000U, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED,
+                      qspi_flash_write_page(0x0000U, data, sizeof(data)));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED, qspi_flash_erase_sector(0x0000U));
+
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xSemaphoreGive_call_count);
+}
+
+/* TC-QSPI-045 */
+void test_qspi_flash_a_mutex_that_cannot_be_taken_refuses_the_operation(void)
+{
+    uint8_t buf[4];
+
+    helper_init_driver();
+    helper_clear_mutex_counts();
+    g_mock_xSemaphoreTake_return = pdFALSE;
+
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_BUSY, qspi_flash_read(0x0000U, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_BUSY, qspi_flash_erase_sector(0x1000U));
+
+    /* Nothing ran unprotected, and nothing was given back that was never taken. */
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_quadspi_ccr_count);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xSemaphoreGive_call_count);
+}
+
+/* TC-QSPI-046 */
+void test_qspi_flash_init_is_idempotent_and_creates_the_mutex_only_once(void)
+{
+    helper_init_driver();
+    helper_clear_mutex_counts();
+
+    /* A second init returns at once: no hardware access, no lock. */
+    TEST_ASSERT_EQUAL(QSPI_FLASH_OK, qspi_flash_init());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_quadspi_ccr_count);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xSemaphoreTake_call_count);
 }
