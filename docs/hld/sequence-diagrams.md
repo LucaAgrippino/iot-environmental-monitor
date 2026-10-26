@@ -1119,31 +1119,31 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 
 #### Step 2 — Participants
 
-`UpdateService`, `FirmwareStore`, `QspiFlashDriver`, `ResetDriver`, `Bootloader`, `LifecycleController`.
+`UpdateService`, `FirmwareStore`, `InternalFlashDriver`, `ResetDriver`, `Bootloader`, `LifecycleController`.
 
 #### Step 3 — Message table
 
 | #   | From                  | To                  | Type   | Message text                              | Guard / fragment | Timing | Trace                |
 |-----|-----------------------|---------------------|--------|-------------------------------------------|------------------|--------|----------------------|
 | 1   | `UpdateService`       | `FirmwareStore`     | sync   | set boot bank to new                      |                  |        | DM-070, DM-074       |
-| 2   | `FirmwareStore`       | `QspiFlashDriver`   | sync   | write boot indicator                      |                  |        | DM-070               |
-| 3   | `QspiFlashDriver`     | `FirmwareStore`     | return | ok                                        |                  |        |                      |
-| 4   | `UpdateService`       | `FirmwareStore`     | sync   | set pending_self_check flag               |                  |        | DM-071               |
-| 5   | `FirmwareStore`       | `QspiFlashDriver`   | sync   | write flag                                |                  |        | DM-071               |
-| 6   | `QspiFlashDriver`     | `FirmwareStore`     | return | ok                                        |                  |        |                      |
+| 2   | `FirmwareStore`       | `InternalFlashDriver` | sync | write boot record: active slot = new      |                  |        | DM-070               |
+| 3   | `InternalFlashDriver` | `FirmwareStore`     | return | ok                                        |                  |        |                      |
+| 4   | `UpdateService`       | `FirmwareStore`     | sync   | arm trial (boot_state = TRIAL_PENDING); one `activate` call covers messages 1–6 |                  |        | DM-071               |
+| 5   | `FirmwareStore`       | `InternalFlashDriver` | sync | write boot record: boot_state = TRIAL_PENDING (the same record write as 2) |                  |        | DM-071               |
+| 6   | `InternalFlashDriver` | `FirmwareStore`     | return | ok                                        |                  |        |                      |
 | 7   | `UpdateService`       | `UpdateService`     | self   | transition Applying → (reset)             |                  |        | (state-machines.md §7.4) |
 | 8   | `UpdateService`       | `ResetDriver`       | sync   | trigger MCU reset                         |                  | recovery {≤ 5 s}: NF-203 | DM-070         |
 | —   |                       |                     |        | **── MCU reset; flow resumes after boot ──** | (lifeline discontinuity across all participants) | |    |
-| 9   | `Bootloader`          | `Bootloader`        | self   | check pending flags                       |                  |        | DM-073               |
+| 9   | `Bootloader`          | `Bootloader`        | self   | check boot_state; TRIAL_PENDING → TRIAL_RUNNING |                  |        | DM-073               |
 | 10  | `Bootloader`          | `Bootloader`        | self   | select new bank                           |                  |        | DM-070               |
 | 11  | `Bootloader`          | `LifecycleController` | async | jump to application reset vector         |                  |        |                      |
 | —   |                       |                     |        | **── Bootloader lifeline ends ──**        | (lifeline transition) |    |                      |
 | 12  | `LifecycleController` | `LifecycleController` | self | enter Init                                |                  |        | (state-machines.md §7.2) |
-| 13  | `LifecycleController` | `FirmwareStore`     | sync   | check pending flags                       |                  |        | DM-073               |
-| 14  | `FirmwareStore`       | `LifecycleController` | return | pending_self_check                      |                  |        |                      |
+| 13  | `LifecycleController` | `FirmwareStore`     | sync   | get boot info                             |                  |        | DM-073               |
+| 14  | `FirmwareStore`       | `LifecycleController` | return | boot_state = TRIAL_RUNNING (self-check pending) |                  |        |                      |
 | 15  | `LifecycleController` | `UpdateService`     | sync   | resume in SelfChecking                    |                  |        | (state-machines.md §7.4) |
 
-**UML note 1 (discontinuity convention):** *"The horizontal break across all lifelines after message 8 represents the MCU reset (REQ-NF-203 5 s recovery target). All in-RAM state is lost; only data persisted to QSPI flash (boot indicator, pending flags) survives."*
+**UML note 1 (discontinuity convention):** *"The horizontal break across all lifelines after message 8 represents the MCU reset (REQ-NF-203 5 s recovery target). All in-RAM state is lost; only data persisted to flash (the boot record on chip, the staged image on QSPI) survives."*
 
 **UML note 2 (dual-bank):** *"The previous firmware bank is retained (REQ-DM-073). If self-check fails (SD-06d rainy path), the rollback path triggers. Until commit, both banks remain valid."*
 
@@ -1163,7 +1163,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 
 #### Step 2 — Participants
 
-`UpdateService`, `SensorService`, `ModbusPoller`, `CloudPublisher`, `FirmwareStore`, `QspiFlashDriver`, `ResetDriver`, `Bootloader`, `LifecycleController`, `MqttClient`, `Logger`.
+`UpdateService`, `SensorService`, `ModbusPoller`, `CloudPublisher`, `FirmwareStore`, `InternalFlashDriver`, `ResetDriver`, `Bootloader`, `LifecycleController`, `MqttClient`, `Logger`.
 
 #### Step 3 — Message table
 
@@ -1179,21 +1179,21 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | —   |                       |                     |        |                                           | **alt**                                |                                   | DM-072, DM-073       |
 | —   |                       |                     |        |                                           | `[all probes ok]`                      |                                   |                      |
 | 8   |   `UpdateService`     | `FirmwareStore`     | sync   | mark new bank as committed                |                                        |                                   | DM-073               |
-| 9   |   `FirmwareStore`     | `QspiFlashDriver`   | sync   | clear pending_self_check; mark committed  |                                        |                                   | DM-073               |
+| 9   |   `FirmwareStore`     | `InternalFlashDriver` | sync | write boot record: CONFIRMED; erase the old slot's descriptor |                                        |                                   | DM-073               |
 | 10  |   `UpdateService`     | `UpdateService`     | self   | release lock; transition → Committed      |                                        |                                   | (state-machines.md §7.4) |
 | 11  |   `UpdateService`     | `CloudPublisher`    | sync   | report success                            |                                        |                                   | DM-055               |
 | 12  |   `CloudPublisher`    | `MqttClient`        | sync   | publish QoS 1 on result topic             |                                        |                                   | DM-055               |
 | —   |                       |                     |        |                                           | `[any probe failed]`                   |                                   |                      |
 | 8'  |   `UpdateService`     | `Logger`            | async  | log self-check failure                    |                                        |                                   | DM-053               |
 | 9'  |   `UpdateService`     | `FirmwareStore`     | sync   | set pending_rollback flag; restore old bank |                                      |                                   | DM-072               |
-| 10' |   `FirmwareStore`     | `QspiFlashDriver`   | sync   | write rollback flag; revert boot indicator |                                       |                                   | DM-072               |
+| 10' |   `FirmwareStore`     | `InternalFlashDriver` | sync | write boot record: ROLLED_BACK, active = previous slot |                                       |                                   | DM-072               |
 | 11' |   `UpdateService`     | `UpdateService`     | self   | transition SelfChecking → RollingBack     |                                        |                                   | (state-machines.md §7.4) |
 | 12' |   `UpdateService`     | `ResetDriver`       | sync   | trigger MCU reset                         |                                        | rollback total {≤ 10 s}: NF-204   | NF-204               |
 | —   |                       |                     |        | **── MCU reset; flow resumes after boot ──** | (lifeline discontinuity)            |                                   |                      |
 | 13' | `Bootloader`          | `Bootloader`        | self   | check pending flags; select previous bank |                                        |                                   | DM-072, DM-073       |
 | 14' | `Bootloader`          | `LifecycleController` | async | jump to application reset vector         |                                        |                                   |                      |
-| 15' | `LifecycleController` | `FirmwareStore`     | sync   | check pending flags                       |                                        |                                   |                      |
-| 16' | `FirmwareStore`       | `LifecycleController` | return | pending_rollback                        |                                        |                                   |                      |
+| 15' | `LifecycleController` | `FirmwareStore`     | sync   | get boot info                             |                                        |                                   |                      |
+| 16' | `FirmwareStore`       | `LifecycleController` | return | boot_state = ROLLED_BACK                |                                        |                                   |                      |
 | 17' | `LifecycleController` | `UpdateService`     | sync   | resume after rollback                     |                                        |                                   | DM-072               |
 | 18' | `UpdateService`       | `CloudPublisher`    | sync   | report rollback                           |                                        |                                   | DM-055               |
 | 19' | `CloudPublisher`      | `MqttClient`        | sync   | publish QoS 1 on result topic             |                                        |                                   | DM-055               |
@@ -1204,9 +1204,9 @@ The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand 
 
 **UML note 1 (serial probes, A4 / SD06-D7):** *"Probes are serial sync calls. Aggregate worst-case ~500 ms, well within REQ-NF-204's 10 s budget. Serialisation simplifies aggregation logic at no architectural cost; concurrent probing would require coordination primitives (event group / counting semaphore) that are not justified at this scale."*
 
-**UML note 2 (commit semantics):** *"Commit is atomic at the QSPI flash level: clearing `pending_self_check` and marking the bank committed are written in one journaled operation. If power is lost mid-commit, the flag remains set and `LifecycleController` re-enters SelfChecking on next boot — idempotent."*
+**UML note 2 (commit semantics):** *"Commit is atomic at the metadata level: one boot-record write sets CONFIRMED, to the copy that is not selected, so a power loss leaves the previous record valid. If power is lost before it, `boot_state` stays TRIAL_RUNNING and the bootloader rolls back (conservative); if after it but before the old descriptor is erased, the state is CONFIRMED and the stale descriptor is harmless."*
 
-**UML note 3 (rollback path):** *"Rollback reverts the boot indicator to the previous bank and triggers a second reset. Post-boot, `Bootloader` selects the previous bank, `LifecycleController` detects `pending_rollback` and resumes `UpdateService` to publish the rollback result. The previous firmware was retained per REQ-DM-073, so the system returns to a known-good state."*
+**UML note 3 (rollback path):** *"Rollback reverts the boot indicator to the previous bank and triggers a second reset. Post-boot, `Bootloader` boots the previous slot, `LifecycleController` sees `boot_state` = ROLLED_BACK and resumes `UpdateService` to publish the rollback result. The previous firmware was retained per REQ-DM-073, so the system returns to a known-good state."*
 
 ### 11.7 Traceability summary (SD-06 overall)
 
