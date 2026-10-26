@@ -3,12 +3,12 @@
  * @brief Hardware bring-up test for FirmwareStore (B-L475E-IOT01A, Gateway).
  *
  * NOT compiled by default, and CANNOT RUN YET. It is written against the contract in
- * docs/lld/middleware/firmware-store.md §23 and needs two things that do not exist:
- *   P-1  an InternalFlashDriver exporting `internal_flash_driver` (iinternal_flash.h);
+ * docs/lld/middleware/firmware-store.md §23. P-1 (the InternalFlashDriver,
+ * `internal_flash_driver`) now exists; it still needs:
  *   P-3  a Slot-A linker script and a boot stub at 0x0800_0000 that jumps to 0x0800_6000,
  *        so that this image runs from Slot A (VTOR = 0x0800_6000).
- * Until then it does not link. On an image that is not in a slot the harness reports that
- * FirmwareStore correctly refuses OTA (TC-HW-FS-001b) and stops.
+ * Call internal_flash_init() before firmware_store_create(). On an image that is not in a
+ * slot the harness reports that FirmwareStore correctly refuses OTA (TC-HW-FS-001b) and stops.
  *
  * To activate, in firmware/gateway/.cproject (bench-local, do not commit):
  *   1. Add cloud_publisher (the current harness) to the `excluding=` list of the
@@ -71,17 +71,12 @@
 #include "firmware_store/firmware_store.h"
 #include "gpio/gpio_driver.h"
 #include "internal_flash/iinternal_flash.h"
+#include "internal_flash/internal_flash.h"
 #include "qspi_flash/qspi_flash.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
 #endif
-
-/* ---------------------------------------------------------------------- */
-/* The driver this harness waits for (P-1)                                 */
-/* ---------------------------------------------------------------------- */
-
-extern const iinternal_flash_t *const internal_flash_driver;
 
 /* ---------------------------------------------------------------------- */
 /* Board constants                                                         */
@@ -509,6 +504,7 @@ int main(void)
     bringup_puts("===========================================\r\n\r\n");
 
     check(qspi_flash_init() == QSPI_FLASH_OK, "TC-HW-FS-001 qspi_flash_init failed");
+    check(internal_flash_init() == INTERNAL_FLASH_OK, "TC-HW-FS-001 internal_flash_init failed");
 
     const uint32_t running_base = SCB->VTOR;
     const firmware_store_config_t cfg = {

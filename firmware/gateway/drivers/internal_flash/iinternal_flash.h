@@ -2,9 +2,8 @@
  * @file iinternal_flash.h
  * @brief IInternalFlash — contract for the on-chip flash driver (Gateway).
  *
- * Interface header only. The InternalFlashDriver that implements it does not
- * exist yet (firmware-store.md §4.2, P-1); FirmwareStore is written and tested
- * against this contract, and the driver LLD finalises the names.
+ * Interface header of the InternalFlashDriver (docs/lld/drivers/internal-flash-driver.md),
+ * which implements it. FirmwareStore (firmware-store.md §4.2) is its consumer.
  *
  * The STM32L475VG on-chip flash is two 512 KB hardware banks (bank 2 starts at
  * 0x0808_0000). Read-while-write is possible only across banks, so the driver
@@ -33,7 +32,9 @@ typedef enum
     INTERNAL_FLASH_ERR_ALIGN = 3,        /**< Address or length violates the alignment rule. */
     INTERNAL_FLASH_ERR_ERASE = 4,        /**< The page erase failed.                        */
     INTERNAL_FLASH_ERR_PROGRAM =
-        5 /**< The programming failed (including a target that was not erased). */
+        5, /**< The programming failed (including a target that was not erased). */
+    INTERNAL_FLASH_ERR_NOT_INITIALISED = 6, /**< internal_flash_init() has not succeeded yet. */
+    INTERNAL_FLASH_ERR_BANK_MODE = 7        /**< The option bytes are not in dual-bank mode.  */
 } internal_flash_err_t;
 
 /**
