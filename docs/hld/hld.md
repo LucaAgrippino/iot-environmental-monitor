@@ -925,11 +925,12 @@ pointer swap, and self-check rollback.
 |---|---|---|
 | Bootloader | On-chip 0x0800_0000 | 16 KB |
 | Metadata | On-chip 0x0800_4000 | 8 KB |
-| Bank A (firmware) | On-chip 0x0800_6000 | 480 KB |
-| Bank B (firmware) | On-chip 0x0807_E000 | 480 KB |
+| Slot A (firmware) | On-chip 0x0800_6000 (hardware bank 1) | 480 KB |
+| Slot B (firmware) | On-chip 0x0808_0000 (hardware bank 2) *(D42)* | 480 KB |
 | `ConfigStore` | QSPI 0x9000_0000 | 64 KB |
-| `CircularFlashLog` | QSPI 0x9001_0000 | 1 MB |
-| OTA staging | QSPI 0x9011_0000 | 4 MB |
+| `CertStore` | QSPI 0x9001_0000 | 64 KB |
+| `CircularFlashLog` | QSPI 0x9002_0000 | 1 MB |
+| OTA staging | QSPI 0x9012_0000 | 4 MB |
 
 ![Flash layout — Gateway](../diagrams/flash-layout-gateway.png)
 
@@ -938,14 +939,14 @@ pointer swap, and self-check rollback.
 The custom secondary bootloader on the Gateway (16 KB at the reset
 vector) *(D36)* performs the following at every reset:
 
-1. Read the boot pointer from metadata.
-2. Verify the indicated bank's image header (magic, version, CRC,
-   signature). On failure: switch boot pointer to the other bank, log
-   rollback, reboot.
-3. Check the `pending_self_check` flag. If set, the firmware is
-   responsible for clearing it after a successful self-check (SD-06d)
-   or for triggering a rollback on failure.
-4. Jump to the indicated bank's reset vector.
+1. Select the valid metadata copy with the higher generation.
+2. Apply the `boot_state` rule: `TRIAL_PENDING` becomes `TRIAL_RUNNING`
+   and boots the new slot; a `TRIAL_RUNNING` found at reset means the
+   application never confirmed, so roll back to the previous slot.
+3. Verify the active slot's descriptor and body CRC32. On failure fall
+   back to the other slot if it is valid, else halt in a safe state. The
+   application confirms or rolls back after its self-check (SD-06d).
+4. Jump to the active slot's reset vector.
 
 The bootloader never accepts firmware over a network interface. OTA is
 the application firmware's responsibility, using the QSPI OTA staging
@@ -960,8 +961,8 @@ Full metadata layout in `flash-partition-layout.md` §7.1.
 - **`CircularFlashLog`** — sector-wrap ring buffer; persistent head
   pointer in dedicated A/B-rotated sector.
 - **Metadata partition** — A/B sector rotation for frequently updated
-  fields (active bank, flag, rollback count).
-- **Firmware banks** — no wear concern; OTA frequency is well below
+  fields (active slot, `boot_state`, rollback count).
+- **Firmware slots** — no wear concern; OTA frequency is well below
   flash endurance.
 
 ### 13.7 Architectural feedback from this phase
@@ -975,8 +976,8 @@ Three decisions worth highlighting (full set in §14):
 
 2. **OTA staging on QSPI retained** *(D41)* — enables resumable
    downloads and full-image signature verification before any on-chip
-   write to Bank B. Prevents partial-write corruption of the
-   destination bank.
+   write to the inactive slot. Prevents partial-write corruption of the
+   destination slot.
 
 3. **A/B rotation applied uniformly to all wear-hot partitions**
    *(D38, D39, D40)* — `ConfigStore`, metadata, and the log head
@@ -1077,7 +1078,8 @@ Decisions are labelled **D##** where a D## anchor exists in a companion document
 | **D38** | Metadata partition uses A/B sector rotation for frequently updated fields | Spreads wear on the most write-hot fields; protects against power loss during metadata update |
 | **D39** | `ConfigStore` uses A/B sector rotation across two 32 KB slots | Doubles effective endurance per logical config; power-loss-safe (previous slot remains valid until new slot CRC-verified) |
 | **D40** | `CircularFlashLog` is a sector-wrap ring buffer with persistent head pointer | Continuous logging without endurance concern; head pointer in dedicated A/B-rotated sector |
-| **D41** | OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Bank B |
+| **D41** | OTA staging region (4 MB QSPI) retained | Enables resumable downloads and full-image signature verification before any on-chip write; prevents partial-write corruption of Slot B |
+| **D42** | Gateway firmware slots are placed one per hardware bank (Slot B at `0x0808_0000`) | Read-while-write works only across the two 512 KB hardware banks; the previous layout put Slot B across both and stalled every flash fetch during an install (`flash-partition-layout.md` §5.1) |
 
 ### 14.2 Decisions rejected
 

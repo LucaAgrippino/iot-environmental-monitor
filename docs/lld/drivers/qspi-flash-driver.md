@@ -1,10 +1,10 @@
 # QspiFlashDriver — LLD Companion
 
 **Document:** `docs/lld/drivers/qspi-flash-driver.md`
-**Version:** 0.3 (Pass H complete — Gateway implemented)
+**Version:** 0.4 (Pass H complete — Gateway implemented; GW internal mutex added 2026-10-26)
 **Board scope:** Field Device (STM32F469, 16 MB) and Gateway (B-L475E-IOT01A, 8 MB MX25R6435F)
 **Layer:** Driver
-**Status:** Pass H complete — FD v1.0 implemented (2026-06), GW v1.0 implemented (2026-09-15)
+**Status:** Pass H complete — FD v1.0 implemented (2026-06), GW v1.0 implemented (2026-09-15), GW mutex (QSPID-O1) implemented and hardware-validated (2026-10-26)
 **Date:** May 2026 (Pass H September 2026)
 
 **HLD anchor:** QspiFlashDriver in `components.md` (FD + GW driver layer)
@@ -40,7 +40,7 @@
 | CircularFlashLog (GW) | CircularFlashLog | `0x9002_0000` – `0x9011_FFFF` | 1 MB |
 | FirmwareStore (GW) | OTA staging | `0x9012_0000` – `0x9051_FFFF` | 4 MB |
 
-**Critical concurrency finding:** On the Gateway, three independent middleware components call `QspiFlashDriver` from different tasks protected by different mutexes (`config_store_mutex`, `logger_mutex`). These mutexes are not aware of each other and cannot collectively prevent simultaneous QUADSPI peripheral access. This is a peripheral-level concurrency gap that must be resolved before implementation. Tracked as **QSPID-O1** (§8).
+**Concurrency finding (resolved 2026-10-26):** On the Gateway, three independent middleware components call `QspiFlashDriver` from different tasks protected by different mutexes (`config_store_mutex`, `logger_mutex`) that cannot collectively prevent simultaneous QUADSPI access. Resolved by a mutex inside the driver, taken per call (§3.3, QSPID-O1 closed, QSPID-D11).
 
 **Sequence diagram appearances:** `QspiFlashDriver` appears in SD-06b (OTA staging write), SD-06c (boot indicator write), and SD-06d (rollback flag write/revert). All three are synchronous calls from `FirmwareStore`.
 
@@ -50,7 +50,7 @@
 
 ### 2.1 Dependency-conformance check
 
-`qspi_flash_driver.h` includes only CMSIS device headers and `stdint.h`. No FreeRTOS headers. Confirmed clean.
+`qspi_flash_driver.h` includes only CMSIS device headers and `stdint.h`. No FreeRTOS headers in the public header. **Gateway:** since 2026-10-26 `qspi_flash.c` includes `FreeRTOS.h` and `semphr.h` for the per-call mutex (§3.3, QSPID-D11); `components.md` lists FreeRTOS in the Gateway driver's USES. The **Field Device** driver is unchanged and has no mutex.
 
 ### 2.2 P3 consideration
 
@@ -77,6 +77,7 @@ typedef enum {
     QSPI_FLASH_ERR_DEVICE  = 5, /**< RDID response does not match expected ID. */
     QSPI_FLASH_ERR_NOT_INITIALISED = 6, /**< qspi_flash_init() has not succeeded yet (QSPID-O7). */
     QSPI_FLASH_ERR_NULL_POINTER    = 7, /**< A required pointer argument was NULL (QSPID-O7). */
+    QSPI_FLASH_ERR_MUTEX           = 8, /**< GW: the driver's mutex could not be created by qspi_flash_init() (QSPID-D11). */
 } qspi_flash_err_t;
 ```
 
@@ -198,9 +199,11 @@ The flash device capacity differs per board (16 MB FD, 8 MB GW). `s_device_size`
 
 The driver uses QUADSPI **indirect mode** (FMODE = 00b for write/erase, FMODE = 01b for read) for all flash commands. Memory-mapped mode (FMODE = 11b) is not used — switching between indirect and memory-mapped requires aborting the controller, adding latency and complexity. Indirect mode provides the same byte-level access pattern that all middleware consumers need.
 
-### 3.3 Caller serialises
+### 3.3 Serialisation
 
-The driver has no internal synchronisation mechanism. Concurrent calls from different tasks result in QUADSPI register corruption. This is not an oversight — it is the established project convention (lld-methodology.md v1.1). The resolution for the Gateway multi-consumer case is a shared `qspi_flash_mutex` at the middleware caller layer. See **QSPID-O1** (§8).
+**Field Device:** the driver has no internal synchronisation; it has a single consumer (ConfigStore) and the caller serialises, as the project convention (lld-methodology.md v1.1) says.
+
+**Gateway (since 2026-10-26, QSPID-O1 closed):** three consumers (ConfigStore, CircularFlashLog, FirmwareStore) call the driver from different tasks under mutexes that know nothing of each other, and concurrent calls corrupt the QUADSPI registers. The driver therefore takes **its own** priority-inheritance mutex (statically allocated, created once in `qspi_flash_init()`) for the whole duration of every `read`, `write_page` and `erase_sector`, and gives it back on every path. Lock order is always *consumer mutex → QSPI mutex*; the QSPI mutex is the innermost lock, so no cycle exists. The longest hold is one sector erase (81 ms measured). An uninitialised driver has no mutex and refuses the call first; a mutex that cannot be created fails `qspi_flash_init()` with `QSPI_FLASH_ERR_MUTEX`; a failed take (not seen with `portMAX_DELAY`) is refused as `BUSY` rather than run unprotected. Taking a mutex before the scheduler starts is safe, which is how the bring-up harnesses use it. See QSPID-D11.
 
 ### 3.4 Standard SPI (1-1-1) for all commands
 
@@ -379,6 +382,7 @@ No new sequence diagrams are required for this driver.
 | `QSPI_FLASH_ERR_DEVICE` | Flash device absent or wrong. Log and halt — system cannot operate without flash |
 | `QSPI_FLASH_ERR_NOT_INITIALISED` | Caller bug — boot ordering error (driver used before `qspi_flash_init()`). Log and halt in DEBUG builds |
 | `QSPI_FLASH_ERR_NULL_POINTER` | Caller bug. Log and halt in DEBUG builds |
+| `QSPI_FLASH_ERR_MUTEX` *(GW)* | `qspi_flash_init()` could not create its mutex (static allocation, so only a kernel configuration fault). The driver stays uninitialised; boot fault |
 
 ---
 
@@ -457,6 +461,13 @@ Each test calls `qspi_flash_reset_for_test()` and `stm32_cmsis_mock_reset()` in 
 | TC-QSPI-033 | `test_qspi_flash_erase_sector_addr_exceeds_device` | Driver initialised. | Call `qspi_flash_erase_sector(QSPI_DEVICE_SIZE_BYTES)`. | Returns `QSPI_FLASH_ERR_ADDR`. |
 | TC-QSPI-034 | `test_qspi_flash_erase_sector_not_initialised` | Driver not initialised. | Call `qspi_flash_erase_sector(0x0000)`. | Returns `QSPI_FLASH_ERR_NOT_INITIALISED` (see QSPID-O7). |
 | TC-QSPI-035 | `test_qspi_flash_erase_sector_peripheral_busy` | Driver initialised. `SR.BUSY = 1`. | Call `qspi_flash_erase_sector(0x0000)`. | Returns `QSPI_FLASH_ERR_BUSY`. |
+| TC-QSPI-040 | `test_qspi_flash_init_reports_a_mutex_that_cannot_be_created` | Mutex creation returns NULL. | `qspi_flash_init()`. | `QSPI_FLASH_ERR_MUTEX`, hardware untouched, driver unusable; a later init with a working kernel succeeds. |
+| TC-QSPI-041 | `test_qspi_flash_each_operation_takes_and_gives_the_mutex_once` | Driver initialised. | One successful read, write_page, erase_sector. | Each takes and gives exactly once. |
+| TC-QSPI-042 | `test_qspi_flash_the_mutex_is_released_on_every_error_path` | Driver initialised. | Five calls ending in NULL, LEN, ADDR, LEN and BUSY errors. | Takes = gives = 5. |
+| TC-QSPI-043 | `test_qspi_flash_the_mutex_is_released_after_a_timeout` | WIP never clears. | `qspi_flash_write_page` → TIMEOUT. | Takes = gives = 1. |
+| TC-QSPI-044 | `test_qspi_flash_an_uninitialised_driver_never_touches_the_mutex` | Not initialised. | read, write_page, erase_sector. | `NOT_INITIALISED`; takes = gives = 0. |
+| TC-QSPI-045 | `test_qspi_flash_a_mutex_that_cannot_be_taken_refuses_the_operation` | Take returns `pdFALSE`. | read, erase_sector. | `BUSY`; no QUADSPI command; no give. |
+| TC-QSPI-046 | `test_qspi_flash_init_is_idempotent_and_creates_the_mutex_only_once` | Driver initialised. | `qspi_flash_init()` again. | OK; no hardware access, no lock. |
 
 **Error-code coverage cross-check**
 
@@ -540,7 +551,7 @@ bus — the first thing needed to diagnose a wrong or unpopulated part.
 
 | ID | Item | Owner | Resolution path |
 |---|---|---|---|
-| QSPID-O1 | **Peripheral-level concurrency gap (Gateway).** Three middleware consumers (`ConfigStore`, `CircularFlashLog`, `FirmwareStore`) access `QspiFlashDriver` from different tasks under independent mutexes. A shared `qspi_flash_mutex` must be acquired by all callers before calling any driver function. This mutex is a cross-cutting resource (not owned by any single middleware component). Resolution: add `qspi_flash_mutex` to the shared-resource locking table in `task-breakdown.md` §7 and initialise it in `main()`. All three consumers must acquire it before calling the driver. This is an HLD escalation — update `task-breakdown.md` and `lld.md` §5 (cross-cutting) accordingly. | Luca | Update `task-breakdown.md` §7 before implementing any of the three GW consumers |
+| QSPID-O1 | ~~Peripheral-level concurrency gap (Gateway).~~ **Closed 2026-10-26** — the driver takes its own mutex per call (§3.3, QSPID-D11). Validated on hardware by `firmware/gateway/integration-tests/qspi_flash_mutex`: four workers at two priorities plus a higher-priority reader, 48 erase/program/read-back rounds, 922 driver calls, up to 3 tasks inside the driver at once, **0 data errors**; the same harness against a driver with the mutex removed fails on all 48 rounds and 14 of 15 reader reads. | — | Closed |
 | QSPID-O2 | ~~QUADSPI clock prescaler.~~ **Resolved 2026-09-15** — GW HCLK is 80 MHz (CpuDriver); prescaler 2 → 26.67 MHz, bounded by the 33 MHz limit of the `READ 03h` opcode, not the 80 MHz `FAST_READ` figure (§4.2). FD: prescaler 2 → 60 MHz. | — | Closed |
 | QSPID-O3 | ~~Verify `QSPI_EXPECTED_RDID`.~~ **Closed 2026-09-16** — FD 0x20BA18 validated on hardware (v1.0, 2026-06); GW 0xC22817 **confirmed on silicon** by TC-HW-QSPI-001 on the B-L475E-IOT01A bench (§7.6). The part is populated and the QSPI lines are good. | — | Closed |
 | QSPID-O4 | WIP polling busy-waits during erase. **Measured 2026-09-16 (TC-HW-QSPI-010): sector erase 81 ms, page program 3181 us** — both well inside the ~500 ms bounded window, so there is no timeout risk, but an 81 ms spin blocks the calling task and every task at or below its priority for that whole time. Whether that is acceptable cannot be settled until a real consumer erases concurrently with other work: `CircularFlashLog` is the `StoreAndForward` backing store, so erases will land precisely during cloud outages, when alarms are being buffered against the REQ-NF-113 500 ms budget — an 81 ms spin is ~16% of it. Replacing the busy-wait with a `vTaskDelay(1)` loop would free the CPU but imports `task.h`, violating the driver convention. | Luca | Re-evaluate when `CircularFlashLog` lands; decide spin vs `vTaskDelay(1)` vs running erases on a low-priority task |
@@ -565,6 +576,7 @@ bus — the first thing needed to diagnose a wrong or unpopulated part.
 | QSPID-D7 | `QSPI_FLASH_ERR_DEVICE` on RDID mismatch | Catches wrong device at boot — board population error or open-circuit flash — before any data is written; fail-fast is the correct embedded behaviour |
 | QSPID-D8 | GW: `qspi_flash_hw.h` mockable indirection for CCR writes and byte-width DR access | Same pattern as `cpu_hw.h`. Lets host tests observe command *sequences* (WREN before PP) and drive multi-byte responses, which a last-value register mock cannot; zero cost in firmware builds (macros expand to direct accesses) |
 | QSPID-D9 | GW: every hardware wait is a bounded counter returning `ERR_TIMEOUT` | P8 — the FD v1.0 implementation has unbounded `while` loops on BUSY/FTF/TCF; a stuck peripheral would hang the calling task. Also makes TC-QSPI-003 (init timeout) testable |
+| QSPID-D11 | GW: the driver serialises itself with one internal priority-inheritance mutex taken per call, instead of a shared mutex acquired by every middleware caller | One place to get the lock right instead of three consumers that each have to remember it; the FirmwareStore LLD (FS-D12, P-2) already depended on it. Costs a FreeRTOS include in a driver, which `components.md` now permits for this driver. Supersedes the caller-layer `qspi_flash_mutex` of the original QSPID-O1 resolution (no `task-breakdown.md` §7 entry is needed) |
 | QSPID-D10 | GW: driver configures its own pins via CMSIS, not via GpioDriver | Keeps USES exactly `CMSIS` as in `components.md`; pinned by TC-QSPI-005. (SpiDriver GW chose the opposite — pins are main()'s job — which is also HLD-conformant; QSPI has a fixed single pin set so owning it in-driver is simpler) |
 
 ---
@@ -583,8 +595,8 @@ bus — the first thing needed to diagnose a wrong or unpopulated part.
 | H8 | Unit-test plan covers happy path + error cases | PASS — 27 TCs across 4 functions + vtable; all TC IDs implemented in `test_qspi_flash_gw.c` (27/27 green, 2026-09-15) |
 | H9 | Test file path follows Gateway folder convention | PASS — `tests/gateway/drivers/qspi_flash/test_qspi_flash_gw.c` |
 | H10 | P1–P10 compliance reviewed | PASS — §3.8 |
-| H11 | No FreeRTOS dependency | PASS — polling only, no ISR, no RTOS headers (§3.7, §4 NVIC) |
-| H12 | Thread safety documented | PASS — §3.3 caller serialises; GW shared mutex is QSPID-O1 (middleware/HLD scope) |
+| H11 | FreeRTOS dependency | FD: none (polling only, no ISR). GW: `semphr.h` for the per-call mutex only, permitted by `components.md` USES since 2026-10-26 (QSPID-D11) |
+| H12 | Thread safety documented | PASS — §3.3: FD caller serialises; GW driver-internal mutex, validated on hardware by `integration-tests/qspi_flash_mutex` (QSPID-O1 closed) |
 | H13 | `reset_for_test` hook specified | PASS — §7.2, implemented under `#ifdef TEST` |
 | H14 | Decisions log complete | PASS — 10 decisions |
 | H15 | Sequence integration traces to HLD SDs | PASS — §5 (SD-06b/c/d), with QSPID-O6 inconsistency flagged upward |
