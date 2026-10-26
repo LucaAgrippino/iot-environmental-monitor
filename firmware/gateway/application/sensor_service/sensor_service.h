@@ -22,6 +22,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config_service/config_params.h"  /* config_params_t */
 #include "health_monitor/health_monitor.h" /* health_monitor_handle_t, sensor_id_t */
 #include "time_provider/time_provider.h"
 
@@ -62,7 +63,8 @@ typedef enum
     SENSOR_SERVICE_ERR_OK = 0,
     SENSOR_SERVICE_ERR_NOT_INIT = 1,
     SENSOR_SERVICE_ERR_NULL_ARG = 2,
-    SENSOR_SERVICE_ERR_NO_SUB = 3, /**< Subscriber table full. */
+    SENSOR_SERVICE_ERR_NO_SUB = 3,      /**< Subscriber table full. */
+    SENSOR_SERVICE_ERR_INVALID_ARG = 4, /**< A configuration value is out of range. */
 } sensor_service_err_t;
 
 /* ======================================================================= */
@@ -91,6 +93,23 @@ typedef enum
  *       the scheduler starts.
  */
 sensor_service_err_t sensor_service_init(health_monitor_handle_t health);
+
+/**
+ * @brief Apply the sensor-related part of the configuration (SS-O6, SS-D20).
+ *
+ * Takes the IIR coefficient (per-mille), the plausibility ranges of temperature, humidity and
+ * pressure, and the polling interval, which sets how often the 1 Hz group (temperature, humidity,
+ * pressure) is read. The IMU and magnetometer ranges are full scales and are not configurable.
+ * The configuration is validated as a whole first; one bad value rejects all of it and changes
+ * nothing. Filter state is kept, so a new alpha takes effect from the next cycle.
+ *
+ * @param[in] params  Configuration, for example from IConfigProvider.get_params().
+ * @return SENSOR_SERVICE_ERR_OK; SENSOR_SERVICE_ERR_NOT_INIT; SENSOR_SERVICE_ERR_NULL_ARG;
+ *         SENSOR_SERVICE_ERR_INVALID_ARG if alpha is outside 1..999, the polling interval is
+ *         under one acquisition period, or a range has min >= max.
+ * @note Threading: any task; the update is made inside a critical section.
+ */
+sensor_service_err_t sensor_service_reconfigure(const config_params_t *params);
 
 /**
  * @brief Run one acquisition cycle.
@@ -164,6 +183,8 @@ typedef struct
     sensor_service_err_t (*read_on_demand)(void);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     bool (*is_ready)(void);
+    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    sensor_service_err_t (*reconfigure)(const config_params_t *params);
 } isensor_service_t;
 
 /** Singleton pointer to the SensorService vtable. */
@@ -174,7 +195,7 @@ extern const isensor_service_t *const sensor_service;
 void sensor_service_reset_for_test(void);
 
 /** @brief Seed the IIR coefficient as num/den (unit tests only). */
-void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den);
+void sensor_service_set_alpha_for_test(uint16_t num, uint16_t den);
 
 /** @brief Read Group A every @p cycles cycles instead of the default 10 (unit tests only). */
 void sensor_service_set_group_a_period_for_test(uint32_t cycles);
