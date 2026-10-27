@@ -22,7 +22,7 @@ updated, FS-O11).
 | USES (downward) | CMSIS (`FLASH` controller registers, `__get_PRIMASK`, `__disable_irq`) |
 | Root requirements | REQ-DM-070, REQ-DM-073, REQ-DM-074 (dual-bank scheme), REQ-NF-501 (no vendor headers above the driver layer) |
 | Board | Gateway only. The Field Device has no OTA |
-| Consumers | `FirmwareStore` (middleware) — the only runtime user (FS §16). The bootloader is a separate image with its own flash code |
+| Consumers | `FirmwareStore` (middleware) — the only runtime user (FS §16). The bootloader is a separate image that links this driver unchanged (bootloader.md BL-D1) |
 | Task context | Called under the FirmwareStore mutex from `UpdateServiceTask` and `LifecycleTask`. No ISR use |
 
 **Gateway ADT exception:** the Gateway default is the ADT pattern. This driver is a documented
@@ -261,7 +261,7 @@ Scratch regions only: `0x0807_E000–0x0807_FFFF` (bank 1, 8 KB) and `0x080F_800
 | IFD-O1 | Erase and program times are datasheet figures | **Measured 2026-10-26:** page erase 22.10 ms (both banks); 2 KB program (256 double words) 22.26–22.27 ms, i.e. 87 µs per double word; both match the datasheet typicals. Feeds FS-O1: a 240-page install is about 240 × (22.1 + 22.3) ≈ 10.7 s | Closed |
 | IFD-O2 | Size of the fetch stall in the same bank, as seen by an interrupt | **Measured 2026-10-26** (TC-HW-IFD-008/008b, repeated): longest gap of a 1 kHz interrupt = 1000 µs while erasing a page in bank 2, **22 092-22 097 µs (one page erase) while erasing a page in bank 1**, identical with the caches off; 1000-1042 µs while programming 2 KB in either bank (the stall is per double word, 87 µs). The datasheet behaviour is confirmed. *History:* a first run of this harness reported no stall; that was a bug in the gap meter, which discarded the first interrupt after each reset and so hid a stall that starts at the erase. Feeds FS-O10 | Closed |
 | IFD-O3 | The component is in `components.md` since 2026-10-26 (amendment A3); the Visual Paradigm model and the component diagram are not updated (FS-O11) | Update the VP model | Open |
-| IFD-O4 | The bootloader needs its own flash routines; sharing this driver's code is not decided | Bootloader LLD (FS-O7) | Open |
+| IFD-O4 | The bootloader needs its own flash routines; sharing this driver's code is not decided | **Decided 2026-10-27 (bootloader.md BL-D1):** the bootloader links `internal_flash.c` and uses it through `iinternal_flash_t`. It runs correctly at 48 MHz (2 WS) and from the same bank it erases and programs (TC-HW-BL-001..012) | Closed |
 
 ## 10. Decisions
 
