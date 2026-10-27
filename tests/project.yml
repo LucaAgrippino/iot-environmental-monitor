@@ -33,6 +33,7 @@
     - -:gateway/drivers/i2c/**
     - -:gateway/drivers/magnetometer_driver/**
     - -:gateway/drivers/imu_driver/**
+    - -:gateway/drivers/bootloader/**
     - gateway/middleware/circular_flash_log/**
     - gateway/middleware/mqtt_client/**
     - gateway/middleware/wifi_task/**

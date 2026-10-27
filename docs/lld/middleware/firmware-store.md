@@ -556,9 +556,12 @@ Erasing the descriptor of the slot being left behind follows Machine 3's
 Committed entry action ("invalidate the now-old bank"). The bootloader's
 fallback can then never boot a superseded or known-bad image.
 
-Until the bootloader component exists, these rows are exercised by a
-host-side bootloader simulator in the unit tests (TC-FS-090..092). The
-on-target swap test is deferred to the bootloader (FS-O7).
+The bootloader rows are implemented by `docs/lld/drivers/bootloader.md`
+(`firmware/gateway/bootloader/boot_core.c`), which the contract tests
+TC-BL-028..030 drive against this module's real code, and which was
+hardware-validated on 2026-10-27 (TC-HW-BL-001..012). The host-side simulator
+(TC-FS-090..092) remains as the second, independent statement of the table;
+TC-BL-030 proves the two choose the same slot in all 32 state/health combinations.
 
 ---
 
@@ -935,7 +938,7 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 | TC-HW-FS-007 | Image with one flipped body byte | `HASH_MISMATCH` |
 | TC-HW-FS-008 | Image linked for Slot A | `WRONG_SLOT` |
 | TC-HW-FS-009 | `activate`, then harness dumps both metadata copies over UART | TRIAL_PENDING, active = B, generation + 1, other copy intact |
-| TC-HW-FS-010 | *(deferred to bootloader, FS-O7)* Full swap, self-check pass/fail, crash during trial | Boots B, confirm/rollback as §13.2; rollback ≤ 10 s (NF-204) |
+| TC-HW-FS-010 | Full swap, self-check pass/fail, crash during trial | Boots B, confirm/rollback as §13.2; rollback ≤ 10 s (NF-204). **Bootloader side done 2026-10-27** (TC-HW-BL-003..006, -011, -012 on the board, with the application's half of the record protocol played by the bench harness). The run with the real FirmwareStore install → activate → confirm/rollback is still open: bootloader.md BL-O9 |
 
 ---
 
@@ -951,9 +954,9 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 | FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | **`MBEDTLS_ECDSA_C` is now enabled in `mbedtls_config_gateway.h`** (ECP, secp256r1, SHA-256, BIGNUM and the ASN.1 modules were already on; no ECDSA cipher suite is enabled, so the TLS handshake is unchanged) and the module links into a 116 KB image. **Still open:** the Gateway build has no `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena, so `verify` allocates from the heap, and verify has not been run while a TLS session is open | Open |
 | FS-O5 | `verify` duration (target < 2 s) | **Measured on the board (TC-HW-FS-004):** 1.32 s for the 480 KB maximum image (SHA-256 of the body plus one ECDSA-P256 verify, software mbedTLS); 0.32 s for a 6 KB image | Closed |
 | FS-O6 | Source of `running_image_base`: CpuDriver accessor for VTOR, or the linker symbol of the vector table | **`cpu_get_vector_table_base()` added to CpuDriver** (returns `SCB->VTOR`; 0 for a development image started from the flash alias). The wiring must pass its result as `running_image_base`; the bring-up harness already does | Closed |
-| FS-O7 | Bootloader not built: on-target swap, trial and rollback deferred | Bootloader component LLD (D36); reuse `firmware_image_format.h` and the §13.2 table | Open |
+| FS-O7 | Bootloader not built: on-target swap, trial and rollback deferred | **Built 2026-10-27:** `docs/lld/drivers/bootloader.md`, `firmware/gateway/bootloader/` (D36); reuses `firmware_image_format.h` and the §13.2 table. 12/12 hardware cases pass. Left over: the real-FirmwareStore on-target run (bootloader.md BL-O9) and the application-side ECC NMI handler (BL-O8) | Closed |
 | FS-O8 | Bind `IQspiFlash` names and its address convention for `FIRMWARE_STORE_STAGING_BASE` | Bound to `iqspi_flash_t` (`read`, `write_page`, `erase_sector`) and the device-offset convention: `FIRMWARE_STORE_STAGING_BASE` = `0x0012_0000`, i.e. `0x9012_0000 − 0x9000_0000`, as ConfigStore does | **Closed** |
-| FS-O9 | Two signed images per release (one per slot) need two linker scripts and a build step | Bootloader/build LLD | Open |
+| FS-O9 | Two signed images per release (one per slot) need two linker scripts and a build step | `STM32L475VGTX_SLOT_B.ld` now exists beside `_SLOT_A.ld` (added with the bootloader). The release build step that links and signs both is still open | Open |
 | FS-O10 | Fetch stall from metadata writes in hardware bank 1 while running from Slot A (≤ 3 per OTA) | **Measured on the board (TC-HW-FS-006, 1 kHz interrupt, gap meter validated against the InternalFlashDriver harness):** `install_begin` (descriptor erase) 22.1 ms and `activate` (metadata erase) 22.1 ms, both inside the 30 ms limit and stable over 5 + 1 runs; **the whole 240-page copy into bank 2 stalls nothing (worst gap 1000 µs over 11.96 s)**, confirming amendment A1. `confirm`, `rollback` and `acknowledge_rollback` are the same page erase in bank 1 but cannot be reached without a bootloader, so they are not measured. Modbus retries (REQ-MB-060) absorb one lost frame | Open (confirm/rollback unmeasured) |
 | FS-O11 | HLD amendments A1–A4 (§4.1) | **Applied to the HLD documents 2026-10-26** (branch `docs/hld-firmware-store-amendments`: `flash-partition-layout.md` §5.1/§7 and D42, `hld.md` §13 and D42, `components.md`, `sequence-diagrams.md` SD-06c/d, `state-machines.md` Machine 3). **Still open:** the Visual Paradigm model and the PNG diagrams generated from it | Update the VP model and regenerate the diagrams | Open |
 | FS-O12 | Prerequisites P-1, P-2 and P-3 | **All three now exist and are validated on the board:** P-1 InternalFlashDriver (`docs/lld/drivers/internal-flash-driver.md`), P-2 the per-call QSPI mutex (QspiFlashDriver, QSPID-O1 closed, contention-tested), P-3 `STM32L475VGTX_SLOT_A.ld`, `firmware/gateway/boot-stub/` and `scripts/build-slot-a.sh` (a full image runs from Slot A behind a 116-byte stub). FirmwareStore is still excluded from the default firmware image (`.cproject`) until it has a caller (FS-O13) | Closed |
