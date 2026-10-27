@@ -1011,10 +1011,10 @@ harness fakes that print the posted events.
 | US-O2 | Self-check cloud timeout of 60 s is provisional | Measure the reconnect time after boot (~12 s broker-drop recovery, ~4 s TLS measured for CloudPublisher) | Open |
 | US-O3 | Stall limit of 10 min is a design value, not an SRS figure | Review at system test | Open |
 | US-O4 | Self-check cannot prove the Field Device link (poller gated by the start gate); "no internet" rolls a good image back | Accepted per HLD; revisit if a field case appears | Open |
-| US-O5 | Broker policy for `/ota` and `/ota/data` (AWS IoT policy, Mosquitto ACL) | Write in `tools/ota/README.md` with `ota_server.py` | Open |
+| US-O5 | Broker policy for `/ota` and `/ota/data` (AWS IoT policy, Mosquitto ACL) | **Done 2026-10-27:** `tools/ota/README.md` (Mosquitto ACL and AWS IoT policy), with `scripts/ota_server.py` | Closed |
 | US-O6 | Stack: `verify` runs software ECDSA in this task; FS-O4 (mbedTLS heap, no static arena) is inherited, so REQ-NF-408 is not yet met for verify | Measure the high-water mark in TC-HW-US-001; FS-O4 resolution applies here | Open |
 | US-O7 | Full swap, trial and rollback on target need the bootloader | Bootloader LLD (FS-O7) | Open |
-| US-O8 | HLD amendments B1–B4 and the VP diagrams | Docs PR before or with the code PR | Open |
+| US-O8 | HLD amendments B1–B4 and the VP diagrams | **B1–B4 done 2026-10-27** (PR #104; `components.md`, `state-machines.md`, `sequence-diagrams.md`). CPC-1..6 done on `feature/phase-4-gw-cloud_publisher_ota` (cloud-publisher-lld.md CP-D17). The Visual Paradigm model and PNG diagrams are not updated | Partly closed |
 | v0.1 US-O1 | Watchdog during apply | Step-wise install with a yield (FS-D7) | **Closed** |
 | v0.1 US-O2 | `ILifecycle.get_self_check_result()` | UpdateService runs the probes itself (§13) | **Closed** |
 | v0.1 US-O3 | NVM region for UpdateService | Not needed (US-D3) | **Closed** |
