@@ -27,6 +27,7 @@
 #include "iupdate_service.h"
 #include "lifecycle_controller/ilifecycle.h"
 #include "update_service_types.h"
+#include "us_reason.h"
 
 /** @brief Everything UpdateService needs, bound by the wiring code (§7.1). */
 typedef struct
@@ -51,9 +52,6 @@ typedef struct
  */
 update_service_err_t update_service_create(const update_service_config_t *cfg,
                                            update_service_t **out);
-
-/** @brief Wire string of a reason (§8.4), for CloudPublisher; "" for US_REASON_NONE. */
-const char *update_service_reason_string(us_reason_t reason);
 
 extern const iupdate_service_t update_service_ops; /**< CloudPublisher.        */
 extern const iupdate_control_t update_control_ops; /**< LifecycleController.   */
