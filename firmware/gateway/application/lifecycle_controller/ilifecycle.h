@@ -80,7 +80,7 @@ typedef enum
 typedef struct
 {
     lifecycle_event_type_t type;
-    uint32_t param; /**< Fault code, OTA image size, ... */
+    uint32_t param; /**< Fault code, OTA job id, ... */
 } lifecycle_event_t;
 
 /** @brief Remote commands dispatched through handle_remote_command (§5.5). */

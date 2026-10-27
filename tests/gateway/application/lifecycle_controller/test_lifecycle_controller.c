@@ -41,7 +41,6 @@ typedef enum
     C_CLOUD_INIT,
     C_CLOUD_FLUSH,
     C_CLOUD_READY,
-    C_CLOUD_RBRES,
     C_POLL_INIT,
     C_POLL_READY,
     C_TIME_INIT,
@@ -167,7 +166,6 @@ SPY_STATUS(spy_con_init, C_CON_INIT)
 SPY_STATUS(spy_cloud_init, C_CLOUD_INIT)
 SPY_STATUS(spy_cloud_flush, C_CLOUD_FLUSH)
 SPY_READY(spy_cloud_ready, C_CLOUD_READY)
-SPY_STATUS(spy_cloud_rbres, C_CLOUD_RBRES)
 SPY_STATUS(spy_poll_init, C_POLL_INIT)
 SPY_READY(spy_poll_ready, C_POLL_READY)
 SPY_STATUS(spy_time_init, C_TIME_INIT)
@@ -244,10 +242,8 @@ static const lc_health_report_if_t k_health_report = {
     .init = spy_hr_init, .push_fault = spy_hr_fault, .update_lifecycle = spy_hr_life};
 static const lc_health_admin_if_t k_health_admin = {.reset_metrics = spy_ha_reset,
                                                     .set_led_fault = spy_ha_led};
-static const lc_cloud_if_t k_cloud = {.init = spy_cloud_init,
-                                      .flush = spy_cloud_flush,
-                                      .is_ready = spy_cloud_ready,
-                                      .report_rollback_result = spy_cloud_rbres};
+static const lc_cloud_if_t k_cloud = {
+    .init = spy_cloud_init, .flush = spy_cloud_flush, .is_ready = spy_cloud_ready};
 static const lc_modbus_poller_if_t k_poller = {.init = spy_poll_init, .is_ready = spy_poll_ready};
 static const lc_update_service_if_t k_update = {.init = spy_upd_init,
                                                 .start = spy_upd_start,
@@ -789,12 +785,13 @@ void test_LC_060_a_pending_rollback_resumes_after_it(void)
     TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_UPD_AFTER_RB]);
 }
 
-void test_LC_061_a_pending_rollback_reports_the_result_then_reaches_OPERATIONAL(void)
+void test_LC_061_a_pending_rollback_sends_no_report_itself_and_reaches_OPERATIONAL(void)
 {
+    /* UpdateService reports the rollback (US-D9, LCC-3): LifecycleController only resumes it. */
     g_flag_rollback = true;
     boot();
-    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_CLOUD_RBRES]);
-    TEST_ASSERT_TRUE(trace_index(C_UPD_AFTER_RB) < trace_index(C_CLOUD_RBRES));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_UPD_AFTER_RB]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_CLOUD_FLUSH]);
     TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
     TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_SENS_READY]);
 }
@@ -803,7 +800,6 @@ void test_LC_061b_failures_in_the_rollback_path_are_logged_not_fatal(void)
 {
     g_flag_rollback = true;
     g_status[C_UPD_AFTER_RB] = LC_DEP_FAIL;
-    g_status[C_CLOUD_RBRES] = LC_DEP_FAIL;
     boot();
     TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
 }
@@ -1244,6 +1240,103 @@ void test_LC_099b_a_restart_request_while_updating_is_ignored(void)
     step(LC_EVENT_RESTART_REQUESTED, 0U);
     TEST_ASSERT_EQUAL(LIFECYCLE_STATE_UPDATING_FW, lifecycle_controller->get_state());
     TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_CLOUD_FLUSH]);
+}
+
+/* ======================================================================= */
+/* TC-LC-100..103 — the UpdateService events (LCC-2)                         */
+/* ======================================================================= */
+
+void test_LC_100_OTA_FINISHED_while_updating_returns_to_OPERATIONAL(void)
+{
+    boot_updating(42U);
+    step(LC_EVENT_OTA_FINISHED, 42U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, g_life_seen[g_life_count - 1U]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_RESET]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_FW_ROLLBACK]);
+}
+
+void test_LC_100b_after_OTA_FINISHED_a_new_update_can_start(void)
+{
+    boot_updating(42U);
+    step(LC_EVENT_OTA_FINISHED, 42U);
+    step(LC_EVENT_OTA_REQUESTED, 43U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_UPDATING_FW, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(2U, g_calls[C_UPD_START]);
+    TEST_ASSERT_EQUAL_UINT32(43U, g_update_size_seen);
+}
+
+void test_LC_101_OTA_RESET_REQUESTED_flushes_waits_the_grace_period_then_resets(void)
+{
+    boot_updating(42U);
+    step(LC_EVENT_OTA_RESET_REQUESTED, 42U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_CLOUD_FLUSH]);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_vTaskDelay_call_count);
+    TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(LC_OTA_RESET_GRACE_MS), g_mock_vTaskDelay_last_ticks);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+    TEST_ASSERT_TRUE(trace_index(C_CLOUD_FLUSH) < trace_index(C_RESET));
+    /* The reset ends the state: it is left as it is. */
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_UPDATING_FW, lifecycle_controller->get_state());
+    /* The rollback path is not involved. */
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_FW_ROLLBACK]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_UPD_RB]);
+}
+
+void test_LC_101b_a_failing_flush_still_resets(void)
+{
+    boot_updating(42U);
+    g_status[C_CLOUD_FLUSH] = LC_DEP_FAIL;
+    step(LC_EVENT_OTA_RESET_REQUESTED, 42U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_CLOUD_FLUSH]);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+}
+
+void test_LC_102_the_rollback_path_has_no_grace_delay(void)
+{
+    boot_updating(42U);
+    step(LC_EVENT_SELF_CHECK_FAIL, 0U);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_vTaskDelay_call_count);
+}
+
+void test_LC_103_the_two_events_are_ignored_outside_UpdatingFirmware(void)
+{
+    /* Operational. */
+    boot_operational();
+    step(LC_EVENT_OTA_RESET_REQUESTED, 1U);
+    step(LC_EVENT_OTA_FINISHED, 1U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_RESET]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_CLOUD_FLUSH]);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_vTaskDelay_call_count);
+
+    /* EditingConfig. */
+    setUp();
+    boot_editing();
+    step(LC_EVENT_OTA_FINISHED, 1U);
+    step(LC_EVENT_OTA_RESET_REQUESTED, 1U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_EDITING_CONFIG, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_RESET]);
+
+    /* Restarting. */
+    setUp();
+    boot_restarting();
+    step(LC_EVENT_OTA_FINISHED, 1U);
+    step(LC_EVENT_OTA_RESET_REQUESTED, 1U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_RESTARTING, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_RESET]);
+}
+
+void test_LC_103b_the_two_events_are_ignored_while_Init_waits_for_the_verdict(void)
+{
+    g_flag_self_check = true;
+    boot();
+    step(LC_EVENT_OTA_FINISHED, 1U);
+    step(LC_EVENT_OTA_RESET_REQUESTED, 1U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_INIT, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_RESET]);
 }
 
 /* ======================================================================= */

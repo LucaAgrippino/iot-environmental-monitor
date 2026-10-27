@@ -113,8 +113,6 @@ typedef struct
     lc_dep_status_t (*flush)(void *ctx);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     bool (*is_ready)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
-    lc_dep_status_t (*report_rollback_result)(void *ctx);
 } lc_cloud_if_t;
 
 /** @brief IModbusPoller. */
@@ -145,7 +143,7 @@ typedef struct
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
-    lc_dep_status_t (*start)(void *ctx, uint32_t image_size);
+    lc_dep_status_t (*start)(void *ctx, uint32_t job);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*resume_self_checking)(void *ctx);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */

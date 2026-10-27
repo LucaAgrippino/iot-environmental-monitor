@@ -365,12 +365,6 @@ static bool fake_cloud_ready(void *ctx)
     return true;
 }
 
-static lc_dep_status_t fake_cloud_rbres(void *ctx)
-{
-    (void) ctx;
-    return LC_DEP_OK;
-}
-
 static lc_dep_status_t fake_poll_init(void *ctx)
 {
     (void) ctx;
@@ -399,10 +393,10 @@ static lc_dep_status_t fake_upd_init(void *ctx)
     return LC_DEP_OK;
 }
 
-static lc_dep_status_t fake_upd_start(void *ctx, uint32_t image_size)
+static lc_dep_status_t fake_upd_start(void *ctx, uint32_t job)
 {
     (void) ctx;
-    s_update_size_seen = image_size;
+    s_update_size_seen = job;
     fake_note(F_UPD_START);
     return LC_DEP_OK;
 }
@@ -528,10 +522,8 @@ static const lc_health_report_if_t k_health_report = {
     .init = hr_init, .push_fault = hr_push_fault, .update_lifecycle = hr_update_lifecycle};
 static const lc_health_admin_if_t k_health_admin = {.reset_metrics = ha_reset_metrics,
                                                     .set_led_fault = ha_set_led_fault};
-static const lc_cloud_if_t k_cloud = {.init = fake_cloud_init,
-                                      .flush = fake_cloud_flush,
-                                      .is_ready = fake_cloud_ready,
-                                      .report_rollback_result = fake_cloud_rbres};
+static const lc_cloud_if_t k_cloud = {
+    .init = fake_cloud_init, .flush = fake_cloud_flush, .is_ready = fake_cloud_ready};
 static const lc_modbus_poller_if_t k_poller = {.init = fake_poll_init, .is_ready = fake_poll_ready};
 static const lc_update_service_if_t k_update = {.init = fake_upd_init,
                                                 .start = fake_upd_start,
