@@ -131,9 +131,7 @@ const ialarm_service_t *const alarm_service = &s_alarm_vtable;
 
 static bool s_cloud_ready;
 static cloud_publisher_err_t s_cloud_flush_result;
-static cloud_publisher_err_t s_cloud_rollback_result;
 static uint32_t s_cloud_flush_calls;
-static uint32_t s_cloud_rollback_calls;
 static cloud_publisher_handle_t s_cloud_handle_seen;
 
 bool cloud_publisher_is_ready(cloud_publisher_handle_t handle)
@@ -147,13 +145,6 @@ cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle)
     s_cloud_handle_seen = handle;
     s_cloud_flush_calls++;
     return s_cloud_flush_result;
-}
-
-cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_handle_t handle)
-{
-    s_cloud_handle_seen = handle;
-    s_cloud_rollback_calls++;
-    return s_cloud_rollback_result;
 }
 
 static modbus_poller_err_t s_poller_init_result;
@@ -243,6 +234,131 @@ health_monitor_err_t health_monitor_set_led_fault(health_monitor_handle_t handle
 static lifecycle_wiring_config_t s_config;
 static lifecycle_deps_t s_deps;
 
+/* ===================================================================== */
+/* OTA spies: the UpdateService and FirmwareStore vtables                */
+/* ===================================================================== */
+
+#define OTA_FS_HANDLE ((firmware_store_t *) 0x3000)
+#define OTA_US_HANDLE ((update_service_t *) 0x3100)
+
+static bool s_ota_created;
+static update_service_err_t s_ota_start_result;
+static update_service_err_t s_ota_selfcheck_result;
+static update_service_err_t s_ota_rollback_result;
+static update_service_err_t s_ota_after_rollback_result;
+static uint32_t s_ota_start_calls;
+static uint32_t s_ota_job_seen;
+static uint32_t s_ota_selfcheck_calls;
+static uint32_t s_ota_rollback_calls;
+static uint32_t s_ota_after_rollback_calls;
+static const update_service_t *s_ota_us_seen;
+
+static firmware_store_err_t s_fw_info_result;
+static firmware_boot_info_t s_fw_info;
+static firmware_store_err_t s_fw_confirm_result;
+static firmware_store_err_t s_fw_rollback_result;
+static uint32_t s_fw_confirm_calls;
+static uint32_t s_fw_rollback_calls;
+static const firmware_store_t *s_fw_seen;
+
+static bool ota_is_created(const update_service_t *self)
+{
+    s_ota_us_seen = self;
+    return s_ota_created;
+}
+
+static update_service_err_t ota_start(update_service_t *self, uint32_t job)
+{
+    s_ota_us_seen = self;
+    s_ota_start_calls++;
+    s_ota_job_seen = job;
+    return s_ota_start_result;
+}
+
+static update_service_err_t ota_selfcheck(update_service_t *self)
+{
+    s_ota_us_seen = self;
+    s_ota_selfcheck_calls++;
+    return s_ota_selfcheck_result;
+}
+
+static update_service_err_t ota_rollback(update_service_t *self)
+{
+    s_ota_us_seen = self;
+    s_ota_rollback_calls++;
+    return s_ota_rollback_result;
+}
+
+static update_service_err_t ota_after_rollback(update_service_t *self)
+{
+    s_ota_us_seen = self;
+    s_ota_after_rollback_calls++;
+    return s_ota_after_rollback_result;
+}
+
+static const iupdate_control_t k_spy_update = {.is_created = ota_is_created,
+                                               .start = ota_start,
+                                               .resume_self_checking = ota_selfcheck,
+                                               .resume_rollback = ota_rollback,
+                                               .resume_after_rollback = ota_after_rollback};
+
+static firmware_store_err_t fw_get_info(const firmware_store_t *self, firmware_boot_info_t *out)
+{
+    s_fw_seen = self;
+    *out = s_fw_info;
+    return s_fw_info_result;
+}
+
+static firmware_store_err_t fw_confirm(firmware_store_t *self)
+{
+    s_fw_seen = self;
+    s_fw_confirm_calls++;
+    return s_fw_confirm_result;
+}
+
+static firmware_store_err_t fw_rollback(firmware_store_t *self)
+{
+    s_fw_seen = self;
+    s_fw_rollback_calls++;
+    return s_fw_rollback_result;
+}
+
+static const ifirmware_boot_control_t k_spy_firmware = {
+    .get_boot_info = fw_get_info, .confirm = fw_confirm, .rollback = fw_rollback};
+
+static void ota_spies_reset(void)
+{
+    s_ota_created = true;
+    s_ota_start_result = UPDATE_SERVICE_ERR_OK;
+    s_ota_selfcheck_result = UPDATE_SERVICE_ERR_OK;
+    s_ota_rollback_result = UPDATE_SERVICE_ERR_OK;
+    s_ota_after_rollback_result = UPDATE_SERVICE_ERR_OK;
+    s_ota_start_calls = 0U;
+    s_ota_job_seen = 0U;
+    s_ota_selfcheck_calls = 0U;
+    s_ota_rollback_calls = 0U;
+    s_ota_after_rollback_calls = 0U;
+    s_ota_us_seen = NULL;
+
+    s_fw_info_result = FIRMWARE_STORE_ERR_OK;
+    s_fw_info = (firmware_boot_info_t){
+        .ota_capable = true, .running_slot = FIRMWARE_SLOT_A, .state = FIRMWARE_BOOT_CONFIRMED};
+    s_fw_confirm_result = FIRMWARE_STORE_ERR_OK;
+    s_fw_rollback_result = FIRMWARE_STORE_ERR_OK;
+    s_fw_confirm_calls = 0U;
+    s_fw_rollback_calls = 0U;
+    s_fw_seen = NULL;
+}
+
+/** @brief The configuration with the OTA members set. */
+static void use_ota(void)
+{
+    s_config.update_ops = &k_spy_update;
+    s_config.update = OTA_US_HANDLE;
+    s_config.firmware_ops = &k_spy_firmware;
+    s_config.firmware = OTA_FS_HANDLE;
+}
+
 void setUp(void)
 {
     stm32l475_cmsis_mock_reset();
@@ -277,9 +393,8 @@ void setUp(void)
     s_alarm_state_result = ALARM_SERVICE_ERR_OK;
     s_cloud_ready = true;
     s_cloud_flush_result = CP_ERR_OK;
-    s_cloud_rollback_result = CP_ERR_OK;
     s_cloud_flush_calls = 0U;
-    s_cloud_rollback_calls = 0U;
+    ota_spies_reset();
     s_cloud_handle_seen = NULL;
     s_poller_init_result = MODBUS_POLLER_ERR_OK;
     s_poller_init_calls = 0U;
@@ -583,18 +698,14 @@ void test_LW_040_cloud_init_verifies_the_instance_and_is_ready_passes_through(vo
     TEST_ASSERT_FALSE(s_deps.cloud->is_ready(NULL));
 }
 
-void test_LW_041_cloud_flush_and_rollback_report_pass_through(void)
+void test_LW_041_cloud_flush_passes_through(void)
 {
     bind_ok();
     TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.cloud->flush(NULL));
-    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.cloud->report_rollback_result(NULL));
     TEST_ASSERT_EQUAL_UINT32(1U, s_cloud_flush_calls);
-    TEST_ASSERT_EQUAL_UINT32(1U, s_cloud_rollback_calls);
 
     s_cloud_flush_result = CP_ERR_NO_RESOURCE;
-    s_cloud_rollback_result = CP_ERR_NOT_INIT;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.cloud->flush(NULL));
-    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.cloud->report_rollback_result(NULL));
 }
 
 void test_LW_042_poller_init_uses_the_configured_period_and_the_health_handle(void)
@@ -714,6 +825,149 @@ void test_LW_056_the_poller_task_runs_the_poller_once_the_gate_is_open(void)
 }
 
 /* ===================================================================== */
+/* The real OTA adapters (LCC-4)                                         */
+/* ===================================================================== */
+
+void test_LW_057_bind_requires_the_four_ota_members_together(void)
+{
+    lifecycle_wiring_config_t c;
+
+    use_ota();
+    c = s_config;
+    c.update_ops = NULL;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&c, &s_deps));
+    c = s_config;
+    c.update = NULL;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&c, &s_deps));
+    c = s_config;
+    c.firmware_ops = NULL;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&c, &s_deps));
+    c = s_config;
+    c.firmware = NULL;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&c, &s_deps));
+
+    /* All four together, or none, is fine. */
+    bind_ok();
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK,
+                      lifecycle_wiring_bind(
+                          &(lifecycle_wiring_config_t){
+                              .health = HEALTH, .config_store = STORE, .cloud = CLOUD, .ntp = NTP},
+                          &s_deps));
+}
+
+void test_LW_057b_bind_rejects_an_ops_table_with_a_missing_function(void)
+{
+    iupdate_control_t update = k_spy_update;
+    ifirmware_boot_control_t firmware = k_spy_firmware;
+
+    use_ota();
+    update.start = NULL;
+    s_config.update_ops = &update;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&s_config, &s_deps));
+
+    use_ota();
+    firmware.confirm = NULL;
+    s_config.firmware_ops = &firmware;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&s_config, &s_deps));
+}
+
+void test_LW_058_the_update_adapter_passes_the_job_and_maps_the_results(void)
+{
+    use_ota();
+    bind_ok();
+
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.update_service->init(NULL));
+    TEST_ASSERT_EQUAL_PTR(OTA_US_HANDLE, s_ota_us_seen);
+    s_ota_created = false;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.update_service->init(NULL));
+
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.update_service->start(NULL, 4242U));
+    TEST_ASSERT_EQUAL_UINT32(4242U, s_ota_job_seen);
+    s_ota_start_result = UPDATE_SERVICE_ERR_BAD_STATE;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.update_service->start(NULL, 1U));
+
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.update_service->resume_self_checking(NULL));
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.update_service->resume_rollback(NULL));
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.update_service->resume_after_rollback(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_selfcheck_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_rollback_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_after_rollback_calls);
+
+    s_ota_selfcheck_result = UPDATE_SERVICE_ERR_BAD_STATE;
+    s_ota_rollback_result = UPDATE_SERVICE_ERR_BAD_STATE;
+    s_ota_after_rollback_result = UPDATE_SERVICE_ERR_BAD_STATE;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.update_service->resume_self_checking(NULL));
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.update_service->resume_rollback(NULL));
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.update_service->resume_after_rollback(NULL));
+}
+
+void test_LW_059_the_pending_flags_come_from_the_boot_state(void)
+{
+    const struct
+    {
+        firmware_boot_state_t state;
+        bool ota_capable;
+        bool self_check;
+        bool rollback;
+    } cases[] = {
+        {FIRMWARE_BOOT_CONFIRMED, true, false, false},
+        {FIRMWARE_BOOT_TRIAL_PENDING, true, false, false},
+        {FIRMWARE_BOOT_TRIAL_RUNNING, true, true, false},
+        {FIRMWARE_BOOT_ROLLED_BACK, true, false, true},
+        {FIRMWARE_BOOT_TRIAL_RUNNING, false, false, false},
+        {FIRMWARE_BOOT_ROLLED_BACK, false, false, false},
+    };
+
+    use_ota();
+    bind_ok();
+
+    for (uint32_t i = 0U; i < (sizeof(cases) / sizeof(cases[0])); i++)
+    {
+        bool self_check = !cases[i].self_check;
+        bool rollback = !cases[i].rollback;
+
+        s_fw_info.state = cases[i].state;
+        s_fw_info.ota_capable = cases[i].ota_capable;
+
+        TEST_ASSERT_EQUAL(LC_DEP_OK,
+                          s_deps.firmware_store->get_pending_flags(NULL, &self_check, &rollback));
+        TEST_ASSERT_EQUAL(cases[i].self_check, self_check);
+        TEST_ASSERT_EQUAL(cases[i].rollback, rollback);
+    }
+
+    TEST_ASSERT_EQUAL_PTR(OTA_FS_HANDLE, s_fw_seen);
+}
+
+void test_LW_059b_a_failing_get_boot_info_is_a_failure(void)
+{
+    bool self_check = true;
+    bool rollback = true;
+
+    use_ota();
+    bind_ok();
+    s_fw_info_result = FIRMWARE_STORE_ERR_FLASH_READ;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL,
+                      s_deps.firmware_store->get_pending_flags(NULL, &self_check, &rollback));
+}
+
+void test_LW_059c_confirm_and_rollback_reach_FirmwareStore(void)
+{
+    use_ota();
+    bind_ok();
+
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.firmware_store->confirm_self_check(NULL));
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.firmware_store->rollback(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_fw_confirm_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_fw_rollback_calls);
+    TEST_ASSERT_EQUAL_PTR(OTA_FS_HANDLE, s_fw_seen);
+
+    s_fw_confirm_result = FIRMWARE_STORE_ERR_FLASH_WRITE;
+    s_fw_rollback_result = FIRMWARE_STORE_ERR_FLASH_WRITE;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.firmware_store->confirm_self_check(NULL));
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.firmware_store->rollback(NULL));
+}
+
+/* ===================================================================== */
 /* The real LifecycleController through the adapters                     */
 /* ===================================================================== */
 
@@ -796,6 +1050,76 @@ void test_LW_066_a_restart_request_flushes_the_cloud_and_a_confirmation_resets(v
     (void) memcpy(g_mock_xQueueReceive_next_item, &ack, sizeof(ack));
     g_mock_xQueueReceive_available = 1U;
     lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_reset_calls);
+}
+
+void test_LW_068_a_trial_boot_resumes_the_self_check_and_waits_for_the_verdict(void)
+{
+    use_ota();
+    s_fw_info.state = FIRMWARE_BOOT_TRIAL_RUNNING;
+    boot_controller();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_selfcheck_calls);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_INIT, lifecycle_controller->get_state());
+}
+
+void test_LW_068b_a_rolled_back_boot_resumes_the_report_and_reaches_OPERATIONAL(void)
+{
+    use_ota();
+    s_fw_info.state = FIRMWARE_BOOT_ROLLED_BACK;
+    boot_controller();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_after_rollback_calls);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
+}
+
+static void deliver(lifecycle_event_type_t type, uint32_t param)
+{
+    const lifecycle_event_t ev = {.type = type, .param = param};
+
+    g_mock_xQueueReceive_return = pdTRUE;
+    (void) memcpy(g_mock_xQueueReceive_next_item, &ev, sizeof(ev));
+    g_mock_xQueueReceive_next_item_size = sizeof(ev);
+    g_mock_xQueueReceive_available = 1U;
+    lifecycle_task_body(NULL);
+}
+
+void test_LW_069_an_update_starts_through_UpdateService_and_ends_on_OTA_FINISHED(void)
+{
+    use_ota();
+    boot_controller();
+
+    deliver(LC_EVENT_OTA_REQUESTED, 77U);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_start_calls);
+    TEST_ASSERT_EQUAL_UINT32(77U, s_ota_job_seen);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_UPDATING_FW, lifecycle_controller->get_state());
+
+    deliver(LC_EVENT_OTA_FINISHED, 77U);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
+}
+
+void test_LW_069b_an_activated_update_flushes_and_resets_through_the_adapters(void)
+{
+    use_ota();
+    boot_controller();
+
+    deliver(LC_EVENT_OTA_REQUESTED, 77U);
+    deliver(LC_EVENT_OTA_RESET_REQUESTED, 77U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_cloud_flush_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_reset_calls);
+}
+
+void test_LW_069c_a_failed_self_check_rolls_back_through_both_adapters_and_resets(void)
+{
+    use_ota();
+    boot_controller();
+
+    deliver(LC_EVENT_OTA_REQUESTED, 77U);
+    deliver(LC_EVENT_SELF_CHECK_FAIL, 0U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_ota_rollback_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_fw_rollback_calls);
     TEST_ASSERT_EQUAL_UINT32(1U, s_reset_calls);
 }
 

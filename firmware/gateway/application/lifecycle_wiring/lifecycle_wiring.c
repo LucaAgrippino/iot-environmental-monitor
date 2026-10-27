@@ -219,17 +219,8 @@ static bool cloud_is_ready(void *ctx)
     return cloud_publisher_is_ready(s_cfg.cloud);
 }
 
-static lc_dep_status_t cloud_report_rollback_result(void *ctx)
-{
-    (void) ctx;
-    return status_of(cloud_publisher_report_rollback_result(s_cfg.cloud) == CP_ERR_OK);
-}
-
-static const lc_cloud_if_t k_cloud = {.ctx = NULL,
-                                      .init = cloud_init,
-                                      .flush = cloud_flush,
-                                      .is_ready = cloud_is_ready,
-                                      .report_rollback_result = cloud_report_rollback_result};
+static const lc_cloud_if_t k_cloud = {
+    .ctx = NULL, .init = cloud_init, .flush = cloud_flush, .is_ready = cloud_is_ready};
 
 /* ======================================================================= */
 /* IModbusPoller / ITimeService                                             */
@@ -266,7 +257,7 @@ static lc_dep_status_t time_init(void *ctx)
 static const lc_time_service_if_t k_time = {.ctx = NULL, .init = time_init};
 
 /* ======================================================================= */
-/* IUpdateService / IFirmwareStore stand-ins (neither module exists yet)    */
+/* IUpdateService / IFirmwareStore: stand-ins (no OTA) and the real adapters */
 /* ======================================================================= */
 
 static lc_dep_status_t upd_ok(void *ctx)
@@ -283,12 +274,12 @@ static lc_dep_status_t upd_start(void *ctx, uint32_t image_size)
     return LC_DEP_FAIL;
 }
 
-static const lc_update_service_if_t k_update = {.ctx = NULL,
-                                                .init = upd_ok,
-                                                .start = upd_start,
-                                                .resume_self_checking = upd_ok,
-                                                .resume_rollback = upd_ok,
-                                                .resume_after_rollback = upd_ok};
+static const lc_update_service_if_t k_update_standin = {.ctx = NULL,
+                                                        .init = upd_ok,
+                                                        .start = upd_start,
+                                                        .resume_self_checking = upd_ok,
+                                                        .resume_rollback = upd_ok,
+                                                        .resume_after_rollback = upd_ok};
 
 static lc_dep_status_t fw_get_pending_flags(void *ctx, bool *self_check_out, bool *rollback_out)
 {
@@ -305,10 +296,86 @@ static lc_dep_status_t fw_unavailable(void *ctx)
     return LC_DEP_FAIL;
 }
 
-static const lc_firmware_store_if_t k_firmware = {.ctx = NULL,
-                                                  .get_pending_flags = fw_get_pending_flags,
-                                                  .confirm_self_check = fw_unavailable,
-                                                  .rollback = fw_unavailable};
+static const lc_firmware_store_if_t k_firmware_standin = {.ctx = NULL,
+                                                          .get_pending_flags = fw_get_pending_flags,
+                                                          .confirm_self_check = fw_unavailable,
+                                                          .rollback = fw_unavailable};
+
+/* --- Real adapters (LCC-4, update-service-lld.md 7.5) ------------------------------------ */
+
+static lc_dep_status_t ota_init(void *ctx)
+{
+    (void) ctx;
+    return status_of(s_cfg.update_ops->is_created(s_cfg.update));
+}
+
+static lc_dep_status_t ota_start(void *ctx, uint32_t job)
+{
+    (void) ctx;
+    return status_of(s_cfg.update_ops->start(s_cfg.update, job) == UPDATE_SERVICE_ERR_OK);
+}
+
+static lc_dep_status_t ota_resume_self_checking(void *ctx)
+{
+    (void) ctx;
+    return status_of(s_cfg.update_ops->resume_self_checking(s_cfg.update) == UPDATE_SERVICE_ERR_OK);
+}
+
+static lc_dep_status_t ota_resume_rollback(void *ctx)
+{
+    (void) ctx;
+    return status_of(s_cfg.update_ops->resume_rollback(s_cfg.update) == UPDATE_SERVICE_ERR_OK);
+}
+
+static lc_dep_status_t ota_resume_after_rollback(void *ctx)
+{
+    (void) ctx;
+    return status_of(s_cfg.update_ops->resume_after_rollback(s_cfg.update) ==
+                     UPDATE_SERVICE_ERR_OK);
+}
+
+static const lc_update_service_if_t k_update_real = {
+    .ctx = NULL,
+    .init = ota_init,
+    .start = ota_start,
+    .resume_self_checking = ota_resume_self_checking,
+    .resume_rollback = ota_resume_rollback,
+    .resume_after_rollback = ota_resume_after_rollback};
+
+/** The pending flags are derived from the boot state (firmware-store.md 7.3). */
+static lc_dep_status_t ota_fw_pending_flags(void *ctx, bool *self_check_out, bool *rollback_out)
+{
+    (void) ctx;
+
+    firmware_boot_info_t info;
+
+    if (s_cfg.firmware_ops->get_boot_info(s_cfg.firmware, &info) != FIRMWARE_STORE_ERR_OK)
+    {
+        return LC_DEP_FAIL;
+    }
+
+    *self_check_out = info.ota_capable && (info.state == FIRMWARE_BOOT_TRIAL_RUNNING);
+    *rollback_out = info.ota_capable && (info.state == FIRMWARE_BOOT_ROLLED_BACK);
+
+    return LC_DEP_OK;
+}
+
+static lc_dep_status_t ota_fw_confirm(void *ctx)
+{
+    (void) ctx;
+    return status_of(s_cfg.firmware_ops->confirm(s_cfg.firmware) == FIRMWARE_STORE_ERR_OK);
+}
+
+static lc_dep_status_t ota_fw_rollback(void *ctx)
+{
+    (void) ctx;
+    return status_of(s_cfg.firmware_ops->rollback(s_cfg.firmware) == FIRMWARE_STORE_ERR_OK);
+}
+
+static const lc_firmware_store_if_t k_firmware_real = {.ctx = NULL,
+                                                       .get_pending_flags = ota_fw_pending_flags,
+                                                       .confirm_self_check = ota_fw_confirm,
+                                                       .rollback = ota_fw_rollback};
 
 /* ======================================================================= */
 /* IResetDriver                                                             */
@@ -382,23 +449,46 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
         return LIFECYCLE_ERR_NULL_ARG;
     }
 
+    /* The four OTA members are all or nothing. */
+    const bool ota_any = (config->update_ops != NULL) || (config->update != NULL) ||
+                         (config->firmware_ops != NULL) || (config->firmware != NULL);
+    const bool ota_all = (config->update_ops != NULL) && (config->update != NULL) &&
+                         (config->firmware_ops != NULL) && (config->firmware != NULL);
+
+    if (ota_any && !ota_all)
+    {
+        return LIFECYCLE_ERR_NULL_ARG;
+    }
+
+    if (ota_all &&
+        ((config->update_ops->is_created == NULL) || (config->update_ops->start == NULL) ||
+         (config->update_ops->resume_self_checking == NULL) ||
+         (config->update_ops->resume_rollback == NULL) ||
+         (config->update_ops->resume_after_rollback == NULL) ||
+         (config->firmware_ops->get_boot_info == NULL) || (config->firmware_ops->confirm == NULL) ||
+         (config->firmware_ops->rollback == NULL)))
+    {
+        return LIFECYCLE_ERR_NULL_ARG;
+    }
+
     s_cfg = *config;
     s_using_defaults = false;
 
-    *deps_out = (lifecycle_deps_t){.config_store = &k_config_store,
-                                   .config_manager = &k_config_manager,
-                                   .sensors = &k_sensors,
-                                   .alarms = &k_alarms,
-                                   .console = &k_console,
-                                   .health_report = &k_health_report,
-                                   .health_admin = &k_health_admin,
-                                   .cloud = &k_cloud,
-                                   .modbus_poller = &k_poller,
-                                   .update_service = &k_update,
-                                   .time_service = &k_time,
-                                   .firmware_store = &k_firmware,
-                                   .reset_driver = &k_reset,
-                                   .watchdog = NULL};
+    *deps_out =
+        (lifecycle_deps_t){.config_store = &k_config_store,
+                           .config_manager = &k_config_manager,
+                           .sensors = &k_sensors,
+                           .alarms = &k_alarms,
+                           .console = &k_console,
+                           .health_report = &k_health_report,
+                           .health_admin = &k_health_admin,
+                           .cloud = &k_cloud,
+                           .modbus_poller = &k_poller,
+                           .update_service = ota_all ? &k_update_real : &k_update_standin,
+                           .time_service = &k_time,
+                           .firmware_store = ota_all ? &k_firmware_real : &k_firmware_standin,
+                           .reset_driver = &k_reset,
+                           .watchdog = NULL};
     return LIFECYCLE_ERR_OK;
 }
 
