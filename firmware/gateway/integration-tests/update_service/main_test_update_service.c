@@ -25,7 +25,7 @@
  *   DATA <job> <offset> <len>          followed by <len> raw bytes: one chunk (on_chunk)
  *   LINK <0|1>                         the transport's is_connected() answer
  *   PROBE <sensors 0|1> <modbus 0|1>   the self-check probes
- *   SEED <T|R>                         write a TRIAL_RUNNING / ROLLED_BACK record, then reset
+ *   SEED <T|R>                         write a TRIAL_PENDING / ROLLED_BACK record, then reset
  *   INFO                               print the boot info
  * device -> host:
  *   REQ <job> <A|B> <offset> <len>     a chunk request
@@ -35,14 +35,21 @@
  *
  * Test sequence (TC-HW-US-nnn from §23.1) is driven by scripts/ota_uart_server.py:
  *   001   valid max-size Slot-B image: accepted, every chunk, verify, install, activate, reset.
- *   002   the server stops answering for 30 s: three retries, failed/download_failed.
+ *   002   the server stops answering: three retries, failed/download_failed.
  *   003   LINK 0 for 2 minutes, then LINK 1: no failure counted, resumes at the same offset.
  *   004   power cut mid-download, send the same job again: resumes <= 4 KB before the cut.
- *   005   one flipped body byte: failed/hash_mismatch.        006  Slot-A-linked:
- * failed/wrong_slot. 007   a second CMD during the download: rejected/busy. 009   SEED T: after the
- * reset the harness resumes the self-check; success, CONFIRMED read back. 010   SEED R: after the
- * reset rolled_back is reported and acknowledged, CONFIRMED read back. 008   (gap meter, stack
- * high-water mark) is not in this harness: see US-O6 and FS-O10.
+ *   005   one flipped body byte: failed/hash_mismatch.
+ *   006   an image linked for the other slot: failed/wrong_slot.
+ *   007   a second CMD during the download: rejected/busy, the first update completes.
+ *   009   SEED T: the bootloader promotes TRIAL_PENDING to TRIAL_RUNNING and the harness resumes
+ *         the self-check; success, CONFIRMED read back. (A TRIAL_RUNNING record at reset would be
+ *         an unconfirmed trial, and the bootloader would roll it back.)
+ *   010   SEED R: after the reset rolled_back is reported and acknowledged, CONFIRMED read back.
+ *   008   (gap meter, stack high-water mark) is not in this harness: see US-O6 and FS-O10.
+ *
+ * BENCH_SELFCHECK_FAIL: build with -DBENCH_SELFCHECK_FAIL and the sensors probe never becomes
+ * ready, so an image built this way fails its self-check and is rolled back (TC-SYS-OTA-002, the
+ * REQ-NF-204 timing).
  *
  * Integration checklist:
  *   [ ] Every host command ends in the expected report
@@ -149,7 +156,11 @@ static void say_uu(const char *fmt, unsigned long a, unsigned long b)
 /* ---------------------------------------------------------------------- */
 
 static volatile bool s_link_up = true;
+#ifdef BENCH_SELFCHECK_FAIL
+static volatile bool s_sensors = false; /* this image can never pass its self-check */
+#else
 static volatile bool s_sensors = true;
+#endif
 static volatile bool s_modbus = true;
 
 /** Set by the lifecycle stand-in (UpdateServiceTask context), acted on by the bench task. */
@@ -419,7 +430,7 @@ static void handle_line(const char *line)
     }
     else if (strncmp(line, "SEED T", 6U) == 0)
     {
-        seed_and_reset(FIRMWARE_META_STATE_TRIAL_RUNNING);
+        seed_and_reset(FIRMWARE_META_STATE_TRIAL_PENDING);
     }
     else if (strncmp(line, "SEED R", 6U) == 0)
     {

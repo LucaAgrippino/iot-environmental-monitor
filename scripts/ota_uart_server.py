@@ -66,6 +66,7 @@ class Server:
         self.second_done = False
         self.t0 = time.time()
         self.last_result = None
+        self.second_reason = None
 
     def send(self, text):
         self.ser.write(text.encode("ascii") + b"\n")
@@ -120,6 +121,11 @@ class Server:
             return None
 
         m = re.match(r"REPORT (\w+) (\S+) (\S+) ([0-9A-Fa-f]+) (\d+)", line)
+        if m and m[1] == "rejected" and self.args.job is not None and m[3] == str(self.args.job + 1):
+            # The answer to the second command (--second-command-at): checked at the end, and it
+            # does not end the run, because the first update is still going.
+            self.second_reason = m[2]
+            return None
         if m and m[1] in TERMINAL:
             return m[1]
 
@@ -165,6 +171,11 @@ class Server:
     def finish(self):
         want = self.args.expect
         ok = (want is None) or (self.last_result == want)
+        if self.args.second_command_at is not None:
+            second_ok = self.second_reason == "busy"
+            self.log(f"second command answered: {self.second_reason or 'nothing'}  "
+                     f"(expected busy)  -> {'PASS' if second_ok else 'FAIL'}")
+            ok = ok and second_ok
         self.log(f"result: {self.last_result}  expected: {want or 'any'}  -> {'PASS' if ok else 'FAIL'}")
         return 0 if ok else 1
 

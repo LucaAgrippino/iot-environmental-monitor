@@ -938,7 +938,7 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 | TC-HW-FS-007 | Image with one flipped body byte | `HASH_MISMATCH` |
 | TC-HW-FS-008 | Image linked for Slot A | `WRONG_SLOT` |
 | TC-HW-FS-009 | `activate`, then harness dumps both metadata copies over UART | TRIAL_PENDING, active = B, generation + 1, other copy intact |
-| TC-HW-FS-010 | Full swap, self-check pass/fail, crash during trial | Boots B, confirm/rollback as §13.2; rollback ≤ 10 s (NF-204). **Bootloader side done 2026-10-27** (TC-HW-BL-003..006, -011, -012 on the board, with the application's half of the record protocol played by the bench harness). The run with the real FirmwareStore install → activate → confirm/rollback is still open: bootloader.md BL-O9 |
+| TC-HW-FS-010 | Full swap, self-check pass/fail, crash during trial | Boots B, confirm/rollback as §13.2; rollback ≤ 10 s (NF-204). **Bootloader side done 2026-10-27** (TC-HW-BL-003..006, -011, -012 on the board, with the application's half of the record protocol played by the bench harness). **The run with the real FirmwareStore also passed on 2026-10-27** (update-service-lld.md §26.4: install, activate, trial, confirm, and a self-check failure rolled back in 0.23 s) |
 
 ---
 
