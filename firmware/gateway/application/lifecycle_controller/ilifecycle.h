@@ -72,6 +72,8 @@ typedef enum
     LC_EVENT_SELF_CHECK_PASS = 8,
     LC_EVENT_SELF_CHECK_FAIL = 9,
     LC_EVENT_UNRECOVERABLE_FAULT = 10,
+    LC_EVENT_OTA_RESET_REQUESTED = 11, /**< UpdateService: image activated, reset (LCC-1). */
+    LC_EVENT_OTA_FINISHED = 12,        /**< UpdateService: update ended, leave UPDATING_FW. */
 } lifecycle_event_type_t;
 
 /** @brief Event payload (§5.4). */
