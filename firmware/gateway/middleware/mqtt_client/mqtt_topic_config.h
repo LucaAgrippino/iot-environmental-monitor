@@ -32,12 +32,14 @@
 #define MQTT_TOPIC_SUFFIX_HEALTH "/health"
 #define MQTT_TOPIC_SUFFIX_ALARMS "/alarms"
 #define MQTT_TOPIC_SUFFIX_OTA_RESULT "/ota/result"
+#define MQTT_TOPIC_SUFFIX_OTA_REQUEST "/ota/request" /**< Chunk request, device to cloud.   */
 
 #define MQTT_TOPIC_SUFFIX_CONFIG "/config"
 #define MQTT_TOPIC_SUFFIX_OTA "/ota"
+#define MQTT_TOPIC_SUFFIX_OTA_DATA "/ota/data" /**< Binary chunk, cloud to device.        */
 
 /** @brief Longest assembled topic string length, excluding the null
- *         terminator: prefix (15) + client_id (up to 32) + suffix (10). */
+ *         terminator: prefix (15) + client_id (up to 32) + suffix (12, "/ota/request"). */
 #define MQTT_TOPIC_MAX_LEN 64u
 
 #endif /* MQTT_TOPIC_CONFIG_H */

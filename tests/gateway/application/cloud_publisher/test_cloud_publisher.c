@@ -52,6 +52,7 @@
 #include "logger_stub.h"
 #include "cloud_publisher/cloud_publisher.h"
 #include "cloud_publisher/cloud_publisher_json.h"
+#include "us_reason.h" /* causes Ceedling to auto-link us_reason.c */
 
 /* Notification bits — mirrors companion §4 (private in cloud_publisher.c,
  * re-declared here since they are an internal implementation detail). */
@@ -222,15 +223,40 @@ bool config_manager_apply(config_service_handle_t handle, const uint8_t *payload
     return g_spy_config_apply_return;
 }
 
-static uint32_t g_spy_update_handle_calls;
-void update_service_handle_command(update_service_handle_t handle, const uint8_t *payload,
-                                   uint32_t len)
+static uint32_t g_spy_update_cmd_calls;
+static us_ota_command_t g_spy_update_cmd;
+static update_service_err_t g_spy_update_cmd_return;
+static update_service_t *g_spy_update_self_seen;
+static uint32_t g_spy_update_chunk_calls;
+static uint32_t g_spy_chunk_job;
+static uint32_t g_spy_chunk_offset;
+static uint32_t g_spy_chunk_len;
+static uint8_t g_spy_chunk_first_byte;
+static update_service_err_t g_spy_update_chunk_return;
+
+static update_service_err_t spy_update_handle_command(update_service_t *self,
+                                                      const us_ota_command_t *cmd)
 {
-    (void) handle;
-    (void) payload;
-    (void) len;
-    g_spy_update_handle_calls++;
+    g_spy_update_self_seen = self;
+    g_spy_update_cmd_calls++;
+    g_spy_update_cmd = *cmd;
+    return g_spy_update_cmd_return;
 }
+
+static update_service_err_t spy_update_on_chunk(update_service_t *self, uint32_t job,
+                                                uint32_t offset, const uint8_t *data, uint32_t len)
+{
+    g_spy_update_self_seen = self;
+    g_spy_update_chunk_calls++;
+    g_spy_chunk_job = job;
+    g_spy_chunk_offset = offset;
+    g_spy_chunk_len = len;
+    g_spy_chunk_first_byte = data[0];
+    return g_spy_update_chunk_return;
+}
+
+static const iupdate_service_t g_spy_update_ops = {.handle_command = spy_update_handle_command,
+                                                   .on_chunk = spy_update_on_chunk};
 
 static uint32_t g_spy_lifecycle_handle_calls;
 void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len)
@@ -261,6 +287,24 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
     g_spy_mqtt_publish_last_len = len;
     g_spy_mqtt_publish_last_qos = qos;
     return g_spy_mqtt_publish_return;
+}
+
+static uint32_t g_spy_mqtt_subscribe_calls;
+static char g_spy_mqtt_subscribe_topic[4][SAF_TOPIC_MAX_LEN];
+static mqtt_qos_t g_spy_mqtt_subscribe_qos[4];
+static mqtt_client_err_t g_spy_mqtt_subscribe_return;
+mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char *topic,
+                                        mqtt_qos_t qos)
+{
+    (void) handle;
+    if (g_spy_mqtt_subscribe_calls < 4u)
+    {
+        (void) strncpy(g_spy_mqtt_subscribe_topic[g_spy_mqtt_subscribe_calls], topic,
+                       SAF_TOPIC_MAX_LEN - 1u);
+        g_spy_mqtt_subscribe_qos[g_spy_mqtt_subscribe_calls] = qos;
+    }
+    g_spy_mqtt_subscribe_calls++;
+    return g_spy_mqtt_subscribe_return;
 }
 
 static mqtt_stats_t g_spy_mqtt_stats;
@@ -340,7 +384,14 @@ void setUp(void)
     g_spy_config_apply_return = true;
     g_spy_config_apply_calls = 0u;
 
-    g_spy_update_handle_calls = 0u;
+    g_spy_update_cmd_calls = 0u;
+    g_spy_update_cmd_return = UPDATE_SERVICE_ERR_OK;
+    g_spy_update_self_seen = NULL;
+    g_spy_update_chunk_calls = 0u;
+    g_spy_update_chunk_return = UPDATE_SERVICE_ERR_OK;
+    g_spy_mqtt_subscribe_calls = 0u;
+    g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_OK;
+    (void) memset(g_spy_mqtt_subscribe_topic, 0, sizeof(g_spy_mqtt_subscribe_topic));
     g_spy_lifecycle_handle_calls = 0u;
 
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
@@ -364,7 +415,8 @@ void setUp(void)
     g_cfg.health_write = (health_monitor_handle_t) 0x1006;
     g_cfg.cfg_read = (config_service_handle_t) 0x1007;
     g_cfg.cfg_write = (config_service_handle_t) 0x1008;
-    g_cfg.update_svc = (update_service_handle_t) 0x1009;
+    g_cfg.update_ops = &g_spy_update_ops;
+    g_cfg.update = (update_service_t *) 0x1009;
     g_cfg.lifecycle = (lifecycle_handle_t) 0x100A;
 
     g_handle = NULL;
@@ -384,7 +436,7 @@ void test_CP_T01_create_happy_path(void)
 
     TEST_ASSERT_EQUAL(CP_ERR_OK, rc);
     TEST_ASSERT_NOT_NULL(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(2u, g_mock_xQueueCreateStatic_call_count);
+    TEST_ASSERT_EQUAL_UINT32(3u, g_mock_xQueueCreateStatic_call_count); /* alarm, command, OTA */
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskCreateStatic_call_count);
     TEST_ASSERT_EQUAL_UINT32(3u, g_mock_xTimerCreateStatic_call_count);
     TEST_ASSERT_EQUAL_UINT32(3u, g_mock_xTimerStart_call_count);
@@ -644,7 +696,8 @@ void test_CP_T12_inbound_unknown_topic(void)
     cloud_publisher_task_step_for_test(g_handle);
 
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_config_apply_calls);
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_handle_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_chunk_calls);
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_lifecycle_handle_calls);
 }
 
@@ -1012,7 +1065,7 @@ void test_CP_T16_configurable_intervals(void)
 /* ======================================================================= */
 
 #define TC_FLUSH_REQUEST (1u << 6)
-#define TC_ROLLBACK_REPORT (1u << 7)
+#define TC_OTA_OUT (1u << 8)
 
 static void prv_load_buffered_entry(void)
 {
@@ -1112,56 +1165,560 @@ void test_CP_T37_a_flush_request_publishes_pending_alarms_first(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_confirm_calls);
 }
 
-void test_CP_T38_report_rollback_result_rejects_null(void)
-{
-    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_report_rollback_result(NULL));
-}
-
-void test_CP_T39_report_rollback_result_posts_the_request_to_the_task(void)
-{
-    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_mock_xTaskNotify_call_count = 0u;
-
-    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_report_rollback_result(g_handle));
-    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
-    TEST_ASSERT_EQUAL_UINT32(TC_ROLLBACK_REPORT, g_mock_xTaskNotify_last_value);
-}
-
-void test_CP_T40_the_task_publishes_the_rollback_result_at_qos1_when_connected(void)
-{
-    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
-
-    g_mock_xTaskNotifyWait_next_value = TC_ROLLBACK_REPORT;
-    cloud_publisher_task_step_for_test(g_handle);
-
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
-    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/results"));
-    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
-    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"result\":\"rolled_back\"}",
-                             g_spy_mqtt_publish_last_payload);
-}
-
-void test_CP_T41_the_rollback_result_is_buffered_when_the_broker_is_down(void)
-{
-    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_spy_mqtt_is_connected_return = false;
-
-    g_mock_xTaskNotifyWait_next_value = TC_ROLLBACK_REPORT;
-    cloud_publisher_task_step_for_test(g_handle);
-
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
-    TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/results"));
-}
-
 void test_CP_T42_the_notify_mask_clears_the_new_bits(void)
 {
     g_mock_xQueueReceive_available = 0u; /* no pending alarms: the flush drains an empty queue */
     /* A bit missing from the clear-on-exit mask would wake the task forever (see the comment on
-     * CP_NOTIFY_ALL_BITS). Both new bits must be consumed by one step. */
+     * CP_NOTIFY_ALL_BITS). Both bits must be consumed by one step. */
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_mock_xTaskNotifyWait_next_value = TC_FLUSH_REQUEST | TC_ROLLBACK_REPORT;
+    g_mock_xTaskNotifyWait_next_value = TC_FLUSH_REQUEST | TC_OTA_OUT;
     cloud_publisher_task_step_for_test(g_handle);
     TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotifyWait_next_value);
+}
+
+/* ======================================================================= */
+/* CP-T50..T69 - the OTA path (update-service-lld.md CPC-1..CPC-6)          */
+/* ======================================================================= */
+
+#define TC_SERIAL_TOPIC "0011223344556677889900aa"
+
+/** @brief Push a command through the command queue and run one task step. */
+static void prv_deliver_command(const char *topic, const uint8_t *payload, uint32_t len)
+{
+    g_mock_xQueueSend2_last_item_size = TC_COMMAND_ENTRY_SIZE;
+    cloud_publisher_inject_command_for_test(g_handle, topic, payload, len);
+
+    (void) memcpy(g_mock_xQueueReceive2_next_item, g_mock_xQueueSend2_last_item,
+                  g_mock_xQueueSend2_last_item_size);
+    g_mock_xQueueReceive2_next_item_size = g_mock_xQueueSend2_last_item_size;
+    g_mock_xQueueReceive2_return = pdTRUE;
+    g_mock_xQueueReceive2_available = 1u;
+
+    g_mock_xTaskNotifyWait_next_value = TC_COMMAND_PENDING;
+    cloud_publisher_task_step_for_test(g_handle);
+}
+
+static void prv_deliver_ota_command(const char *json)
+{
+    prv_deliver_command("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota", (const uint8_t *) json,
+                        (uint32_t) strlen(json));
+}
+
+void test_CP_T50_an_ota_command_is_parsed_and_handed_to_update_service(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    prv_deliver_ota_command("{\"job\":42,\"size_a\":491648,\"size_b\":491600}");
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_update_cmd_calls);
+    TEST_ASSERT_EQUAL_UINT32(42u, g_spy_update_cmd.job);
+    TEST_ASSERT_EQUAL_UINT32(491648u, g_spy_update_cmd.size_a);
+    TEST_ASSERT_EQUAL_UINT32(491600u, g_spy_update_cmd.size_b);
+    TEST_ASSERT_EQUAL_PTR(0x1009, g_spy_update_self_seen);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls); /* UpdateService reports, not us */
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_config_apply_calls);
+}
+
+void test_CP_T50b_a_command_UpdateService_refuses_is_logged_and_not_reported_by_us(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_update_cmd_return = UPDATE_SERVICE_ERR_BUSY;
+
+    prv_deliver_ota_command("{\"job\":1,\"size_a\":1000,\"size_b\":1000}");
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_update_cmd_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T51_a_malformed_command_is_rejected_with_the_job_when_it_can_be_read(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    prv_deliver_ota_command("{\"job\":42,\"size_a\":491648}");
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/result",
+                             g_spy_mqtt_publish_last_topic);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"job\":42,\"result\":\"rejected\","
+                             "\"reason\":\"bad_command\"}",
+                             g_spy_mqtt_publish_last_payload);
+}
+
+void test_CP_T52_a_command_with_no_readable_job_is_rejected_without_one(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    prv_deliver_ota_command("not json at all");
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"event\":\"ota\",\"result\":\"rejected\",\"reason\":\"bad_command\"}",
+        g_spy_mqtt_publish_last_payload);
+}
+
+void test_CP_T52b_a_rejection_is_buffered_while_the_broker_is_down(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_is_connected_return = false;
+
+    prv_deliver_ota_command("{\"job\":1}");
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/ota/result"));
+}
+
+void test_CP_T53_a_chunk_goes_straight_to_update_service_not_through_the_queue(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    uint8_t msg[8U + 5U] = {0x2A, 0x00, 0x00, 0x00, /* job 42 */
+                            0x00, 0x10, 0x00, 0x00, /* offset 4096 */
+                            0xAB, 1,    2,    3,    4};
+    const uint32_t queued_before = g_mock_xQueueSend2_call_count;
+
+    cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota/data",
+                                            msg, (uint32_t) sizeof(msg));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_update_chunk_calls);
+    TEST_ASSERT_EQUAL_UINT32(42u, g_spy_chunk_job);
+    TEST_ASSERT_EQUAL_UINT32(4096u, g_spy_chunk_offset);
+    TEST_ASSERT_EQUAL_UINT32(5u, g_spy_chunk_len);
+    TEST_ASSERT_EQUAL_UINT8(0xAB, g_spy_chunk_first_byte);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls); /* "/ota" must not capture "/ota/data" */
+    TEST_ASSERT_EQUAL_UINT32(queued_before, g_mock_xQueueSend2_call_count);
+}
+
+void test_CP_T53b_a_chunk_of_a_full_kilobyte_is_not_truncated_to_the_command_size(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    static uint8_t msg[8U + 1024U];
+
+    (void) memset(msg, 0x5A, sizeof(msg));
+    cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota/data",
+                                            msg, (uint32_t) sizeof(msg));
+
+    TEST_ASSERT_EQUAL_UINT32(1024u, g_spy_chunk_len);
+}
+
+void test_CP_T54_a_chunk_without_data_or_for_a_gateway_without_ota_is_dropped(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    const uint8_t header_only[8] = {0};
+
+    cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/x/ota/data", header_only, 8u);
+    cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/x/ota/data", header_only, 3u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_chunk_calls);
+
+    cloud_publisher_reset_for_test();
+    g_cfg.update_ops = NULL;
+    g_cfg.update = NULL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    uint8_t msg[10] = {1, 0, 0, 0, 0, 0, 0, 0, 9, 9};
+
+    cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/x/ota/data", msg, 10u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_chunk_calls);
+}
+
+void test_CP_T55_without_update_service_an_ota_command_is_ignored_and_nothing_is_subscribed(void)
+{
+    g_cfg.update_ops = NULL;
+    g_cfg.update = NULL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    prv_deliver_ota_command("{\"job\":1,\"size_a\":1000,\"size_b\":1000}");
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_subscribe_calls);
+}
+
+void test_CP_T56_the_ota_topics_are_subscribed_once_the_broker_is_connected(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota",
+                             g_spy_mqtt_subscribe_topic[0]);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_subscribe_qos[0]);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota/data",
+                             g_spy_mqtt_subscribe_topic[1]);
+    TEST_ASSERT_EQUAL(MQTT_QOS_0, g_spy_mqtt_subscribe_qos[1]);
+
+    /* Not again on the next tick. */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+}
+
+void test_CP_T57_a_subscribe_that_fails_is_retried_on_the_next_tick(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+
+    g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_OK;
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls); /* done */
+}
+
+void test_CP_T58_every_new_connection_subscribes_again(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+
+    g_spy_mqtt_is_connected_return = false; /* the link drops */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    g_spy_mqtt_is_connected_return = true; /* and comes back */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+}
+
+void test_CP_T59_the_message_callback_reaches_the_instance_and_drops_before_create(void)
+{
+    const uint8_t msg[10] = {1, 0, 0, 0, 0, 0, 0, 0, 7, 7};
+
+    cloud_publisher_on_message("cmd/iotmonitor/x/ota/data", 25u, msg, 10u); /* no instance yet */
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_chunk_calls);
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    cloud_publisher_on_message("cmd/iotmonitor/x/ota/data", 25u, msg, 10u);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_update_chunk_calls);
+
+    cloud_publisher_on_message(NULL, 0u, msg, 10u);
+    cloud_publisher_on_message("cmd/iotmonitor/x/ota/data", 25u, NULL, 0u);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_update_chunk_calls);
+}
+
+/* ---- IOtaTransport ---------------------------------------------------- */
+
+void test_CP_T60_get_ota_transport_validates_its_arguments(void)
+{
+    iota_transport_t t;
+
+    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_get_ota_transport(NULL, &t));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_get_ota_transport(g_handle, NULL));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    TEST_ASSERT_EQUAL_PTR(g_handle, t.ctx);
+    TEST_ASSERT_NOT_NULL(t.is_connected);
+    TEST_ASSERT_NOT_NULL(t.request_chunk);
+    TEST_ASSERT_NOT_NULL(t.report);
+}
+
+/** @brief Queue a chunk request through the transport and load the entry for the task. */
+static void prv_load_ota_entry(const iota_transport_t *t, bool is_report)
+{
+    const us_chunk_request_t req = {
+        .job = 42u, .slot = FIRMWARE_SLOT_B, .offset = 4096u, .len = 1024u};
+    const us_ota_report_t rep = {.job_known = true,
+                                 .job = 42u,
+                                 .result = US_RESULT_FAILED,
+                                 .reason = US_REASON_HASH_MISMATCH,
+                                 .version = 0x01020000UL,
+                                 .rollback_count = 0u};
+
+    g_mock_xQueueSend_last_item_size = cloud_publisher_ota_entry_size_for_test();
+    g_mock_xTaskNotify_call_count = 0u;
+
+    if (is_report)
+    {
+        TEST_ASSERT_TRUE(t->report(t->ctx, &rep));
+    }
+    else
+    {
+        TEST_ASSERT_TRUE(t->request_chunk(t->ctx, &req));
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_OTA_OUT, g_mock_xTaskNotify_last_value);
+
+    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item,
+                  g_mock_xQueueSend_last_item_size);
+    g_mock_xQueueReceive_next_item_size = g_mock_xQueueSend_last_item_size;
+    g_mock_xQueueReceive_return = pdTRUE;
+    g_mock_xQueueReceive_available = 1u;
+}
+
+void test_CP_T61_a_chunk_request_is_published_at_qos0_when_connected(void)
+{
+    iota_transport_t t;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    prv_load_ota_entry(&t, false);
+
+    g_mock_xTaskNotifyWait_next_value = TC_OTA_OUT;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/request",
+                             g_spy_mqtt_publish_last_topic);
+    TEST_ASSERT_EQUAL(MQTT_QOS_0, g_spy_mqtt_publish_last_qos);
+    TEST_ASSERT_EQUAL_STRING("{\"job\":42,\"slot\":\"B\",\"offset\":4096,\"len\":1024}",
+                             g_spy_mqtt_publish_last_payload);
+}
+
+void test_CP_T62_a_chunk_request_is_dropped_not_buffered_when_the_link_is_down(void)
+{
+    iota_transport_t t;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    prv_load_ota_entry(&t, false);
+    g_spy_mqtt_is_connected_return = false;
+
+    g_mock_xTaskNotifyWait_next_value = TC_OTA_OUT;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_enqueue_calls);
+}
+
+void test_CP_T63_a_report_is_published_at_qos1_with_the_wire_payload(void)
+{
+    iota_transport_t t;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    prv_load_ota_entry(&t, true);
+
+    g_mock_xTaskNotifyWait_next_value = TC_OTA_OUT;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/result",
+                             g_spy_mqtt_publish_last_topic);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"job\":42,\"result\":\"failed\","
+                             "\"reason\":\"hash_mismatch\",\"version\":\"1.2.0\",\"rollbacks\":0}",
+                             g_spy_mqtt_publish_last_payload);
+}
+
+void test_CP_T64_a_report_is_buffered_through_store_and_forward_while_offline(void)
+{
+    iota_transport_t t;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    prv_load_ota_entry(&t, true);
+    g_spy_mqtt_is_connected_return = false;
+
+    g_mock_xTaskNotifyWait_next_value = TC_OTA_OUT;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/result",
+                             g_spy_saf_enqueue_last_topic);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_saf_enqueue_last_qos);
+}
+
+void test_CP_T65_a_full_outbound_queue_is_reported_and_posts_no_notification(void)
+{
+    iota_transport_t t;
+    const us_chunk_request_t req = {.job = 1u, .slot = FIRMWARE_SLOT_A, .offset = 0u, .len = 1u};
+    const us_ota_report_t rep = {0};
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    g_mock_xQueueSend_return = pdFALSE;
+    g_mock_xTaskNotify_call_count = 0u;
+
+    TEST_ASSERT_FALSE(t.request_chunk(t.ctx, &req));
+    TEST_ASSERT_FALSE(t.report(t.ctx, &rep));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_call_count);
+}
+
+void test_CP_T66_is_connected_mirrors_the_broker_as_the_task_last_saw_it(void)
+{
+    iota_transport_t t;
+
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_get_ota_transport(g_handle, &t));
+    TEST_ASSERT_FALSE(t.is_connected(t.ctx)); /* nothing seen yet */
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_TRUE(t.is_connected(t.ctx));
+
+    g_spy_mqtt_is_connected_return = false;
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_FALSE(t.is_connected(t.ctx));
+}
+
+void test_CP_T67_the_ota_notification_bit_is_consumed_by_one_step(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_mock_xQueueReceive_available = 0u;
+    g_mock_xTaskNotifyWait_next_value = TC_OTA_OUT;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotifyWait_next_value);
+}
+
+/* ---- JSON ------------------------------------------------------------- */
+
+void test_CP_T70_ota_report_variants_serialise_to_the_wire_contract(void)
+{
+    char buf[200];
+    us_ota_report_t r = {.job_known = true,
+                         .job = 42u,
+                         .result = US_RESULT_ACCEPTED,
+                         .reason = US_REASON_NONE,
+                         .version = 0x01000000UL,
+                         .rollback_count = 0u};
+
+    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r) > 0u);
+    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"job\":42,\"result\":\"accepted\","
+                             "\"version\":\"1.0.0\",\"rollbacks\":0}",
+                             buf);
+
+    r = (us_ota_report_t){.job_known = false,
+                          .result = US_RESULT_SUCCESS,
+                          .version = 0x02000000UL,
+                          .rollback_count = 0u};
+    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r) > 0u);
+    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"result\":\"success\","
+                             "\"version\":\"2.0.0\",\"rollbacks\":0}",
+                             buf);
+
+    r = (us_ota_report_t){.job_known = false,
+                          .result = US_RESULT_ROLLED_BACK,
+                          .reason = US_REASON_ROLLBACK,
+                          .version = 0x01000003UL,
+                          .rollback_count = 2u};
+    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r) > 0u);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"event\":\"ota\",\"result\":\"rolled_back\",\"reason\":\"rollback\","
+        "\"version\":\"1.0.3\",\"rollbacks\":2}",
+        buf);
+}
+
+void test_CP_T71_a_buffer_that_is_too_small_gives_zero_for_every_ota_serialiser(void)
+{
+    char buf[8];
+    const us_ota_report_t r = {.job_known = true,
+                               .job = 42u,
+                               .result = US_RESULT_FAILED,
+                               .reason = US_REASON_BAD_IMAGE,
+                               .version = 0x01000000UL};
+    const us_chunk_request_t q = {.job = 1u, .slot = FIRMWARE_SLOT_A, .offset = 0u, .len = 1u};
+
+    TEST_ASSERT_EQUAL_UINT32(0u, cp_serialise_ota_report(buf, sizeof(buf), &r));
+    TEST_ASSERT_EQUAL_UINT32(0u, cp_serialise_ota_request(buf, sizeof(buf), &q));
+
+    /* Every length from zero up to the full text is refused or exact, never an overrun. */
+    char exact[200];
+    const uint32_t full = cp_serialise_ota_report(exact, sizeof(exact), &r);
+
+    TEST_ASSERT_TRUE(full > 0u);
+    for (uint32_t size = 1u; size <= full; size++)
+    {
+        TEST_ASSERT_EQUAL_UINT32(0u, cp_serialise_ota_report(exact, size, &r));
+    }
+    TEST_ASSERT_EQUAL_UINT32(full, cp_serialise_ota_report(exact, full + 1u, &r));
+}
+
+void test_CP_T72_the_ota_command_parser_accepts_the_contract_and_whitespace(void)
+{
+    us_ota_command_t c;
+    uint32_t job = 0u;
+    bool known = false;
+    const char *ok = "{\"job\":42,\"size_a\":491648,\"size_b\":491600}";
+    const char *spaced = "{ \"job\": 7 , \"size_a\": 1 , \"size_b\": 2 }";
+    const char *reordered = "{\"size_b\":2,\"size_a\":1,\"job\":7}";
+
+    TEST_ASSERT_TRUE(
+        cp_parse_ota_command((const uint8_t *) ok, (uint32_t) strlen(ok), &c, &job, &known));
+    TEST_ASSERT_TRUE(known);
+    TEST_ASSERT_EQUAL_UINT32(42u, c.job);
+    TEST_ASSERT_EQUAL_UINT32(491648u, c.size_a);
+    TEST_ASSERT_EQUAL_UINT32(491600u, c.size_b);
+
+    TEST_ASSERT_TRUE(
+        cp_parse_ota_command((const uint8_t *) spaced, (uint32_t) strlen(spaced), &c, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT32(7u, c.job);
+    TEST_ASSERT_TRUE(cp_parse_ota_command((const uint8_t *) reordered, (uint32_t) strlen(reordered),
+                                          &c, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT32(2u, c.size_b);
+}
+
+void test_CP_T73_the_ota_command_parser_refuses_everything_else(void)
+{
+    us_ota_command_t c;
+    const char *bad[] = {
+        "{\"job\":42,\"size_a\":1}",                                /* size_b missing     */
+        "{\"size_a\":1,\"size_b\":2}",                              /* job missing        */
+        "{\"job\":\"42\",\"size_a\":1,\"size_b\":2}",               /* job is a string    */
+        "{\"job\":-1,\"size_a\":1,\"size_b\":2}",                   /* negative           */
+        "{\"job\":4294967296,\"size_a\":1,\"size_b\":2}",           /* 2^32               */
+        "{\"job\":99999999999999999999,\"size_a\":1,\"size_b\":2}", /* far over           */
+        "{\"job\":42x,\"size_a\":1,\"size_b\":2}",                  /* trailing garbage   */
+        "{\"job\":,\"size_a\":1,\"size_b\":2}",                     /* empty value        */
+        "",
+        "not json",
+    };
+
+    for (uint32_t i = 0u; i < (sizeof(bad) / sizeof(bad[0])); i++)
+    {
+        TEST_ASSERT_FALSE_MESSAGE(cp_parse_ota_command((const uint8_t *) bad[i],
+                                                       (uint32_t) strlen(bad[i]), &c, NULL, NULL),
+                                  bad[i]);
+    }
+
+    TEST_ASSERT_FALSE(cp_parse_ota_command(NULL, 5u, &c, NULL, NULL));
+
+    /* The largest 32-bit value is fine; a payload over the limit is not. */
+    const char *max = "{\"job\":4294967295,\"size_a\":1,\"size_b\":2}";
+
+    TEST_ASSERT_TRUE(
+        cp_parse_ota_command((const uint8_t *) max, (uint32_t) strlen(max), &c, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFUL, c.job);
+
+    uint8_t big[200];
+
+    (void) memset(big, ' ', sizeof(big));
+    TEST_ASSERT_FALSE(cp_parse_ota_command(big, (uint32_t) sizeof(big), &c, NULL, NULL));
+}
+
+void test_CP_T74_a_bad_command_still_reports_a_job_it_could_read(void)
+{
+    us_ota_command_t c;
+    uint32_t job = 0u;
+    bool known = true;
+    const char *no_sizes = "{\"job\":42}";
+    const char *garbage = "{}";
+
+    TEST_ASSERT_FALSE(cp_parse_ota_command((const uint8_t *) no_sizes, (uint32_t) strlen(no_sizes),
+                                           &c, &job, &known));
+    TEST_ASSERT_TRUE(known);
+    TEST_ASSERT_EQUAL_UINT32(42u, job);
+
+    TEST_ASSERT_FALSE(cp_parse_ota_command((const uint8_t *) garbage, (uint32_t) strlen(garbage),
+                                           &c, &job, &known));
+    TEST_ASSERT_FALSE(known);
 }

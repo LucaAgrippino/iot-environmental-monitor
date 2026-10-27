@@ -17,9 +17,13 @@
 
 #include <stdio.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "update_service/us_reason.h"
+
+#define CP_OTA_CMD_TEXT_MAX 129u /**< 128 payload bytes plus the terminator. */
 
 static const char *prv_alarm_type_str(cp_alarm_type_t type)
 {
@@ -216,4 +220,191 @@ uint32_t cp_serialise_alarm(char *buf, uint32_t buf_size, const cp_alarm_event_t
         return 0u;
     }
     return (uint32_t) n;
+}
+
+/* ---------------------------------------------------------------------- */
+/* OTA (update-service-lld.md section 6)                                   */
+/* ---------------------------------------------------------------------- */
+
+uint32_t cp_serialise_ota_request(char *buf, uint32_t buf_size, const us_chunk_request_t *req)
+{
+    const int n =
+        snprintf(buf, buf_size, "{\"job\":%lu,\"slot\":\"%c\",\"offset\":%lu,\"len\":%lu}",
+                 (unsigned long) req->job, (req->slot == FIRMWARE_SLOT_B) ? 'B' : 'A',
+                 (unsigned long) req->offset, (unsigned long) req->len);
+
+    if ((n < 0) || ((uint32_t) n >= buf_size))
+    {
+        return 0u;
+    }
+    return (uint32_t) n;
+}
+
+static const char *prv_result_str(us_result_t result)
+{
+    switch (result)
+    {
+    case US_RESULT_ACCEPTED:
+        return "accepted";
+    case US_RESULT_REJECTED:
+        return "rejected";
+    case US_RESULT_FAILED:
+        return "failed";
+    case US_RESULT_SUCCESS:
+        return "success";
+    case US_RESULT_ROLLED_BACK:
+        return "rolled_back";
+    default:
+        return "failed";
+    }
+}
+
+uint32_t cp_serialise_ota_report(char *buf, uint32_t buf_size, const us_ota_report_t *rep)
+{
+    uint32_t len = 0u;
+    int n = snprintf(buf, buf_size, "{\"event\":\"ota\"");
+
+    if ((n < 0) || ((uint32_t) n >= buf_size))
+    {
+        return 0u;
+    }
+    len = (uint32_t) n;
+
+    if (rep->job_known)
+    {
+        n = snprintf(&buf[len], buf_size - len, ",\"job\":%lu", (unsigned long) rep->job);
+        if ((n < 0) || ((uint32_t) n >= (buf_size - len)))
+        {
+            return 0u;
+        }
+        len += (uint32_t) n;
+    }
+
+    n = snprintf(&buf[len], buf_size - len, ",\"result\":\"%s\"", prv_result_str(rep->result));
+    if ((n < 0) || ((uint32_t) n >= (buf_size - len)))
+    {
+        return 0u;
+    }
+    len += (uint32_t) n;
+
+    if (rep->reason != US_REASON_NONE)
+    {
+        n = snprintf(&buf[len], buf_size - len, ",\"reason\":\"%s\"",
+                     update_service_reason_string(rep->reason));
+        if ((n < 0) || ((uint32_t) n >= (buf_size - len)))
+        {
+            return 0u;
+        }
+        len += (uint32_t) n;
+    }
+
+    if (rep->version != 0u)
+    {
+        n = snprintf(&buf[len], buf_size - len, ",\"version\":\"%u.%u.%u\",\"rollbacks\":%lu",
+                     (unsigned) (rep->version >> 24), (unsigned) ((rep->version >> 16) & 0xFFu),
+                     (unsigned) (rep->version & 0xFFFFu), (unsigned long) rep->rollback_count);
+        if ((n < 0) || ((uint32_t) n >= (buf_size - len)))
+        {
+            return 0u;
+        }
+        len += (uint32_t) n;
+    }
+
+    if ((len + 2u) > buf_size)
+    {
+        return 0u;
+    }
+    buf[len] = '}';
+    buf[len + 1u] = '\0';
+
+    return len + 1u;
+}
+
+/** @brief Read the unsigned decimal after "key": ; false if absent, malformed or above 32 bits. */
+static bool prv_find_u32(const char *text, const char *key, uint32_t *out)
+{
+    char pattern[16];
+
+    (void) snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+
+    const char *p = strstr(text, pattern);
+    if (p == NULL)
+    {
+        return false;
+    }
+    p += strlen(pattern);
+    while (*p == ' ')
+    {
+        p++;
+    }
+
+    if ((*p < '0') || (*p > '9'))
+    {
+        return false;
+    }
+
+    uint64_t value = 0u;
+    while ((*p >= '0') && (*p <= '9'))
+    {
+        value = (value * 10u) + (uint64_t) (*p - '0');
+        if (value > 0xFFFFFFFFull)
+        {
+            return false;
+        }
+        p++;
+    }
+
+    while (*p == ' ')
+    {
+        p++;
+    }
+    if ((*p != ',') && (*p != '}'))
+    {
+        return false;
+    }
+
+    *out = (uint32_t) value;
+    return true;
+}
+
+bool cp_parse_ota_command(const uint8_t *payload, uint32_t len, us_ota_command_t *out,
+                          uint32_t *job_out, bool *job_known_out)
+{
+    char text[CP_OTA_CMD_TEXT_MAX];
+    uint32_t job = 0u;
+
+    if (job_known_out != NULL)
+    {
+        *job_known_out = false;
+    }
+    if ((payload == NULL) || (out == NULL) || (len == 0u) || (len >= sizeof(text)))
+    {
+        return false;
+    }
+
+    (void) memcpy(text, payload, len);
+    text[len] = '\0';
+
+    const bool have_job = prv_find_u32(text, "job", &job);
+    if (have_job && (job_known_out != NULL))
+    {
+        *job_known_out = true;
+        if (job_out != NULL)
+        {
+            *job_out = job;
+        }
+    }
+
+    uint32_t size_a = 0u;
+    uint32_t size_b = 0u;
+    if (!have_job || !prv_find_u32(text, "size_a", &size_a) ||
+        !prv_find_u32(text, "size_b", &size_b))
+    {
+        return false;
+    }
+
+    out->job = job;
+    out->size_a = size_a;
+    out->size_b = size_b;
+    return true;
 }
