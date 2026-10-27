@@ -467,6 +467,17 @@ void test_TC_US_080_the_mutex_is_never_held_across_a_call_out(void)
     TEST_ASSERT_EQUAL_UINT32(0U, fake_audit_violations()); /* also checked in tearDown() */
 }
 
+void test_the_stack_high_water_mark_is_read_from_the_task(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words(ust_us)); /* not created */
+
+    (void) ust_create();
+    g_mock_uxTaskGetStackHighWaterMark_return = 321U;
+    TEST_ASSERT_EQUAL_UINT32(321U, update_service_stack_free_words(ust_us));
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words((update_service_t *) 0x2000));
+}
+
 void test_TC_US_081_a_chunk_that_arrives_while_the_slot_is_full_is_stale(void)
 {
     ust_to_downloading();

@@ -53,6 +53,17 @@ typedef struct
 update_service_err_t update_service_create(const update_service_config_t *cfg,
                                            update_service_t **out);
 
+/**
+ * @brief Words of UpdateServiceTask's stack that have never been used (its high-water mark).
+ *
+ * `verify` runs the software ECDSA in this task, so this is the figure that shows whether the
+ * 4 KB stack of the companion (US-O6) is enough. Reads it from FreeRTOS; 0 for an instance that
+ * was not created.
+ *
+ * @note Threading: any task.
+ */
+uint32_t update_service_stack_free_words(const update_service_t *self);
+
 extern const iupdate_service_t update_service_ops; /**< CloudPublisher.        */
 extern const iupdate_control_t update_control_ops; /**< LifecycleController.   */
 

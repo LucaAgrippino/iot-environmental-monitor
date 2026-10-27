@@ -230,6 +230,16 @@ const iupdate_service_t update_service_ops = {
 /* IUpdateControl (LifecycleTask)                                           */
 /* ---------------------------------------------------------------------- */
 
+uint32_t update_service_stack_free_words(const update_service_t *self)
+{
+    if ((self != &g_us) || !g_us.created || (g_us.task == NULL))
+    {
+        return 0U;
+    }
+
+    return (uint32_t) uxTaskGetStackHighWaterMark(g_us.task);
+}
+
 static bool us_is_created(const update_service_t *self)
 {
     return (self == &g_us) && self->created;
