@@ -28,6 +28,7 @@ static uint32_t s_log_count;
 
 static uint32_t s_fail_erase_addr = FAKE_IFLASH_NO_ADDR;
 static uint32_t s_fail_program_addr = FAKE_IFLASH_NO_ADDR;
+static uint32_t s_fail_program_once_addr = FAKE_IFLASH_NO_ADDR;
 static uint32_t s_fail_read_addr = FAKE_IFLASH_NO_ADDR;
 static uint32_t s_corrupt_addr = FAKE_IFLASH_NO_ADDR;
 static bool s_fail_all_reads;
@@ -140,6 +141,12 @@ static internal_flash_err_t fake_program(uint32_t addr, const uint8_t *data, uin
         return INTERNAL_FLASH_ERR_PROGRAM;
     }
 
+    if (addr == s_fail_program_once_addr)
+    {
+        s_fail_program_once_addr = FAKE_IFLASH_NO_ADDR;
+        return INTERNAL_FLASH_ERR_PROGRAM;
+    }
+
     const power_cut_verdict_t verdict = power_cut_tick();
 
     if (verdict == POWER_CUT_DEAD)
@@ -201,6 +208,7 @@ void fake_iflash_reset(void)
     s_log_count = 0U;
     s_fail_erase_addr = FAKE_IFLASH_NO_ADDR;
     s_fail_program_addr = FAKE_IFLASH_NO_ADDR;
+    s_fail_program_once_addr = FAKE_IFLASH_NO_ADDR;
     s_fail_read_addr = FAKE_IFLASH_NO_ADDR;
     s_corrupt_addr = FAKE_IFLASH_NO_ADDR;
     s_fail_all_reads = false;
@@ -264,6 +272,11 @@ void fake_iflash_fail_erase_at(uint32_t addr)
 void fake_iflash_fail_program_at(uint32_t addr)
 {
     s_fail_program_addr = addr;
+}
+
+void fake_iflash_fail_program_once_at(uint32_t addr)
+{
+    s_fail_program_once_addr = addr;
 }
 
 void fake_iflash_fail_all_reads(bool fail)

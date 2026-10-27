@@ -75,6 +75,9 @@ void fake_iflash_fail_erase_at(uint32_t addr);
 /** @brief A program starting at this address fails (nothing is written). */
 void fake_iflash_fail_program_at(uint32_t addr);
 
+/** @brief The next program starting at this address fails (nothing is written); later ones pass. */
+void fake_iflash_fail_program_once_at(uint32_t addr);
+
 /** @brief Every read fails. */
 void fake_iflash_fail_all_reads(bool fail);
 

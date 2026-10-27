@@ -49,6 +49,7 @@
     - gateway/middleware/firmware_store
     # internal_flash: the fake/ folder holds the controller model, linked by the test's #include.
     - gateway/drivers/internal_flash
+    - gateway/drivers/bootloader
     - gateway/drivers/modbus_uart_driver/**
     - gateway/middleware/modbus_master/**
     - gateway/application/modbus_poller/**
@@ -78,6 +79,9 @@
     - ../firmware/gateway/application/health_monitor/**
     - ../firmware/gateway/middleware/config_store/**
     - ../firmware/gateway/middleware/firmware_store/**
+    # bootloader: boot_core.c is hardware-free; boot_hw_l4.c and boot_main.c are never linked
+    # because no test includes their headers.
+    - ../firmware/gateway/bootloader/**
     - ../firmware/gateway/middleware/modbus_master/**
     - ../firmware/gateway/application/modbus_poller/**
     - ../firmware/gateway/application/sensor_service/**
@@ -253,11 +257,19 @@
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
+  :test_boot_core:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
   :test_firmware_store:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
   :test_fs_staging:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_fs_bootloader_contract:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
