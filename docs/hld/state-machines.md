@@ -194,8 +194,8 @@ Delegates the update lifecycle to Machine 3 (Firmware Update). Marked
 - **Do activity:** delegated entirely to the Firmware Update sub-machine.
 - **Exit action:** release firmware-update mutex.
 
-*Cloud outcome reporting (REQ-DM-055) is owned exclusively by T18,
-T19, and T20 to avoid multiple sends on the same event.*
+*Cloud outcome reporting (REQ-DM-055) is owned exclusively by UpdateService
+(Machine 3), never by a Machine 1 transition (amendment B3).*
 
 **Traceability at this level:** UC-18; DM-054, DM-055.
 
@@ -233,22 +233,24 @@ external/watchdog reset.
 | T11 | EditingConfig              | Operational                 | `confirmation_received`                        | `[validation_ok]`                              | `apply_and_persist(); emit internet_params_changed`        |
 | T12 | EditingConfig              | Operational                 | `cancel_received, confirmation_timeout`        | —                                              | `restore_snapshot()`                                       |
 | T13 | Operational                | Restarting                  | `restart_cmd_received`                         | `[user_confirmed]`                             | `persist_state(); log(restart_requested)`                  |
-| T14 | Operational                | UpdatingFirmware            | `ota_cmd_received`                             | `[authenticated && !update_in_progress]`       | `acquire_update_mutex(); emit update_started`              |
+| T14 | Operational                | UpdatingFirmware            | `ota_cmd_received` (`LC_EVENT_OTA_REQUESTED`)  | `[!update_in_progress]`                        | `acquire_update_mutex(); UpdateService.start(job)`         |
 | T15 | Operational                | Faulted                     | `watchdog_imminent, unrecoverable_error`       | —                                              | —                                                          |
 | T16 | EditingConfig              | Faulted                     | `watchdog_imminent, unrecoverable_error`       | —                                              | `restore_snapshot()`                                       |
 | T17 | Restarting                 | (MCU reset)                 | `reset_triggered`                              | —                                              | `NVIC_SystemReset()`                                       |
-| T18 | UpdatingFirmware           | Restarting                  | `update_done`                                  | `[update_success]`                             | `report_to_cloud(success)`                                 |
-| T19 | UpdatingFirmware           | Operational                 | `update_done`                                  | `[update_failed && rollback_ok]`               | `report_to_cloud(failed_rolled_back)`                      |
-| T20 | UpdatingFirmware           | Faulted                     | `update_done`                                  | `[update_failed && !rollback_ok]`              | `report_to_cloud(failed_unrecoverable)`                    |
+| T18 | *(retired, B3)*            | —                           | —                                              | —                                              | —                                                          |
+| T19 | UpdatingFirmware           | Operational                 | `update_finished` (`LC_EVENT_OTA_FINISHED`)    | `[current_firmware_intact]`                    | — *(the cloud report is UpdateService's)*                  |
+| T20 | UpdatingFirmware           | Faulted                     | `update_finished` (`LC_EVENT_OTA_FINISHED`)    | `[!current_firmware_intact]`                   | — *(cannot occur with trial boot; kept for completeness)*  |
 | T21 | Faulted                    | (MCU reset)                 | `watchdog_expiry, external_reset`              | —                                              | —                                                          |
 
-*Mutex release for T18/T19/T20 is handled by the UpdatingFirmware exit action (see §UpdatingFirmware state).*
+*Mutex release for T19/T20 is handled by the UpdatingFirmware exit action (see §UpdatingFirmware state).*
+
+*Amendment B3 (trial boot). UpdatingFirmware has no "success" exit: with a trial boot (FirmwareStore FS-D2) success is known only on the new image, after the reboot, in Init.SelfChecking. T18 is therefore retired (the number is kept so that references stay valid). The reboot itself is I18. T19 and T20 are taken on `OTA_FINISHED`, which UpdateService posts when an update ends without a reset (download, validation or install failed, or the command was never started). The cloud report that T18–T20 used to carry moves to UpdateService, which already owns it in SD-06a–d.*
 
 ### Internal transitions in UpdatingFirmware
 
 | #   | Event             | Guard | Action               |
 |-----|-------------------|-------|----------------------|
-| I18 | `reset_requested` | —     | `NVIC_SystemReset()` |
+| I18 | `reset_requested` (`LC_EVENT_OTA_RESET_REQUESTED`) | — | `cloud.flush(); wait 2000 ms; reset_driver.soft_reset()` |
 
 *Machine 3 emits `reset_requested` instead of calling `NVIC_SystemReset()` directly. The Gateway Lifecycle owns the reset decision; this internal transition is the single canonical reset site during the OTA lifecycle. The UpdatingFirmware exit action does not fire for I18 (internal transitions do not exit the state), which is correct — the MCU restarts and re-enters Init, which detects the persisted flag and resumes Machine 3 at the appropriate entry-point.*
 
@@ -506,7 +508,7 @@ New firmware accepted. Update lifecycle complete.
 - **Do activity:** none — terminal.
 - **Exit action:** none.
 
-*Cloud success report (REQ-DM-055) is sent by Machine 1 T18 action, not here, to avoid double-send.*
+*Cloud success report (REQ-DM-055) is sent by this machine (UpdateService) after the confirm, never by a Machine 1 transition (B3).*
 
 ### Failed — final
 
@@ -517,7 +519,7 @@ Update did not complete successfully (download, validation, or self-check
 - **Do activity:** none — terminal.
 - **Exit action:** none.
 
-*Cloud failure report (REQ-DM-055) is sent by Machine 1 T19 or T20 action, not here, to avoid double-send.*
+*Cloud failure report (REQ-DM-055) is sent by this machine (UpdateService), never by a Machine 1 transition (B3).*
 
 ## Transition table
 
@@ -912,7 +914,7 @@ How the six machines couple at runtime.
 | Coupling                                     | Mechanism                                                                                        |
 |----------------------------------------------|--------------------------------------------------------------------------------------------------|
 | Gateway lifecycle ↔ Cloud Connectivity       | Init triggers Cloud Connectivity start (REQ-CC-050). Otherwise independent — gateway does not block on cloud (REQ-NF-200). Cloud Connectivity emits `internet_restored` (REQ-TS-0E1) on Connected entry; consumed by `NtpClient` to trigger an immediate resync. |
-| Gateway lifecycle ↔ Firmware Update          | Machine 1 T14 emits `update_started` (consumed by Machine 3 T2: Idle → Downloading). Machine 3 reaching Committed or Failed emits `update_done` (consumed by Machine 1 T18/T19/T20). Machine 1 exiting UpdatingFirmware via T18/T19/T20 emits `lifecycle_exits_updating` (consumed by Machine 3 T13/T14: terminal → Idle). Machine 3 T7 and T11 emit `reset_requested` instead of calling `NVIC_SystemReset()` directly; Machine 1 I18 (UpdatingFirmware internal transition) owns the single canonical reset call. The reboot-and-resume chain (Applying → SelfChecking; RollingBack → Failed) crosses gateway-lifecycle Init via the persisted-flag entry-point pseudo-state. |
+| Gateway lifecycle ↔ Firmware Update          | Machine 1 T14 emits `update_started` (consumed by Machine 3 T2: Idle → Downloading). Machine 3 ending without a reset (Failed before the reboot) emits `update_finished` (`LC_EVENT_OTA_FINISHED`, consumed by Machine 1 T19/T20); success is decided after the reboot (B3). Machine 1 exiting UpdatingFirmware via T19/T20 emits `lifecycle_exits_updating` (consumed by Machine 3 T13/T14: terminal → Idle). Machine 3 T7 and T11 emit `reset_requested` instead of calling `NVIC_SystemReset()` directly; Machine 1 I18 (UpdatingFirmware internal transition) owns the single canonical reset call. The reboot-and-resume chain (Applying → SelfChecking; RollingBack → Failed) crosses gateway-lifecycle Init via the persisted-flag entry-point pseudo-state. |
 | Gateway lifecycle ↔ Modbus Master            | Init starts Modbus Master. Modbus failures surface via `node_offline` event (consumed by HealthMonitor / CloudPublisher); they do NOT change gateway top-level state. |
 | Gateway EditingConfig → Cloud Connectivity   | On apply, emits `internet_params_changed`; Cloud Connectivity force-disconnects and reconnects with new credentials (Connected → Disconnected via T7 of Machine 2). |
 | Cloud Connectivity ↔ Firmware Update         | FU uses CloudPublisher (which uses Cloud Connectivity) to receive image chunks and report results. REQ-DM-051 resumability is satisfied by persisting the download offset on every successful chunk (Machine 3 I1: `persist_offset()`); a connectivity-loss restart re-enters Downloading from the persisted offset without a separate Paused state. |

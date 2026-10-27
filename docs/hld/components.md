@@ -611,9 +611,9 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** CloudPublisher
 **LAYER:** Application
-**RESPONSIBILITY:** Serialises and deserialises MQTT payloads according to the project's message schemas, publishes telemetry, alarm and health messages, and routes inbound commands to the appropriate handler. Polls IMqttStats and reports connectivity metrics via IHealthReport.
-**PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** MqttClient, IMqttStats, ISensorService, IAlarmService, IModbusPoller, StoreAndForward, IHealthSnapshot, IHealthReport, ILogger
+**RESPONSIBILITY:** Serialises and deserialises MQTT payloads according to the project's message schemas, publishes telemetry, alarm and health messages, and routes inbound commands to the appropriate handler, including the OTA command and image-chunk topics (handed to UpdateService). Is the only user of MqttClient: it carries UpdateService's chunk requests and result reports for it. Polls IMqttStats and reports connectivity metrics via IHealthReport.
+**PROVIDES (upward):** IOtaTransport *(chunk requests and result reports for UpdateService; the interface is owned by UpdateService)*
+**USES (downward):** MqttClient, IMqttStats, ISensorService, IAlarmService, IModbusPoller, StoreAndForward, IHealthSnapshot, IHealthReport, IUpdateService *(inbound OTA commands and chunks; closes F-03)*, ILogger
 
 **NAME:** TimeService
 **LAYER:** Application
@@ -623,9 +623,9 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 
 **NAME:** UpdateService
 **LAYER:** Application
-**RESPONSIBILITY:** Orchestrates the firmware update flow: download via MqttClient, delegate image storage and verification to FirmwareStore, commit slot switch, reboot via ResetDriver.
-**PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** MqttClient, FirmwareStore, ResetDriver, ILogger
+**RESPONSIBILITY:** Owns the policy of a firmware update (state-machines.md Machine 3): validates the OTA command, fetches the image chunk by chunk through CloudPublisher, delegates staging, authentication, installation and boot metadata to FirmwareStore, runs the post-update self-check, confirms the new image, and reports every outcome to the cloud. It does not touch MQTT, does not reset the MCU (LifecycleController does) and keeps no non-volatile state of its own (FirmwareStore holds it all).
+**PROVIDES (upward):** IUpdateService *(CloudPublisher: command and chunk intake)*, IUpdateControl *(LifecycleController: start, resume self-check, resume rollback)*
+**USES (downward):** IFirmwareImageStore, IFirmwareBootControl, IOtaTransport *(implemented by CloudPublisher)*, ILifecycle *(post_event, get_state)*, ISensorService and IModbusPoller *(readiness, for the self-check)*, ILogger
 
 **NAME:** ConsoleService
 **LAYER:** Application
