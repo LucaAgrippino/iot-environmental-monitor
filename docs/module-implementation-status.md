@@ -54,7 +54,7 @@ Hardware columns come from the bench results recorded during the project; where 
 |---|---|---|
 | Logger | harness exists | |
 | WifiTask | ✅ validated | Alarm-latency decision CP-O6 largely resolved |
-| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (provisional 48 KB, mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open **not yet measured** (TC-HW-MQTT-014, Luca); the two 16 KB SSL record buffers alone take about 33 KB (MQTT-O1) |
+| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (provisional 44 KB, mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open **not yet measured** (TC-HW-MQTT-014, Luca); the two 16 KB SSL record buffers alone take about 33 KB (MQTT-O1) |
 | NtpClient | ✅ validated | IPv4 servers only |
 | TimeProvider | ✅ TC-HW-TP-001..011 | |
 | ConfigStore | ✅ validated | Diverges from the FD copy (CS-O5) |
@@ -127,7 +127,7 @@ Also missing on the FD side: the handler for the new `CMD_SET_TIME_HI/LO` regist
 | Config | `IConfigProvider` still not consumed by TimeService (TS-O4) and ConfigService consumers are unwired (CFG-O8); SensorService half of SS-O6 closed |
 | Time | `trigger_retry()` on reconnect is wired in CloudPublisher (TS-O6 closed, CP-D23); TimeService is still never instantiated in production wiring (LC-O15) |
 | Telemetry | Invalid sensor channels are sent as 0 and listed in `invalid_channels`; cloud schema confirmation pending (CP-O4) |
-| RAM | After WP2 the default Gateway image has `.bss` 91.6 KB in the 96 KB RAM region (the 48 KB arena is most of it): about 8 KB is left below the stack. The 32 KB SRAM2 region holds nothing. Budget for the real `main()` is WP4 |
+| RAM | After WP2 the default Gateway image has `.bss` 91.6 KB in the 96 KB RAM region (the 44 KB arena is most of it): about 8 KB is left below the stack. The 32 KB SRAM2 region holds nothing. Budget for the real `main()` is WP4 |
 | Storage | CFL-O8 erase spin vs the 500 ms alarm budget (the QSPI mutex itself is merged and closed) |
 | Sensors | I2C TIMINGR, DRDY pins PC8/PD11 and real ODRs unmeasured; own harnesses for i2c and groups A/B never run |
 | Design | ConsoleService CS-O4..CS-O8 open under a "Pass H complete" status |
