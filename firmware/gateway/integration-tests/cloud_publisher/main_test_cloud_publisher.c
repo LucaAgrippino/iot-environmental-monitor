@@ -133,6 +133,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "tls_arena.h"
 
 #include "cpu/cpu.h"
 #include "cpu/status.h"
@@ -805,6 +806,8 @@ int main(void)
     {
         bringup_halt();
     }
+
+    tls_arena_init(); /* mbedTLS allocates only from the static arena (WP2) */
 
     if (gpio_init() != GPIO_OK)
     {

@@ -71,6 +71,7 @@
 #include "internal_flash/iinternal_flash.h"
 #include "internal_flash/internal_flash.h"
 #include "qspi_flash/qspi_flash.h"
+#include "tls_arena.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
@@ -488,6 +489,8 @@ int main(void)
             /* Nothing can be reported before the UART exists. */
         }
     }
+
+    tls_arena_init(); /* mbedTLS allocates only from the static arena (WP2) */
 
     gpio_pin_config_t uart_tx_config = {
         .port = BRINGUP_UART_TX_PORT,
