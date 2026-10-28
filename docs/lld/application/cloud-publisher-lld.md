@@ -1,13 +1,21 @@
 # LLD Companion — CloudPublisher
 
 **Document:** `docs/lld/application/cloud-publisher.md`
-**Version:** 0.2 (Phase H complete — ready for implementation)
+**Version:** 2.0 (reconciled with the real Gateway modules, WP1 PR-D, 2026-10-28)
 **Board:** Gateway (B-L475E-IOT01A) only
 **Layer:** Application
-**Status:** Implementation-ready
+**Status:** Gateway implemented (OTA path #106; reconciliation PR-D, host-tested, hardware cases TC-HW-CP-014..017 to be run)
 **Date:** July 2026
 
 **HLD anchor:** CloudPublisher in `components.md` (GW application layer)
+
+> **Version 2.0.** The module no longer carries any placeholder type or function: it uses
+> StoreAndForward, HealthMonitor, ConfigService (`iconfig_provider_t` / `iconfig_manager_t`),
+> `itime_service_t`, `ilifecycle_t`, TimeProvider and the ModbusPoller Field Device query.
+> Decisions CP-D18..D31 and the wire schema 1.1 are specified in
+> `docs/lld/gate-review/cloud-publisher-reconciliation.md` and summarised in section 15; where
+> sections 3.3, 5, 6, 7 and 8 below still describe the 0.2 design, this paragraph and the
+> sections marked *(2.0)* take precedence.
 
 ---
 
@@ -79,30 +87,34 @@ typedef enum {
 } cloud_publisher_err_t;
 ```
 
-### 3.3 Configuration struct
+### 3.3 Configuration struct *(2.0)*
 
 ```c
-/**
- * @brief CloudPublisher creation configuration.
- *
- * All dependencies injected via opaque handles.
- */
-typedef struct {
-    mqtt_client_handle_t   mqtt;
-    sensor_service_handle_t sensors;       /**< ISensorService — latest readings.    */
-    alarm_service_handle_t  alarms;        /**< IAlarmService — alarm subscription.  */
-    modbus_poller_handle_t  poller;        /**< IModbusPoller — FD readings.         */
-    store_and_forward_handle_t saf;        /**< IStoreAndForward — offline buffer.   */
-    health_monitor_handle_t health_read;   /**< IHealthSnapshot — health payload.    */
-    health_monitor_handle_t health_write;  /**< IHealthReport — MQTT stats push.     */
-    config_service_handle_t cfg_read;      /**< IConfigProvider — publish intervals. */
-    config_service_handle_t cfg_write;     /**< IConfigManager — remote config cmds. */
-    /* command routing targets */
-    const iupdate_service_t *update_ops;    /**< IUpdateService; NULL: no OTA (CP-D17). */
-    update_service_t *update;               /**< UpdateService instance (CP-D17). */
-    lifecycle_handle_t      lifecycle;     /**< ILifecycle — restart command.        */
+typedef void (*cp_control_handler_t)(const uint8_t *payload, uint32_t len);
+
+typedef struct
+{
+    mqtt_client_handle_t        mqtt;
+    saf_handle_t                saf;              /* store_and_forward.h                     */
+    health_monitor_handle_t     health;           /* snapshot read and reports (one instance) */
+    const iconfig_provider_t   *cfg_read;         /* config_service_get_provider()           */
+    const iconfig_manager_t    *cfg_write;        /* config_service_get_manager()            */
+    const itime_service_t      *time;             /* NULL: no NTP retry on reconnect         */
+    const ilifecycle_t         *lifecycle;        /* get_state only (CP-D27)                 */
+    cp_control_handler_t        control_handler;  /* NULL: /control is not subscribed        */
+    uint8_t                     fd_slave_addr;    /* 0: no Field Device in the telemetry     */
+    uint32_t                    fw_version;       /* major<<24 | minor<<16 | patch           */
+    const iupdate_service_t    *update_ops;       /* NULL: no OTA                            */
+    update_service_t           *update;           /* both or neither                         */
+    mqtt_connect_cfg_t          mqtt_connect_cfg;
 } cloud_publisher_config_t;
 ```
+
+`cloud_publisher_create()` returns `CP_ERR_NULL_PTR` if `mqtt`, `saf`, `health`, `cfg_read`,
+`cfg_write` or `lifecycle` is NULL, or if only one of `update_ops` / `update` is set, and
+`CP_ERR_NO_RESOURCE` if ConfigService refuses the change-callback registration (CP-D31). The
+module also exports `cloud_publisher_on_message()` and `cloud_publisher_on_disconnect()` (CP-D20)
+for `mqtt_client_config_t::msg_cb` / `disconnect_cb`.
 
 ### 3.4 Public API
 
@@ -352,9 +364,13 @@ Convention aligned with MqttClient companion §6.
 | Telemetry | `dt/iotmonitor/<device_id>/telemetry` | 0 |
 | Health | `dt/iotmonitor/<device_id>/health` | 0 |
 | Alarms | `dt/iotmonitor/<device_id>/alarms` | 1 |
-| Command results | `dt/iotmonitor/<device_id>/results` | 1 |
-| Commands (subscribe) | `cmd/iotmonitor/<device_id>/config` | — |
-| OTA (subscribe) | `cmd/iotmonitor/<device_id>/ota` | — |
+| Config result *(2.0, CP-D30; replaces `/results`)* | `dt/iotmonitor/<device_id>/config/result` | 1 |
+| OTA chunk request | `dt/iotmonitor/<device_id>/ota/request` | 0 |
+| OTA result | `dt/iotmonitor/<device_id>/ota/result` | 1 |
+| Config (subscribe, CP-D26) | `cmd/iotmonitor/<device_id>/config` | 1 |
+| Control (subscribe, CP-D26) | `cmd/iotmonitor/<device_id>/control` | 1 |
+| OTA command (subscribe) | `cmd/iotmonitor/<device_id>/ota` | 1 |
+| OTA chunk (subscribe) | `cmd/iotmonitor/<device_id>/ota/data` | 0 |
 
 `dt/` = device-to-cloud; `cmd/` = cloud-to-device (AWS IoT Core
 convention). `<device_id>` is the MCU UID hex string read at init.
@@ -362,6 +378,23 @@ convention). `<device_id>` is the MCU UID hex string read at init.
 ---
 
 ## 7. JSON payload schemas
+
+> **Schema 1.1 *(2.0, CP-D22)* supersedes the 1.0 payloads below.** Every payload (telemetry,
+> health, alarm, config result, OTA request and report) starts with
+> `"schema_version":"1.1","device_id":"<serial>","timestamp":<uint32>,"sync_state":"synchronised"|"unsynchronised"`
+> from one `time_provider_get()` call (epoch seconds when synchronised, uptime seconds otherwise;
+> an alarm carries the time of detection). An invalid channel is JSON `null` and `invalid_channels`
+> is gone. The Field Device is a nested object `"field_device":{"online":bool,"temperature_deci_c":..,
+> "humidity_pct":..,"pressure_hpa":..}` (values `null` when not online) or `null` when no slave is
+> configured. Health 1.1 carries `fw_version`, the lifecycle state and reset cause, and the whole
+> HealthMonitor snapshot (REQ-CC-010, REQ-NF-503); `stack_free_words` lists the registered tasks,
+> cut at the last non-zero slot because the snapshot has no task count. The `/config` command is
+> one flat JSON object of integers (`req` optional, at most eight parameters, the Tier 2 keys only);
+> the result is `{common,"event":"config"[,"req":N],"result":"applied"}` or
+> `..."result":"rejected","reason":<busy|bad_json|unknown_key|not_remote|too_many_keys|invalid_value>[,"key":"..."]`.
+> Keys are applied in message order, so a cloud tool must order band changes (CP-O10). The command
+> payload is capped at 128 bytes (`CP_CMD_PAYLOAD_MAX_LEN`), which in practice allows about five
+> parameters per command.
 
 ### 7.1 Telemetry (REQ-CC-000, CC-070, CC-071)
 
@@ -416,7 +449,7 @@ forwarded via Modbus.
 | Item | Size |
 |---|---|
 | `cloud_publisher_inst` context | ~120 B |
-| `scratch_buf` (JSON) | 4 KB |
+| `scratch_buf` (JSON) | 2 KB (CP-D28; was 4 KB) |
 | `alarm_queue` (8 × ~64 B) | ~512 B |
 | `command_queue` (4 × ~260 B) | ~1 KB |
 | Timer handles (×3) | ~48 B |
@@ -518,16 +551,45 @@ Test file: `tests/gateway/application/cloud_publisher/test_cloud_publisher.c`
 
 ---
 
+### 13.1 Reconciliation tests *(2.0)*
+
+The reconciliation document numbers these CP-T50..T76; the OTA tests already use T50..T74, so they
+are CP-T80..T106 in `test_cloud_publisher.c` (same order): create validation (T80, T80b), change
+callback registration (T81), intervals in ms (T82, T16), poll before snapshot (T83), absolute MQTT
+stats (T84), connect and disconnect reports with one NTP retry (T85, T86, T86b, T87), subscriptions
+(T56..T58, T88), SAF mapping and the pointer drain (T89, T90), Field Device conversion and
+`online` (T91, T92), `null` channels (T93, T22, T27, T28), the common block (T94), health 1.1
+(T95), alarm time of detection (T96), `/config` apply, revert, refusals, malformed input, range,
+busy and result topic (T97..T103, T11), `/control` (T104), serialiser size (T105), link without the
+placeholders (T106). The earlier OTA tests T51, T52, T61, T63 and T70 compare the tail of the
+payload because of the common block.
+
+Hardware (bring-up harness on the real modules, to be run): TC-HW-CP-001..013 re-run with schema 1.1
+at the broker; **TC-HW-CP-014** `{"req":1,"telemetry_interval_ms":10000}` on `/config` gives
+`applied` on `/config/result` and telemetry every 10 s; **TC-HW-CP-015** a Tier 1 key gives
+`not_remote`, a bad band `invalid_value`, configuration unchanged; **TC-HW-CP-016** broker stopped
+and restarted, health `cloud_connected` false then true; **TC-HW-CP-017** the health payload
+checked field by field against the console snapshot. The harness reads the alarm outcome of
+TC-HW-CP-011 from the MQTT stats and the StoreAndForward count, since the health events are gone.
+LifecycleController is not in that image, so persistence over a reset (the second half of
+TC-HW-CP-014) needs the integrated image (WP4).
+
+---
+
 ## 14. Open items
 
 | ID | Item | Status | Resolution |
 |---|---|---|---|
 | CP-O1 | `IUpdateService` interface not yet defined. `update_svc` in config may be NULL until UpdateService LLD. | **Closed 2026-10-27** | `IUpdateService` is `iupdate_service_t` (update-service-lld.md §7.2). The config carries `update_ops` and `update`; both NULL means no OTA (CP-D17). |
-| CP-O2 | `IModbusPoller.get_latest_fd_readings()` — confirm method exists. | **Open** | Confirm at ModbusPoller LLD. |
+| CP-O2 | `IModbusPoller.get_latest_fd_readings()` — confirm method exists. | **Closed 2026-10-28** | It did not exist and ModbusPoller kept no readings (MBP-O3). `modbus_poller_get_fd_reading()` added (CP-D18, modbus-poller-lld.md MBP-D8). |
 | CP-O3 | Largest telemetry payload must fit within `CP_JSON_BUF_SIZE` (4096). | **Open** | Validate at integration with full sensor set. |
-| CP-O4 | `field_device_valid = false` — confirm omitting vs null for cloud consumer. | **Open** | Confirm with cloud schema design. |
-| CP-O5 | MqttClient's `msg_cb`/`disconnect_cb` are registered at `mqtt_client_create()` time, upstream of CloudPublisher's config injection — inbound command delivery (§5.5) has no real wiring yet. | **Partly closed 2026-10-27** | CloudPublisher now exports `cloud_publisher_on_message()` (CP-D17), a context-free function that reaches the instance through the pool entry, to be passed as `mqtt_client_config_t::msg_cb`. Still open: `main()` must pass it (LC-O15); the `disconnect_cb` is unchanged. |
+| CP-O4 | `field_device_valid = false` — confirm omitting vs null for cloud consumer. | **Closed 2026-10-28** | Decided in schema 1.1 (CP-D22): an invalid channel and an offline Field Device are JSON `null`; the Field Device is a nested object with `online`. Luca may still veto before the cloud consumer exists. |
+| CP-O5 | MqttClient's `msg_cb`/`disconnect_cb` are registered at `mqtt_client_create()` time, upstream of CloudPublisher's config injection. | **Closed in CloudPublisher 2026-10-28** | `cloud_publisher_on_message()` (CP-D17) and `cloud_publisher_on_disconnect()` (CP-D20) are context-free. Passing them is `main()`'s job (LC-O15). |
 | CP-O6 | REQ-NF-113 (alarm detection->publish within 500 ms) is **not reliably met** with the current synchronous QoS1 alarm path. Measured on hardware (TC-HW-CP-011, 2026-09-13): a single QoS1 publish is ~347 ms median (one ISM43362 PUBLISH+PUBACK round trip, ~70% of the budget), so steady-state ~5-9% of alarms exceed 500 ms whenever one lands while CloudPublisherTask is mid-publish (telemetry/health/inbound), which the single-threaded task cannot preempt. Worse, the **first** alarm after a broker drop blocks the task ~15 s on `MQTT_PUBACK_TIMEOUT_MS` before the connection is marked down; alarms pile up until then (though once down, each buffers to SAF in <1 ms, safely). CP-D12 reordering helps the co-wake case only. | **Largely resolved (MQTT-D13)** | Made `mqtt_client_publish()` non-blocking (option (b)): it transmits and returns, the QoS 1 PUBACK is reaped in `mqtt_client_process()`, and the send BIO fast-fails a dead socket instead of looping to `MQTT_SEND_TIMEOUT_MS`. Measured on hardware: the **~15 s broker-drop stall is gone** (a failed send returns `PUBLISH_FAIL` fast -> SAF; once disconnected, alarms buffer in <1 ms) and the steady-state **tail dropped** (max ~766 ms blocking -> ~584 ms non-blocking). Honestly **not** fully closed: a single alarm's floor is the ISM43362 send round trip itself (~350 ms median, ~70% of the 500 ms budget — WIFI-O11 module latency, not the PUBACK wait, which was never the median cost against a fast broker), so a co-in-flight publish on the single CloudPublisherTask can still spike an alarm past 500 ms occasionally. A hard 500 ms guarantee would need faster module I/O or a dedicated alarm socket/task (out of scope).  **Hardware-confirmed 2026-09-13 (broker-down scenario):** with the broker restarted mid-flight, **240/240 alarms handled, max 125 ms, 0 over budget, no stall** (the old build stalled ~15 s on the first failed publish) — every alarm buffered to SAF within budget while disconnected. One subtlety the hardware surfaced: making the send BIO fatal-on-error must be scoped to an *established* connection (`inst->connected`); during a (re)handshake the ISM43362 can briefly return `WIFI_ERR_SOCKET` on a just-opened socket, so `prv_mbedtls_net_send()` returns `WANT_WRITE` there to let mbedTLS retry across `connect_step()` ticks — otherwise every reconnect aborts on that transient. **Reconnect now confirmed 2026-09-13:** after fixing two further hardware-only bugs — the WifiTask recv slot not resetting across a socket reopen (stale POLL_ERROR -> handshake -0x6800; wifi-task.md) and `wifi_close_socket()` leaking the local slot when the stop-client command fails on a dead peer (WIFI-O17) — a broker restart mid-flight now recovers cleanly: disconnect detected, alarms buffered within budget throughout (0 over 500 ms across the drop), **MQTT (re)connected in ~12 s**, broker receiving publishes again. (Earlier note, now superseded — the first attempt was **not re-confirmed this run: TCP reconnect recovery after the peer reset** — the test module had degraded after a long session of re-associations (it also stopped re-joining Wi-Fi, recovering only on a USB power-cycle, not an RST-pin reset), so its socket would not recover after the broker's RST; the reconnect code path is unchanged from the earlier run that did reconnect (~54 s). Reconnect robustness against a peer reset (module socket recovery / settle-or-reset policy) is tracked under WIFITASK-O2. Original options considered were: (a) publish alarms QoS0 (fire-and-forget, no PUBACK wait — trades the at-least-once guarantee for latency; SAF still covers the disconnected case); or (b) make `mqtt_client_publish()` non-blocking for QoS1 (return after `MQTT_Publish()` transmits, reap the PUBACK in `mqtt_client_process()`), which also removes the ~15 s broker-death stall; or (c) confirm REQ-NF-113 means "PUBLISH transmitted" not "PUBACK received", under which the transmitted-latency already fits. Residual: a PUBACK lost on a still-live connection is untracked (inherent QoS 1/clean-session, bounded by keep-alive). Ties into MQTT-O9 (the connect/publish paths that still block a whole tick) and WIFITASK-O2 (reconnect policy). |
+| CP-O8 | `/control` has no result topic: UC-17 step 3 (acknowledge receipt and request confirmation) is not reported to the cloud | **Open** | Result topic and payload to be designed with the cloud tool. |
+| CP-O9 | REQ-CC-010 metrics that are not in `health_snapshot_t`: free heap, CPU load, MCU temperature, Modbus CRC errors | **Open** | HealthMonitor change. |
+| CP-O10 | Remote configuration is applied in message order and a command is capped at 128 bytes (about five parameters) | **Accepted** | Documented in the wire contract; raise `CP_CMD_PAYLOAD_MAX_LEN` if more are needed. |
+| CP-O11 | HealthMonitor's snapshot has no task count, so `stack_free_words` cuts trailing zero slots; a registered task with exactly 0 words free at the end of the table would be omitted | **Accepted** | An overflow is already the larger problem. |
 | F-03 | `components.md` USES list needs: IConfigManager, IConfigProvider, IUpdateService, ILifecycle. | **Open** | Update `components.md`. |
 
 ---
@@ -552,6 +614,20 @@ Test file: `tests/gateway/application/cloud_publisher/test_cloud_publisher.c`
 | CP-D15 | Onboard readings come from the real SensorService snapshot and alarms from the real AlarmService singleton (SS-O8 closed). Fixed-point units (0.01 degC, 0.01 %RH, 0.1 hPa) are converted to the wire units (deci-C, %RH, hPa) in `cloud_publisher_json.c`, rounding half away from zero; IMU and magnetometer values pass through as mg / mdps / mgauss. An invalid channel is reported as 0 and named in the additive `invalid_channels` array (SS-O12). | AlarmService callbacks carry no context pointer, so the callback reaches the instance via `g_active_inst`; the threshold comes from `alarm_service->get_limit()`, and a CLEARED event reuses the side last raised for that sensor. `sensors` and `alarms` were removed from `cloud_publisher_config_t`. |
 | CP-D16 | Three operations for LifecycleController, all on the task's notification word: `cloud_publisher_is_ready()` is true once the instance exists (not when the broker is connected); `cloud_publisher_flush()` posts `CP_NOTIFY_FLUSH_REQUEST` (bit 6), on which the task publishes pending alarms and, if connected, drains the offline buffer; ~~`cloud_publisher_report_rollback_result()` posts `CP_NOTIFY_ROLLBACK_REPORT` (bit 7)~~ **removed 2026-10-27 (CPC-6, CP-D17): UpdateService reports the rollback.** Bit 6 is in `CP_NOTIFY_ALL_BITS`; bit 7 is unused. | Readiness is "can accept messages" because CloudPublisher buffers in StoreAndForward while the broker is down, so an offline start must not fault the boot (LC-O7). The task owns MqttClient and the offline buffer, which are not thread-safe, so the caller never touches them: it only posts a request. Flush is asynchronous because a controlled restart waits up to 30 s for its confirmation. Hardware (TC-HW-CP-013): the broker received the 38-byte QoS 1 rollback message and `publishes_sent` rose by one. |
 | CP-D17 | The OTA path (update-service-lld.md CPC-1..6). **Subscribe** to `cmd/iotmonitor/<id>/ota` (QoS 1) and `.../ota/data` (QoS 0) after every successful connect, retried each stats tick until both SUBACKs hold, and not at all when `update_ops` is NULL. **Route by exact suffix**, `/ota/data` first. **`/ota/data` is not queued**: the callback parses the 8-byte header (job, offset; u32 little-endian) and calls `IUpdateService.on_chunk()` directly (the payload is up to 1032 bytes against a 128-byte command queue, and UpdateService copies it into its chunk slot in microseconds); `STALE` is normal after a retry. **`/ota`** is parsed into `us_ota_command_t` (`cp_parse_ota_command`) and passed to `handle_command()`; a malformed one is answered by CloudPublisher itself with `rejected` / `bad_command` on `.../ota/result`, with the job if it could be read. **`IOtaTransport`** (`cloud_publisher_get_ota_transport`): a 4-entry static queue plus notify bit 8; chunk requests go out at QoS 0 on `.../ota/request` only while connected and are never buffered; reports go out at QoS 1 on `.../ota/result` through the normal gate (StoreAndForward when offline); `is_connected` reads a volatile mirror the task refreshes each step. `cloud_publisher_on_message()` is the context-free `msg_cb` (CP-O5). `cloud_publisher_report_rollback_result()` and bit 7 are removed. | A chunk is the one message that cannot take the command queue's path, and a request is only useful now (UpdateService has a deadline), so neither is buffered; a report must survive an outage, so it is. The task is the only MqttClient user (not thread-safe), so UpdateService, which runs in its own task, only queues. |
+| CP-D18 | ModbusPoller decodes and caches the Field Device registers; CloudPublisher pulls them with `modbus_poller_get_fd_reading()` in register units with per-channel validity and converts to wire units | The poller owns the profile, the span and the link state; one reader does not justify a data-store module |
+| CP-D19 | The events `SAF_FULL`, `ALARM_PUBLISHED` and `ALARM_BUFFERED` are dropped; CloudPublisher pushes `HEALTH_EVENT_CLOUD_CONNECTED` / `_DISCONNECTED` on every link transition; the REQ-NF-113 outcome is a `LOG_DEBUG` plus a TEST-only counter | An event no consumer reads is not a metric; nobody pushed the connection events |
+| CP-D20 | `cloud_publisher_on_disconnect()` is the context-free twin of `cloud_publisher_on_message()` | MqttClient requires the callback and CloudPublisher owns the connection state |
+| CP-D21 | CloudPublisher parses `/config` (flat JSON of integers, Tier 2 keys) and applies every parameter or none with `set_param_deferred`, reverting newest-first on a failure; LifecycleController persists (LC-D23) | The MQTT task must never block on a 0.8 s flash write |
+| CP-D22 | Schema 1.1 for all payloads: common block with TimeProvider time and `sync_state`, `null` for an invalid channel, nested Field Device | REQ-TS-040 / REQ-NF-212; a real 0 is no longer confusable with an invalid 0 |
+| CP-D23 | `itime_service.h` extracted; `trigger_retry()` on every transition to connected, the first included | REQ-TS-0E1; the boot NTP attempt usually runs before WiFi is up |
+| CP-D24 | The weak health placeholders in StoreAndForward and CircularFlashLog are replaced by the real calls in their own `fix:` PR (#113) | Silent no-ops are silent failures |
+| CP-D25 | The configuration holds real interfaces only (section 3.3); `lifecycle_handle_remote` loses its handle and is passed as `control_handler` | Removes the reversed include and the harness symbol collision |
+| CP-D26 | After every connect the module subscribes to `/config`, `/control` and, when OTA is wired, `/ota` and `/ota/data`, one flag per topic, retried each stats tick | Without them UC-15 and UC-17 cannot work |
+| CP-D27 | A remote `/config` is refused as `busy` unless the lifecycle state is Operational | A local cancel would silently undo an acknowledged remote change (REQ-LI-120) |
+| CP-D28 | `CP_JSON_BUF_SIZE` 4096 to 2048 with a `_Static_assert` against `SAF_PAYLOAD_MAX` | Every payload fits; saves 2 KB |
+| CP-D29 | `CP_ERR_SAF_FULL` now means "StoreAndForward refused the entry; the message is lost" (LOG_ERROR, no health event) | The real SAF drops its oldest entry and succeeds when full |
+| CP-D30 | One result-topic rule, `dt/iotmonitor/<id>/<command>/result`; `/results` becomes `/config/result` | Consistent naming |
+| CP-D31 | One ConfigService change callback wakes the task (notification bit 9), which retimes the telemetry or health timer | Covers a change from any source; CloudPublisher's part of CFG-O8 |
 
 ---
 

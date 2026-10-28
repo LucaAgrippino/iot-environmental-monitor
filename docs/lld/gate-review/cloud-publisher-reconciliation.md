@@ -2,7 +2,7 @@
 
 **Document:** `docs/lld/gate-review/cloud-publisher-reconciliation.md`
 **Version:** 1.0 (supersedes the session 1 analysis, same path)
-**Status:** Pass H complete — **ready for implementation (WP1 session 2)**
+**Status:** Implemented 2026-10-28 in PR-0 (#111), PR-A (#112), PR-B (#113), PR-C (#114) and PR-D; hardware cases TC-HW-CP-014..017 to be run
 **Board:** Gateway (B-L475E-IOT01A)
 **Date:** 2026-10-28 · **Repo state reviewed:** `main` @ 4efc3aa
 **Closes when implemented:** LC-O13, SAF-O3, TS-O6, CP-O2, CP-O4, MBP-O3, F-03 (CloudPublisher part). **Partly:** CP-O5 (disconnect callback), CFG-O8 (CloudPublisher as a consumer).
