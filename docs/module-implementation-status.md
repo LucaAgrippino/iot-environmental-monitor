@@ -17,7 +17,7 @@ Hardware columns come from the bench results recorded during the project; where 
 | Not implemented | 0 | 5 |
 | Bring-up harnesses | 37 | 15 |
 
-**Host tests (baseline, measured 2026-10-28 on `main` @ 5dbf9c6, `ceedling test:all`):** default project 773 tested / 768 passed / 5 ignored / 0 failed; Gateway project 1312 tested / 1309 passed / 3 ignored / 0 failed. Per-module counts recorded earlier: UpdateService 70, LifecycleController 114, lifecycle_wiring 55.
+**Host tests (baseline, measured 2026-10-28 on `main` @ 5dbf9c6, `ceedling test:all`):** default project 773 tested / 768 passed / 5 ignored / 0 failed; Gateway project 1312 tested / 1309 passed / 3 ignored / 0 failed. After WP2 (`test_tls_arena`, 15 tests): default 788 / 783 / 5 / 0, Gateway unchanged. Per-module counts recorded earlier: UpdateService 70, LifecycleController 114, lifecycle_wiring 55.
 
 **The big gap on both boards:** neither has a real `main()` that creates the task set. Each firmware image is a single bring-up harness chosen through `.cproject` exclusions, so **a new harness or middleware module breaks the firmware build unless the exclusions are edited**. `lifecycle_wiring` is the first piece of production wiring, and the OTA flow is now complete up to that point (CloudPublisher → UpdateService → FirmwareStore → bootloader), but none of it is called from a `main()` (LC-O15). That is also why the **MQTT leg of OTA has never run on the board**: the download over the debug UART and every later step have.
 
@@ -54,13 +54,13 @@ Hardware columns come from the bench results recorded during the project; where 
 |---|---|---|
 | Logger | harness exists | |
 | WifiTask | ✅ validated | Alarm-latency decision CP-O6 largely resolved |
-| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish |
+| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (provisional 48 KB, mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open **not yet measured** (TC-HW-MQTT-014, Luca); the two 16 KB SSL record buffers alone take about 33 KB (MQTT-O1) |
 | NtpClient | ✅ validated | IPv4 servers only |
 | TimeProvider | ✅ TC-HW-TP-001..011 | |
 | ConfigStore | ✅ validated | Diverges from the FD copy (CS-O5) |
 | CircularFlashLog | ✅ TC-HW-CFL-001..010 (2026-10-11, per its LLD) | CFL-O7 closed 2026-10-26 (the mutex is inside the QSPI driver). Open: CFL-O8 (erase latency vs the 500 ms alarm budget, not measured) |
 | ModbusMaster | ✅ validated | |
-| FirmwareStore | ✅ PR #96, hardware-validated; also driven by the UpdateService bench | Staging in QSPI, install into the inactive slot, boot record and descriptor handling. `verify` (software ECDSA-P256 + SHA-256) 1.32 s for 480 KB. **FS-O4 open:** no static mbedTLS arena, so `verify` uses the heap: 3 584 bytes measured 2026-10-28 with no TLS session open; not measured with one open (REQ-NF-408) |
+| FirmwareStore | ✅ PR #96, hardware-validated; also driven by the UpdateService bench | Staging in QSPI, install into the inactive slot, boot record and descriptor handling. `verify` (software ECDSA-P256 + SHA-256) 1.32 s for 480 KB. **FS-O4 open until measured:** `verify` now allocates from the static mbedTLS arena (WP2); 3 584 bytes of heap measured before that change with no TLS session open; the arena peak with a session open is TC-HW-MQTT-014 (REQ-NF-408) |
 
 ### 2.3 Application
 
@@ -121,13 +121,14 @@ Also missing on the FD side: the handler for the new `CMD_SET_TIME_HI/LO` regist
 | Area | Item |
 |---|---|
 | Merge state | Resolved: #91–#95 landed through #101; #103, #105, #106, #107 and #104 were merged on 2026-10-28 (stacked PRs retargeted to `main`, `main` merged into each branch to start CI, ancestry verified). No PR is open. The merged feature branches have not been deleted (WP0 hands over the delete commands). The Visual Paradigm model and PNG diagrams are not updated for A1–A4 / B1–B4 |
-| Wiring | No real `main()` / task set on either board (LC-O15; `integration-tests/lifecycle_wiring` is the Gateway draft). To bind: `cloud_publisher_on_message` as the MQTT message callback, the four OTA members into the lifecycle wiring config, `cloud_publisher_get_ota_transport` into `update_service_config_t`. TimeService and SensorService tasks are never instantiated in production wiring |
+| Wiring | No real `main()` / task set on either board (LC-O15; `integration-tests/lifecycle_wiring` is the Gateway draft). To bind: `tls_arena_init()` first, before the scheduler and before any mbedTLS call (every harness that uses mbedTLS already does it); `cloud_publisher_on_message` as the MQTT message callback, the four OTA members into the lifecycle wiring config, `cloud_publisher_get_ota_transport` into `update_service_config_t`. TimeService and SensorService tasks are never instantiated in production wiring |
 | Linking | LC-O13: CloudPublisher cannot link into a real image (see its row: ten undefined symbols) |
-| OTA, not yet exercised | MQTT on the board (needs `main()`); `verify` heap with TLS open (FS-O4, no static mbedTLS arena); real download rate (US-O1); US-O11. Bootloader: BL-O2 (lifetime rollback counter), BL-O3 (CRC only, no signature check), BL-O4 (no write protection) |
+| OTA, not yet exercised | MQTT on the board (needs `main()`); `verify` arena peak with TLS open (FS-O4, TC-HW-MQTT-014; the arena itself is implemented); real download rate (US-O1); US-O11. Bootloader: BL-O2 (lifetime rollback counter), BL-O3 (CRC only, no signature check), BL-O4 (no write protection) |
 | Lifecycle | LC-O10: FD file still has dead `BOARD_GATEWAY` code. LC-O14: blank vs corrupt ConfigStore indistinguishable |
 | Config | `IConfigProvider` still not consumed by TimeService (TS-O4) and ConfigService consumers are unwired (CFG-O8); SensorService half of SS-O6 closed |
 | Time | CloudPublisher does not hold `itime_service_t`, so `trigger_retry()` on MQTT reconnect is unwired (TS-O6) |
 | Telemetry | Invalid sensor channels are sent as 0 and listed in `invalid_channels`; cloud schema confirmation pending (CP-O4) |
+| RAM | After WP2 the default Gateway image has `.bss` 91.6 KB in the 96 KB RAM region (the 48 KB arena is most of it): about 8 KB is left below the stack. The 32 KB SRAM2 region holds nothing. Budget for the real `main()` is WP4 |
 | Storage | CFL-O8 erase spin vs the 500 ms alarm budget (the QSPI mutex itself is merged and closed) |
 | Sensors | I2C TIMINGR, DRDY pins PC8/PD11 and real ODRs unmeasured; own harnesses for i2c and groups A/B never run |
 | Design | ConsoleService CS-O4..CS-O8 open under a "Pass H complete" status |

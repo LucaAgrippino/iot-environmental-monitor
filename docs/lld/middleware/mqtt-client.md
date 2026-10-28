@@ -1,7 +1,7 @@
 # LLD Companion — MqttClient
 
 **Document:** `docs/lld/middleware/mqtt-client.md`
-**Version:** 0.2 (Phase H complete — ready for implementation)
+**Version:** 0.3 (Phase H complete — ready for implementation; static mbedTLS arena added 2026-10-28)
 **Board:** Gateway (B-L475E-IOT01A) only
 **Layer:** Middleware
 **Status:** Implementation-ready
@@ -554,6 +554,11 @@ Caller serialises. MqttClient runs exclusively in CloudPublisherTask
 context. No FreeRTOS synchronisation primitives. The ISR path does not
 involve MqttClient — all socket I/O is blocking within the task.
 
+The one exception is the mbedTLS arena (`tls_arena`, MQTT-D14): it is shared with
+FirmwareStore's signature check, which runs in UpdateServiceTask, so mbedTLS's own threading
+layer guards it with a statically allocated FreeRTOS mutex (`threading_alt.h`, MQTT-D15). The
+lock is held for each allocation or free only, never across a TLS call.
+
 ---
 
 ## 13. Unit-test plan
@@ -593,13 +598,30 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-T25 | Full step-by-step sequence | Three ticks (IDLE → TLS_HANDSHAKE → MQTT_CONNECT) reach `ERR_OK` / `is_connected() == true` |
 | MQTT-T26 | `mqtt_client_connect_step()` NULL args | Returns `ERR_NULL_PTR` |
 
+`tests/gateway/middleware/mqtt_client/test_tls_arena.c` (default project, built with the Gateway mbedTLS configuration; the three mbedTLS entry points are fakes defined in the test):
+
+| ID | Scenario | Expected |
+|---|---|---|
+| TLSA-T01 | Before `tls_arena_init()` | `tls_arena_is_ready()` false |
+| TLSA-T02 | `tls_arena_init()` | The whole static buffer, `TLS_ARENA_SIZE_BYTES`, is handed to `mbedtls_memory_buffer_alloc_init()` |
+| TLSA-T03 | Order of calls | `mbedtls_threading_set_alt()` before `mbedtls_memory_buffer_alloc_init()` |
+| TLSA-T04 | Installed functions | All four mutex functions are set |
+| TLSA-T05 | Second `tls_arena_init()` | Does nothing (allocator not re-initialised) |
+| TLSA-T06 | Buffer alignment | 8-byte aligned |
+| TLSA-T07..T11 | Mutex init, lock, unlock and their failures | Static mutex created; lock takes and unlock gives the semaphore; a failed take or give returns `MBEDTLS_ERR_THREADING_MUTEX_ERROR` |
+| TLSA-T12, T13 | Freed or NULL mutex | `MBEDTLS_ERR_THREADING_BAD_INPUT_DATA`, no semaphore call |
+| TLSA-T14 | Peak | 0 before init; the allocator's figure after; reset forwarded only after init |
+| TLSA-T15 | Default allocator before init | `tls_arena_uninit_calloc()` returns NULL; `tls_arena_uninit_free(NULL)` harmless |
+
+Hardware (`integration-tests/mqtt_client`): **TC-HW-MQTT-014**, the arena peak after the handshake and after an ECDSA verify with the session open, and no growth of the C heap between `mqtt_client_create()` and the end of the verify (expected lines in the harness header). The other harnesses that use mbedTLS (`cloud_publisher`, `console_service`, `firmware_store`, `update_service`) call `tls_arena_init()` at the start of `main()`.
+
 ---
 
 ## 14. Open items
 
 | ID | Item | Status | Resolution |
 |---|---|---|---|
-| MQTT-O1 | mbedTLS RAM: ~35–50 KB. Must verify against 128 KB SRAM budget at integration. | **Open** | Verify at integration. If insufficient, evaluate reduced cipher config or on-module TLS fallback. Also now covers bounding mbedTLS's internal calloc/free usage for RSA/ECC bignum scratch space (`MBEDTLS_PLATFORM_C`, required for host-test builds) — e.g. `mbedtls_memory_buffer_alloc_init()` over a fixed static buffer. |
+| MQTT-O1 | mbedTLS RAM: ~35–50 KB. Must verify against 128 KB SRAM budget at integration. | **Partly closed 2026-10-28** | **Done:** mbedTLS allocates only from a static arena (`tls_arena`, MQTT-D14..D16), so it no longer touches the C heap; `TLS_ARENA_SIZE_BYTES` is a provisional 48 KB. **Still open (Luca, on the board):** measure the arena peak after a TLS handshake and after a verify with the session open (TC-HW-MQTT-014), then fix the size with a 25 % margin. **Known cost:** the SSL record buffers are at the mbedTLS defaults (`MBEDTLS_SSL_IN_CONTENT_LEN` / `_OUT_CONTENT_LEN` 16 384 bytes each), so a session needs about 33 KB for those two alone; if the measured peak is too large, shrinking them (AWS IoT sends records up to 16 KB unless a maximum-fragment-length is negotiated) is a design decision, not made here. **RAM:** `.bss` is 91.6 KB with the arena in a 96 KB RAM region (8 KB left below the stack in the default image); the 32 KB SRAM2 region holds nothing. |
 | MQTT-O2 | `MQTT_CONNECT_TIMEOUT_MS` — provisional 10 000 ms proved insufficient on hardware (measured ~29 s for a full mutual-auth TLS 1.2 handshake: software RSA-2048/ECDHE on the L475's 80 MHz core with no crypto accelerator, compounded by the WifiDriver read floor in MQTT-O7). Bumped to 30 000 ms. | **Open** | 29 s against a 60 s keep-alive interval is uncomfortably close. MQTT-O7 (non-blocking transport) is now resolved (WIFITASK-O1 Phase 2) — worth revisiting this constant against fresh hardware timing, though the dominant remaining factor is WIFI-O11's own ISM43362 module-side AT-command latency, not driver-side polling, so a large reduction isn't expected. Since MQTT-D8, this constant bounds only the TLS handshake phase's ticked deadline (the phase that actually produced the ~29 s measurement); `MQTT_Connect()`'s own CONNACK wait is now the separate, smaller `MQTT_CONNACK_TIMEOUT_MS` (10 000 ms). |
 | MQTT-O3 | `MQTT_PKT_BUF_SIZE` = 4096 (provisional). Must exceed largest payload. Health ~1–2 KB; OTA chunk TBD. | **Open** | Confirm max OTA chunk size at UpdateService LLD. |
 | MQTT-O4 | `MQTT_SUBACK_TIMEOUT_MS` — provisional 15 000 ms for `subscribe()`'s blocking SUBACK wait (observed round trips against the local broker are well under 1 s). (`MQTT_PUBACK_TIMEOUT_MS` was removed with MQTT-D13 — QoS 1 publish no longer waits for the PUBACK.) | **Open** | Validate the SUBACK timeout against observed AWS IoT Core RTT at integration; revisit alongside MQTT-O2/O7. |
@@ -626,6 +648,9 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-D8 | Added `mqtt_client_connect_step()`: a ticked connect/reconnect state machine (IDLE → TLS_HANDSHAKE → MQTT_CONNECT), each call doing at most one bounded phase. `mqtt_client_connect()` is now a thin wrapper looping `connect_step()` to completion — single implementation, zero behaviour change for existing callers (hardware bring-up, all pre-existing unit tests pass unmodified). Motivated by a hardware-confirmed ~19 s freeze of `CloudPublisherTask` (and everything else on that task — telemetry, health, alarms, commands) during a single failed `mqtt_client_connect()` call, risking REQ-NF-113 (≤500 ms alarm-to-publish-queue latency) if an alarm fires mid-reconnect. Enabled by `mbedtls_ssl_handshake()` already being internally steppable (returns `WANT_READ`/`WANT_WRITE` instead of blocking to completion) — the blocking behaviour was `prv_tls_connect()`'s own wrapping loop, not mbedTLS's. Deliberately does **not** touch WifiDriver (see `cloud-publisher-lld.md` CP-D10 for the scope decision and MQTT-O9 for the residual per-tick bound this leaves open) — WifiDriver's blocking transport is an intentional, already-tagged, hardware-validated architectural boundary (`wifi-driver.md` WIFI-D11) with a documented history of regressions in this exact code path (WIFI-O9/O10/O11/O14); reworking it is its own separately-scoped decision, not bundled into this change. |
 | MQTT-D13 | `mqtt_client_publish()` is non-blocking for both QoS levels: it transmits the PUBLISH and returns, and a QoS 1 PUBACK is reaped asynchronously in `mqtt_client_process()` (`prv_event_callback` -> `stats.publishes_acked`), not waited on inside the call. The send BIO (`prv_mbedtls_net_send`) maps a real socket error to a fatal mbedTLS error (only a transient `WIFITASK_ERR_TIMEOUT` stays `WANT_WRITE`), so a dead socket fails the send fast instead of coreMQTT looping it for `MQTT_SEND_TIMEOUT_MS`. | Hardware Phase 4 (TC-HW-CP-011, CP-O6): the old blocking QoS 1 PUBACK wait (up to `MQTT_PUBACK_TIMEOUT_MS`, 15 s) put CloudPublisher's single-threaded alarm path over REQ-NF-113's 500 ms budget and stalled ~15 s on a broker drop. A transmit failure still returns `PUBLISH_FAIL` so CloudPublisher routes to SAF; only a PUBACK lost on a still-live connection goes untracked — an inherent QoS 1/clean-session tail, bounded by the keep-alive. `subscribe()` stays blocking on its SUBACK (setup-time, single-task, off the latency path). |
 | MQTT-D9 | `prv_mbedtls_net_recv()` (the mbedTLS bio recv callback, the sole production transport-recv call site) rewired from the blocking `wifitask_recv()` to the non-blocking `wifitask_try_recv()` (WIFITASK-O1 Phase 2), resolving MQTT-O7. Poll outcomes map onto mbedTLS's own contract: `READY`→byte count, `PENDING`/`NONE`→`MBEDTLS_ERR_SSL_WANT_READ` (mbedTLS and, above it, coreMQTT already treat this as "not done, try again" — no new state machine needed), `ERROR`→`MBEDTLS_ERR_SSL_TIMEOUT`. New `MQTT_CLIENT_WIFI_RECV_READY_BIT` (`mqtt_client.h`, bit 5) is set on the caller's notification word when a background attempt completes — owned by MqttClient (the module that actually calls `wifitask_try_recv()`), not CloudPublisher, even though CloudPublisher is the one that waits on it; CloudPublisher already includes `mqtt_client.h` so this needs no new shared header. `prv_transport_recv()`'s `#ifdef TEST` body deliberately left unchanged (still `wifitask_recv()`) — it bypasses TLS entirely for host tests injecting synthetic cleartext MQTT frames (see test file header) and has no production role, so rewriting it would only add test-mock complexity for zero production benefit. |
+| MQTT-D14 | mbedTLS allocates only from one static arena, `tls_arena` (`middleware/mqtt_client/tls_arena.{h,c}`): `MBEDTLS_MEMORY_BUFFER_ALLOC_C` over a `TLS_ARENA_SIZE_BYTES` static buffer, initialised by `tls_arena_init()` once, before the scheduler and before `mqtt_client_create()` / `firmware_store_create()`. A second call does nothing | REQ-NF-408 (no heap after init) and MQTT-O1/FS-O4. MqttClient owns the mbedTLS configuration, so it owns the arena; FirmwareStore's `verify` shares it. Size is provisional (48 KB) until the peak is measured on the board (TC-HW-MQTT-014) |
+| MQTT-D15 | The arena is guarded by `MBEDTLS_THREADING_C` + `MBEDTLS_THREADING_ALT` over static FreeRTOS mutexes (`threading_alt.h`, installed by `tls_arena_init()` before the allocator starts) | Two tasks allocate (TLS in CloudPublisherTask, ECDSA verify in UpdateServiceTask) and mbedTLS's buffer allocator is not thread-safe without the threading layer (checked in the vendored 3.6.7 `memory_buffer_alloc.c`). Static storage, so no heap |
+| MQTT-D16 | Before `tls_arena_init()` the default allocator (`MBEDTLS_PLATFORM_STD_CALLOC` / `_FREE`) is a pair of stubs that return NULL; `MBEDTLS_MEMORY_DEBUG` is on in every build (peak via `tls_arena_peak_bytes()`); the arena's stderr dump is a no-op and its `exit(1)` is a trap | A harness or image that forgets the init fails with an mbedTLS ALLOC_FAILED error rather than silently using the heap. `NO_STD_FUNCTIONS` was tried and rejected: it also removes the default `snprintf` that other mbedTLS files use. Peak always available avoids a build-specific define (no `.cproject` change) |
 
 ---
 
@@ -635,10 +660,14 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 firmware/gateway/middleware/mqtt_client/
 ├── mqtt_client.h           /* public API — handle, config, error enum, types  */
 ├── mqtt_client.c           /* implementation — coreMQTT/mbedTLS integration   */
-└── mqtt_topic_config.h     /* topic string constants                          */
+├── mqtt_topic_config.h     /* topic string constants                          */
+├── mbedtls_config_gateway.h/* mbedTLS build configuration (arena, threading)  */
+├── tls_arena.h / .c        /* static mbedTLS arena + FreeRTOS mutex layer     */
+└── threading_alt.h         /* mbedtls_threading_mutex_t over a static mutex   */
 
 tests/gateway/middleware/mqtt_client/
-└── test_mqtt_client.c      /* Unity + mock transport stubs                    */
+├── test_mqtt_client.c      /* Unity + mock transport stubs                    */
+└── test_tls_arena.c        /* Unity, fakes of the three mbedTLS entry points  */
 ```
 
 ---
