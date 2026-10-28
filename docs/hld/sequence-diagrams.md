@@ -701,6 +701,7 @@ The duration constraint `{≤ 200 ms}` brackets messages 4 through 7 (data ready
 | SD03-D3 | `WifiDriver` shown as a passthrough lifeline | Symmetric with SD-02's treatment of `ModbusUartDriver`; makes layering transparent |
 | SD03-D4 | TLS handshake elided into a UML note | Handshake happens once at connection setup (SD-04b); redrawing would obscure the signal |
 | SD03-D5 | QoS 0 shown by *absence* of PUBACK return arrow, with a UML note | Drawing a non-existent message would be wrong; absence is the architectural fact |
+| SD03-D6 | Every payload (telemetry, health, alarm, config result, OTA) carries `schema_version` 1.1, a timestamp and a `sync_state` from TimeProvider; an invalid channel is a JSON `null`; the Field Device is a nested object with an `online` flag | REQ-TS-040 / REQ-NF-212: uptime-based time must be flagged unsynchronised; one convention covers both boards (CP-D22) |
 
 ---
 
@@ -942,6 +943,7 @@ The end-to-end timing constraint `{≤ 500 ms from FD detection to PUBACK}` (REQ
 | SD05-D6 | Alarm-clearance flow not drawn (deferred to LLD) | Per-channel alarm state machine deferred per state-machines.md open question |
 | SD05-D7 | Logger appears as FD lifeline (P4 exception) | Logging the alarm raise *is* a required SRS behaviour |
 | SD05-D8 | Message 1 named `post-acquisition event` (event-driven), not `reading available` | Consistent with pull-based access (P7) — event triggers access; data flows via pull |
+| SD05-D9 | The alarm payload's timestamp is the time of detection (from the reading that raised the alarm), not the time of serialisation | REQ-AM-040: the clock of REQ-NF-113 starts at detection; a buffered alarm must keep its original time (CP-D22) |
 
 ---
 
@@ -1286,6 +1288,7 @@ The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand 
 | 7  | `DeviceProfileRegistry`   | «application» | GW    | Updates registry on profile changes                               |
 | 8  | `ModbusPoller`            | «application» | GW    | Re-probes affected slaves                                         |
 | 9  | `Logger`                  | «middleware»  | GW    | Records validation failures (P4 exception)                        |
+| 10 | `LifecycleController`     | «application» | GW    | Persists the pending configuration on its idle tick and before every reset |
 
 ### 12.3 Step 3 — Message table
 
@@ -1294,23 +1297,26 @@ The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand 
 | 1   | `Remote Operator`  | `AWS IoT Core`           | async  | publish config command                  |                               |        | DM-000         |
 | 2   | `AWS IoT Core`     | `MqttClient`             | async  | MQTT message (config command)           |                               |        | DM-000         |
 | 3   | `MqttClient`       | `CloudPublisher`         | async  | command received                        |                               |        |                |
-| 4   | `CloudPublisher`   | `ConfigService`          | sync   | apply config change                     |                               |        | DM-000         |
-| 5   | `ConfigService`    | `ConfigService`          | self   | validate parameters                     |                               |        | DM-001         |
+| 4   | `CloudPublisher`   | `CloudPublisher`         | self   | parse command (flat JSON of integers)   |                               |        | DM-000         |
+| 5   | `CloudPublisher`   | `ConfigService`          | sync   | apply each parameter (set_param_deferred) | **loop** `[each parameter, in message order]` |  | DM-000     |
+| 6   | `ConfigService`    | `ConfigService`          | self   | validate parameter                      |                               |        | DM-001         |
 | —   |                    |                          |        |                                         | **alt**                       |        | DM-001         |
 | —   |                    |                          |        |                                         | `[validation failed]`         |        |                |
-| 6'  |   `ConfigService`  | `Logger`                 | async  | log validation failure                  |                               |        | DM-001         |
-| 7'  |   `ConfigService`  | `CloudPublisher`         | sync   | reject (validation)                     |                               |        | DM-002         |
-| 8'  |   `CloudPublisher` | `MqttClient`             | sync   | publish QoS 1 on result topic           |                               |        | DM-002         |
+| 7'  |   `ConfigService`  | `Logger`                 | async  | log validation failure                  |                               |        | DM-001         |
+| 8'  |   `ConfigService`  | `CloudPublisher`         | return | reject (validation)                     |                               |        | DM-002         |
+| 9'  |   `CloudPublisher` | `ConfigService`          | sync   | revert the parameters already applied   |                               |        | DM-001         |
+| 10' |   `CloudPublisher` | `MqttClient`             | sync   | publish QoS 1 on config result topic (rejected) |                       |        | DM-002         |
 | —   |                    |                          |        |                                         | `[validation ok]`             |        |                |
-| 6   |   `ConfigService`  | `ConfigStore`            | sync   | persist parameters                      |                               |        | DM-090         |
-| 7   |   `ConfigStore`    | `ConfigService`          | return | ok                                      |                               |        | DM-090         |
+| 7   |   `ConfigService`  | `CloudPublisher`         | return | ok (applied in RAM)                     |                               |        | DM-000         |
+| 8   |   `CloudPublisher` | `MqttClient`             | sync   | publish QoS 1 on config result topic (applied) |                        |        | DM-002         |
+| 9   |   `LifecycleController` | `ConfigService`     | sync   | persist pending changes (idle tick)     |                               |        | DM-090         |
+| 10  |   `ConfigService`  | `ConfigStore`            | sync   | persist parameters                      |                               |        | DM-090         |
+| 11  |   `ConfigStore`    | `ConfigService`          | return | ok                                      |                               |        | DM-090         |
 | —   |                    |                          |        |                                         | **opt** `[profile update]`    |        | DM-100         |
-| 8   |     `ConfigService`| `DeviceProfileRegistry`  | sync   | update profile                          |                               |        | DM-100         |
-| 9   |     `ConfigService`| `ModbusPoller`           | sync   | re-probe affected slave                 |                               |        | DM-101         |
-| 10  |     `ModbusPoller` | `ConfigService`          | return | re-probe outcome                        |                               |        | DM-101         |
+| 12  |     `ConfigService`| `DeviceProfileRegistry`  | sync   | update profile                          |                               |        | DM-100         |
+| 13  |     `ConfigService`| `ModbusPoller`           | sync   | re-probe affected slave                 |                               |        | DM-101         |
+| 14  |     `ModbusPoller` | `ConfigService`          | return | re-probe outcome                        |                               |        | DM-101         |
 | —   |                    |                          |        |                                         | **end opt**                   |        |                |
-| 11  |   `ConfigService`  | `CloudPublisher`         | sync   | confirm change                          |                               |        | DM-002         |
-| 12  |   `CloudPublisher` | `MqttClient`             | sync   | publish QoS 1 on result topic           |                               |        | DM-002         |
 | —   |                    |                          |        |                                         | **end alt**                   |        |                |
 
 **UML note 1 (config domain):** *"Configurable parameters include: polling rate, alarm thresholds, telemetry / health intervals, MQTT topics, and **device profiles** (REQ-DM-100, proposed). Each parameter has a validation rule applied in message 5; failure halts the flow before persistence."*
@@ -1319,6 +1325,8 @@ The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand 
 
 **UML note 3 (CloudPublisher routing):** *"`CloudPublisher` receives inbound MQTT commands from `MqttClient` (messages 2–3) and routes them to `ConfigService`. This `USES` relationship must be reflected in the `components.md` CloudPublisher entry — tracked as F-03."*
 
+**UML note 4 (apply and persist, CP-D21, CP-D27):** *"`CloudPublisher` parses the command and applies it parameter by parameter with `set_param_deferred`; `ConfigService` validates each one against the current values and applies it in RAM, never blocking the MQTT task. On the first rejection `CloudPublisher` reverts what was applied and answers `rejected`. The write to non-volatile storage is done by `LifecycleController` on its idle tick (and before any reset), so `applied` means validated and applied, persisted within about one second. The command is refused (`busy`) unless the Gateway is Operational."*
+
 ### 12.4 Decisions specific to SD-07
 
 | # | Decision | Rationale |
@@ -1326,6 +1334,9 @@ The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand 
 | SD07-D1 | One diagram covering all parameter types | Validation, persistence, and acknowledgement are uniform across parameter types; the profile-update branch is encoded as `opt` |
 | SD07-D2 | Profile update triggers re-probe of affected slave only, not full re-establishment | Minimises disruption to other slaves' polling; aligns with per-slave link state (SD00-D5) |
 | SD07-D3 | Validation failure logged before reject response | REQ-DM-001 implies validation outcome must be observable; logging supports diagnostics (P4 exception) |
+| SD07-D4 | `CloudPublisher` parses the command and applies it per parameter; the parameters are all-or-nothing (reverted on the first rejection) | CloudPublisher owns deserialisation (components.md); ConfigService has per-parameter validation. Partial application would leave the device in a state the operator did not ask for |
+| SD07-D5 | Persistence by `LifecycleController` on its idle tick, not inside the command path | The flash write takes about 0.8 s (CFG-O7) and CloudPublisherTask also runs the MQTT loop; a blocking write there would stall keep-alive and alarms |
+| SD07-D6 | Result on a dedicated config result topic; `/control` has no result topic yet | One naming rule for result topics; the `/control` result is an open item (CP-O8) |
 
 ---
 

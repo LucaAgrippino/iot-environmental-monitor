@@ -613,7 +613,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Application
 **RESPONSIBILITY:** Serialises and deserialises MQTT payloads according to the project's message schemas, publishes telemetry, alarm and health messages, and routes inbound commands to the appropriate handler, including the OTA command and image-chunk topics (handed to UpdateService). Is the only user of MqttClient: it carries UpdateService's chunk requests and result reports for it. Polls IMqttStats and reports connectivity metrics via IHealthReport.
 **PROVIDES (upward):** IOtaTransport *(chunk requests and result reports for UpdateService; the interface is owned by UpdateService)*
-**USES (downward):** MqttClient, IMqttStats, ISensorService, IAlarmService, IModbusPoller, StoreAndForward, IHealthSnapshot, IHealthReport, IUpdateService *(inbound OTA commands and chunks; closes F-03)*, ILogger
+**USES (downward):** MqttClient, IMqttStats, ISensorService, IAlarmService, IModbusPoller *(Field Device reading query)*, StoreAndForward, IHealthSnapshot, IHealthReport *(MQTT stats; cloud connected and disconnected events)*, IConfigProvider *(publish intervals)*, IConfigManager *(remote parameter changes: CloudPublisher parses the `/config` payload and applies it parameter by parameter)*, ITimeService *(requests an NTP retry on every reconnect, REQ-TS-0E1)*, ILifecycle *(state query: remote changes are refused outside Operational)*, TimeProvider *(timestamp and synchronisation state of every payload)*, IUpdateService *(inbound OTA commands and chunks; closes F-03)*, ILogger
 
 **NAME:** TimeService
 **LAYER:** Application
@@ -636,7 +636,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **NAME:** ModbusPoller
 **LAYER:** Application
 **RESPONSIBILITY:** Polls configured slave devices on schedule, tracks per-slave register state transitions to detect new events (such as field device alarms), routes Modbus transactions on behalf of higher-layer components, and tracks per-slave error statistics. Polls IModbusMasterStats and reports Modbus protocol metrics via IHealthReport.
-**PROVIDES (upward):** IModbusPoller *(transaction routing + state-change event subscription)*
+**PROVIDES (upward):** IModbusPoller *(transaction routing + state-change event subscription + a pull query for the latest decoded Field Device sensor readings, with per-channel validity and the link state)*
 **USES (downward):** ModbusMaster, IModbusMasterStats, DeviceProfileRegistry, IHealthReport, ILogger
 
 **NAME:** ConfigService

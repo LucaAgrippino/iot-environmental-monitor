@@ -372,12 +372,20 @@ Publish topics:
   dt/iotmonitor/<client_id>/telemetry
   dt/iotmonitor/<client_id>/health
   dt/iotmonitor/<client_id>/alarms
+  dt/iotmonitor/<client_id>/config/result
+  dt/iotmonitor/<client_id>/ota/request
   dt/iotmonitor/<client_id>/ota/result
 
 Subscribe topics:
   cmd/iotmonitor/<client_id>/config
+  cmd/iotmonitor/<client_id>/control
   cmd/iotmonitor/<client_id>/ota
+  cmd/iotmonitor/<client_id>/ota/data
 ```
+
+All result topics follow one rule, `dt/iotmonitor/<client_id>/<command>/result`
+(CP-D30). `/control` has no result topic yet (CP-O8). CloudPublisher
+subscribes to every command topic after each connect (CP-D26).
 
 `dt/` = device-to-cloud, `cmd/` = cloud-to-device (AWS IoT Core convention).
 
