@@ -82,17 +82,16 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
 /**
  * @brief Dispatch a /control message from CloudPublisher to LifecycleController.
  *
- * This is the symbol CloudPublisher already calls (its ILifecycle placeholder). The payload is
- * matched for "command":"restart", "restart_confirm" or "reset_metrics"; anything else is logged
+ * CloudPublisher's control handler (cloud_publisher_config_t::control_handler, CP-D25). The payload
+ * is matched for "command":"restart", "restart_confirm" or "reset_metrics"; anything else is logged
  * and ignored, and only the first 63 bytes are examined. Results are not reported back yet
  * (CloudPublisher's call returns void).
  *
- * @param[in] handle   Unused; LifecycleController is a singleton.
  * @param[in] payload  Message body, not NUL-terminated; NULL or empty is ignored.
  * @param[in] len      Byte count.
  * @note Threading: CloudPublisherTask. Not ISR-safe.
  */
-void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len);
+void lifecycle_handle_remote(const uint8_t *payload, uint32_t len);
 
 /**
  * @brief ModbusPollerTask entry: wait for the start gate, then run the poller.

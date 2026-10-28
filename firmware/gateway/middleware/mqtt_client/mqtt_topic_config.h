@@ -32,9 +32,11 @@
 #define MQTT_TOPIC_SUFFIX_HEALTH "/health"
 #define MQTT_TOPIC_SUFFIX_ALARMS "/alarms"
 #define MQTT_TOPIC_SUFFIX_OTA_RESULT "/ota/result"
+#define MQTT_TOPIC_SUFFIX_CONFIG_RESULT "/config/result" /**< Result of a /config command (CP-D30).  */
 #define MQTT_TOPIC_SUFFIX_OTA_REQUEST "/ota/request" /**< Chunk request, device to cloud.   */
 
 #define MQTT_TOPIC_SUFFIX_CONFIG "/config"
+#define MQTT_TOPIC_SUFFIX_CONTROL "/control"                /**< Remote restart etc., cloud to device. */
 #define MQTT_TOPIC_SUFFIX_OTA "/ota"
 #define MQTT_TOPIC_SUFFIX_OTA_DATA "/ota/data" /**< Binary chunk, cloud to device.        */
 

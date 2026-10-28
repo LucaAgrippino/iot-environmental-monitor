@@ -515,10 +515,8 @@ static bool payload_has_command(const char *text, const char *name)
     return strstr(text, needle) != NULL;
 }
 
-void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len)
+void lifecycle_handle_remote(const uint8_t *payload, uint32_t len)
 {
-    (void) handle; /* the controller is a singleton; the handle only satisfies the interface */
-
     if ((payload == NULL) || (len == 0U))
     {
         return;
