@@ -47,6 +47,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "tls_arena.h"
 
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
@@ -384,6 +385,8 @@ int main(void)
     {
         bringup_fail();
     }
+
+    tls_arena_init(); /* mbedTLS allocates only from the static arena (WP2) */
     (void) gpio_init();
 
     const gpio_pin_config_t uart_tx = {.port = BRINGUP_UART_TX_PORT,
