@@ -1172,7 +1172,7 @@ void test_LW_067_an_edit_session_snapshots_and_commits_through_ConfigService(voi
 
 static void remote(const char *json)
 {
-    lifecycle_handle_remote(NULL, (const uint8_t *) json, (uint32_t) strlen(json));
+    lifecycle_handle_remote((const uint8_t *) json, (uint32_t) strlen(json));
 }
 
 static lifecycle_event_t last_sent(void)
@@ -1220,8 +1220,8 @@ void test_LW_073_an_unknown_command_does_nothing(void)
 void test_LW_074_null_and_empty_payloads_are_ignored(void)
 {
     boot_controller();
-    lifecycle_handle_remote(NULL, NULL, 5U);
-    lifecycle_handle_remote(NULL, (const uint8_t *) "x", 0U);
+    lifecycle_handle_remote(NULL, 5U);
+    lifecycle_handle_remote((const uint8_t *) "x", 0U);
     TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueSend_call_count);
 }
 
@@ -1240,7 +1240,7 @@ void test_LW_076_an_oversize_payload_is_truncated_not_overrun(void)
     boot_controller();
     (void) memset(big, 'x', sizeof(big));
     (void) memcpy(&big[250], "\"command\":\"restart\"", 19U);
-    lifecycle_handle_remote(NULL, big, sizeof(big));
+    lifecycle_handle_remote(big, sizeof(big));
     TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueSend_call_count); /* the command is past the limit */
 }
 

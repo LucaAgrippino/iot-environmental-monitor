@@ -44,6 +44,7 @@
 
 #include "unity.h"
 
+#include <stddef.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -62,9 +63,10 @@
 #define TC_ALARM_PENDING (1u << 3)
 #define TC_COMMAND_PENDING (1u << 4)
 #define TC_WIFI_RECV_READY (1u << 5) /**< Mirrors MQTT_CLIENT_WIFI_RECV_READY_BIT. */
+#define TC_CONFIG_CHANGED (1u << 9)
 
 /* Mirrors CP_JSON_BUF_SIZE (private to cloud_publisher.c). */
-#define TC_JSON_BUF_SIZE 4096u
+#define TC_JSON_BUF_SIZE 2048u
 
 /* Mirrors sizeof(cp_command_entry_t): topic[64] + payload[128] + len(4)
  * (private to cloud_publisher.c) — keep in sync if that struct changes.
@@ -96,11 +98,16 @@ static sensor_service_err_t spy_sensor_get_snapshot(sensor_snapshot_t *snap)
 static const isensor_service_t g_spy_sensor_vtable = {.get_snapshot = spy_sensor_get_snapshot};
 const isensor_service_t *const sensor_service = &g_spy_sensor_vtable;
 
-static modbus_poller_fd_reading_t g_spy_fd_reading;
-modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t handle)
+static modbus_fd_reading_t g_spy_fd_reading;
+static modbus_poller_err_t g_spy_fd_return;
+static uint8_t g_spy_fd_slave_seen;
+static uint32_t g_spy_fd_calls;
+modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out)
 {
-    (void) handle;
-    return g_spy_fd_reading;
+    g_spy_fd_calls++;
+    g_spy_fd_slave_seen = slave_addr;
+    *out = g_spy_fd_reading;
+    return g_spy_fd_return;
 }
 
 static void (*g_spy_alarm_cb)(sensor_id_t, alarm_event_t, const sensor_reading_t *);
@@ -127,100 +134,216 @@ static const ialarm_service_t g_spy_alarm_vtable = {.subscribe = spy_alarm_subsc
                                                     .get_limit = spy_alarm_get_limit};
 const ialarm_service_t *const alarm_service = &g_spy_alarm_vtable;
 
+/* One counter orders the calls the tests compare (poll before snapshot, publish before confirm). */
+static uint32_t g_spy_seq;
+
 static saf_err_t g_spy_saf_enqueue_return;
 static uint32_t g_spy_saf_enqueue_calls;
-static char g_spy_saf_enqueue_last_topic[SAF_TOPIC_MAX_LEN];
-static mqtt_qos_t g_spy_saf_enqueue_last_qos;
-saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
-                                    const uint8_t *buf, uint32_t len, mqtt_qos_t qos)
+static char g_spy_saf_enqueue_last_topic[SAF_TOPIC_MAX + 1u];
+static uint8_t g_spy_saf_enqueue_last_qos;
+static uint16_t g_spy_saf_enqueue_last_len;
+saf_err_t saf_enqueue(saf_handle_t handle, const char *topic, const uint8_t *buf, uint16_t len,
+                      uint8_t qos)
 {
     (void) handle;
     (void) buf;
-    (void) len;
     g_spy_saf_enqueue_calls++;
-    (void) strncpy(g_spy_saf_enqueue_last_topic, topic, SAF_TOPIC_MAX_LEN - 1u);
+    (void) strncpy(g_spy_saf_enqueue_last_topic, topic, SAF_TOPIC_MAX);
     g_spy_saf_enqueue_last_qos = qos;
+    g_spy_saf_enqueue_last_len = len;
     return g_spy_saf_enqueue_return;
 }
 
 static saf_err_t g_spy_saf_dequeue_return;
 static saf_entry_t g_spy_saf_dequeue_entry;
+static uint8_t g_spy_saf_dequeue_payload[SAF_PAYLOAD_MAX];
 static uint32_t g_spy_saf_dequeue_calls;
-/* Number of times to actually deliver g_spy_saf_dequeue_entry while
- * g_spy_saf_dequeue_return == SAF_ERR_OK before falling back to
- * SAF_ERR_EMPTY — without this, a permanently-OK return would spin
- * prv_drain_saf()'s "while (dequeue() == SAF_ERR_OK)" loop forever. */
+/* Number of times to deliver g_spy_saf_dequeue_entry while g_spy_saf_dequeue_return is OK before
+ * falling back to EMPTY: a permanently-OK spy would spin prv_drain_saf()'s loop forever. A repeated
+ * dequeue without a confirm returns the same entry, like the real module. */
 static uint32_t g_spy_saf_dequeue_available;
-saf_err_t store_and_forward_dequeue(store_and_forward_handle_t handle, saf_entry_t *entry_out)
+saf_err_t saf_dequeue(saf_handle_t handle, const saf_entry_t **out)
 {
     (void) handle;
     g_spy_saf_dequeue_calls++;
     if ((g_spy_saf_dequeue_return == SAF_ERR_OK) && (g_spy_saf_dequeue_available > 0u))
     {
         g_spy_saf_dequeue_available--;
-        *entry_out = g_spy_saf_dequeue_entry;
+        g_spy_saf_dequeue_entry.payload = g_spy_saf_dequeue_payload;
+        *out = &g_spy_saf_dequeue_entry;
         return SAF_ERR_OK;
     }
     return SAF_ERR_EMPTY;
 }
 
 static uint32_t g_spy_saf_confirm_calls;
-saf_err_t store_and_forward_confirm(store_and_forward_handle_t handle)
+static saf_err_t g_spy_saf_confirm_return;
+saf_err_t saf_confirm(saf_handle_t handle)
 {
     (void) handle;
     g_spy_saf_confirm_calls++;
-    return SAF_ERR_OK;
+    return g_spy_saf_confirm_return;
 }
 
-static cp_health_snapshot_t g_spy_health_snapshot;
-cp_health_snapshot_t health_snapshot_get(health_monitor_handle_t handle)
+/* HealthMonitor: the real entry points the module calls. */
+static health_snapshot_t g_spy_health_snapshot;
+static health_monitor_err_t g_spy_health_get_return;
+static uint32_t g_spy_health_poll_seq;
+static uint32_t g_spy_health_get_seq;
+health_monitor_err_t health_monitor_poll(health_monitor_handle_t handle)
 {
     (void) handle;
-    return g_spy_health_snapshot;
+    g_spy_health_poll_seq = ++g_spy_seq;
+    return HEALTH_MONITOR_ERR_OK;
 }
-
+health_monitor_err_t health_monitor_get_snapshot(health_monitor_handle_t handle,
+                                                 health_snapshot_t *snap_out)
+{
+    (void) handle;
+    g_spy_health_get_seq = ++g_spy_seq;
+    *snap_out = g_spy_health_snapshot;
+    return g_spy_health_get_return;
+}
 static uint32_t g_spy_health_update_mqtt_calls;
-void health_report_update_mqtt(health_monitor_handle_t handle, const mqtt_stats_t *stats,
-                               const mqtt_stats_t *last_stats)
+static mqtt_stats_t g_spy_health_update_mqtt_stats;
+health_monitor_err_t health_monitor_update_mqtt_stats(health_monitor_handle_t handle,
+                                                      const mqtt_stats_t *stats)
 {
     (void) handle;
-    (void) stats;
-    (void) last_stats;
     g_spy_health_update_mqtt_calls++;
+    g_spy_health_update_mqtt_stats = *stats;
+    return HEALTH_MONITOR_ERR_OK;
 }
-
+#define TC_EVENT_LOG (8u)
 static uint32_t g_spy_health_push_event_calls;
-static cp_health_event_t g_spy_health_push_event_last;
-void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t event)
+static health_event_t g_spy_health_events[TC_EVENT_LOG];
+health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, health_event_t event,
+                                               uint32_t param)
 {
     (void) handle;
+    (void) param;
+    if (g_spy_health_push_event_calls < TC_EVENT_LOG)
+    {
+        g_spy_health_events[g_spy_health_push_event_calls] = event;
+    }
     g_spy_health_push_event_calls++;
-    g_spy_health_push_event_last = event;
+    return HEALTH_MONITOR_ERR_OK;
 }
 
-static uint32_t g_spy_telemetry_interval_s;
-uint32_t config_provider_get_telemetry_interval_s(config_service_handle_t handle)
+/* ConfigService: the two vtables the module is given, and the change-callback registration. */
+static config_params_t g_spy_params;
+static const config_params_t *spy_get_params(void *ctx)
 {
-    (void) handle;
-    return g_spy_telemetry_interval_s;
+    (void) ctx;
+    return &g_spy_params;
+}
+static const iconfig_provider_t g_spy_provider = {.ctx = NULL, .get_params = spy_get_params};
+
+#define TC_SET_LOG (10u)
+static uint32_t g_spy_set_deferred_calls;
+static config_param_id_t g_spy_set_ids[TC_SET_LOG];
+static int64_t g_spy_set_values[TC_SET_LOG];
+static config_service_err_t g_spy_set_fail_on_call; /* 1-based call index that fails, 0: never */
+static uint32_t g_spy_set_calls_blocking;           /* set_param / persist_pending: must stay 0 */
+static uint32_t g_spy_set_fail_index;
+static config_service_err_t spy_set_param_deferred(void *ctx, config_param_id_t id,
+                                                   const void *value)
+{
+    (void) ctx;
+    /* The module passes the C type of the field; the spy needs the value as a number. */
+    int64_t v = 0;
+    switch (id)
+    {
+    case CONFIG_PARAM_POLL_INTERVAL:
+    case CONFIG_PARAM_MODBUS_POLL_PERIOD:
+    case CONFIG_PARAM_TELEMETRY_INTERVAL:
+    case CONFIG_PARAM_HEALTH_INTERVAL:
+        v = (int64_t) * (const uint32_t *) value;
+        break;
+    case CONFIG_PARAM_TEMP_ALARM_HIGH:
+    case CONFIG_PARAM_TEMP_ALARM_LOW:
+    case CONFIG_PARAM_TEMP_HYSTERESIS:
+        v = (int64_t) * (const int16_t *) value;
+        break;
+    default:
+        v = (int64_t) * (const uint16_t *) value;
+        break;
+    }
+    if (g_spy_set_deferred_calls < TC_SET_LOG)
+    {
+        g_spy_set_ids[g_spy_set_deferred_calls] = id;
+        g_spy_set_values[g_spy_set_deferred_calls] = v;
+    }
+    g_spy_set_deferred_calls++;
+    return (g_spy_set_deferred_calls == g_spy_set_fail_index) ? CONFIG_SERVICE_ERR_INVALID
+                                                              : CONFIG_SERVICE_OK;
+}
+static config_service_err_t spy_set_param(void *ctx, config_param_id_t id, const void *value)
+{
+    (void) ctx;
+    (void) id;
+    (void) value;
+    g_spy_set_calls_blocking++;
+    return CONFIG_SERVICE_OK;
+}
+static config_service_err_t spy_persist_pending(void *ctx)
+{
+    (void) ctx;
+    g_spy_set_calls_blocking++;
+    return CONFIG_SERVICE_OK;
+}
+static const iconfig_manager_t g_spy_manager = {.ctx = NULL,
+                                                .set_param = spy_set_param,
+                                                .set_param_deferred = spy_set_param_deferred,
+                                                .persist_pending = spy_persist_pending};
+
+static config_change_cb_t g_spy_change_cb;
+static config_service_err_t g_spy_register_return;
+static uint32_t g_spy_register_calls;
+config_service_err_t config_service_register_change_cb(config_change_cb_t cb)
+{
+    g_spy_register_calls++;
+    g_spy_change_cb = cb;
+    return g_spy_register_return;
 }
 
-static uint32_t g_spy_health_interval_s;
-uint32_t config_provider_get_health_interval_s(config_service_handle_t handle)
+/* TimeProvider and TimeService. */
+static time_provider_ts_t g_spy_time_ts;
+static time_provider_err_t g_spy_time_return;
+time_provider_err_t time_provider_get(time_provider_ts_t *ts_out)
 {
-    (void) handle;
-    return g_spy_health_interval_s;
+    *ts_out = g_spy_time_ts;
+    return g_spy_time_return;
 }
-
-static bool g_spy_config_apply_return;
-static uint32_t g_spy_config_apply_calls;
-bool config_manager_apply(config_service_handle_t handle, const uint8_t *payload, uint32_t len)
+static uint32_t g_spy_retry_calls;
+static void spy_trigger_retry(void *ctx)
 {
-    (void) handle;
+    (void) ctx;
+    g_spy_retry_calls++;
+}
+static time_service_sync_t spy_get_sync_state(void *ctx)
+{
+    (void) ctx;
+    return TIME_SERVICE_SYNC_OK;
+}
+static const itime_service_t g_spy_time = {
+    .ctx = NULL, .get_sync_state = spy_get_sync_state, .trigger_retry = spy_trigger_retry};
+
+/* ILifecycle (get_state only) and the /control handler. */
+static lifecycle_state_t g_spy_life_state;
+static lifecycle_state_t spy_life_get_state(void)
+{
+    return g_spy_life_state;
+}
+static const ilifecycle_t g_spy_lifecycle = {.get_state = spy_life_get_state};
+
+static uint32_t g_spy_control_calls;
+static uint32_t g_spy_control_len;
+static void spy_control_handler(const uint8_t *payload, uint32_t len)
+{
     (void) payload;
-    (void) len;
-    g_spy_config_apply_calls++;
-    return g_spy_config_apply_return;
+    g_spy_control_calls++;
+    g_spy_control_len = len;
 }
 
 static uint32_t g_spy_update_cmd_calls;
@@ -258,18 +381,9 @@ static update_service_err_t spy_update_on_chunk(update_service_t *self, uint32_t
 static const iupdate_service_t g_spy_update_ops = {.handle_command = spy_update_handle_command,
                                                    .on_chunk = spy_update_on_chunk};
 
-static uint32_t g_spy_lifecycle_handle_calls;
-void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len)
-{
-    (void) handle;
-    (void) payload;
-    (void) len;
-    g_spy_lifecycle_handle_calls++;
-}
-
 static mqtt_client_err_t g_spy_mqtt_publish_return;
 static uint32_t g_spy_mqtt_publish_calls;
-static char g_spy_mqtt_publish_last_topic[SAF_TOPIC_MAX_LEN];
+static char g_spy_mqtt_publish_last_topic[SAF_TOPIC_MAX];
 static char g_spy_mqtt_publish_last_payload[TC_JSON_BUF_SIZE];
 static uint32_t g_spy_mqtt_publish_last_len;
 static mqtt_qos_t g_spy_mqtt_publish_last_qos;
@@ -278,7 +392,7 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
 {
     (void) handle;
     g_spy_mqtt_publish_calls++;
-    (void) strncpy(g_spy_mqtt_publish_last_topic, topic, SAF_TOPIC_MAX_LEN - 1u);
+    (void) strncpy(g_spy_mqtt_publish_last_topic, topic, SAF_TOPIC_MAX - 1u);
     uint32_t copy_len = (len < (sizeof(g_spy_mqtt_publish_last_payload) - 1u))
                             ? len
                             : (sizeof(g_spy_mqtt_publish_last_payload) - 1u);
@@ -290,7 +404,7 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
 }
 
 static uint32_t g_spy_mqtt_subscribe_calls;
-static char g_spy_mqtt_subscribe_topic[4][SAF_TOPIC_MAX_LEN];
+static char g_spy_mqtt_subscribe_topic[4][SAF_TOPIC_MAX];
 static mqtt_qos_t g_spy_mqtt_subscribe_qos[4];
 static mqtt_client_err_t g_spy_mqtt_subscribe_return;
 mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char *topic,
@@ -300,7 +414,7 @@ mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char 
     if (g_spy_mqtt_subscribe_calls < 4u)
     {
         (void) strncpy(g_spy_mqtt_subscribe_topic[g_spy_mqtt_subscribe_calls], topic,
-                       SAF_TOPIC_MAX_LEN - 1u);
+                       SAF_TOPIC_MAX - 1u);
         g_spy_mqtt_subscribe_qos[g_spy_mqtt_subscribe_calls] = qos;
     }
     g_spy_mqtt_subscribe_calls++;
@@ -354,71 +468,94 @@ void setUp(void)
 {
     mock_freertos_reset();
     cloud_publisher_reset_for_test();
+    g_spy_seq = 0u;
 
     (void) memset(&g_spy_snapshot, 0, sizeof(g_spy_snapshot));
     g_spy_snapshot_return = SENSOR_SERVICE_ERR_OK;
     g_spy_sensor_get_snapshot_calls = 0u;
-    g_spy_alarm_limit = 0;
-    (void) memset(&g_spy_fd_reading, 0, sizeof(g_spy_fd_reading));
 
+    g_spy_alarm_limit = 0;
     g_spy_alarm_cb = NULL;
     g_spy_alarm_subscribe_calls = 0u;
 
+    (void) memset(&g_spy_fd_reading, 0, sizeof(g_spy_fd_reading));
+    g_spy_fd_return = MODBUS_POLLER_ERR_OK;
+    g_spy_fd_slave_seen = 0u;
+    g_spy_fd_calls = 0u;
+
     g_spy_saf_enqueue_return = SAF_ERR_OK;
     g_spy_saf_enqueue_calls = 0u;
+    g_spy_saf_enqueue_last_qos = 0u;
+    g_spy_saf_enqueue_last_len = 0u;
     (void) memset(g_spy_saf_enqueue_last_topic, 0, sizeof(g_spy_saf_enqueue_last_topic));
-
     g_spy_saf_dequeue_return = SAF_ERR_EMPTY;
     (void) memset(&g_spy_saf_dequeue_entry, 0, sizeof(g_spy_saf_dequeue_entry));
+    (void) memset(g_spy_saf_dequeue_payload, 0, sizeof(g_spy_saf_dequeue_payload));
     g_spy_saf_dequeue_calls = 0u;
     g_spy_saf_dequeue_available = 0u;
     g_spy_saf_confirm_calls = 0u;
+    g_spy_saf_confirm_return = SAF_ERR_OK;
 
     (void) memset(&g_spy_health_snapshot, 0, sizeof(g_spy_health_snapshot));
+    g_spy_health_get_return = HEALTH_MONITOR_ERR_OK;
+    g_spy_health_poll_seq = 0u;
+    g_spy_health_get_seq = 0u;
     g_spy_health_update_mqtt_calls = 0u;
+    (void) memset(&g_spy_health_update_mqtt_stats, 0, sizeof(g_spy_health_update_mqtt_stats));
     g_spy_health_push_event_calls = 0u;
+    (void) memset(g_spy_health_events, 0, sizeof(g_spy_health_events));
 
-    g_spy_telemetry_interval_s = 60u;
-    g_spy_health_interval_s = 600u;
+    (void) memset(&g_spy_params, 0, sizeof(g_spy_params));
+    g_spy_params.telemetry_interval_ms = 60000u;
+    g_spy_params.health_interval_ms = 600000u;
+    g_spy_set_deferred_calls = 0u;
+    g_spy_set_fail_index = 0u;
+    g_spy_set_calls_blocking = 0u;
+    g_spy_change_cb = NULL;
+    g_spy_register_return = CONFIG_SERVICE_OK;
+    g_spy_register_calls = 0u;
 
-    g_spy_config_apply_return = true;
-    g_spy_config_apply_calls = 0u;
+    g_spy_time_ts =
+        (time_provider_ts_t){.epoch = 1793200000u, .sync_state = TIME_SYNC_SYNCHRONISED};
+    g_spy_time_return = TIME_PROVIDER_ERR_OK;
+    g_spy_retry_calls = 0u;
+    g_spy_life_state = LIFECYCLE_STATE_OPERATIONAL;
+    g_spy_control_calls = 0u;
+    g_spy_control_len = 0u;
 
     g_spy_update_cmd_calls = 0u;
     g_spy_update_cmd_return = UPDATE_SERVICE_ERR_OK;
     g_spy_update_self_seen = NULL;
     g_spy_update_chunk_calls = 0u;
     g_spy_update_chunk_return = UPDATE_SERVICE_ERR_OK;
+
     g_spy_mqtt_subscribe_calls = 0u;
     g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_OK;
     (void) memset(g_spy_mqtt_subscribe_topic, 0, sizeof(g_spy_mqtt_subscribe_topic));
-    g_spy_lifecycle_handle_calls = 0u;
-
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_publish_calls = 0u;
     (void) memset(g_spy_mqtt_publish_last_topic, 0, sizeof(g_spy_mqtt_publish_last_topic));
     (void) memset(g_spy_mqtt_publish_last_payload, 0, sizeof(g_spy_mqtt_publish_last_payload));
-
     (void) memset(&g_spy_mqtt_stats, 0, sizeof(g_spy_mqtt_stats));
     g_spy_mqtt_get_stats_calls = 0u;
     g_spy_mqtt_process_calls = 0u;
-
     g_spy_mqtt_is_connected_return = true; /* most tests assume an already-connected broker */
     g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_connect_calls = 0u;
 
     (void) memset(&g_cfg, 0, sizeof(g_cfg));
     g_cfg.mqtt = (mqtt_client_handle_t) 0x1000;
-    g_cfg.poller = (modbus_poller_handle_t) 0x1003;
-    g_cfg.saf = (store_and_forward_handle_t) 0x1004;
-    g_cfg.health_read = (health_monitor_handle_t) 0x1005;
-    g_cfg.health_write = (health_monitor_handle_t) 0x1006;
-    g_cfg.cfg_read = (config_service_handle_t) 0x1007;
-    g_cfg.cfg_write = (config_service_handle_t) 0x1008;
+    g_cfg.saf = (saf_handle_t) 0x1004;
+    g_cfg.health = (health_monitor_handle_t) 0x1005;
+    g_cfg.cfg_read = &g_spy_provider;
+    g_cfg.cfg_write = &g_spy_manager;
+    g_cfg.time = &g_spy_time;
+    g_cfg.lifecycle = &g_spy_lifecycle;
+    g_cfg.control_handler = spy_control_handler;
+    g_cfg.fd_slave_addr = 1u;
+    g_cfg.fw_version = 0x01020003u;
     g_cfg.update_ops = &g_spy_update_ops;
     g_cfg.update = (update_service_t *) 0x1009;
-    g_cfg.lifecycle = (lifecycle_handle_t) 0x100A;
-
     g_handle = NULL;
 }
 
@@ -543,9 +680,10 @@ void test_CP_T07_alarm_connected(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/alarms"));
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
-    /* Outcome reported through IHealthReport (the seam TC-HW-CP-011 times). */
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
-    TEST_ASSERT_EQUAL(CP_HEALTH_EVENT_ALARM_PUBLISHED, g_spy_health_push_event_last);
+    /* The outcome is a CloudPublisher-local seam now (CP-D19), not a health event. */
+    TEST_ASSERT_EQUAL_UINT32(1u, cloud_publisher_alarm_published_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0u, cloud_publisher_alarm_buffered_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_health_push_event_calls);
 }
 
 void test_CP_T08_alarm_disconnected(void)
@@ -570,8 +708,9 @@ void test_CP_T08_alarm_disconnected(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_saf_enqueue_last_qos);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_saf_enqueue_last_topic, "/alarms"));
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
-    TEST_ASSERT_EQUAL(CP_HEALTH_EVENT_ALARM_BUFFERED, g_spy_health_push_event_last);
+    TEST_ASSERT_EQUAL_UINT32(1u, cloud_publisher_alarm_buffered_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0u, cloud_publisher_alarm_published_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_health_push_event_calls);
 }
 
 void test_CP_T15_alarm_queue_full(void)
@@ -601,10 +740,10 @@ void test_CP_T09_saf_drain_on_reconnect(void)
 
     saf_entry_t entry;
     (void) memset(&entry, 0, sizeof(entry));
-    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX_LEN - 1u);
-    entry.len = 2u;
-    entry.payload[0] = 'a';
-    entry.payload[1] = 'b';
+    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX - 1u);
+    entry.payload_len = 2u;
+    g_spy_saf_dequeue_payload[0] = (uint8_t) 'a';
+    g_spy_saf_dequeue_payload[1] = (uint8_t) 'b';
     entry.qos = MQTT_QOS_0;
 
     g_spy_saf_dequeue_entry = entry;
@@ -625,8 +764,8 @@ void test_CP_T10_saf_drain_stops_on_publish_failure(void)
 
     saf_entry_t entry;
     (void) memset(&entry, 0, sizeof(entry));
-    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX_LEN - 1u);
-    entry.len = 2u;
+    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX - 1u);
+    entry.payload_len = 2u;
     entry.qos = MQTT_QOS_0;
 
     g_spy_saf_dequeue_entry = entry;
@@ -647,10 +786,9 @@ void test_CP_T10_saf_drain_stops_on_publish_failure(void)
 void test_CP_T11_inbound_config_command(void)
 {
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
-    g_spy_config_apply_return = true;
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
 
-    const uint8_t payload[] = "{\"telemetry_interval_s\":30}";
+    const uint8_t payload[] = "{\"req\":5,\"telemetry_interval_ms\":30000}";
     /* command_queue is CloudPublisher's *second* xQueueCreateStatic() call
      * (alarm_queue is first) — the shared FreeRTOS mock distinguishes the
      * first two distinct queue handles a test touches, routing them to
@@ -658,7 +796,7 @@ void test_CP_T11_inbound_config_command(void)
      * use the "_2" globals here, not the plain ones. */
     g_mock_xQueueSend2_last_item_size = TC_COMMAND_ENTRY_SIZE; /* enable xQueueSend capture */
     cloud_publisher_inject_command_for_test(g_handle, "cmd/iotmonitor/x/config", payload,
-                                            (uint32_t) sizeof(payload));
+                                            (uint32_t) (sizeof(payload) - 1u));
 
     (void) memcpy(g_mock_xQueueReceive2_next_item, g_mock_xQueueSend2_last_item,
                   g_mock_xQueueSend2_last_item_size);
@@ -669,9 +807,11 @@ void test_CP_T11_inbound_config_command(void)
     g_mock_xTaskNotifyWait_next_value = TC_COMMAND_PENDING;
     cloud_publisher_task_step_for_test(g_handle);
 
-    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_config_apply_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_set_deferred_calls);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
-    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/results"));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/config/result"));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"applied\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":5"));
 }
 
 void test_CP_T12_inbound_unknown_topic(void)
@@ -695,10 +835,10 @@ void test_CP_T12_inbound_unknown_topic(void)
     /* Must not crash; no handler should fire. */
     cloud_publisher_task_step_for_test(g_handle);
 
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_config_apply_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls);
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_chunk_calls);
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_lifecycle_handle_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
 }
 
 /* ======================================================================= */
@@ -885,7 +1025,7 @@ static void prv_set_reading(sensor_id_t id, int32_t value)
 void test_CP_T20_telemetry_converts_fixed_point_to_wire_units(void)
 {
     char buf[512];
-    modbus_poller_fd_reading_t fd;
+    modbus_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
     prv_set_reading(SENSOR_ID_TEMPERATURE, 2345); /* 23.45 degC -> 235 deci-C (rounded) */
     prv_set_reading(SENSOR_ID_HUMIDITY, 5049);    /* 50.49 %RH  -> 50                   */
@@ -894,7 +1034,7 @@ void test_CP_T20_telemetry_converts_fixed_point_to_wire_units(void)
     g_spy_snapshot.readings[SENSOR_ID_TEMPERATURE].timestamp.sync_state = TIME_SYNC_SYNCHRONISED;
 
     TEST_ASSERT_GREATER_THAN_UINT32(
-        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER"));
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, &g_spy_time_ts, "SER"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"temperature_deci_c\":235,"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"humidity_pct\":50,"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"pressure_hpa\":1013,"));
@@ -905,35 +1045,35 @@ void test_CP_T20_telemetry_converts_fixed_point_to_wire_units(void)
 void test_CP_T21_telemetry_rounds_negative_temperature_away_from_zero(void)
 {
     char buf[512];
-    modbus_poller_fd_reading_t fd;
+    modbus_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
     prv_set_reading(SENSOR_ID_TEMPERATURE, -1005); /* -10.05 degC -> -101 deci-C */
+    g_spy_time_ts.sync_state = TIME_SYNC_UNSYNCHRONISED;
 
-    (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER");
+    (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, &g_spy_time_ts, "SER");
 
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"temperature_deci_c\":-101,"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"sync_state\":\"unsynchronised\""));
 }
 
-void test_CP_T22_telemetry_reports_invalid_channel_as_zero(void)
+void test_CP_T22_telemetry_reports_invalid_channel_as_null(void)
 {
     char buf[512];
-    modbus_poller_fd_reading_t fd;
+    modbus_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
     prv_set_reading(SENSOR_ID_ACCEL_X, 900);
     g_spy_snapshot.readings[SENSOR_ID_ACCEL_X].valid = false;
 
-    (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER");
+    (void) cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, &g_spy_time_ts, "SER");
 
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\":0,"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[\"temperature_deci_c\","));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\""));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"accel_x_mg\":null,"));
+    TEST_ASSERT_NULL(strstr(buf, "invalid_channels")); /* removed in schema 1.1 (CP-D22) */
 }
 
-void test_CP_T27_invalid_channels_is_empty_when_all_valid(void)
+void test_CP_T27_no_channel_is_null_when_all_valid(void)
 {
     char buf[1024];
-    modbus_poller_fd_reading_t fd;
+    modbus_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
     for (uint32_t i = 0u; i < (uint32_t) SENSOR_ID_COUNT; i++)
     {
@@ -941,19 +1081,20 @@ void test_CP_T27_invalid_channels_is_empty_when_all_valid(void)
     }
 
     TEST_ASSERT_GREATER_THAN_UINT32(
-        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"invalid_channels\":[],"));
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, &g_spy_time_ts, "SER"));
+    TEST_ASSERT_NULL(strstr(buf, "\"gyro_x_mdps\":null"));
+    TEST_ASSERT_NULL(strstr(buf, "invalid_channels"));
 }
 
-void test_CP_T28_all_channels_invalid_fits_the_list_buffer(void)
+void test_CP_T28_all_channels_invalid_still_fits_the_buffer(void)
 {
     char buf[2048];
-    modbus_poller_fd_reading_t fd;
+    modbus_fd_reading_t fd;
     (void) memset(&fd, 0, sizeof(fd));
 
     TEST_ASSERT_GREATER_THAN_UINT32(
-        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, "SER"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"mag_z_mgauss\"],"));
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &g_spy_snapshot, &fd, &g_spy_time_ts, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"mag_z_mgauss\":null,"));
 }
 
 void test_CP_T23_telemetry_skipped_when_snapshot_unavailable(void)
@@ -1034,12 +1175,12 @@ void test_CP_T14_json_truncation(void)
 {
     char tiny_buf[8];
     sensor_snapshot_t snap;
-    modbus_poller_fd_reading_t fd;
+    modbus_fd_reading_t fd;
     (void) memset(&snap, 0, sizeof(snap));
     (void) memset(&fd, 0, sizeof(fd));
 
     uint32_t n = cp_serialise_telemetry(tiny_buf, (uint32_t) sizeof(tiny_buf), &snap, &fd,
-                                        "0011223344556677889900aa");
+                                        &g_spy_time_ts, "0011223344556677889900aa");
 
     TEST_ASSERT_EQUAL_UINT32(0u, n);
 }
@@ -1048,16 +1189,17 @@ void test_CP_T14_json_truncation(void)
 /* CP-T16 — configurable intervals                                        */
 /* ======================================================================= */
 
-void test_CP_T16_configurable_intervals(void)
+void test_CP_T16_a_changed_interval_retimes_the_timer(void)
 {
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
 
-    g_spy_telemetry_interval_s = 30u;
-    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    g_spy_params.telemetry_interval_ms = 30000u;
+    g_spy_change_cb(CONFIG_PARAM_TELEMETRY_INTERVAL); /* ConfigService tells the task to look */
+    g_mock_xTaskNotifyWait_next_value = TC_CONFIG_CHANGED;
     cloud_publisher_task_step_for_test(g_handle);
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTimerChangePeriod_call_count);
-    TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(30u * 1000u), g_mock_xTimerChangePeriod_last_period);
+    TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(30000u), g_mock_xTimerChangePeriod_last_period);
 }
 
 /* ======================================================================= */
@@ -1072,8 +1214,8 @@ static void prv_load_buffered_entry(void)
     saf_entry_t entry;
 
     (void) memset(&entry, 0, sizeof(entry));
-    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX_LEN - 1u);
-    entry.len = 2u;
+    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX - 1u);
+    entry.payload_len = 2u;
     entry.qos = MQTT_QOS_0;
     g_spy_saf_dequeue_entry = entry;
     g_spy_saf_dequeue_return = SAF_ERR_OK;
@@ -1178,6 +1320,18 @@ void test_CP_T42_the_notify_mask_clears_the_new_bits(void)
 
 /* ======================================================================= */
 /* CP-T50..T69 - the OTA path (update-service-lld.md CPC-1..CPC-6)          */
+/** The OTA payloads now start with the common block (schema 1.1); the rest is the old wire text. */
+static void prv_assert_wire_tail(const char *old_wire, const char *actual)
+{
+    char tail[256];
+
+    TEST_ASSERT_TRUE(strlen(old_wire) < (sizeof(tail) - 1u));
+    (void) snprintf(tail, sizeof(tail), ",%s", &old_wire[1]); /* "{x}" -> ",x}" */
+    TEST_ASSERT_EQUAL_STRING_LEN("{\"schema_version\":\"1.1\"", actual, 23u);
+    TEST_ASSERT_TRUE(strlen(actual) > strlen(tail));
+    TEST_ASSERT_EQUAL_STRING(tail, &actual[strlen(actual) - strlen(tail)]);
+}
+
 /* ======================================================================= */
 
 #define TC_SERIAL_TOPIC "0011223344556677889900aa"
@@ -1216,7 +1370,7 @@ void test_CP_T50_an_ota_command_is_parsed_and_handed_to_update_service(void)
     TEST_ASSERT_EQUAL_UINT32(491600u, g_spy_update_cmd.size_b);
     TEST_ASSERT_EQUAL_PTR(0x1009, g_spy_update_self_seen);
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls); /* UpdateService reports, not us */
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_config_apply_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
 }
 
 void test_CP_T50b_a_command_UpdateService_refuses_is_logged_and_not_reported_by_us(void)
@@ -1241,9 +1395,9 @@ void test_CP_T51_a_malformed_command_is_rejected_with_the_job_when_it_can_be_rea
     TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/result",
                              g_spy_mqtt_publish_last_topic);
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
-    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"job\":42,\"result\":\"rejected\","
-                             "\"reason\":\"bad_command\"}",
-                             g_spy_mqtt_publish_last_payload);
+    prv_assert_wire_tail("{\"event\":\"ota\",\"job\":42,\"result\":\"rejected\","
+                         "\"reason\":\"bad_command\"}",
+                         g_spy_mqtt_publish_last_payload);
 }
 
 void test_CP_T52_a_command_with_no_readable_job_is_rejected_without_one(void)
@@ -1253,9 +1407,8 @@ void test_CP_T52_a_command_with_no_readable_job_is_rejected_without_one(void)
     prv_deliver_ota_command("not json at all");
 
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_update_cmd_calls);
-    TEST_ASSERT_EQUAL_STRING(
-        "{\"event\":\"ota\",\"result\":\"rejected\",\"reason\":\"bad_command\"}",
-        g_spy_mqtt_publish_last_payload);
+    prv_assert_wire_tail("{\"event\":\"ota\",\"result\":\"rejected\",\"reason\":\"bad_command\"}",
+                         g_spy_mqtt_publish_last_payload);
 }
 
 void test_CP_T52b_a_rejection_is_buffered_while_the_broker_is_down(void)
@@ -1336,28 +1489,39 @@ void test_CP_T55_without_update_service_an_ota_command_is_ignored_and_nothing_is
 
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_subscribe_calls);
+    /* Only the two non-OTA command topics: /config and /control (CP-D26). */
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/config",
+                             g_spy_mqtt_subscribe_topic[0]);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/control",
+                             g_spy_mqtt_subscribe_topic[1]);
 }
 
-void test_CP_T56_the_ota_topics_are_subscribed_once_the_broker_is_connected(void)
+void test_CP_T56_the_command_topics_are_subscribed_once_the_broker_is_connected(void)
 {
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
 
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
 
-    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
-    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota",
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/config",
                              g_spy_mqtt_subscribe_topic[0]);
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_subscribe_qos[0]);
-    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota/data",
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/control",
                              g_spy_mqtt_subscribe_topic[1]);
-    TEST_ASSERT_EQUAL(MQTT_QOS_0, g_spy_mqtt_subscribe_qos[1]);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_subscribe_qos[1]);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota",
+                             g_spy_mqtt_subscribe_topic[2]);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_subscribe_qos[2]);
+    TEST_ASSERT_EQUAL_STRING("cmd/iotmonitor/" TC_SERIAL_TOPIC "/ota/data",
+                             g_spy_mqtt_subscribe_topic[3]);
+    TEST_ASSERT_EQUAL(MQTT_QOS_0, g_spy_mqtt_subscribe_qos[3]);
 
     /* Not again on the next tick. */
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
 }
 
 void test_CP_T57_a_subscribe_that_fails_is_retried_on_the_next_tick(void)
@@ -1367,16 +1531,16 @@ void test_CP_T57_a_subscribe_that_fails_is_retried_on_the_next_tick(void)
 
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
 
     g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_OK;
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_subscribe_calls);
 
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls); /* done */
+    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_subscribe_calls); /* done */
 }
 
 void test_CP_T58_every_new_connection_subscribes_again(void)
@@ -1385,7 +1549,7 @@ void test_CP_T58_every_new_connection_subscribes_again(void)
 
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
 
     g_spy_mqtt_is_connected_return = false; /* the link drops */
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
@@ -1394,7 +1558,7 @@ void test_CP_T58_every_new_connection_subscribes_again(void)
     g_spy_mqtt_is_connected_return = true; /* and comes back */
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_subscribe_calls);
 }
 
 void test_CP_T59_the_message_callback_reaches_the_instance_and_drops_before_create(void)
@@ -1478,8 +1642,8 @@ void test_CP_T61_a_chunk_request_is_published_at_qos0_when_connected(void)
     TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/request",
                              g_spy_mqtt_publish_last_topic);
     TEST_ASSERT_EQUAL(MQTT_QOS_0, g_spy_mqtt_publish_last_qos);
-    TEST_ASSERT_EQUAL_STRING("{\"job\":42,\"slot\":\"B\",\"offset\":4096,\"len\":1024}",
-                             g_spy_mqtt_publish_last_payload);
+    prv_assert_wire_tail("{\"job\":42,\"slot\":\"B\",\"offset\":4096,\"len\":1024}",
+                         g_spy_mqtt_publish_last_payload);
 }
 
 void test_CP_T62_a_chunk_request_is_dropped_not_buffered_when_the_link_is_down(void)
@@ -1513,9 +1677,9 @@ void test_CP_T63_a_report_is_published_at_qos1_with_the_wire_payload(void)
     TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/ota/result",
                              g_spy_mqtt_publish_last_topic);
     TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
-    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"job\":42,\"result\":\"failed\","
-                             "\"reason\":\"hash_mismatch\",\"version\":\"1.2.0\",\"rollbacks\":0}",
-                             g_spy_mqtt_publish_last_payload);
+    prv_assert_wire_tail("{\"event\":\"ota\",\"job\":42,\"result\":\"failed\","
+                         "\"reason\":\"hash_mismatch\",\"version\":\"1.2.0\",\"rollbacks\":0}",
+                         g_spy_mqtt_publish_last_payload);
 }
 
 void test_CP_T64_a_report_is_buffered_through_store_and_forward_while_offline(void)
@@ -1592,30 +1756,29 @@ void test_CP_T70_ota_report_variants_serialise_to_the_wire_contract(void)
                          .version = 0x01000000UL,
                          .rollback_count = 0u};
 
-    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r) > 0u);
-    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"job\":42,\"result\":\"accepted\","
-                             "\"version\":\"1.0.0\",\"rollbacks\":0}",
-                             buf);
+    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r, &g_spy_time_ts, "SER") > 0u);
+    prv_assert_wire_tail("{\"event\":\"ota\",\"job\":42,\"result\":\"accepted\","
+                         "\"version\":\"1.0.0\",\"rollbacks\":0}",
+                         buf);
 
     r = (us_ota_report_t){.job_known = false,
                           .result = US_RESULT_SUCCESS,
                           .version = 0x02000000UL,
                           .rollback_count = 0u};
-    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r) > 0u);
-    TEST_ASSERT_EQUAL_STRING("{\"event\":\"ota\",\"result\":\"success\","
-                             "\"version\":\"2.0.0\",\"rollbacks\":0}",
-                             buf);
+    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r, &g_spy_time_ts, "SER") > 0u);
+    prv_assert_wire_tail("{\"event\":\"ota\",\"result\":\"success\","
+                         "\"version\":\"2.0.0\",\"rollbacks\":0}",
+                         buf);
 
     r = (us_ota_report_t){.job_known = false,
                           .result = US_RESULT_ROLLED_BACK,
                           .reason = US_REASON_ROLLBACK,
                           .version = 0x01000003UL,
                           .rollback_count = 2u};
-    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r) > 0u);
-    TEST_ASSERT_EQUAL_STRING(
-        "{\"event\":\"ota\",\"result\":\"rolled_back\",\"reason\":\"rollback\","
-        "\"version\":\"1.0.3\",\"rollbacks\":2}",
-        buf);
+    TEST_ASSERT_TRUE(cp_serialise_ota_report(buf, sizeof(buf), &r, &g_spy_time_ts, "SER") > 0u);
+    prv_assert_wire_tail("{\"event\":\"ota\",\"result\":\"rolled_back\",\"reason\":\"rollback\","
+                         "\"version\":\"1.0.3\",\"rollbacks\":2}",
+                         buf);
 }
 
 void test_CP_T71_a_buffer_that_is_too_small_gives_zero_for_every_ota_serialiser(void)
@@ -1628,19 +1791,23 @@ void test_CP_T71_a_buffer_that_is_too_small_gives_zero_for_every_ota_serialiser(
                                .version = 0x01000000UL};
     const us_chunk_request_t q = {.job = 1u, .slot = FIRMWARE_SLOT_A, .offset = 0u, .len = 1u};
 
-    TEST_ASSERT_EQUAL_UINT32(0u, cp_serialise_ota_report(buf, sizeof(buf), &r));
-    TEST_ASSERT_EQUAL_UINT32(0u, cp_serialise_ota_request(buf, sizeof(buf), &q));
+    TEST_ASSERT_EQUAL_UINT32(0u,
+                             cp_serialise_ota_report(buf, sizeof(buf), &r, &g_spy_time_ts, "SER"));
+    TEST_ASSERT_EQUAL_UINT32(0u,
+                             cp_serialise_ota_request(buf, sizeof(buf), &q, &g_spy_time_ts, "SER"));
 
     /* Every length from zero up to the full text is refused or exact, never an overrun. */
     char exact[200];
-    const uint32_t full = cp_serialise_ota_report(exact, sizeof(exact), &r);
+    const uint32_t full = cp_serialise_ota_report(exact, sizeof(exact), &r, &g_spy_time_ts, "SER");
 
     TEST_ASSERT_TRUE(full > 0u);
     for (uint32_t size = 1u; size <= full; size++)
     {
-        TEST_ASSERT_EQUAL_UINT32(0u, cp_serialise_ota_report(exact, size, &r));
+        TEST_ASSERT_EQUAL_UINT32(0u,
+                                 cp_serialise_ota_report(exact, size, &r, &g_spy_time_ts, "SER"));
     }
-    TEST_ASSERT_EQUAL_UINT32(full, cp_serialise_ota_report(exact, full + 1u, &r));
+    TEST_ASSERT_EQUAL_UINT32(full,
+                             cp_serialise_ota_report(exact, full + 1u, &r, &g_spy_time_ts, "SER"));
 }
 
 void test_CP_T72_the_ota_command_parser_accepts_the_contract_and_whitespace(void)
@@ -1721,4 +1888,524 @@ void test_CP_T74_a_bad_command_still_reports_a_job_it_could_read(void)
     TEST_ASSERT_FALSE(cp_parse_ota_command((const uint8_t *) garbage, (uint32_t) strlen(garbage),
                                            &c, &job, &known));
     TEST_ASSERT_FALSE(known);
+}
+
+/* ======================================================================= */
+/* WP1 PR-D — the reconciliation with the real modules (CP-D18..D31)        */
+/*                                                                          */
+/* The reconciliation document numbers these CP-T50..T76; the OTA tests      */
+/* already use T50..T74, so they are CP-T80..T106 here (same order).        */
+/* ======================================================================= */
+
+static void prv_deliver_config(const char *json)
+{
+    prv_deliver_command("cmd/iotmonitor/" TC_SERIAL_TOPIC "/config", (const uint8_t *) json,
+                        (uint32_t) strlen(json));
+}
+
+static void prv_create_and_connect(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+}
+
+static void prv_stats_tick(void)
+{
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+}
+
+/* CP-T80 (spec T50): create rejects each mandatory NULL member and accepts the optional ones. */
+void test_CP_T80_create_rejects_each_mandatory_null_member(void)
+{
+    static const size_t k_offsets[] = {
+        offsetof(cloud_publisher_config_t, mqtt),
+        offsetof(cloud_publisher_config_t, saf),
+        offsetof(cloud_publisher_config_t, health),
+        offsetof(cloud_publisher_config_t, cfg_read),
+        offsetof(cloud_publisher_config_t, cfg_write),
+        offsetof(cloud_publisher_config_t, lifecycle),
+    };
+
+    for (uint32_t i = 0u; i < (sizeof(k_offsets) / sizeof(k_offsets[0])); i++)
+    {
+        cloud_publisher_config_t c = g_cfg;
+        const void **member = (const void **) ((uint8_t *) &c + k_offsets[i]);
+
+        *member = NULL;
+        TEST_ASSERT_EQUAL_MESSAGE(CP_ERR_NULL_PTR, cloud_publisher_create(&c, &g_handle), "member");
+    }
+
+    /* Optional members: no time service, no control handler, no Field Device, no OTA. */
+    g_cfg.time = NULL;
+    g_cfg.control_handler = NULL;
+    g_cfg.fd_slave_addr = 0u;
+    g_cfg.update_ops = NULL;
+    g_cfg.update = NULL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+}
+
+void test_CP_T80b_update_ops_and_update_come_together_or_not_at_all(void)
+{
+    g_cfg.update = NULL; /* ops without an instance */
+    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_create(&g_cfg, &g_handle));
+}
+
+/* CP-T81: the change callback is registered; a refusal is NO_RESOURCE and takes no pool slot. */
+void test_CP_T81_create_registers_the_change_callback_and_reports_a_refusal(void)
+{
+    g_spy_register_return = CONFIG_SERVICE_ERR_NOT_INIT;
+    TEST_ASSERT_EQUAL(CP_ERR_NO_RESOURCE, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_register_calls);
+
+    g_spy_register_return = CONFIG_SERVICE_OK;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle)); /* slot not used up */
+    TEST_ASSERT_NOT_NULL(g_spy_change_cb);
+}
+
+/* CP-T82: intervals are read in ms; only the two interval parameters wake the task. */
+void test_CP_T82_intervals_come_from_get_params_in_ms_and_other_parameters_are_ignored(void)
+{
+    g_spy_params.telemetry_interval_ms = 5000u;
+    g_spy_params.health_interval_ms = 20000u;
+    prv_create_and_connect();
+    g_mock_xTaskNotify_call_count = 0u;
+    g_spy_change_cb(CONFIG_PARAM_TEMP_ALARM_HIGH);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xTaskNotify_call_count);
+
+    g_spy_change_cb(CONFIG_PARAM_HEALTH_INTERVAL);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_CONFIG_CHANGED, g_mock_xTaskNotify_last_value);
+}
+
+/* CP-T83: the stack watermarks are polled before the snapshot is read. */
+void test_CP_T83_health_tick_polls_then_reads_the_snapshot(void)
+{
+    prv_create_and_connect();
+    g_mock_xTaskNotifyWait_next_value = TC_HEALTH_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_NOT_EQUAL_UINT32(0u, g_spy_health_poll_seq);
+    TEST_ASSERT_LESS_THAN_UINT32(g_spy_health_get_seq, g_spy_health_poll_seq);
+}
+
+/* CP-T84: the absolute MQTT counters go to HealthMonitor. */
+void test_CP_T84_stats_tick_hands_the_absolute_stats_to_health_monitor(void)
+{
+    prv_create_and_connect();
+    g_spy_mqtt_stats.publishes_sent = 17u;
+    g_spy_mqtt_stats.reconnect_count = 3u;
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_update_mqtt_calls);
+    TEST_ASSERT_EQUAL_UINT32(17u, g_spy_health_update_mqtt_stats.publishes_sent);
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_health_update_mqtt_stats.reconnect_count);
+}
+
+/* CP-T85: a connect is reported once, with one NTP retry; nothing repeats while connected. */
+void test_CP_T85_disconnected_to_connected_reports_once_and_triggers_one_ntp_retry(void)
+{
+    g_spy_mqtt_is_connected_return = false;
+    prv_create_and_connect();
+    prv_stats_tick(); /* still down: nothing to report */
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_health_push_event_calls);
+
+    g_spy_mqtt_is_connected_return = true;
+    prv_stats_tick();
+    prv_stats_tick();
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
+    TEST_ASSERT_EQUAL(HEALTH_EVENT_CLOUD_CONNECTED, g_spy_health_events[0]);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_retry_calls);
+}
+
+/* CP-T86: the disconnect callback reports once and clears the link mirror. */
+void test_CP_T86_on_disconnect_reports_once(void)
+{
+    prv_create_and_connect();
+    prv_stats_tick(); /* connected */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
+
+    cloud_publisher_on_disconnect();
+    cloud_publisher_on_disconnect(); /* a second report of the same drop adds nothing */
+
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_health_push_event_calls);
+    TEST_ASSERT_EQUAL(HEALTH_EVENT_CLOUD_DISCONNECTED, g_spy_health_events[1]);
+}
+
+void test_CP_T86b_on_disconnect_before_create_does_nothing(void)
+{
+    cloud_publisher_on_disconnect();
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_health_push_event_calls);
+}
+
+/* CP-T87: no TimeService is not an error. */
+void test_CP_T87_without_a_time_service_no_retry_is_requested(void)
+{
+    g_cfg.time = NULL;
+    prv_create_and_connect();
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_retry_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_health_push_event_calls);
+}
+
+/* CP-T88: /control is skipped without a handler (the other three topics remain). */
+void test_CP_T88_control_is_subscribed_only_with_a_handler(void)
+{
+    g_cfg.control_handler = NULL;
+    prv_create_and_connect();
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_subscribe_calls);
+    for (uint32_t i = 0u; i < 3u; i++)
+    {
+        TEST_ASSERT_NULL(strstr(g_spy_mqtt_subscribe_topic[i], "/control"));
+    }
+}
+
+/* CP-T89: SAF accepted -> BUFFERED; a refusal is a lost message, logged, no health event. */
+void test_CP_T89_a_saf_refusal_is_a_lost_message_not_a_health_event(void)
+{
+    prv_create_and_connect();
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_saf_enqueue_return = SAF_ERR_FLASH;
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_health_push_event_calls);
+    TEST_ASSERT_LESS_THAN_UINT16(2049u, g_spy_saf_enqueue_last_len);
+}
+
+/* CP-T90: the pointer entry is published, then confirmed; EMPTY ends; a failed confirm stops. */
+void test_CP_T90_drain_publishes_the_entry_then_confirms_and_stops_on_a_failed_confirm(void)
+{
+    prv_create_and_connect();
+    g_spy_saf_dequeue_entry.payload_len = 3u;
+    (void) strncpy(g_spy_saf_dequeue_entry.topic, "dt/iotmonitor/x/health", SAF_TOPIC_MAX);
+    g_spy_saf_dequeue_entry.qos = 1u;
+    g_spy_saf_dequeue_return = SAF_ERR_OK;
+    g_spy_saf_dequeue_available = 3u;
+    g_spy_saf_confirm_return = SAF_ERR_FLASH;
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_publish_last_len);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_confirm_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_dequeue_calls); /* the drain stopped for this tick */
+}
+
+/* CP-T91: the Field Device is converted from register units to the wire units. */
+void test_CP_T91_telemetry_converts_the_field_device_to_wire_units(void)
+{
+    prv_create_and_connect();
+    g_spy_fd_reading = (modbus_fd_reading_t){.temperature_centi_c = 2155,
+                                             .humidity_centi_pct = 4049,
+                                             .pressure_deci_hpa = 10135,
+                                             .temperature_valid = true,
+                                             .humidity_valid = true,
+                                             .pressure_valid = true,
+                                             .link_online = true,
+                                             .has_data = true};
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT8(1u, g_spy_fd_slave_seen);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"field_device\":{\"online\":true,\"temperature_deci_c\":216,"
+                                "\"humidity_pct\":40,\"pressure_hpa\":1014}"));
+}
+
+/* CP-T92: offline, no data, or no Field Device configured. */
+void test_CP_T92_an_offline_field_device_is_online_false_with_nulls_and_none_is_null(void)
+{
+    prv_create_and_connect();
+    g_spy_fd_reading.has_data = true; /* data, but the link is down */
+    g_spy_fd_reading.link_online = false;
+    g_spy_fd_reading.temperature_valid = true;
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"field_device\":{\"online\":false,\"temperature_deci_c\":null,"
+                                "\"humidity_pct\":null,\"pressure_hpa\":null}"));
+
+    cloud_publisher_reset_for_test();
+    g_cfg.fd_slave_addr = 0u;
+    g_spy_fd_calls = 0u;
+    prv_create_and_connect();
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"field_device\":null"));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_fd_calls);
+}
+
+/* CP-T93: an invalid onboard channel is null and there is no invalid_channels member. */
+void test_CP_T93_an_invalid_onboard_channel_is_null_in_the_published_payload(void)
+{
+    prv_create_and_connect();
+    g_spy_snapshot.readings[SENSOR_ID_TEMPERATURE].valid = false;
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"temperature_deci_c\":null"));
+    TEST_ASSERT_NULL(strstr(g_spy_mqtt_publish_last_payload, "invalid_channels"));
+}
+
+/* CP-T94: the common block, synchronised, unsynchronised, and a TimeProvider error. */
+void test_CP_T94_the_common_block_follows_time_provider(void)
+{
+    prv_create_and_connect();
+
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"schema_version\":\"1.1\",\"device_id\":\"" TC_SERIAL_TOPIC
+                                "\",\"timestamp\":1793200000,\"sync_state\":\"synchronised\""));
+
+    g_spy_time_ts = (time_provider_ts_t){.epoch = 42u, .sync_state = TIME_SYNC_UNSYNCHRONISED};
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"timestamp\":42,\"sync_state\":\"unsynchronised\""));
+
+    g_spy_time_return = TIME_PROVIDER_ERR_RTC_FAIL;
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_NOT_NULL(
+        strstr(g_spy_mqtt_publish_last_payload, "\"sync_state\":\"unsynchronised\""));
+}
+
+/* CP-T95: the health payload carries the snapshot, the firmware version and the stack headroom. */
+void test_CP_T95_health_1_1_carries_every_field(void)
+{
+    prv_create_and_connect();
+    g_spy_health_snapshot.uptime_s = 3600u;
+    g_spy_health_snapshot.lifecycle_state = LIFECYCLE_STATE_OPERATIONAL;
+    g_spy_health_snapshot.last_reset_cause = LIFECYCLE_RESET_SOFT;
+    g_spy_health_snapshot.mqtt_reconnect_count = 2u;
+    g_spy_health_snapshot.cloud_connected = true;
+    g_spy_health_snapshot.wifi_rssi_dbm = -61;
+    g_spy_health_snapshot.buffer_entry_count = 4u;
+    g_spy_health_snapshot.stack_watermark_words[0] = 120u;
+    g_spy_health_snapshot.stack_watermark_words[1] = 65u;
+    g_spy_health_snapshot.stack_watermark_words[2] = 300u;
+
+    g_mock_xTaskNotifyWait_next_value = TC_HEALTH_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    const char *p = g_spy_mqtt_publish_last_payload;
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"fw_version\":\"1.2.3\""));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"uptime_s\":3600"));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"lifecycle_state\":\"operational\""));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"last_reset_cause\":\"soft\""));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"wifi_rssi_dbm\":-61"));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"cloud_connected\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"buffer_entry_count\":4"));
+    TEST_ASSERT_NOT_NULL(
+        strstr(p, "\"stack_free_words\":[120,65,300]")); /* not padded with zeros */
+}
+
+/* CP-T96: an alarm keeps the time of detection. */
+void test_CP_T96_the_alarm_timestamp_is_the_reading_time_not_the_serialisation_time(void)
+{
+    prv_create_and_connect();
+    g_spy_time_ts.epoch = 9999u; /* serialisation time: must not be used */
+    cp_alarm_event_t ev;
+    prv_load_alarm_event(&ev);
+    ev.timestamp = (time_provider_ts_t){.epoch = 1234u, .sync_state = TIME_SYNC_SYNCHRONISED};
+    char buf[512];
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, cp_serialise_alarm(buf, sizeof(buf), &ev, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"timestamp\":1234,\"sync_state\":\"synchronised\""));
+}
+
+/* CP-T97: a valid config is applied per key, in order, in RAM only. */
+void test_CP_T97_config_is_applied_per_key_in_order_without_blocking_writes(void)
+{
+    prv_create_and_connect();
+    prv_deliver_config("{\"req\":17,\"telemetry_interval_ms\":30000,\"temp_alarm_high\":4500}");
+
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_set_deferred_calls);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_TELEMETRY_INTERVAL, g_spy_set_ids[0]);
+    TEST_ASSERT_EQUAL_INT64(30000, g_spy_set_values[0]);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_TEMP_ALARM_HIGH, g_spy_set_ids[1]);
+    TEST_ASSERT_EQUAL_INT64(4500, g_spy_set_values[1]);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_calls_blocking); /* no set_param, no persist_pending */
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"event\":\"config\",\"req\":17,"
+                                                                 "\"result\":\"applied\""));
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+}
+
+/* CP-T98: the second key is refused: the first is put back with its old value. */
+void test_CP_T98_a_refused_key_reverts_the_earlier_ones(void)
+{
+    prv_create_and_connect();
+    g_spy_params.telemetry_interval_ms = 60000u;
+    g_spy_set_fail_index = 2u; /* the second set_param_deferred call fails */
+
+    prv_deliver_config("{\"telemetry_interval_ms\":30000,\"temp_alarm_high\":4500}");
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_set_deferred_calls); /* two tries, one revert */
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_TELEMETRY_INTERVAL, g_spy_set_ids[2]);
+    TEST_ASSERT_EQUAL_INT64(60000, g_spy_set_values[2]); /* the old value */
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"result\":\"rejected\",\"reason\":\"invalid_value\","
+                                "\"key\":\"temp_alarm_high\""));
+}
+
+/* CP-T99: Tier 1 and unknown keys, nothing applied. */
+void test_CP_T99_local_only_and_unknown_keys_are_refused_with_nothing_applied(void)
+{
+    prv_create_and_connect();
+
+    prv_deliver_config("{\"filter_alpha\":100}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"reason\":\"not_remote\",\"key\":\"filter_alpha\""));
+
+    prv_deliver_config("{\"telemetry_interval_ms\":30000,\"nonsense\":1}");
+    TEST_ASSERT_NOT_NULL(
+        strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"unknown_key\",\"key\":\"nonsense\""));
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
+}
+
+/* CP-T100: malformed inputs. */
+void test_CP_T100_malformed_config_commands_are_rejected_with_nothing_applied(void)
+{
+    static const char *const k_bad[] = {
+        "{\"telemetry_interval_ms\":\"30000\"}",                     /* string value       */
+        "{\"telemetry_interval_ms\":30000.5}",                       /* float              */
+        "{\"telemetry_interval_ms\":{\"a\":1}}",                     /* nested object      */
+        "{\"telemetry_interval_ms\":1,\"telemetry_interval_ms\":2}", /* duplicate */
+        "{\"telemetry_interval_ms\":30000} x",                       /* trailing data      */
+        "{}",                                                        /* empty object       */
+        "{\"req\":3}",                                               /* nothing to apply   */
+        "not json",
+    };
+
+    prv_create_and_connect();
+    for (uint32_t i = 0u; i < (sizeof(k_bad) / sizeof(k_bad[0])); i++)
+    {
+        prv_deliver_config(k_bad[i]);
+        TEST_ASSERT_NOT_NULL_MESSAGE(
+            strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"bad_json\""), k_bad[i]);
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
+
+    /* More than eight parameters: the rule is the parser's. Through the queue such a command
+     * (about 280 bytes) is cut at the 128-byte command cap and rejected as malformed instead. */
+    static const char k_nine[] = "{\"polling_interval_ms\":1000,\"modbus_poll_period_ms\":1000,"
+                                 "\"telemetry_interval_ms\":1000,\"health_interval_ms\":10000,"
+                                 "\"temp_alarm_high\":1,\"temp_alarm_low\":1,\"temp_hysteresis\":1,"
+                                 "\"humidity_alarm_high\":1,\"humidity_alarm_low\":1}";
+    cp_cfg_cmd_t cmd;
+
+    TEST_ASSERT_EQUAL(CP_CFG_TOO_MANY_KEYS,
+                      cp_parse_config_command((const uint8_t *) k_nine, sizeof(k_nine) - 1u, &cmd));
+    prv_deliver_config(k_nine);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"bad_json\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
+}
+
+/* CP-T101: a value outside the C type is refused before ConfigService is asked. */
+void test_CP_T101_a_value_outside_the_c_type_is_refused_before_any_call(void)
+{
+    prv_create_and_connect();
+    prv_deliver_config("{\"temp_alarm_high\":40000}"); /* int16_t tops out at 32767 */
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"reason\":\"invalid_value\",\"key\":\"temp_alarm_high\""));
+}
+
+/* CP-T102: busy outside Operational (a local edit is open). */
+void test_CP_T102_config_is_refused_as_busy_unless_the_gateway_is_operational(void)
+{
+    prv_create_and_connect();
+    g_spy_life_state = LIFECYCLE_STATE_EDITING_CONFIG;
+    prv_deliver_config("{\"req\":9,\"telemetry_interval_ms\":30000}");
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload,
+                                "\"req\":9,\"result\":\"rejected\",\"reason\":\"busy\""));
+}
+
+/* CP-T103: the result goes to /config/result and never to /results. */
+void test_CP_T103_the_config_result_topic(void)
+{
+    prv_create_and_connect();
+    prv_deliver_config("{\"telemetry_interval_ms\":30000}");
+
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/config/result",
+                             g_spy_mqtt_publish_last_topic);
+}
+
+/* CP-T104: /control reaches the handler; without one it is ignored. */
+void test_CP_T104_control_reaches_the_handler_and_is_ignored_without_one(void)
+{
+    prv_create_and_connect();
+    prv_deliver_command("cmd/iotmonitor/" TC_SERIAL_TOPIC "/control",
+                        (const uint8_t *) "{\"command\":\"restart\"}", 21u);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_control_calls);
+    TEST_ASSERT_EQUAL_UINT32(21u, g_spy_control_len);
+
+    cloud_publisher_reset_for_test();
+    g_cfg.control_handler = NULL;
+    g_spy_control_calls = 0u;
+    prv_create_and_connect();
+    prv_deliver_command("cmd/iotmonitor/" TC_SERIAL_TOPIC "/control",
+                        (const uint8_t *) "{\"command\":\"restart\"}", 21u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
+}
+
+/* CP-T105: every serialiser output fits the buffer at the largest values. */
+void test_CP_T105_the_largest_payloads_fit_the_buffer(void)
+{
+    char buf[TC_JSON_BUF_SIZE];
+    sensor_snapshot_t snap;
+    modbus_fd_reading_t fd = {.temperature_centi_c = -32768,
+                              .humidity_centi_pct = 65535u,
+                              .pressure_deci_hpa = 65535u,
+                              .temperature_valid = true,
+                              .humidity_valid = true,
+                              .pressure_valid = true,
+                              .link_online = true,
+                              .has_data = true};
+    health_snapshot_t hs;
+
+    (void) memset(&snap, 0, sizeof(snap));
+    for (uint32_t i = 0u; i < (uint32_t) SENSOR_ID_COUNT; i++)
+    {
+        snap.readings[i].valid = true;
+        snap.readings[i].value = -2147483647 - 1;
+    }
+    TEST_ASSERT_GREATER_THAN_UINT32(
+        0u, cp_serialise_telemetry(buf, sizeof(buf), &snap, &fd, &g_spy_time_ts, TC_SERIAL_TOPIC));
+
+    (void) memset(&hs, 0xFF, sizeof(hs));
+    hs.lifecycle_state = LIFECYCLE_STATE_UPDATING_FW;
+    hs.last_reset_cause = LIFECYCLE_RESET_WATCHDOG;
+    hs.wifi_rssi_dbm = -2147483647 - 1;
+    for (uint32_t i = 0u; i < HEALTH_MONITOR_MAX_TASKS; i++)
+    {
+        hs.stack_watermark_words[i] = 65535u;
+    }
+    const uint32_t n =
+        cp_serialise_health(buf, sizeof(buf), &hs, 0xFFFFFFFFu, &g_spy_time_ts, TC_SERIAL_TOPIC);
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, n);
+    TEST_ASSERT_LESS_THAN_UINT32(TC_JSON_BUF_SIZE, n);
+}
+
+/* CP-T106: the module links with the real APIs only; the placeholder names are gone. */
+void test_CP_T106_the_placeholder_symbols_are_not_part_of_the_build(void)
+{
+    /* This test file defines the real entry points only. If cloud_publisher.c still called one of
+     * the ten placeholder functions, the test executable would not link at all, so reaching this
+     * line is the proof; the done-when check on the ELF repeats it with nm (WP1 section 12). */
+    prv_create_and_connect();
+    TEST_ASSERT_TRUE(cloud_publisher_is_ready(g_handle));
 }
