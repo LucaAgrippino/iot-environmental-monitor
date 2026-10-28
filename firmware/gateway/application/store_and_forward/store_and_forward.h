@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "circular_flash_log/circular_flash_log.h"
+#include "health_monitor/health_monitor.h"
 
 /** @brief Opaque handle to a StoreAndForward instance. */
 typedef struct saf_inst *saf_handle_t;
@@ -80,26 +81,6 @@ typedef struct
     uint32_t capacity;              /**< Worst-case entry count, used as the
                                          denominator of the occupancy %.     */
 } saf_config_t;
-
-/* ====================================================================== */
-/* Placeholder dependency — IHealthReport occupancy push                  */
-/*                                                                        */
-/* The Gateway has no HealthMonitor yet. This declaration stands in for    */
-/* the real entry point; store_and_forward.c supplies a weak no-op default */
-/* that a real implementation, a unit-test spy or a bring-up harness       */
-/* overrides, following the convention set by CircularFlashLog (CFL-O5).   */
-/* ====================================================================== */
-
-/**
- * @brief Push the buffer occupancy to IHealthReport.
- *
- * @param[in] handle    IHealthReport handle from the config.
- * @param[in] count     Entries currently buffered.
- * @param[in] capacity  Configured worst-case entry count.
- * @param[in] percent   Occupancy, 0–100.
- */
-void health_update_buffer_occupancy(health_monitor_handle_t handle, uint32_t count,
-                                    uint32_t capacity, uint8_t percent);
 
 /* ====================================================================== */
 /* Public API — IStoreAndForward                                          */

@@ -34,6 +34,7 @@
  * not on nested includes — the same arrangement wifi_task.h already uses for
  * wifi_driver.h. */
 #include "qspi_flash/qspi_flash.h"
+#include "health_monitor/health_monitor.h"
 
 /* ====================================================================== */
 /* Record format (companion §3)                                           */
@@ -74,47 +75,14 @@ typedef enum
 } cfl_err_t;
 
 /* ====================================================================== */
-/* Placeholder dependency types — IHealthReport                           */
-/*                                                                        */
-/* The Gateway has no HealthMonitor implementation yet, so the handle and  */
-/* the push entry point below stand in for it, following the same guarded  */
-/* convention cloud_publisher.h already uses for its unbuilt GW peers.     */
-/* The real health_monitor header can supersede the handle typedef without */
-/* a duplicate-definition error once that module lands for GW (CFL-O5).    */
+/* HealthMonitor events (companion 6.5, CFL-O5 closed)                    */
 /* ====================================================================== */
 
-#ifndef HEALTH_MONITOR_HANDLE_T_DEFINED
-#define HEALTH_MONITOR_HANDLE_T_DEFINED
-typedef struct health_monitor_inst *health_monitor_handle_t;
-#endif /* HEALTH_MONITOR_HANDLE_T_DEFINED */
-
-#ifndef CFL_HEALTH_EVENT_T_DEFINED
-#define CFL_HEALTH_EVENT_T_DEFINED
 /**
- * @brief Placeholder subset of health_event_t — the two events this
- *        component raises (companion §6.5).
+ * @brief Fault code CircularFlashLog reports with HEALTH_EVENT_FAULT when an erase or a write
+ *        fails during an append (the buffer overflow has its own event).
  */
-typedef enum
-{
-    CFL_HEALTH_EVENT_BUFFER_OVERFLOW = 0, /**< Oldest record discarded to make
-                                               room (REQ-BF-020).            */
-    CFL_HEALTH_EVENT_BUFFER_FLASH_ERR = 1 /**< Erase or write failed during an
-                                               append.                       */
-} cfl_health_event_t;
-#endif /* CFL_HEALTH_EVENT_T_DEFINED */
-
-/**
- * @brief Push a buffer event to HealthMonitor through IHealthReport.
- *
- * Placeholder for the GW HealthMonitor entry point. Deliberately named
- * distinctly from cloud_publisher.h's own placeholder push so that both
- * headers can appear in one translation unit without a conflicting
- * declaration.
- *
- * @param[in] handle  IHealthReport handle; a NULL handle is a no-op.
- * @param[in] event   Event to record.
- */
-void health_report_push_buffer_event(health_monitor_handle_t handle, cfl_health_event_t event);
+#define CFL_FAULT_CODE_FLASH_ERR (0x0C01U)
 
 /* ====================================================================== */
 /* Public API — ICircularFlashLog                                         */

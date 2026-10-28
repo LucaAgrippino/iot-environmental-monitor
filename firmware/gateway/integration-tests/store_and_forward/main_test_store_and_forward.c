@@ -40,7 +40,7 @@
  *   Phase A
  *   TC-HW-SAF-001  qspi_flash_init() returns QSPI_FLASH_OK (prerequisite).
  *   TC-HW-SAF-002  cfl_create() + saf_create() on a blank partition: empty,
- *                   occupancy 0 pushed to the health spy.
+ *                   occupancy 0 pushed to HealthMonitor (read from its snapshot).
  *   TC-HW-SAF-003  enqueue -> dequeue -> confirm round trip is byte-identical
  *                   (topic, QoS, payload) off the physical part.
  *   TC-HW-SAF-004  FIFO order across three entries of differing sizes.
@@ -74,6 +74,8 @@
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
 #include "gpio/gpio_driver.h"
+#include "health_monitor/health_monitor.h"
+#include "led/led_driver.h"
 #include "qspi_flash/qspi_flash.h"
 #include "store_and_forward/store_and_forward.h"
 
@@ -122,38 +124,6 @@ static const uint8_t PERSIST_SEED[PERSIST_COUNT] = {0xA0U, 0xB0U, 0xC0U};
 
 static uint8_t s_payload[SAF_PAYLOAD_MAX];
 static uint8_t s_expected[SAF_PAYLOAD_MAX];
-
-static uint32_t s_overflow_events;
-static uint32_t s_flash_err_events;
-static uint32_t s_occ_pushes;
-static uint32_t s_occ_last_count;
-static uint32_t s_occ_last_percent;
-
-/** CFL's IHealthReport spy — the GW HealthMonitor does not exist yet. */
-void health_report_push_buffer_event(health_monitor_handle_t handle, cfl_health_event_t event)
-{
-    (void) handle;
-
-    if (event == CFL_HEALTH_EVENT_BUFFER_OVERFLOW)
-    {
-        s_overflow_events++;
-    }
-    else
-    {
-        s_flash_err_events++;
-    }
-}
-
-/** SAF's IHealthReport occupancy spy. */
-void health_update_buffer_occupancy(health_monitor_handle_t handle, uint32_t count,
-                                    uint32_t capacity, uint8_t percent)
-{
-    (void) handle;
-    (void) capacity;
-    s_occ_pushes++;
-    s_occ_last_count = count;
-    s_occ_last_percent = percent;
-}
 
 /* ---------------------------------------------------------------------- */
 /* Reporting helpers — built on DebugUartDriver.                           */
@@ -215,6 +185,60 @@ static void expect_saf(const char *label, saf_err_t got, saf_err_t expected)
                         (int) expected);
         bringup_fail(msg);
     }
+}
+
+/* ---------------------------------------------------------------------- */
+/* HealthMonitor: the real one, read through its snapshot (WP1 PR-B).       */
+/* The image also contains health_monitor.c, so a private spy with the real  */
+/* function names would be a duplicate definition.                          */
+/* ---------------------------------------------------------------------- */
+
+#define LD2_PIN (14U)
+#define LD2_RED_PIN (5U)
+
+static health_monitor_handle_t s_hm;
+
+static const led_pin_t k_gw_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = (uint8_t) GPIO_PORT_B,
+                   .pin = (uint8_t) LD2_PIN,
+                   .active_high = true,
+                   .fitted = true},
+    [LED_RED] = {.port = (uint8_t) GPIO_PORT_A,
+                 .pin = LD2_RED_PIN,
+                 .active_high = true,
+                 .fitted = false}, /* LD1 / SB1 - shared with SPI1_SCK */
+};
+
+/** @brief Create the HealthMonitor the modules under test report to. */
+static void bringup_health_start(void)
+{
+    const health_monitor_config_t hm_config = {.boot_reset_cause = LIFECYCLE_RESET_SOFT};
+
+    if (led_init(k_gw_led_pins, (uint8_t) LED_COUNT) != LED_ERR_OK)
+    {
+        bringup_fail("led_init");
+    }
+    if (health_monitor_create(&hm_config, &s_hm) != HEALTH_MONITOR_ERR_OK)
+    {
+        bringup_fail("health_monitor_create");
+    }
+}
+
+static health_snapshot_t s_snap;
+
+/** @brief Buffer overflows HealthMonitor has counted (HEALTH_EVENT_BUFFER_OVERFLOW). */
+static uint32_t hm_overflow_count(void)
+{
+    (void) health_monitor_get_snapshot(s_hm, &s_snap);
+    return s_snap.buffer_overflow_count;
+}
+
+/** @brief Entries HealthMonitor was last told are buffered
+ * (health_monitor_update_buffer_occupancy). */
+static uint32_t hm_entry_count(void)
+{
+    (void) health_monitor_get_snapshot(s_hm, &s_snap);
+    return s_snap.buffer_entry_count;
 }
 
 static void expect_u32(const char *label, uint32_t got, uint32_t expected)
@@ -443,7 +467,7 @@ static void phase_b(saf_handle_t h)
      * entry per data sector, so 254 entries fill it. */
     (void) memset(max_topic, 'o', SAF_TOPIC_MAX);
     max_topic[SAF_TOPIC_MAX] = '\0';
-    s_overflow_events = 0U;
+    const uint32_t overflow_base = hm_overflow_count();
 
     bringup_info("TC-HW-SAF-011 filling 254 sectors - about a minute");
     t0 = dwt_now();
@@ -459,16 +483,15 @@ static void phase_b(saf_handle_t h)
                     (unsigned long) (dwt_elapsed_us(t0) / 1000U));
     bringup_info(msg);
 
-    expect_u32("TC-HW-SAF-011 no overflow while filling", s_overflow_events, 0U);
-    expect_u32("TC-HW-SAF-011 occupancy at capacity", s_occ_last_count, SAF_TEST_CAPACITY);
+    expect_u32("TC-HW-SAF-011 no overflow while filling", hm_overflow_count() - overflow_base, 0U);
+    expect_u32("TC-HW-SAF-011 occupancy at capacity", hm_entry_count(), SAF_TEST_CAPACITY);
 
     fill_pattern(s_payload, SAF_PAYLOAD_MAX, 0xEEU);
     expect_saf("TC-HW-SAF-011 overflow enqueue",
                saf_enqueue(h, max_topic, s_payload, SAF_PAYLOAD_MAX, 0U), SAF_ERR_OK);
 
-    expect_u32("TC-HW-SAF-011 one overflow event", s_overflow_events, 1U);
-    expect_u32("TC-HW-SAF-011 occupancy stays at capacity", s_occ_last_count, SAF_TEST_CAPACITY);
-    expect_u32("TC-HW-SAF-011 occupancy percent", s_occ_last_percent, 100U);
+    expect_u32("TC-HW-SAF-011 one overflow event", hm_overflow_count() - overflow_base, 1U);
+    expect_u32("TC-HW-SAF-011 occupancy stays at capacity", hm_entry_count(), SAF_TEST_CAPACITY);
 
     /* The oldest entry (seed 1) must now lead; seed 0 was dropped. */
     dequeue_expect(h, "TC-HW-SAF-011 oldest after drop", max_topic, SAF_PAYLOAD_MAX, 0U, 0x01U);
@@ -565,9 +588,11 @@ int main(void)
         bringup_info("metadata zone already written - checking for the Phase B state");
     }
 
+    bringup_health_start();
+
     cfl_config_t cfl_config = {
         .qspi = qspi_flash_driver,
-        .health = NULL,
+        .health = s_hm,
     };
     cfl_handle_t cfl = NULL;
 
@@ -578,7 +603,7 @@ int main(void)
 
     saf_config_t saf_config = {
         .cfl = cfl,
-        .health = NULL,
+        .health = s_hm,
         .capacity = SAF_TEST_CAPACITY,
     };
     saf_handle_t saf = NULL;
@@ -593,8 +618,7 @@ int main(void)
 
     if (blank && (entries == 0U))
     {
-        expect_u32("TC-HW-SAF-002 occupancy pushed", s_occ_pushes, 1U);
-        expect_u32("TC-HW-SAF-002 pushed count", s_occ_last_count, 0U);
+        expect_u32("TC-HW-SAF-002 pushed count", hm_entry_count(), 0U);
         bringup_pass("TC-HW-SAF-002 create on a blank partition: empty, occupancy 0 pushed");
         phase_a(saf);
     }

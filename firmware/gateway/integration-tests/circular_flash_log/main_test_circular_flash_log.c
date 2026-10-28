@@ -71,6 +71,10 @@
  *   TC-HW-CFL-010  cfl_drop_oldest() raises the buffer-overflow event and
  *                   cfl_consume_oldest() drains the ring to empty.
  *
+ * The overflow is read from a real HealthMonitor snapshot (buffer_overflow_count). A flash
+ * error is reported as HEALTH_EVENT_FAULT, which HealthMonitor only logs, so it is no longer
+ * counted here (CFL-D13).
+ *
  * Integration checklist:
  *   [ ] TC-HW-CFL-002 boot-scan time printed and under 100 ms -> record it and
  *       close CFL-O2 in docs/lld/middleware/circular-flash-log.md §13
@@ -90,6 +94,8 @@
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
 #include "gpio/gpio_driver.h"
+#include "health_monitor/health_monitor.h"
+#include "led/led_driver.h"
 #include "qspi_flash/qspi_flash.h"
 
 #ifdef STM32L475xx
@@ -148,24 +154,6 @@ static uint32_t s_boot_scan_us;
 static uint32_t s_append_us;
 static uint32_t s_append_advance_us;
 static uint32_t s_consume_us;
-
-/** IHealthReport spy — the GW HealthMonitor does not exist yet (CFL-O5). */
-static uint32_t s_overflow_events;
-static uint32_t s_flash_err_events;
-
-void health_report_push_buffer_event(health_monitor_handle_t handle, cfl_health_event_t event)
-{
-    (void) handle;
-
-    if (event == CFL_HEALTH_EVENT_BUFFER_OVERFLOW)
-    {
-        s_overflow_events++;
-    }
-    else
-    {
-        s_flash_err_events++;
-    }
-}
 
 /* ---------------------------------------------------------------------- */
 /* Reporting helpers — built on DebugUartDriver.                           */
@@ -228,6 +216,52 @@ static void expect_cfl(const char *label, cfl_err_t got, cfl_err_t expected)
                         (int) expected);
         bringup_fail(msg);
     }
+}
+
+/* ---------------------------------------------------------------------- */
+/* HealthMonitor: the real one, read through its snapshot (WP1 PR-B).       */
+/* The image also contains health_monitor.c, so a private spy with the real  */
+/* function names would be a duplicate definition.                          */
+/* ---------------------------------------------------------------------- */
+
+#define LD2_PIN (14U)
+#define LD2_RED_PIN (5U)
+
+static health_monitor_handle_t s_hm;
+
+static const led_pin_t k_gw_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = (uint8_t) GPIO_PORT_B,
+                   .pin = (uint8_t) LD2_PIN,
+                   .active_high = true,
+                   .fitted = true},
+    [LED_RED] = {.port = (uint8_t) GPIO_PORT_A,
+                 .pin = LD2_RED_PIN,
+                 .active_high = true,
+                 .fitted = false}, /* LD1 / SB1 - shared with SPI1_SCK */
+};
+
+/** @brief Create the HealthMonitor the modules under test report to. */
+static void bringup_health_start(void)
+{
+    const health_monitor_config_t hm_config = {.boot_reset_cause = LIFECYCLE_RESET_SOFT};
+
+    if (led_init(k_gw_led_pins, (uint8_t) LED_COUNT) != LED_ERR_OK)
+    {
+        bringup_fail("led_init");
+    }
+    if (health_monitor_create(&hm_config, &s_hm) != HEALTH_MONITOR_ERR_OK)
+    {
+        bringup_fail("health_monitor_create");
+    }
+}
+
+static health_snapshot_t s_snap;
+
+/** @brief Buffer overflows HealthMonitor has counted (HEALTH_EVENT_BUFFER_OVERFLOW). */
+static uint32_t hm_overflow_count(void)
+{
+    (void) health_monitor_get_snapshot(s_hm, &s_snap);
+    return s_snap.buffer_overflow_count;
 }
 
 static void expect_u32(const char *label, uint32_t got, uint32_t expected)
@@ -410,8 +444,6 @@ static void phase_a(cfl_handle_t handle)
         bringup_pass("TC-HW-CFL-007 boot scan inside the CFL-O2 budget");
     }
 
-    expect_u32("TC-HW-CFL-007 no flash errors", s_flash_err_events, 0U);
-
     bringup_puts("\r\n=====================================================\r\n");
     bringup_puts("Phase A complete. Two records are now in the ring.\r\n");
     bringup_puts("ACTION: press the black RESET button (B2) to run Phase B.\r\n");
@@ -446,7 +478,7 @@ static void phase_b(cfl_handle_t handle, uint32_t entries, uint32_t bytes)
 
     /* TC-HW-CFL-010 — drop_oldest reports the overflow, then drain. */
     expect_cfl("TC-HW-CFL-010 drop D", cfl_drop_oldest(handle), CFL_ERR_OK);
-    expect_u32("TC-HW-CFL-010 overflow events", s_overflow_events, 1U);
+    expect_u32("TC-HW-CFL-010 overflow events", hm_overflow_count(), 1U);
 
     peek_expect(handle, "TC-HW-CFL-010 peek E", REC_E_LEN, REC_E_SEED);
     expect_cfl("TC-HW-CFL-010 consume E", cfl_consume_oldest(handle), CFL_ERR_OK);
@@ -460,8 +492,6 @@ static void phase_b(cfl_handle_t handle, uint32_t entries, uint32_t bytes)
     expect_cfl("TC-HW-CFL-010 peek empty",
                cfl_peek_oldest(handle, s_readback, &bytes, sizeof(s_readback)), CFL_ERR_EMPTY);
     bringup_pass("TC-HW-CFL-010 drop_oldest reported overflow; ring drained");
-
-    expect_u32("TC-HW-CFL-010 no flash errors", s_flash_err_events, 0U);
 
     bringup_puts("\r\n=====================================================\r\n");
     bringup_puts("Phase B complete. All 10 hardware cases passed.\r\n");
@@ -550,9 +580,11 @@ int main(void)
         bringup_info("metadata zone already written - taking the Phase B path");
     }
 
+    bringup_health_start();
+
     cfl_config_t config = {
         .qspi = qspi_flash_driver,
-        .health = NULL,
+        .health = s_hm,
     };
     cfl_handle_t handle = NULL;
     uint32_t entries = 0U;

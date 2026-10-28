@@ -1,7 +1,7 @@
 # LLD Companion — StoreAndForward
 
 **Document:** `docs/lld/application/store-and-forward.md`
-**Version:** 0.3 (Pass H complete — Gateway implemented and hardware-validated)
+**Version:** 0.4 (Pass H complete — Gateway implemented and hardware-validated; reports to the real HealthMonitor 2026-10-28)
 **Board:** Gateway (B-L475E-IOT01A) only
 **Layer:** Application
 **Status:** Pass H complete — GW v1.0 implemented and hardware-validated (2026-10-11)
@@ -413,11 +413,9 @@ saf_confirm(handle):
 
 ```
 report_occupancy(self):
-    pct = (self->entry_count * 100u) / self->capacity
-    health_update_buffer_occupancy(self->health,
-                                   self->entry_count,
-                                   self->capacity,
-                                   (uint8_t)pct)
+    if self->health != NULL:
+        health_monitor_update_buffer_occupancy(self->health, self->entry_count)
+    # capacity stays for saf_get_occupancy(); the health snapshot has no field for it or the percentage (SAF-D7)
 ```
 
 Called after every `saf_enqueue` and `saf_confirm`.
@@ -558,7 +556,7 @@ Test file: `tests/gateway/application/store_and_forward/test_store_and_forward.c
 | Framework | Unity (via Ceedling 0.31) |
 | Mocking | None — see the note below the table. |
 | CircularFlashLog | In-test fake FIFO (16 records) defining the `cfl_*` symbols the module calls. It returns `CFL_ERR_FULL` at capacity, rejects NULL out-parameters like the real module, carries a per-record corrupt flag and injects a failure per call. |
-| IHealthReport | Strong-symbol spy for `health_update_buffer_occupancy()` recording the last count, capacity and percentage. |
+| HealthMonitor | Strong-symbol spy for `health_monitor_update_buffer_occupancy()` recording the last handle and count (the test project has no real HealthMonitor). |
 | ILogger | `logger_stub.h` plus a no-op `logger_log()` in the test TU. |
 | Test isolation | `saf_reset_for_test()` called in `setUp()` to clear static pool. |
 
@@ -717,7 +715,7 @@ erase 210 912 µs; filling all 254 sectors 36.5 s.
 | **SAF-O1** | Capacity configuration value. Worst-case = 254 entries (1 max-size record per sector). Average telemetry (~300 B payload) gives ~3 400 entries. Use worst-case (254) initially; tune at integration once real payloads are measured. | **Open** | Measure at integration. |
 | **SAF-O2** | Partition split within the 1 MB QSPI CFL allocation. If Logger also requires a CFL instance (REQ-NF-500), the CFL pool must increase to 2 and the flash partition must be split. Currently SAF is the sole CFL consumer. | **Open** | Deferred to CFL LLD / system integration. |
 | **SAF-O3** | **CloudPublisher still uses a bring-up placeholder.** `cloud_publisher.h` declares its own `saf_err_t`, `saf_entry_t` and `store_and_forward_enqueue/dequeue/confirm` (a 512-byte entry, a different error set, no `saf_handle_t`). The two sets are deliberately not guarded against each other, so a translation unit including both fails to compile. CloudPublisher must be migrated onto `store_and_forward.h`: `SAF_ERR_FULL` no longer exists because enqueue drops the oldest entry instead of failing. | **Open** | Migrate in the CloudPublisher follow-up; remove the placeholder block and its harness stand-ins together. |
-| **SAF-O4** | **IHealthReport occupancy entry point is a placeholder.** The GW has no HealthMonitor, so `health_update_buffer_occupancy()` is declared in `store_and_forward.h` with a weak no-op default in `store_and_forward.c`, following CFL-O5. | **Open** | Replace with the real GW HealthMonitor call when it lands. |
+| **SAF-O4** | **IHealthReport occupancy entry point is a placeholder.** | **Closed 2026-10-28** | `saf_report_occupancy()` calls `health_monitor_update_buffer_occupancy(handle, entry_count)`; the declaration and the weak default are removed. Capacity and percentage are no longer pushed (SAF-D7). A NULL health handle skips the call. |
 | **SAF-O5** | **Duplicate delivery window inherited from CFL-O6.** CircularFlashLog persists only the head *sector*, so after a reset, entries already confirmed inside the head sector are replayed. This widens the at-least-once window described in §6.1 beyond the single unconfirmed entry. Acceptable for QoS 1 telemetry that is idempotent by timestamp (SD-04b note 3). | **Open** | Resolve together with CFL-O4 / CFL-O6. |
 
 ---
@@ -732,6 +730,7 @@ erase 210 912 µs; filling all 254 sectors 36.5 s.
 | SAF-D4 | Drop-oldest uses `cfl_drop_oldest()` not `cfl_consume_oldest()` | `cfl_drop_oldest()` pushes `HEALTH_EVENT_BUFFER_OVERFLOW` via CFL's IHealthReport (REQ-BF-020 observability). `cfl_consume_oldest()` does not — it is for normal drain. |
 | SAF-D5 | No vtable — ADT handle is the DIP seam | CloudPublisher depends on the `store_and_forward.h` header (public API), not the implementation. The opaque handle satisfies P2 (DIP) without the RAM and complexity cost of a function-pointer table. Consistent with CFL's ADT approach. |
 | SAF-D6 | SAF_PAYLOAD_MAX derived from CFL constraint | `SAF_PAYLOAD_MAX = CFL_MAX_RECORD_BYTES − SAF_HEADER_OVERHEAD = 4078 − 68 = 4010`. Ensures every SAF entry fits in a single CFL record. The derivation is documented via `#define` in the header. |
+| SAF-D7 | StoreAndForward pushes only the entry count to HealthMonitor (`health_monitor_update_buffer_occupancy`); the capacity and the percentage are dropped, and the weak default is removed | The real snapshot has `buffer_entry_count` and no capacity or percentage field. A silent weak no-op hid a missing report (BARR-C error handling). A NULL health handle skips the call so bring-up harnesses keep working |
 
 ---
 

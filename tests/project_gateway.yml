@@ -64,6 +64,10 @@
     # linked by a test's own #include; the tests are in the folder itself.
     - gateway/application/update_service
     - gateway/application/lifecycle_wiring/**
+    # store_and_forward and circular_flash_log include health_monitor.h (the real HealthMonitor),
+    # so their tests need the Gateway project, where that name is not shadowed by the Field Device's.
+    - gateway/application/store_and_forward/**
+    - gateway/middleware/circular_flash_log/**
     - gateway/middleware/ntp_client/**
     - gateway/drivers/humidity_temp_driver/**
     - gateway/drivers/barometer_driver/**
@@ -96,6 +100,8 @@
     - ../firmware/gateway/application/lifecycle_controller/**
     - ../firmware/gateway/application/update_service/**
     - ../firmware/gateway/application/lifecycle_wiring/**
+    - ../firmware/gateway/application/store_and_forward/**
+    - ../firmware/gateway/middleware/circular_flash_log/**
     - ../firmware/gateway/application/device_profile_registry/**
     - ../firmware/gateway/middleware/ntp_client/**
     # health_monitor.h includes the real mqtt_client.h for mqtt_stats_t, which
@@ -143,6 +149,13 @@
     - TEST
   :test_preprocess:
     - *common_defines
+    - TEST
+  :test_circular_flash_log:
+    - STM32L475xx
+    - TEST
+  :test_store_and_forward:
+    - STM32L475xx
+    - BOARD_GATEWAY
     - TEST
   :test_gpio_driver_gw:
     - STM32L475xx
