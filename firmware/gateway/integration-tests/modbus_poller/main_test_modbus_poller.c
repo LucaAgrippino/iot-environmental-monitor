@@ -37,6 +37,10 @@
  *   TC-HW-MBP-007  Receiver disabled: three failed polls take the link down.
  *   TC-HW-MBP-008  Receiver re-enabled: the link comes back up (hysteresis, 3 successes).
  *   TC-HW-MBP-009  ModbusPollerTask stack high-water mark leaves margin (2 KB budget).
+ *   TC-HW-MBP-010  modbus_poller_get_fd_reading() (CP-D18) on the board: OK for the provisioned
+ *                  slave with link_online true; has_data false, because the loopback echoes the
+ *                  request and an echo is not an FC04 response of the expected length (it is
+ *                  ignored, not decoded). Real values are checked with a Field Device in WP7.
  *
  * Integration checklist:
  *   [ ] Jumper D1-D0 fitted
@@ -243,6 +247,19 @@ static void driver_task(void *arg)
     check(wait_for_link(true, LINK_UP_WAIT_MS),
           "TC-HW-MBP-002 link did not come up - is the D1-D0 jumper fitted?");
     bringup_pass("TC-HW-MBP-002 three loopback polls bring the link up");
+
+    /* TC-HW-MBP-010 */
+    {
+        modbus_fd_reading_t fd;
+
+        check(modbus_poller_get_fd_reading(SLAVE_ADDR, &fd) == MODBUS_POLLER_ERR_OK,
+              "TC-HW-MBP-010 get_fd_reading status");
+        check(fd.link_online, "TC-HW-MBP-010 link_online");
+        check(!fd.has_data, "TC-HW-MBP-010 an echoed request must not be decoded as data");
+        check(modbus_poller_get_fd_reading(UNKNOWN_SLAVE_ADDR, &fd) == MODBUS_POLLER_ERR_REJECTED,
+              "TC-HW-MBP-010 unknown slave");
+        bringup_pass("TC-HW-MBP-010 get_fd_reading: OK, link online, echo not decoded");
+    }
 
     /* TC-HW-MBP-003 */
     {
