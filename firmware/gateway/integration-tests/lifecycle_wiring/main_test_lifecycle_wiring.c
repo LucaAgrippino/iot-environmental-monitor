@@ -125,7 +125,6 @@ static const led_pin_t k_gw_led_pins[LED_COUNT] = {
 /* ---------------------------------------------------------------------- */
 
 static volatile uint32_t s_cloud_flush_calls;
-static volatile uint32_t s_cloud_rollback_calls;
 
 bool cloud_publisher_is_ready(cloud_publisher_handle_t handle)
 {
@@ -136,13 +135,6 @@ cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle)
 {
     (void) handle;
     s_cloud_flush_calls++;
-    return CP_ERR_OK;
-}
-
-cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_handle_t handle)
-{
-    (void) handle;
-    s_cloud_rollback_calls++;
     return CP_ERR_OK;
 }
 

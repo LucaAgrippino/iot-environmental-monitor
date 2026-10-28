@@ -16,8 +16,10 @@
  *    verify the instance exists (the console has nothing left to finish).
  *  - ConfigStore reports "no valid slot" on a never-programmed device. By default that is a first
  *    boot and the defaults apply; set fault_on_no_config to treat it as fatal (LC-D16).
- *  - UpdateService and FirmwareStore do not exist yet. Their stand-ins report nothing pending and
- *    refuse an update, so a Gateway without OTA boots and never enters UpdatingFirmware (LC-O6).
+ *  - UpdateService and FirmwareStore are bound through their interface vtables (iupdate_control_t,
+ *    ifirmware_boot_control_t), so this module links neither. Leave all four handles NULL and the
+ *    stand-ins apply instead: nothing pending, every update refused, so a Gateway without OTA
+ *    boots and never enters UpdatingFirmware (LC-O6).
  *
  * @note See docs/lld/application/lifecycle-controller-lld.md section 26.
  */
@@ -32,6 +34,8 @@
 #include "health_monitor/health_monitor.h"
 #include "lifecycle_controller/lifecycle_controller.h"
 #include "ntp_client/ntp_client.h"
+#include "firmware_store/ifirmware_boot_control.h"
+#include "update_service/iupdate_control.h"
 
 /** @brief The handles the adapters need; all are created by main() before the scheduler. */
 typedef struct
@@ -41,6 +45,14 @@ typedef struct
     cloud_publisher_handle_t cloud;     /**< CloudPublisher, already created.             */
     ntp_client_handle_t ntp;            /**< NtpClient, handed to TimeService on init.    */
     bool fault_on_no_config;            /**< true: "no valid slot" is fatal, not a first boot. */
+
+    /** @name OTA (all four set, or all four NULL for a Gateway without OTA) */
+    /**@{*/
+    const iupdate_control_t *update_ops;          /**< &update_control_ops.                  */
+    update_service_t *update;                     /**< UpdateService, already created.       */
+    const ifirmware_boot_control_t *firmware_ops; /**< &firmware_store_boot_ops.             */
+    firmware_store_t *firmware;                   /**< FirmwareStore, already created.       */
+    /**@}*/
 } lifecycle_wiring_config_t;
 
 /**
@@ -49,7 +61,8 @@ typedef struct
  * Copies the configuration and fills @p deps_out with pointers to this module's static adapter
  * tables. The watchdog member is left NULL: the Gateway has no watchdog driver yet (LC-O8).
  *
- * @param[in]  config    Handles; every handle must be non-NULL.
+ * @param[in]  config    Handles; every handle must be non-NULL except the four OTA members, which
+ *                       are set together or left NULL together.
  * @param[out] deps_out  Receives the bundle.
  * @return LIFECYCLE_ERR_OK; LIFECYCLE_ERR_NULL_ARG if @p config, @p deps_out or a handle is NULL.
  * @note Threading: call once, before the scheduler starts.

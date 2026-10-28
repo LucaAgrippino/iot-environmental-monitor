@@ -41,6 +41,9 @@
 /** @brief Restart confirmation window (REQ-DM-020 TBD, LC-O4): provisional 30 s. */
 #define LIFECYCLE_RESTART_TIMEOUT_MS (30U * 1000U)
 
+/** Wait between flushing CloudPublisher and the reset that follows an activated update (I18). */
+#define LC_OTA_RESET_GRACE_MS (2000U)
+
 /** @brief Event queue depth (§4.2). */
 #define LIFECYCLE_QUEUE_DEPTH (4U)
 

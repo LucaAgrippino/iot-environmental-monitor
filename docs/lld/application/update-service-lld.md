@@ -1096,7 +1096,7 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
 | US-O9 | The bench harness has not been run on the board (TC-HW-US-001..007, 009, 010) | Needs a release key, both slot images, the bootloader and the un-excluded `firmware_store` in a bench-local `.cproject` (see the harness header) | Open |
-| US-O10 | `LC_EVENT_OTA_RESET_REQUESTED` / `_FINISHED` exist but LifecycleController does not act on them yet (LCC-2) | LifecycleController PR (LC-O6 close-out) | Open |
+| US-O10 | `LC_EVENT_OTA_RESET_REQUESTED` / `_FINISHED` exist but LifecycleController does not act on them yet (LCC-2) | **Done 2026-10-27** on `feature/phase-4-gw-lifecycle_ota_events` (LCC-2..4; lifecycle-controller-lld.md LC-D19..D22). Binding in `main()` is LC-O15 | Closed |
 | US-O11 | A rejected command is reported but nothing tells LifecycleController when `start_timeout` fires after it accepted `OTA_REQUESTED` and never called `start()` | Check with LCC-2: LifecycleController never takes the event without calling `start()`, so this should not occur | Open |
 
 ---

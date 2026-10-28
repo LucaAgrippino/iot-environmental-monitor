@@ -402,8 +402,7 @@ sub-state 5 — SelfChecking                       [REQ-DM-040]
           s_reset_driver->soft_reset()           /* will not return */
 
   else if s_pending_rollback:
-      s_update_service->resume_after_rollback()
-      s_cloud->report_rollback_result()
+      s_update_service->resume_after_rollback()   /* UpdateService reports it (LC-D19) */
       → Operational
 
   else:
@@ -508,8 +507,19 @@ update is already in progress (REQ-DM-054 lock).
 ```
 Operational + LC_EVENT_OTA_REQUESTED:
   if s_state == LIFECYCLE_STATE_UPDATING_FW: reject (return BAD_STATE)
-  s_update_service->start(event.param)          /* event.param = image size */
+  s_update_service->start(event.param)          /* event.param = OTA job id */
   → UpdatingFirmware
+
+UpdatingFirmware + LC_EVENT_OTA_FINISHED:        /* update ended without a reset (LC-D20) */
+  → Operational                                  /* Machine 1 T19 */
+
+UpdatingFirmware + LC_EVENT_OTA_RESET_REQUESTED: /* image activated (LC-D20) */
+  s_cloud->flush()
+  wait LC_OTA_RESET_GRACE_MS (2000 ms)
+  s_reset_driver->soft_reset()                   /* Machine 1 I18; the state is left as it is */
+
+Any other state + OTA_FINISHED / OTA_RESET_REQUESTED:
+  LOG_WARN, ignored
 
 UpdatingFirmware + LC_EVENT_SELF_CHECK_PASS:
   s_firmware_store->confirm_self_check()
@@ -842,7 +852,7 @@ event group between cases.
 | TC-LC-058 | After `LC_EVENT_SELF_CHECK_PASS` → `firmware_store->confirm_self_check`, then `OPERATIONAL` | REQ-DM-071 |
 | TC-LC-059 | After `LC_EVENT_SELF_CHECK_FAIL` → `update_service->resume_rollback`, `firmware_store->rollback`, `reset_driver->soft_reset` | REQ-DM-072 |
 | TC-LC-060 | SelfChecking: `pending_rollback=true` → `update_service->resume_after_rollback` called | REQ-DM-072 |
-| TC-LC-061 | SelfChecking: pending_rollback path → `cloud->report_rollback_result` called, then `OPERATIONAL` | REQ-DM-072 |
+| TC-LC-061 | SelfChecking: pending_rollback path → `update_service->resume_after_rollback` called, no cloud call, then `OPERATIONAL` (UpdateService reports the rollback, LC-D19) | REQ-DM-072 |
 | TC-LC-062 | SelfChecking: both pending flags false → normal probe path executed | REQ-DM-040 |
 
 ### 21.5 EditingConfig
@@ -934,8 +944,8 @@ Modbus master tool + WiFi/MQTT broker.
 | IT-LC-009 (GW) | Modbus master writes CMD_SOFT_RESTART (0x0202) + confirmation token within 30 s | Board reboots; `reset_cause == SOFT` on next boot |
 | IT-LC-010 (GW) | Modbus master writes CMD_SOFT_RESTART, no confirmation in 30 s | State returns to Operational; no reset |
 | IT-LC-011 (GW) | Cloud OTA: image push, signature OK | UpdatingFirmware entered; image written; soft reset; pending_self_check on next boot; SelfChecking passes; Operational |
-| IT-LC-012 (GW) | Cloud OTA: image push, intentionally broken (signature fail in UpdateService) | Fault during OTA; state Faulted; no soft reset |
-| IT-LC-013 (GW) | Cloud OTA passes signature; SelfChecking-after-boot fails (sensor unresponsive) | Rollback path executes; previous firmware boots; `cloud->report_rollback_result` published |
+| IT-LC-012 (GW) | Cloud OTA: image push, intentionally broken (signature fail in UpdateService) | `failed/sig_invalid` reported by UpdateService; `OTA_FINISHED` returns the gateway to **Operational** (Machine 1 T19, LC-D20); no soft reset |
+| IT-LC-013 (GW) | Cloud OTA passes signature; SelfChecking-after-boot fails (sensor unresponsive) | Rollback path executes; previous firmware boots; UpdateService publishes `rolled_back` |
 | IT-LC-014 | Operational, then watchdog hardware reset | `reset_cause == WATCHDOG` reflected in health snapshot |
 
 ---
@@ -971,7 +981,7 @@ Earlier IDs (LC-O1..LC-O0) assigned in passes A–G.
 | **LC-O3** | Start-gate event group bit allocation — needs a project-wide event-group bit map. Provisional bit 0. | Bit 0 in `LIFECYCLE_START_GATE_BIT`. | Open |
 | **LC-O4** | Restart confirmation timeout (GW, REQ-DM-020) — provisional 30 s. | Implemented as the `lc_restart` timer, 30 s, measured on hardware at 29 990 ms (TC-HW-LC-009). Value still awaits the SRS. | Open (value) |
 | **LC-O5** | Test hook design for `lifecycle_task_body`. | Resolved: in a TEST build the task body runs Init once, handles at most one event and returns. `lifecycle_controller_reset_for_test()`, `lifecycle_last_event_result_for_test()`, `lifecycle_timer_callback_for_test()` and `lifecycle_deferred_count_for_test()` complete the hook. | Resolved |
-| **LC-O6** | The collaborator interfaces (LC-D1) were defined here, not by their owners; the real modules lacked operations and UpdateService, FirmwareStore and ResetDriver did not exist. | **Mostly closed 2026-10-26.** `lifecycle_wiring` (LC-D15..D18) binds the real modules. Operations added to their owners: `sensor_service_reconfigure` (SS-D20), `modbus_poller_is_ready` (MBP-D7), `cloud_publisher_is_ready` / `flush` / `report_rollback_result` (CP-D16); ResetDriver built (`reset_trigger`). ConfigService, ConfigStore, TimeService and HealthMonitor needed no change. **Still open:** UpdateService and FirmwareStore (the wiring carries stand-ins that report nothing pending and refuse an update), and CloudPublisher cannot link into a real image (LC-O13). | Mostly closed |
+| **LC-O6** | The collaborator interfaces (LC-D1) were defined here, not by their owners; the real modules lacked operations and UpdateService, FirmwareStore and ResetDriver did not exist. | **Mostly closed 2026-10-26.** `lifecycle_wiring` (LC-D15..D18) binds the real modules. Operations added to their owners: `sensor_service_reconfigure` (SS-D20), `modbus_poller_is_ready` (MBP-D7), `cloud_publisher_is_ready` / `flush` / `report_rollback_result` (CP-D16); ResetDriver built (`reset_trigger`). ConfigService, ConfigStore, TimeService and HealthMonitor needed no change. **Closed 2026-10-27 (LC-D19..D22):** UpdateService and FirmwareStore are bound through real adapters (the stand-ins remain for a Gateway without OTA). **Still open:** CloudPublisher cannot link into a real image (LC-O13), and `cloud_publisher_report_rollback_result` is dead code until CPC-6. | Mostly closed |
 | **LC-O7** | SelfChecking probed `cloud->is_ready()` right after `cloud->init()`, when the broker is not yet connected. | **Resolved 2026-10-26** by defining readiness as "created and able to accept messages" (CP-D16): CloudPublisher buffers in StoreAndForward while offline, so an offline start is normal. Same rule for the poller (MBP-D7). | Resolved |
 | **LC-O8** | The Gateway has no watchdog driver. `lc_watchdog_if_t` is optional and NULL means nothing is kicked. | Inject the kick when the driver exists. | Open |
 | **LC-O9** | `reset-driver.md` §2.3 says LifecycleController writes `restart_flag` to NV storage before `reset_trigger()`; this document has no such step. | Reconcile when ResetDriver and FirmwareStore land. | Open |
@@ -1024,7 +1034,12 @@ Where the Gateway code departs from v0.2. Each row supersedes the section it cit
 | LC-D17 | §14 | Remote commands arrive through `handle_remote_command`. | The cloud `/control` message is `{"command":"restart"}`, `"restart_confirm"` or `"reset_metrics"`; `lifecycle_handle_remote()` (the symbol CloudPublisher calls) parses it. Restart is the two-step flow: the first message requests, the second confirms (REQ-DM-020). | The payload format was not defined anywhere. The match is exact and only the first 63 bytes are read. |
 | LC-D18 | §17 | Tasks block on the start gate. | `lifecycle_wiring_poller_task` waits on the gate and then runs `modbus_poller_run()`. | The poller task asserts that init ran, and the controller does that init after the scheduler starts. |
 
-Gateway wiring tests (`test_lifecycle_wiring.c`, 55 cases) are TC-LW-001..078: bind, every adapter, the real controller booting through them, and the `/control` path. Hardware: `integration-tests/lifecycle_wiring`, TC-HW-LW-001..009 PASS on 2026-10-26 (real controller over ConfigStore on QSPI, ConfigService, SensorTask, AlarmService, ModbusPoller, HealthMonitor and ResetDriver; a committed interval survived a real reset ordered through `/control`).
+| LC-D19 | §7.2, §14 | After a rollback boot the controller calls `cloud->report_rollback_result()`. | It only calls `update_service->resume_after_rollback()`; `report_rollback_result` is removed from `lc_cloud_if_t`. | UpdateService owns every OTA report (update-service-lld.md US-D9); one owner, one topic (LCC-3). |
+| LC-D20 | §11 | UpdatingFirmware ends on SELF_CHECK_PASS, SELF_CHECK_FAIL or a fault. | It also ends on two UpdateService events appended to `lifecycle_event_type_t` (11 `OTA_RESET_REQUESTED`, 12 `OTA_FINISHED`): `OTA_FINISHED` returns to Operational (Machine 1 T19); `OTA_RESET_REQUESTED` flushes CloudPublisher, waits `LC_OTA_RESET_GRACE_MS` (2000 ms, a `vTaskDelay` in LifecycleTask) and resets (Machine 1 I18). Both are ignored with a WARN in any other state. The rollback path keeps no grace delay. | With trial boot the success of an update is known only after the reboot (HLD amendment B3); the controller no longer decides the report (LCC-2). |
+| LC-D21 | §7.2 | `update_service->start(image_size)`. | `start(job)`: the event parameter and the argument are the OTA job id. | UpdateService identifies an update by the job, not by a size (update-service-lld.md §6.1). |
+| LC-D22 | §17 | The wiring carries stand-ins for UpdateService and FirmwareStore. | The wiring binds the real modules through their interface vtables (`iupdate_control_t`, `ifirmware_boot_control_t`) when `lifecycle_wiring_config_t` carries all four OTA members; with all four NULL the stand-ins still apply. A partial set is `LIFECYCLE_ERR_NULL_ARG`. The pending flags are derived from the boot state. | A Gateway without OTA still boots (LC-O6); the vtable binding keeps the wiring free of a link dependency on FirmwareStore and UpdateService, and lets the tests drive spies. |
+
+Gateway wiring tests (`test_lifecycle_wiring.c`, 66 cases) are TC-LW-001..078: bind, every adapter, the real controller booting through them, and the `/control` path. Hardware: `integration-tests/lifecycle_wiring`, TC-HW-LW-001..009 PASS on 2026-10-26 (real controller over ConfigStore on QSPI, ConfigService, SensorTask, AlarmService, ModbusPoller, HealthMonitor and ResetDriver; a committed interval survived a real reset ordered through `/control`).
 
 Added test cases, beyond §21: TC-LC-001b/c, 006b, 007b, 012b/c, 050b..j, 056b, 057b/c, 058b, 059b/c, 061b, 063..068, 070b, 071b/c, 074b, 078b, 079..083, 085b, 087b, 090b, 095b, 096b, 097b, 099b, 105b/c, 108b/c, 121, 132b/c and 138. The Gateway suite is 114 cases.
 

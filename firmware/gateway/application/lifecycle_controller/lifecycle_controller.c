@@ -15,6 +15,7 @@
 
 #include "FreeRTOS.h"
 #include "queue.h"
+#include "task.h"
 #include "stm32l475xx.h"
 #include "timers.h"
 
@@ -314,13 +315,10 @@ static void init_self_checking(void)
 
     if (s_pending_rollback)
     {
+        /* UpdateService reports the rollback itself (US-D9); nothing is sent from here. */
         if (s_deps.update_service->resume_after_rollback(s_deps.update_service->ctx) != LC_DEP_OK)
         {
             LOG_WARN(MODULE_TAG, "resume_after_rollback failed");
-        }
-        if (s_deps.cloud->report_rollback_result(s_deps.cloud->ctx) != LC_DEP_OK)
-        {
-            LOG_WARN(MODULE_TAG, "report_rollback_result failed");
         }
         enter_operational();
         return;
@@ -567,21 +565,63 @@ static void handle_restarting_event(const lifecycle_event_t *ev)
     }
 }
 
-/** UpdatingFirmware: a second OTA request is refused (REQ-DM-054). */
+/**
+ * The update was activated: flush CloudPublisher, give the broker time to take the last
+ * publishes, then reset (Machine 1 I18). This is the single canonical reset site of the OTA
+ * flow. The state stays UpdatingFirmware: the reset ends it.
+ */
+static void ota_reset(void)
+{
+    LOG_INFO(MODULE_TAG, "OTA activated: flush, %u ms grace, reset",
+             (unsigned) LC_OTA_RESET_GRACE_MS);
+
+    if (s_deps.cloud->flush(s_deps.cloud->ctx) != LC_DEP_OK)
+    {
+        LOG_WARN(MODULE_TAG, "cloud flush before the OTA reset failed");
+    }
+    vTaskDelay(pdMS_TO_TICKS(LC_OTA_RESET_GRACE_MS));
+    s_deps.reset_driver->soft_reset(s_deps.reset_driver->ctx); /* does not return on target */
+}
+
+/**
+ * UpdatingFirmware: a second OTA request is refused (REQ-DM-054). OTA_FINISHED ends an update
+ * that ended without a reset (Machine 1 T19); OTA_RESET_REQUESTED resets after activate (I18).
+ */
 static lifecycle_err_t handle_updating_event(const lifecycle_event_t *ev)
 {
-    if (ev->type == LC_EVENT_OTA_REQUESTED)
+    switch (ev->type)
     {
+    case LC_EVENT_OTA_REQUESTED:
         LOG_WARN(MODULE_TAG, "OTA request refused: an update is already running");
         return LIFECYCLE_ERR_BAD_STATE;
+
+    case LC_EVENT_OTA_FINISHED:
+        set_state(LIFECYCLE_STATE_OPERATIONAL);
+        LOG_INFO(MODULE_TAG, "OTA finished -> Operational");
+        break;
+
+    case LC_EVENT_OTA_RESET_REQUESTED:
+        ota_reset();
+        break;
+
+    default:
+        handle_self_check_event(ev);
+        break;
     }
-    handle_self_check_event(ev);
     return LIFECYCLE_ERR_OK;
 }
 
 static lifecycle_err_t process_event(const lifecycle_event_t *ev)
 {
     lifecycle_err_t result = LIFECYCLE_ERR_OK;
+
+    /* The two UpdateService events mean something only in UpdatingFirmware (LCC-2). */
+    if (((ev->type == LC_EVENT_OTA_RESET_REQUESTED) || (ev->type == LC_EVENT_OTA_FINISHED)) &&
+        (s_state != LIFECYCLE_STATE_UPDATING_FW))
+    {
+        LOG_WARN(MODULE_TAG, "event %u ignored outside UpdatingFirmware", (unsigned) ev->type);
+        return LIFECYCLE_ERR_OK;
+    }
 
     switch (s_state)
     {
@@ -740,9 +780,9 @@ static bool deps_services_valid(const lifecycle_deps_t *d)
            (d->sensors->reconfigure != NULL) && (d->alarms->init != NULL) &&
            (d->console->init_finalise != NULL) && (d->cloud->init != NULL) &&
            (d->cloud->flush != NULL) && (d->cloud->is_ready != NULL) &&
-           (d->cloud->report_rollback_result != NULL) && (d->modbus_poller->init != NULL) &&
-           (d->modbus_poller->is_ready != NULL) && (d->time_service->init != NULL) &&
-           (d->update_service->init != NULL) && (d->update_service->start != NULL) &&
+           (d->modbus_poller->init != NULL) && (d->modbus_poller->is_ready != NULL) &&
+           (d->time_service->init != NULL) && (d->update_service->init != NULL) &&
+           (d->update_service->start != NULL) &&
            (d->update_service->resume_self_checking != NULL) &&
            (d->update_service->resume_rollback != NULL) &&
            (d->update_service->resume_after_rollback != NULL);
