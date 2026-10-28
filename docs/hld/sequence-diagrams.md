@@ -969,13 +969,13 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | `Remote Operator`      | «actor»        | Cloud | Initiates the update                                              |
 | `AWS IoT Core`         | «cloud»        | Cloud | Delivers update command and image bytes                           |
 | `MqttClient`           | «middleware»   | GW    | Receives MQTT command and image chunks                            |
-| `CloudPublisher`       | «application»  | GW    | Forwards update events to UpdateService                           |
-| `UpdateService`        | «application»  | GW    | Orchestrates the entire update flow                               |
+| `CloudPublisher`       | «application»  | GW    | Hands commands and chunks to UpdateService; carries its chunk requests and result reports (IOtaTransport) |
+| `UpdateService`        | «application»  | GW    | Owns the update policy; never touches MQTT or the reset           |
 | `FirmwareStore`        | «middleware»   | GW    | Stores image bytes; verifies signature                            |
 | `QspiFlashDriver`      | «driver»       | GW    | Writes bytes to QSPI flash                                        |
 | `Bootloader`           | «bootloader»   | GW    | Bank selection on reset (SD-06c, SD-06d rollback)                  |
-| `LifecycleController`  | «application»  | GW    | Detects post-boot pending flags; resumes UpdateService            |
-| `ResetDriver`          | «driver»       | GW    | Triggers MCU reset                                                |
+| `LifecycleController`  | «application»  | GW    | Agrees to the update and starts it; owns the reset (Machine 1 I18); detects post-boot state and resumes UpdateService |
+| `ResetDriver`          | «driver»       | GW    | Triggers MCU reset (called by LifecycleController)                |
 | `Logger`               | «middleware»   | GW    | Records errors (P4 exception)                                     |
 | `SensorService`, `ModbusPoller`, `CloudPublisher` (as self-check probes) | «application» | GW | Self-check participants in SD-06d |
 
@@ -993,7 +993,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 
 #### Step 2 — Participants
 
-`Remote Operator`, `AWS IoT Core`, `MqttClient`, `CloudPublisher`, `UpdateService`, `Logger`.
+`Remote Operator`, `AWS IoT Core`, `MqttClient`, `CloudPublisher`, `UpdateService`, `LifecycleController`, `Logger`.
 
 #### Step 3 — Message table
 
@@ -1002,7 +1002,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 1   | `Remote Operator`  | `AWS IoT Core`    | async  | publish update command                  |                                   |        | UC-18 step 1 |
 | 2   | `AWS IoT Core`     | `MqttClient`      | async  | MQTT message (update command)           |                                   |        | UC-18 step 2 |
 | 3   | `MqttClient`       | `CloudPublisher`  | async  | command received                        |                                   |        |              |
-| 4   | `CloudPublisher`   | `UpdateService`   | sync   | start update                            |                                   |        | DM-050       |
+| 4   | `CloudPublisher`   | `UpdateService`   | sync   | handle command (copied into the inbox; returns at once) |                |        | DM-050       |
 | —   |                    |                   |        |                                         | **alt**                           |        | DM-054       |
 | —   |                    |                   |        |                                         | `[update in progress]`            |        |              |
 | 5'  |   `UpdateService`  | `Logger`          | async  | log rejection (in-progress)             |                                   |        | DM-053       |
@@ -1010,7 +1010,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 7'  |   `CloudPublisher` | `MqttClient`      | sync   | publish QoS 1 on result topic           |                                   |        | DM-002, DM-055 |
 | 8'  |   `MqttClient`     | `AWS IoT Core`    | async  | MQTT PUBLISH (rejection)                |                                   |        | DM-055       |
 | —   |                    |                   |        |                                         | `[no update in progress]`         |        |              |
-| 5   |   `UpdateService`  | `UpdateService`   | self   | verify command authentication           |                                   |        | DM-056       |
+| 5   |   `UpdateService`  | `UpdateService`   | self   | check the command (layered authentication: TLS client certificate, broker authorisation, image signature) |                                   |        | DM-056       |
 | —   |                    |                   |        |                                         | **alt**                           |        | DM-056       |
 | —   |                    |                   |        |                                         | `[auth failed]`                   |        |              |
 | 6'' |     `UpdateService`| `Logger`          | async  | log rejection (auth failure)            |                                   |        | DM-053       |
@@ -1018,15 +1018,15 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 8'' |     `CloudPublisher`| `MqttClient`     | sync   | publish QoS 1 on result topic           |                                   |        | DM-002, DM-055 |
 | 9'' |     `MqttClient`   | `AWS IoT Core`    | async  | MQTT PUBLISH (rejection)                |                                   |        | DM-055       |
 | —   |                    |                   |        |                                         | `[auth ok]`                       |        |              |
-| 6   |     `UpdateService`| `UpdateService`   | self   | acquire update lock                     |                                   |        | DM-054       |
-| 7   |     `UpdateService`| `UpdateService`   | self   | transition Idle → Downloading           |                                   |        | (state-machines.md §7.4) |
-| 8   |     `UpdateService`| `CloudPublisher`  | sync   | accept (ready for download)             |                                   |        | DM-002       |
+| 6   |     `UpdateService`| `LifecycleController` | async | post OTA_REQUESTED (job); command accepted locally, update lock held |                                   |        | DM-054       |
+| 7   |     `LifecycleController`| `UpdateService` | sync | start (job): Idle → Downloading; Machine 1 T14 |                                   |        | (state-machines.md §7.4) |
+| 8   |     `UpdateService`| `CloudPublisher`  | sync   | report accepted (ready for download)    |                                   |        | DM-002       |
 | 9   |     `CloudPublisher`| `MqttClient`     | sync   | publish QoS 1 on result topic           |                                   |        | DM-002       |
 | 10  |     `MqttClient`   | `AWS IoT Core`    | async  | MQTT PUBLISH (acceptance)               |                                   |        | DM-002       |
 | —   |                    |                   |        |                                         | **end alt**                       |        |              |
 | —   |                    |                   |        |                                         | **end alt**                       |        |              |
 
-**UML note 1:** *"Authentication leverages the TLS X.509 client certificate established at connection setup (REQ-NF-301, see SD-04b TLS handshake). REQ-DM-056 verifies that the certificate-bound identity is on the allowed-publishers list. Internal certificate-validation logic is LLD."*
+**UML note 1:** *"Authentication leverages the TLS X.509 client certificate established at connection setup (REQ-NF-301, see SD-04b TLS handshake). MQTT 3.1.1 does not carry the publisher identity to subscribers, so REQ-DM-056 is met in layers: the TLS session with the genuine broker, broker-side authorisation of who may publish to the OTA topics, and the signature on the image itself (REQ-NF-304), which makes a forged command harmless (UpdateService US-D5). Internal certificate-validation logic is LLD."*
 
 **UML note 2:** *"All result publishes use QoS 1 to guarantee the cloud sees the update outcome (REQ-DM-055). Topic is the dedicated update-result topic per REQ-CC-080."*
 
@@ -1050,7 +1050,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 
 #### Step 2 — Participants
 
-`AWS IoT Core`, `MqttClient`, `CloudPublisher`, `UpdateService`, `FirmwareStore`, `QspiFlashDriver`, `Logger`.
+`AWS IoT Core`, `MqttClient`, `CloudPublisher`, `UpdateService`, `FirmwareStore`, `QspiFlashDriver`, `LifecycleController`, `Logger`.
 
 #### Step 3 — Message table
 
@@ -1058,9 +1058,12 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 |-----|--------------------|-------------------|--------|-----------------------------------------|----------------------------------------|--------|----------------|
 | —   |                    |                   |        |                                         | **loop(1..3)** `[download not complete]` |      | DM-052         |
 | —   |                    |                   |        |                                         | **loop** `[chunk in image]`            |        | DM-050         |
-| 1   |     `AWS IoT Core` | `MqttClient`      | async  | image chunk                             |                                        |        | DM-050         |
-| 2   |     `MqttClient`   | `CloudPublisher`  | async  | chunk delivered                         |                                        |        |                |
-| 3   |     `CloudPublisher`| `UpdateService`  | sync   | append chunk                            |                                        |        | DM-050         |
+| 1   |     `UpdateService`| `CloudPublisher`  | sync   | request chunk (offset, length)          |                                        |        | DM-050         |
+| 2   |     `CloudPublisher`| `MqttClient`     | sync   | publish chunk request (QoS 0, never buffered) |                                  |        | DM-050         |
+| 3   |     `MqttClient`   | `AWS IoT Core`    | async  | MQTT PUBLISH (chunk request)            |                                        |        | DM-050         |
+| 3a  |     `AWS IoT Core` | `MqttClient`      | async  | image chunk (the requested bytes)       |                                        |        | DM-050         |
+| 3b  |     `MqttClient`   | `CloudPublisher`  | async  | chunk delivered                         |                                        |        |                |
+| 3c  |     `CloudPublisher`| `UpdateService`  | sync   | on chunk (copied into the single chunk slot; returns at once) |                              |        | DM-050         |
 | 4   |     `UpdateService`| `FirmwareStore`   | sync   | write chunk at offset                   |                                        |        | DM-050         |
 | 5   |     `FirmwareStore`| `QspiFlashDriver` | sync   | program flash page                      |                                        |        | DM-050         |
 | 6   |     `QspiFlashDriver`| `FirmwareStore` | return | ok                                      |                                        |        |                |
@@ -1068,7 +1071,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | —   |                    |                   |        |                                         | **opt** `[connection dropped mid-loop]`|        | DM-051         |
 | 8'  |       `UpdateService`| `UpdateService` | self   | record resume offset                    |                                        |        | DM-051         |
 | —   |                    |                   |        |                                         | **ref** SD-04a, SD-04b (buffer & reconnect) |   | DM-051         |
-| 9'  |       `UpdateService`| `CloudPublisher` | sync  | request resume from offset              |                                        |        | DM-051         |
+| 9'  |       `UpdateService`| `CloudPublisher` | sync  | request the chunk at the resume offset again |                                   |        | DM-051         |
 | 10' |       `CloudPublisher`| `MqttClient`   | sync   | publish resume request                  |                                        |        | DM-051         |
 | —   |                    |                   |        |                                         | **end opt**                            |        |                |
 | —   |                    |                   |        |                                         | **end loop**                           |        |                |
@@ -1085,7 +1088,8 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 10''|   `UpdateService`  | `Logger`          | async  | log download failure                    |                                        |        | DM-053         |
 | 11''|   `UpdateService`  | `CloudPublisher`  | sync   | report failure (download exhausted)     |                                        |        | DM-055         |
 | 12''|   `CloudPublisher` | `MqttClient`      | sync   | publish QoS 1 on result topic           |                                        |        | DM-055         |
-| 13''|   `UpdateService`  | `UpdateService`   | self   | release lock; transition → Failed       |                                        |        | (state-machines.md §7.4) |
+| 13''|   `UpdateService`  | `UpdateService`   | self   | transition → Failed                     |                                        |        | (state-machines.md §7.4) |
+| 14''|   `UpdateService`  | `LifecycleController` | async | post OTA_FINISHED: release lock; Machine 1 T19 |                                  |        | (state-machines.md §7.4) |
 | —   |                    |                   |        |                                         | `[download succeeded]`                 |        |                |
 | 9   |   `UpdateService`  | `FirmwareStore`   | sync   | verify signature                        |                                        |        | DM-060, DM-080 |
 | —   |                    |                   |        |                                         | **alt**                                |        | DM-061         |
@@ -1098,11 +1102,12 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 12'''|   `UpdateService` | `Logger`          | async  | log signature failure                   |                                        |        | DM-062         |
 | 13'''|   `UpdateService` | `CloudPublisher`  | sync   | report failure (signature)              |                                        |        | DM-055         |
 | 14'''|   `CloudPublisher`| `MqttClient`      | sync   | publish QoS 1 on result topic           |                                        |        | DM-055         |
-| 15'''|   `UpdateService` | `UpdateService`   | self   | release lock; transition → Failed       |                                        |        | (state-machines.md §7.4) |
+| 15'''|   `UpdateService` | `UpdateService`   | self   | transition → Failed                     |                                        |        | (state-machines.md §7.4) |
+| 16'''|   `UpdateService` | `LifecycleController` | async | post OTA_FINISHED: release lock; Machine 1 T19 |                                  |        | (state-machines.md §7.4) |
 | —   |                    |                   |        |                                         | **end alt**                            |        |                |
 | —   |                    |                   |        |                                         | **end alt**                            |        |                |
 
-**UML note 1 (chunking):** *"Chunk size and total count are negotiated at the protocol level (LLD detail). The HLD shows one canonical loop iteration."*
+**UML note 1 (chunking):** *"The download is pull-based: UpdateService requests each chunk and the cloud answers, so there is at most one outstanding request and flow control comes for free (UpdateService US-D1). Chunk size is an LLD constant. The HLD shows one canonical loop iteration."*
 
 **UML note 2 (resume semantics):** *"Mid-download disconnect uses the same store-and-forward machinery as cloud telemetry (REQ-DM-051). The resume request carries the last persisted offset. If three full download attempts all fail, the partial image is discarded per REQ-DM-052."*
 
@@ -1119,7 +1124,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 
 #### Step 2 — Participants
 
-`UpdateService`, `FirmwareStore`, `InternalFlashDriver`, `ResetDriver`, `Bootloader`, `LifecycleController`.
+`UpdateService`, `FirmwareStore`, `InternalFlashDriver`, `CloudPublisher`, `ResetDriver`, `Bootloader`, `LifecycleController`.
 
 #### Step 3 — Message table
 
@@ -1132,7 +1137,9 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 5   | `FirmwareStore`       | `InternalFlashDriver` | sync | write boot record: boot_state = TRIAL_PENDING (the same record write as 2) |                  |        | DM-071               |
 | 6   | `InternalFlashDriver` | `FirmwareStore`     | return | ok                                        |                  |        |                      |
 | 7   | `UpdateService`       | `UpdateService`     | self   | transition Applying → (reset)             |                  |        | (state-machines.md §7.4) |
-| 8   | `UpdateService`       | `ResetDriver`       | sync   | trigger MCU reset                         |                  | recovery {≤ 5 s}: NF-203 | DM-070         |
+| 8   | `UpdateService`       | `LifecycleController` | async | post OTA_RESET_REQUESTED                  |                  |        | DM-070               |
+| 8a  | `LifecycleController` | `CloudPublisher`    | sync   | flush pending publishes; wait the 2 s grace period (Machine 1 I18) |                  |        | DM-070               |
+| 8b  | `LifecycleController` | `ResetDriver`       | sync   | trigger MCU reset                         |                  | recovery {≤ 5 s}: NF-203 | DM-070         |
 | —   |                       |                     |        | **── MCU reset; flow resumes after boot ──** | (lifeline discontinuity across all participants) | |    |
 | 9   | `Bootloader`          | `Bootloader`        | self   | check boot_state; TRIAL_PENDING → TRIAL_RUNNING |                  |        | DM-073               |
 | 10  | `Bootloader`          | `Bootloader`        | self   | select new bank                           |                  |        | DM-070               |
@@ -1143,7 +1150,7 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 14  | `FirmwareStore`       | `LifecycleController` | return | boot_state = TRIAL_RUNNING (self-check pending) |                  |        |                      |
 | 15  | `LifecycleController` | `UpdateService`     | sync   | resume in SelfChecking                    |                  |        | (state-machines.md §7.4) |
 
-**UML note 1 (discontinuity convention):** *"The horizontal break across all lifelines after message 8 represents the MCU reset (REQ-NF-203 5 s recovery target). All in-RAM state is lost; only data persisted to flash (the boot record on chip, the staged image on QSPI) survives."*
+**UML note 1 (discontinuity convention):** *"The horizontal break across all lifelines after message 8b represents the MCU reset (REQ-NF-203 5 s recovery target). All in-RAM state is lost; only data persisted to flash (the boot record on chip, the staged image on QSPI) survives."*
 
 **UML note 2 (dual-bank):** *"The previous firmware bank is retained (REQ-DM-073). If self-check fails (SD-06d rainy path), the rollback path triggers. Until commit, both banks remain valid."*
 
@@ -1173,31 +1180,32 @@ Reboots are **not states** (per `state-machines.md` §7.4); they are transition 
 | 2   | `SensorService`       | `UpdateService`     | return | sensor status                             |                                        |                                   | DM-040               |
 | 3   | `UpdateService`       | `ModbusPoller`      | sync   | probe Modbus link                         |                                        |                                   | DM-040               |
 | 4   | `ModbusPoller`        | `UpdateService`     | return | link status                               |                                        |                                   | DM-040               |
-| 5   | `UpdateService`       | `CloudPublisher`    | sync   | probe cloud connection                    |                                        |                                   | DM-040               |
+| 5   | `UpdateService`       | `CloudPublisher`    | sync   | probe cloud connection (IOtaTransport.is_connected) |                                        |                                   | DM-040               |
 | 6   | `CloudPublisher`      | `UpdateService`     | return | connection status                         |                                        |                                   | DM-040               |
 | 7   | `UpdateService`       | `UpdateService`     | self   | aggregate self-check result               |                                        |                                   | DM-040               |
 | —   |                       |                     |        |                                           | **alt**                                |                                   | DM-072, DM-073       |
 | —   |                       |                     |        |                                           | `[all probes ok]`                      |                                   |                      |
 | 8   |   `UpdateService`     | `FirmwareStore`     | sync   | mark new bank as committed                |                                        |                                   | DM-073               |
 | 9   |   `FirmwareStore`     | `InternalFlashDriver` | sync | write boot record: CONFIRMED; erase the old slot's descriptor |                                        |                                   | DM-073               |
-| 10  |   `UpdateService`     | `UpdateService`     | self   | release lock; transition → Committed      |                                        |                                   | (state-machines.md §7.4) |
-| 11  |   `UpdateService`     | `CloudPublisher`    | sync   | report success                            |                                        |                                   | DM-055               |
-| 12  |   `CloudPublisher`    | `MqttClient`        | sync   | publish QoS 1 on result topic             |                                        |                                   | DM-055               |
+| 10  |   `UpdateService`     | `CloudPublisher`    | sync   | report success (only now that the image is committed) |                                        |                                   | DM-055               |
+| 11  |   `CloudPublisher`    | `MqttClient`        | sync   | publish QoS 1 on result topic             |                                        |                                   | DM-055               |
+| 12  |   `UpdateService`     | `LifecycleController` | async | post SELF_CHECK_PASS; release lock; transition → Committed |                                        |                                   | (state-machines.md §7.4) |
 | —   |                       |                     |        |                                           | `[any probe failed]`                   |                                   |                      |
 | 8'  |   `UpdateService`     | `Logger`            | async  | log self-check failure                    |                                        |                                   | DM-053               |
-| 9'  |   `UpdateService`     | `FirmwareStore`     | sync   | set pending_rollback flag; restore old bank |                                      |                                   | DM-072               |
-| 10' |   `FirmwareStore`     | `InternalFlashDriver` | sync | write boot record: ROLLED_BACK, active = previous slot |                                       |                                   | DM-072               |
-| 11' |   `UpdateService`     | `UpdateService`     | self   | transition SelfChecking → RollingBack     |                                        |                                   | (state-machines.md §7.4) |
-| 12' |   `UpdateService`     | `ResetDriver`       | sync   | trigger MCU reset                         |                                        | rollback total {≤ 10 s}: NF-204   | NF-204               |
+| 9'  |   `UpdateService`     | `LifecycleController` | async | post SELF_CHECK_FAIL                      |                                        |                                   | DM-072               |
+| 9'a |   `LifecycleController` | `UpdateService`   | sync   | resume rollback: SelfChecking → RollingBack |                                      |                                   | (state-machines.md §7.4) |
+| 10' |   `LifecycleController` | `FirmwareStore`   | sync   | rollback: write boot record ROLLED_BACK, active = previous slot (via InternalFlashDriver) |                                       |                                   | DM-072               |
+| 11' |   `UpdateService`     | `UpdateService`     | self   | state is RollingBack (set by 9'a)         |                                        |                                   | (state-machines.md §7.4) |
+| 12' |   `LifecycleController` | `ResetDriver`     | sync   | trigger MCU reset (no grace delay on the rollback path) |                                        | rollback total {≤ 10 s}: NF-204   | NF-204               |
 | —   |                       |                     |        | **── MCU reset; flow resumes after boot ──** | (lifeline discontinuity)            |                                   |                      |
 | 13' | `Bootloader`          | `Bootloader`        | self   | check pending flags; select previous bank |                                        |                                   | DM-072, DM-073       |
 | 14' | `Bootloader`          | `LifecycleController` | async | jump to application reset vector         |                                        |                                   |                      |
 | 15' | `LifecycleController` | `FirmwareStore`     | sync   | get boot info                             |                                        |                                   |                      |
 | 16' | `FirmwareStore`       | `LifecycleController` | return | boot_state = ROLLED_BACK                |                                        |                                   |                      |
 | 17' | `LifecycleController` | `UpdateService`     | sync   | resume after rollback                     |                                        |                                   | DM-072               |
-| 18' | `UpdateService`       | `CloudPublisher`    | sync   | report rollback                           |                                        |                                   | DM-055               |
+| 18' | `UpdateService`       | `CloudPublisher`    | sync   | report rolled back (the only rollback report; LifecycleController no longer sends one) |                                        |                                   | DM-055               |
 | 19' | `CloudPublisher`      | `MqttClient`        | sync   | publish QoS 1 on result topic             |                                        |                                   | DM-055               |
-| 20' | `UpdateService`       | `UpdateService`     | self   | release lock; transition → Failed         |                                        |                                   | (state-machines.md §7.4) |
+| 20' | `UpdateService`       | `FirmwareStore`     | sync   | acknowledge rollback (ROLLED_BACK → CONFIRMED); then release lock; transition → Failed |                                        |                                   | (state-machines.md §7.4) |
 | —   |                       |                     |        |                                           | **end alt**                            |                                   |                      |
 
 The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand from message 7 (self-check failure decision) to message 20' (final transition to Failed).
@@ -1241,6 +1249,9 @@ The duration constraint `{≤ 10 s}` (REQ-NF-204) brackets the rollback operand 
 | SD06-D7 | Self-check probes in SD-06d are **serial sync**, not `par` (revised from earlier draft) | Aggregate ~500 ms within 10 s budget; avoids over-engineering coordination logic; "boring is correct" |
 | SD06-D8 | Commit clears `pending_self_check` and marks bank committed in one journaled write | Idempotent recovery from power loss mid-commit |
 | SD06-D9 | Logger appears as a lifeline (P4 exception) on every rainy path | REQ-DM-053 and REQ-DM-062 explicitly require logging on failure |
+| SD06-D10 | The download is pull-based: UpdateService requests each chunk through CloudPublisher and the cloud answers (amendment B4) | Flow control for free, resume is "request from the checkpoint", only one request outstanding; MqttClient stays a CloudPublisherTask-only user |
+| SD06-D11 | Every reset in the OTA flow, and the rollback itself, go through LifecycleController (Machine 1 I18, amendment B4); UpdateService posts events and never calls ResetDriver | One canonical reset site; LifecycleController flushes CloudPublisher first on the activate path |
+| SD06-D12 | The success report follows the confirm, and UpdateService owns every OTA report including the rollback (amendment B4) | A report is never sent for an image that is not committed; one owner, one topic |
 
 ---
 
