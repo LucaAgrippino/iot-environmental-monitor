@@ -208,15 +208,10 @@ uint32_t config_provider_get_telemetry_interval_s(config_service_handle_t handle
 uint32_t config_provider_get_health_interval_s(config_service_handle_t handle);
 bool config_manager_apply(config_service_handle_t handle, const uint8_t *payload, uint32_t len);
 
-/* --- IUpdateService (placeholder; see update-service-lld.md, CP-O1) --- */
+/* --- IUpdateService / IOtaTransport (update-service-lld.md CPC-1..6) -- */
 
-#ifndef UPDATE_SERVICE_HANDLE_T_DEFINED
-#define UPDATE_SERVICE_HANDLE_T_DEFINED
-typedef struct update_service_inst *update_service_handle_t;
-#endif /* UPDATE_SERVICE_HANDLE_T_DEFINED */
-
-void update_service_handle_command(update_service_handle_t handle, const uint8_t *payload,
-                                   uint32_t len);
+#include "update_service/iota_transport.h"
+#include "update_service/iupdate_service.h"
 
 /* --- ILifecycle (placeholder; see lifecycle-controller.md) ------------ */
 
@@ -245,7 +240,9 @@ typedef struct
     health_monitor_handle_t health_write; /**< IHealthReport — MQTT stats push.     */
     config_service_handle_t cfg_read;     /**< IConfigProvider — publish intervals. */
     config_service_handle_t cfg_write;    /**< IConfigManager — remote config cmds. */
-    update_service_handle_t update_svc;   /**< May be NULL until UpdateService LLD (CP-O1). */
+    const iupdate_service_t *update_ops;  /**< IUpdateService; NULL for a Gateway without OTA (the
+                                               OTA topics are then not subscribed). */
+    update_service_t *update;             /**< UpdateService instance, already created.      */
     lifecycle_handle_t lifecycle;         /**< ILifecycle — restart command.        */
     mqtt_connect_cfg_t mqtt_connect_cfg; /**< Broker/certs — CloudPublisher owns connect/reconnect
                                                (CP-D7/CP-D9); stored by value, pointers inside
@@ -302,17 +299,32 @@ bool cloud_publisher_is_ready(cloud_publisher_handle_t handle);
 cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle);
 
 /**
- * @brief Ask CloudPublisherTask to publish that a firmware update was rolled back (CP-D16).
+ * @brief MqttClient's inbound-message callback (CPC-3, CP-O5).
  *
- * Publishes {"event":"ota","result":"rolled_back"} on the results topic at QoS 1 through the normal
- * connectivity gate, so it is buffered if the broker is unreachable. Asynchronous.
+ * mqtt_client_create() takes its msg_cb before CloudPublisher exists, and the callback carries no
+ * context, so this function reaches the instance through the module's single pool entry. Pass it
+ * as mqtt_client_config_t::msg_cb. Called from CloudPublisherTask inside mqtt_client_process().
+ * Messages that arrive before cloud_publisher_create() are dropped.
  *
- * @param[in] handle  Handle from cloud_publisher_create().
- * @return CP_ERR_OK if the request was posted; CP_ERR_NULL_PTR; CP_ERR_NOT_INIT;
- *         CP_ERR_NO_RESOURCE.
- * @note Threading: task context. Not ISR-safe.
+ * The OTA chunk topic is handled here and now (a 1 KB payload does not fit the 128-byte command
+ * queue, and UpdateService copies it in microseconds); every other command is queued for the task.
  */
-cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_handle_t handle);
+void cloud_publisher_on_message(const char *topic, uint16_t topic_len, const uint8_t *payload,
+                                uint32_t payload_len);
+
+/**
+ * @brief Fill the IOtaTransport that carries UpdateService's chunk requests and reports (CPC-5).
+ *
+ * Requests go out at QoS 0 and only while the broker is connected; they are never buffered. Reports
+ * go out at QoS 1 on /ota/result through the normal StoreAndForward gate. Both are queued (4
+ * entries) and sent by CloudPublisherTask, so the calls never block.
+ *
+ * @param[in]  handle  Handle from cloud_publisher_create().
+ * @param[out] out     Receives the transport; its ctx is @p handle.
+ * @return CP_ERR_OK; CP_ERR_NULL_PTR; CP_ERR_NOT_INIT if the instance is not created.
+ */
+cloud_publisher_err_t cloud_publisher_get_ota_transport(cloud_publisher_handle_t handle,
+                                                        iota_transport_t *out);
 
 #ifdef TEST
 
@@ -338,6 +350,9 @@ void cloud_publisher_inject_alarm_for_test(cloud_publisher_handle_t handle,
  */
 void cloud_publisher_inject_command_for_test(cloud_publisher_handle_t handle, const char *topic,
                                              const uint8_t *payload, uint32_t len);
+
+/** @brief Size of one outbound OTA queue entry, so a test can enable the mock's item capture. */
+uint32_t cloud_publisher_ota_entry_size_for_test(void);
 
 #endif /* TEST */
 

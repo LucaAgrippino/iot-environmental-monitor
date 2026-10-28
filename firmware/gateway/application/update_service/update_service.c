@@ -230,6 +230,16 @@ const iupdate_service_t update_service_ops = {
 /* IUpdateControl (LifecycleTask)                                           */
 /* ---------------------------------------------------------------------- */
 
+uint32_t update_service_stack_free_words(const update_service_t *self)
+{
+    if ((self != &g_us) || !g_us.created || (g_us.task == NULL))
+    {
+        return 0U;
+    }
+
+    return (uint32_t) uxTaskGetStackHighWaterMark(g_us.task);
+}
+
 static bool us_is_created(const update_service_t *self)
 {
     return (self == &g_us) && self->created;
@@ -355,43 +365,6 @@ const iupdate_control_t update_control_ops = {
     .resume_rollback = us_resume_rollback,
     .resume_after_rollback = us_resume_after_rollback,
 };
-
-/* ---------------------------------------------------------------------- */
-/* Reasons                                                                  */
-/* ---------------------------------------------------------------------- */
-
-const char *update_service_reason_string(us_reason_t reason)
-{
-    static const char *const k_names[] = {
-        [US_REASON_NONE] = "",
-        [US_REASON_BUSY] = "busy",
-        [US_REASON_NOT_OTA_CAPABLE] = "not_ota_capable",
-        [US_REASON_NOT_READY] = "not_ready",
-        [US_REASON_BAD_COMMAND] = "bad_command",
-        [US_REASON_START_TIMEOUT] = "start_timeout",
-        [US_REASON_DOWNLOAD_FAILED] = "download_failed",
-        [US_REASON_STALLED] = "stalled",
-        [US_REASON_STAGING_ERROR] = "staging_error",
-        [US_REASON_TOO_LARGE] = "too_large",
-        [US_REASON_BAD_HEADER] = "bad_header",
-        [US_REASON_WRONG_SLOT] = "wrong_slot",
-        [US_REASON_SIG_INVALID] = "sig_invalid",
-        [US_REASON_HASH_MISMATCH] = "hash_mismatch",
-        [US_REASON_BAD_IMAGE] = "bad_image",
-        [US_REASON_CRYPTO] = "crypto",
-        [US_REASON_VERIFY_IO] = "verify_io",
-        [US_REASON_INSTALL_FAILED] = "install_failed",
-        [US_REASON_ACTIVATE_FAILED] = "activate_failed",
-        [US_REASON_ROLLBACK] = "rollback",
-    };
-
-    if ((uint32_t) reason >= (sizeof(k_names) / sizeof(k_names[0])))
-    {
-        return "";
-    }
-
-    return k_names[reason];
-}
 
 #ifdef TEST
 void update_service_reset_for_test(void)

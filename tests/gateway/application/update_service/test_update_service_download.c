@@ -21,6 +21,7 @@
 #include "fake_transport.h"
 #include "freertos_mock.h" /* causes Ceedling to auto-link freertos_mock.c */
 #include "update_service.h"
+#include "us_reason.h"           /* causes Ceedling to auto-link us_reason.c */
 #include "update_service_task.h" /* causes Ceedling to auto-link update_service_task.c */
 #include "us_test_util.h"
 

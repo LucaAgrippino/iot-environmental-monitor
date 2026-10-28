@@ -66,6 +66,7 @@ class Server:
         self.second_done = False
         self.t0 = time.time()
         self.last_result = None
+        self.second_reason = None
 
     def send(self, text):
         self.ser.write(text.encode("ascii") + b"\n")
@@ -120,6 +121,11 @@ class Server:
             return None
 
         m = re.match(r"REPORT (\w+) (\S+) (\S+) ([0-9A-Fa-f]+) (\d+)", line)
+        if m and m[1] == "rejected" and self.args.job is not None and m[3] == str(self.args.job + 1):
+            # The answer to the second command (--second-command-at): checked at the end, and it
+            # does not end the run, because the first update is still going.
+            self.second_reason = m[2]
+            return None
         if m and m[1] in TERMINAL:
             return m[1]
 
@@ -131,6 +137,9 @@ class Server:
         a = self.args
         self.ser.reset_input_buffer()
 
+        if a.cut:
+            self.send(f"CUT {a.cut}")
+            time.sleep(0.3)
         if a.seed:
             self.send(f"SEED {a.seed}")
         elif a.job is not None:
@@ -162,9 +171,26 @@ class Server:
         self.log("timeout")
         return 1
 
+    def print_stat(self):
+        """Ask the harness for its measurements (stack headroom, interrupt gap, ECC NMIs)."""
+        self.ser.reset_input_buffer()
+        self.send("STAT")
+        end = time.time() + 2.0
+        buf = b""
+        while time.time() < end and b"STAT" not in buf:
+            buf += self.ser.read(256)
+        self.log(buf.decode("latin-1").strip() or "no STAT answer")
+
     def finish(self):
+        if self.args.stat:
+            self.print_stat()
         want = self.args.expect
         ok = (want is None) or (self.last_result == want)
+        if self.args.second_command_at is not None:
+            second_ok = self.second_reason == "busy"
+            self.log(f"second command answered: {self.second_reason or 'nothing'}  "
+                     f"(expected busy)  -> {'PASS' if second_ok else 'FAIL'}")
+            ok = ok and second_ok
         self.log(f"result: {self.last_result}  expected: {want or 'any'}  -> {'PASS' if ok else 'FAIL'}")
         return 0 if ok else 1
 
@@ -186,6 +212,8 @@ def main():
     ap.add_argument("--corrupt-body", action="store_true", help="flip one body byte in the images")
     ap.add_argument("--expect", choices=TERMINAL, help="terminal report that means PASS")
     ap.add_argument("--stop-at-reset", action="store_true", help="end the run at the activate reset")
+    ap.add_argument("--cut", help='arm a power cut in the harness first, e.g. "STEP 20", "ACT 10"')
+    ap.add_argument("--stat", action="store_true", help="after the run, ask the harness for STAT and print it")
     ap.add_argument("--timeout", type=float, default=600.0)
     args = ap.parse_args()
 

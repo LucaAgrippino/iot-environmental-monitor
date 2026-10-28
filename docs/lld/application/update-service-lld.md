@@ -11,10 +11,12 @@ every outcome to the cloud.
 
 **Version:** 1.0
 **Date:** October 2026
-**Status:** Released — implemented and host-tested (70 cases). The bench harness is
-written and compile-checked but has not been run on the board (US-O9). The system test is
-gated by the items in §4.3, and the HLD amendments B1–B4 and changes LCC-2..4 / CPC-1..6 are
-not part of this release (US-O8)
+**Status:** Released — implemented, host-tested (70 cases) and hardware-validated on the
+bench with the real FirmwareStore and bootloader, including the 480 KB maximum image and
+power cuts through staging, install and activate (2026-10-27, §26.4). The MQTT system test
+(§23.2) is still gated on the Gateway `main()` (LC-O15). The HLD amendments B1–B4, the
+LifecycleController changes LCC-2..4 and the CloudPublisher changes CPC-1..6 are separate PRs
+(US-O8)
 
 **HLD anchor:** UpdateService in `components.md` (GW application layer);
 `state-machines.md` Machine 3 (owner) and Machine 1 (UpdatingFirmware,
@@ -803,7 +805,7 @@ waits for its notifications.
 | Download, max image (480 chunks) | ~2–3 min estimated | Dominated by the WiFi/TLS round trip; US-O1 |
 | Verify | 1.32 s worst | FS-O5 measured |
 | Install | 11.96 s | FS-O1 measured, 240 steps with a yield |
-| Rollback decision → old image running (REQ-NF-204, 10 s) | ~25 ms metadata write + immediate reset (the rollback path has no grace delay) + boot ≤ 5 s (REQ-NF-203) | Within 10 s; measured only with the bootloader (US-O7) |
+| Rollback decision → old image running (REQ-NF-204, 10 s) | ~25 ms metadata write + immediate reset (the rollback path has no grace delay) + boot ≤ 5 s (REQ-NF-203) | **Measured 0.23 s** (§26.4) |
 
 ---
 
@@ -986,7 +988,7 @@ harness fakes that print the posted events.
 | TC-HW-US-006 | Slot-A-linked image | `failed/wrong_slot` |
 | TC-HW-US-007 | Second command during the download | `rejected/busy`; first completes |
 | TC-HW-US-008 | 1 kHz timer ISR gap meter during the whole run | Worst gap ≤ 30 ms (only `install_begin` / `activate`, FS-O10); CloudPublisher-like prio-2 task never delayed > 5 ms by UpdateService |
-| TC-HW-US-009 | Harness seeds TRIAL_RUNNING metadata (no bootloader); fake probes pass | `confirm` → CONFIRMED read back; `success` printed |
+| TC-HW-US-009 | Harness seeds **TRIAL_PENDING** (with the bootloader a TRIAL_RUNNING record at reset is an unconfirmed trial and is rolled back); the bootloader promotes it; fake probes pass | `confirm` → CONFIRMED read back; `success` printed |
 | TC-HW-US-010 | Harness seeds ROLLED_BACK | `rolled_back` printed; `acknowledge_rollback` → CONFIRMED read back |
 
 ### 23.2 System test over MQTT (gated, §4.3)
@@ -1011,10 +1013,10 @@ harness fakes that print the posted events.
 | US-O2 | Self-check cloud timeout of 60 s is provisional | Measure the reconnect time after boot (~12 s broker-drop recovery, ~4 s TLS measured for CloudPublisher) | Open |
 | US-O3 | Stall limit of 10 min is a design value, not an SRS figure | Review at system test | Open |
 | US-O4 | Self-check cannot prove the Field Device link (poller gated by the start gate); "no internet" rolls a good image back | Accepted per HLD; revisit if a field case appears | Open |
-| US-O5 | Broker policy for `/ota` and `/ota/data` (AWS IoT policy, Mosquitto ACL) | Write in `tools/ota/README.md` with `ota_server.py` | Open |
-| US-O6 | Stack: `verify` runs software ECDSA in this task; FS-O4 (mbedTLS heap, no static arena) is inherited, so REQ-NF-408 is not yet met for verify | Measure the high-water mark in TC-HW-US-001; FS-O4 resolution applies here | Open |
-| US-O7 | Full swap, trial and rollback on target need the bootloader | Bootloader LLD (FS-O7) | Open |
-| US-O8 | HLD amendments B1–B4 and the VP diagrams | Docs PR before or with the code PR | Open |
+| US-O5 | Broker policy for `/ota` and `/ota/data` (AWS IoT policy, Mosquitto ACL) | **Done 2026-10-27:** `tools/ota/README.md` (Mosquitto ACL and AWS IoT policy), with `scripts/ota_server.py` | Closed |
+| US-O6 | Stack: `verify` runs software ECDSA in this task; FS-O4 (mbedTLS heap, no static arena) is inherited, so REQ-NF-408 is not yet met for verify | **Stack measured 2026-10-27: 580 of 1024 words free after a 480 KB download, verify and install** (peak use about 1.7 KB of the 4 KB), via `update_service_stack_free_words()`. The mbedTLS heap use (FS-O4) is not measured here | Stack closed; FS-O4 open |
+| US-O7 | Full swap, trial and rollback on target need the bootloader | **Done 2026-10-27** (bootloader.md, PR #102): swap, trial, confirm and rollback measured on the board (§26.4) | Closed |
+| US-O8 | HLD amendments B1–B4 and the VP diagrams | **B1–B4 done 2026-10-27** (PR #104; `components.md`, `state-machines.md`, `sequence-diagrams.md`). CPC-1..6 done on `feature/phase-4-gw-cloud_publisher_ota` (cloud-publisher-lld.md CP-D17). The Visual Paradigm model and PNG diagrams are not updated | Partly closed |
 | v0.1 US-O1 | Watchdog during apply | Step-wise install with a yield (FS-D7) | **Closed** |
 | v0.1 US-O2 | `ILifecycle.get_self_check_result()` | UpdateService runs the probes itself (§13) | **Closed** |
 | v0.1 US-O3 | NVM region for UpdateService | Not needed (US-D3) | **Closed** |
@@ -1075,7 +1077,7 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 | Code | `firmware/gateway/application/update_service/` (7 files; `update_service_task.h` is the private header the two `.c` files share) |
 | Host tests | 70 cases in four suites: `api` 23, `download` 22, `apply` 12, `boot` 13 (TC-US-001..012, 020..035, 040..049, 060..069, 080, 081 plus the extra cases named in the files) |
 | Full projects | Gateway 1271 tests, 0 failures; default project 773 unchanged |
-| Hardware | Not run. `integration-tests/update_service/main_test_update_service.c` and `scripts/ota_uart_server.py` implement §23.1 except TC-HW-US-008 (gap meter, stack high-water mark), which stays with FS-O10 / US-O6 |
+| Hardware | Run 2026-10-27, §26.4: TC-HW-US-001..011 and the self-check-failure rollback pass |
 
 ### 26.2 Deviations from the text above
 
@@ -1095,9 +1097,68 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
-| US-O9 | The bench harness has not been run on the board (TC-HW-US-001..007, 009, 010) | Needs a release key, both slot images, the bootloader and the un-excluded `firmware_store` in a bench-local `.cproject` (see the harness header) | Open |
+| US-O9 | The bench harness has not been run on the board (TC-HW-US-001..007, 009, 010) | **Done 2026-10-27** (§26.4), including TC-HW-US-008 (gap meter, stack), the 480 KB maximum image and TC-HW-US-011 (power cuts). Still open: MQTT on the board (needs `main()`) | Closed |
 | US-O10 | `LC_EVENT_OTA_RESET_REQUESTED` / `_FINISHED` exist but LifecycleController does not act on them yet (LCC-2) | **Done 2026-10-27** on `feature/phase-4-gw-lifecycle_ota_events` (LCC-2..4; lifecycle-controller-lld.md LC-D19..D22). Binding in `main()` is LC-O15 | Closed |
 | US-O11 | A rejected command is reported but nothing tells LifecycleController when `start_timeout` fires after it accepted `OTA_REQUESTED` and never called `start()` | Check with LCC-2: LifecycleController never takes the event without calling `start()`, so this should not occur | Open |
+
+### 26.4 Hardware results (B-L475E-IOT01A, 2026-10-27)
+
+Real FreeRTOS, FirmwareStore, InternalFlashDriver and QspiFlashDriver, the real bootloader
+(bootloader.md), the harness as the running image in both slots, signed 130 332-byte images (a
+130 KB body, not the 480 KB maximum), commands and chunks over the debug UART at 115 200 baud
+(`scripts/ota_uart_server.py`). The harness plays LifecycleController's part.
+
+| ID | Scenario | Result |
+|---|---|---|
+| TC-HW-US-001 | Valid update A→B: 128 chunks, verify, install, activate, reset, bootloader trial, self-check, confirm | PASS. `accepted` at 0.10 s; `OTA_RESET_REQUESTED` at 24.35 s (download over UART plus verify plus install); reset 2.0 s later (grace period); bootloader `in=2 out=3`; `success` 0.07 s after the boot message with the new version |
+| TC-HW-US-002 | Server silent from 32 KB | PASS. `failed / download_failed` exactly 15.0 s after the last chunk: three 5 s timeouts |
+| TC-HW-US-003 | Link reported down for 120 s at 32 KB, then up | PASS. No failure counted; the next request after the link returned (0.46 s, one poll tick) was for the same offset, 32 768; update completed |
+| TC-HW-US-004 | Board reset while chunk 65 536 was outstanding, same job sent again | PASS. Resumed at exactly offset 65 536; finished in 16 s instead of 24 s |
+| TC-HW-US-005 | One flipped body byte | PASS. `failed / hash_mismatch`; the running slot untouched |
+| TC-HW-US-006 | Image linked for the other slot | PASS. `failed / wrong_slot` |
+| TC-HW-US-007 | Second command during the download | PASS. `rejected / busy` for the second job; the first update completed |
+| TC-HW-US-009 | `SEED T` (TRIAL_PENDING) | PASS. Bootloader `in=2 out=3`, self-check resumed, `success`, CONFIRMED |
+| TC-HW-US-010 | `SEED R` (ROLLED_BACK) | PASS. `rolled_back` reported with the count, acknowledged, CONFIRMED |
+| Self-check failure (TC-SYS-OTA-002 analogue, `BENCH_SELFCHECK_FAIL` build) | An image whose sensors probe never becomes ready | PASS. Verdict after 59.7 s of the 60 s budget; `rollback` issued 0.05 s later; the previous image was running and had reported `rolled_back` **0.23 s after the failure decision** (REQ-NF-204: 10 s); previous version CONFIRMED |
+
+Five successful updates and one rolled-back update alternated between the two slots (boot-record
+generations 3 to 24) with no inconsistency. The bootloader verified a 130 KB body in 69 ms at 48 MHz.
+
+**Maximum image (480 KB body, 491 648-byte file), 2026-10-27:** 481 chunk requests; `accepted` to
+`OTA_RESET_REQUESTED` **90.2 s** over the 115 200-baud debug UART (the UART is the bottleneck:
+≈ 90 ms per kilobyte, so this is a ceiling for the transport and says nothing of the MQTT rate,
+US-O1); the bootloader then verified all 491 520 bytes in **201 ms**; `success` followed 0.05 s
+after the new image's boot message.
+
+| Measurement | Value |
+|---|---|
+| Longest gap between 1 kHz interrupts across the whole update, running from Slot B (bank 2) | 1.0 ms |
+| The same, running from Slot A (bank 1), where the metadata erase stalls the code | **22.5 ms** (one page erase; limit 30 ms, FS-O10) |
+| `UpdateServiceTask` stack free after download, ECDSA verify and install | 580 of 1024 words (peak use ≈ 1.7 KB of 4 KB) |
+
+**TC-HW-US-011, power cuts** (`CUT` command: the harness resets itself at a chosen point; then the same
+job is sent again). 25 cut points: staging after 60 chunks; install step 1, 32 and 64; right after
+`install_begin`; just before `activate`; and 1, 2, 3 ... 24 ms into `activate`.
+
+| Cut during | Device after the reset | Same job re-sent |
+|---|---|---|
+| Staging (60 chunks) | Old image, CONFIRMED | Resumes at exactly 61 440; completes |
+| `install_begin`, any install step | Old image, CONFIRMED | Staged file found complete; verify, install, activate; completes |
+| `activate` before the record commits (running from Slot B: 1 to 21 ms, the page erase) | Old image, CONFIRMED | Completes |
+| `activate` at or after 22 ms from Slot B (record committed) | New image, trial-booted by the bootloader, self-check passed, CONFIRMED | Not needed |
+
+The record write is atomic at about 22 ms from Slot B; no cut point left the device unbootable or in a
+state that needed a different job. From Slot A the CPU is stalled by the erase and the interrupt that
+triggers the cut cannot run until the write is over, so every cut from Slot A lands after the commit;
+the torn-write window can only be reached from Slot B.
+
+**Found on the bench and fixed:** `SEED T` wrote TRIAL_RUNNING, which the real bootloader rolls back;
+it now writes TRIAL_PENDING. The UART server ended the run on the second command's busy
+rejection; it now checks it and goes on.
+
+**Not covered:** the MQTT transport (CloudPublisher on the board; needs the Gateway `main()`), the
+mbedTLS heap use of `verify` (FS-O4), and the application-side ECC NMI handler, which is built into
+the harness image but was not triggered (no torn record was read by the application).
 
 ---
 

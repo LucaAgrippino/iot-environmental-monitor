@@ -87,9 +87,10 @@
  *                 is what exercises CP-D10's ticked reconnect for real
  *
  *   TC-HW-CP-013  LifecycleController operations (CP-D16): is_ready() is true,
- *                 flush() and report_rollback_result() post their requests, and
- *                 {"event":"ota","result":"rolled_back"} arrives on
- *                 dt/iotmonitor/<serial>/results (watch with mosquitto_sub; the
+ *                 flush() and the OTA transport's report() post their requests, and
+ *                 {"event":"ota","result":"rolled_back","reason":"rollback",...}
+ *                 arrives on dt/iotmonitor/<serial>/ota/result (watch with
+ *                 mosquitto_sub; the
  *                 publishes_sent counter of TC-HW-CP-009 rises by one)
  *
  * WIFITASK-O1 Phase 4 (wifi-task.md §10) — the non-blocking recv path
@@ -497,14 +498,6 @@ bool config_manager_apply(config_service_handle_t handle, const uint8_t *payload
     return true;
 }
 
-void update_service_handle_command(update_service_handle_t handle, const uint8_t *payload,
-                                   uint32_t len)
-{
-    (void) handle;
-    (void) payload;
-    (void) len;
-}
-
 void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len)
 {
     (void) handle;
@@ -715,7 +708,8 @@ static void cloud_publisher_bringup_task(void *arg)
         .health_write = (health_monitor_handle_t) 1,
         .cfg_read = (config_service_handle_t) 1,
         .cfg_write = (config_service_handle_t) 1,
-        .update_svc = NULL, /* CP-O1: legitimately NULL until UpdateService LLD */
+        .update_ops = NULL, /* no UpdateService in this harness: the OTA topics stay unsubscribed */
+        .update = NULL,
         .lifecycle = (lifecycle_handle_t) 1,
         .mqtt_connect_cfg = connect_cfg,
     };
@@ -735,12 +729,23 @@ static void cloud_publisher_bringup_task(void *arg)
     {
         bringup_fail("TC-HW-CP-013  cloud_publisher_flush() failed");
     }
-    if (cloud_publisher_report_rollback_result(cp_handle) != CP_ERR_OK)
+
+    /* The OTA transport (CPC-5): a report queued through it goes out at QoS 1 on .../ota/result. */
+    iota_transport_t ota;
+    const us_ota_report_t rep = {.job_known = false,
+                                 .result = US_RESULT_ROLLED_BACK,
+                                 .reason = US_REASON_ROLLBACK,
+                                 .version = 0x01000000UL,
+                                 .rollback_count = 0U};
+
+    if ((cloud_publisher_get_ota_transport(cp_handle, &ota) != CP_ERR_OK) ||
+        !ota.report(ota.ctx, &rep))
     {
-        bringup_fail("TC-HW-CP-013  cloud_publisher_report_rollback_result() failed");
+        bringup_fail("TC-HW-CP-013  the OTA transport report was not queued");
     }
-    LOG_INFO("CloudPub", "TC-HW-CP-013  is_ready true; flush and rollback report posted - expect "
-                         "{\"event\":\"ota\",\"result\":\"rolled_back\"} on .../results");
+    LOG_INFO("CloudPub", "TC-HW-CP-013  is_ready true; flush posted and OTA report queued - expect "
+                         "{\"event\":\"ota\",\"result\":\"rolled_back\",\"reason\":\"rollback\","
+                         "\"version\":\"1.0.0\",\"rollbacks\":0} on .../ota/result");
 
     /* TC-HW-CP-007/008/009: the telemetry (10 s), health (20 s) and stats
      * (1 Hz) timers now drive CloudPublisherTask on their own. The handle

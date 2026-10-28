@@ -36,6 +36,24 @@
 #define IT_LINE_MAG_DRDY (8U)     /* PC8  — LIS3MDL DRDY     */
 #define IT_LINE_IMU_INT1 (11U)    /* PD11 — LSM6DSL INT1     */
 
+volatile uint32_t g_flash_ecc_nmi_count;
+
+void NMI_Handler(void)
+{
+    if ((FLASH->ECCR & FLASH_ECCR_ECCD) != 0U)
+    {
+        g_flash_ecc_nmi_count++;
+        /* ECCD is cleared by writing 1; keep the interrupt-enable bit as it is. */
+        FLASH->ECCR = FLASH_ECCR_ECCD | (FLASH->ECCR & FLASH_ECCR_ECCIE);
+        return;
+    }
+
+    for (;;)
+    {
+        /* An NMI that is not a flash ECC error is not recoverable here. */
+    }
+}
+
 static inline bool it_line_pending(uint8_t line)
 {
     return (EXTI->PR1 & (1UL << line)) != 0U;

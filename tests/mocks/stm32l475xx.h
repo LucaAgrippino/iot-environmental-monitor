@@ -222,6 +222,7 @@ extern PWR_TypeDef g_mock_pwr;
 typedef struct
 {
     volatile uint32_t ACR; /**< Access control register, offset 0x00. */
+    volatile uint32_t ECCR; /**< ECC register (the mock keeps no offsets), NMI_Handler. */
 } FLASH_TypeDef;
 
 extern FLASH_TypeDef g_mock_flash;
@@ -235,6 +236,12 @@ extern FLASH_TypeDef g_mock_flash;
 #define FLASH_ACR_PRFTEN       (1UL << FLASH_ACR_PRFTEN_Pos)
 #define FLASH_ACR_ICEN_Pos     (9U)
 #define FLASH_ACR_ICEN         (1UL << FLASH_ACR_ICEN_Pos)
+
+/* --- FLASH_ECCR bits (RM0351 3.7.8) ---------------------------------- */
+#define FLASH_ECCR_ECCIE_Pos   (24U)
+#define FLASH_ECCR_ECCIE       (1UL << FLASH_ECCR_ECCIE_Pos)
+#define FLASH_ECCR_ECCD_Pos    (31U)
+#define FLASH_ECCR_ECCD        (1UL << FLASH_ECCR_ECCD_Pos)
 
 /* ====================================================================== */
 /* §CoreDebug — Cortex-M4 debug control (CpuDriver)                       */

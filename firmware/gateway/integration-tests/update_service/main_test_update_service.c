@@ -25,8 +25,15 @@
  *   DATA <job> <offset> <len>          followed by <len> raw bytes: one chunk (on_chunk)
  *   LINK <0|1>                         the transport's is_connected() answer
  *   PROBE <sensors 0|1> <modbus 0|1>   the self-check probes
- *   SEED <T|R>                         write a TRIAL_RUNNING / ROLLED_BACK record, then reset
+ *   SEED <T|R>                         write a TRIAL_PENDING / ROLLED_BACK record, then reset
  *   INFO                               print the boot info
+ *   STAT                               print the UpdateServiceTask stack headroom, the longest gap
+ *                                      between 1 kHz interrupts and the absorbed ECC NMIs
+ *   GAP                                reset the gap meter
+ *   CUT STAGE <n> | STEP <n> | BEGIN | ACT <ms> | OFF
+ *                                      power cut by reset, once: after the n-th staged chunk, the
+ *                                      n-th install step, install_begin, or <ms> milliseconds into
+ *                                      activate (0 = just before it). Lost at the reset.
  * device -> host:
  *   REQ <job> <A|B> <offset> <len>     a chunk request
  *   REPORT <result> <reason> <job|-> <version hex> <rollbacks>
@@ -35,14 +42,25 @@
  *
  * Test sequence (TC-HW-US-nnn from §23.1) is driven by scripts/ota_uart_server.py:
  *   001   valid max-size Slot-B image: accepted, every chunk, verify, install, activate, reset.
- *   002   the server stops answering for 30 s: three retries, failed/download_failed.
+ *   002   the server stops answering: three retries, failed/download_failed.
  *   003   LINK 0 for 2 minutes, then LINK 1: no failure counted, resumes at the same offset.
  *   004   power cut mid-download, send the same job again: resumes <= 4 KB before the cut.
- *   005   one flipped body byte: failed/hash_mismatch.        006  Slot-A-linked:
- * failed/wrong_slot. 007   a second CMD during the download: rejected/busy. 009   SEED T: after the
- * reset the harness resumes the self-check; success, CONFIRMED read back. 010   SEED R: after the
- * reset rolled_back is reported and acknowledged, CONFIRMED read back. 008   (gap meter, stack
- * high-water mark) is not in this harness: see US-O6 and FS-O10.
+ *   005   one flipped body byte: failed/hash_mismatch.
+ *   006   an image linked for the other slot: failed/wrong_slot.
+ *   007   a second CMD during the download: rejected/busy, the first update completes.
+ *   009   SEED T: the bootloader promotes TRIAL_PENDING to TRIAL_RUNNING and the harness resumes
+ *         the self-check; success, CONFIRMED read back. (A TRIAL_RUNNING record at reset would be
+ *         an unconfirmed trial, and the bootloader would roll it back.)
+ *   010   SEED R: after the reset rolled_back is reported and acknowledged, CONFIRMED read back.
+ *   011   CUT: a reset in the middle of staging, install_begin, an install step or activate (the
+ *         flash is mid-program for ACT), then the same job again: the device boots its old image
+ *         and the update completes (REQ-NF-214).
+ *   008   the 1 kHz TIM7 gap meter runs throughout: STAT after an update gives the longest gap
+ *         (<= 30 ms, FS-O10) and the UpdateServiceTask stack headroom (US-O6).
+ *
+ * BENCH_SELFCHECK_FAIL: build with -DBENCH_SELFCHECK_FAIL and the sensors probe never becomes
+ * ready, so an image built this way fails its self-check and is rolled back (TC-SYS-OTA-002, the
+ * REQ-NF-204 timing).
  *
  * Integration checklist:
  *   [ ] Every host command ends in the expected report
@@ -88,6 +106,13 @@
 #define BENCH_TASK_PRIORITY (2U)
 #define BENCH_POLL_MS (5U)
 #define RAW_WAIT_MS (2000U)
+
+#define GAP_TIMER_HZ (1000U)
+#define US_PER_S (1000000U)
+
+/** Uncorrectable flash ECC errors absorbed by the firmware's own NMI_Handler (Src/stm32l4xx_it.c).
+ */
+extern volatile uint32_t g_flash_ecc_nmi_count;
 
 /* ---------------------------------------------------------------------- */
 /* Console and the receive ring (filled by the UART interrupt)             */
@@ -145,11 +170,75 @@ static void say_uu(const char *fmt, unsigned long a, unsigned long b)
 }
 
 /* ---------------------------------------------------------------------- */
+/* TC-HW-US-008: the longest gap between 1 kHz interrupts                  */
+/* ---------------------------------------------------------------------- */
+
+/* Power-cut injection (TC-HW-US-011): the FirmwareStore vtable is wrapped so that a chosen call
+ * resets the board. All of it is RAM state and so is gone after the reset. */
+typedef enum
+{
+    CUT_NONE = 0,
+    CUT_STAGE,
+    CUT_STEP,
+    CUT_BEGIN,
+    CUT_ACT
+} cut_kind_t;
+
+static volatile cut_kind_t s_cut_kind;
+static volatile uint32_t s_cut_n;
+static volatile uint32_t s_cut_count;
+static volatile uint32_t s_cut_ms_left;
+
+static volatile uint32_t s_gap_last;
+static volatile uint32_t s_gap_max_cycles;
+
+void TIM7_IRQHandler(void)
+{
+    const uint32_t now = DWT->CYCCNT;
+    const uint32_t gap = now - s_gap_last;
+
+    TIM7->SR = 0U;
+
+    if (s_cut_ms_left != 0U)
+    {
+        s_cut_ms_left--;
+        if (s_cut_ms_left == 0U)
+        {
+            NVIC_SystemReset(); /* the power cut, in the middle of whatever is running */
+        }
+    }
+
+    if ((s_gap_last != 0U) && (gap > s_gap_max_cycles))
+    {
+        s_gap_max_cycles = gap;
+    }
+
+    s_gap_last = now;
+}
+
+static void gap_timer_start(void)
+{
+    RCC->APB1ENR1 |= RCC_APB1ENR1_TIM7EN;
+    (void) RCC->APB1ENR1; /* read back: the clock is on before the first access */
+
+    TIM7->PSC = (uint16_t) ((cpu_get_pclk1_hz() / US_PER_S) - 1U); /* 1 MHz */
+    TIM7->ARR = (uint16_t) ((US_PER_S / GAP_TIMER_HZ) - 1U);
+    TIM7->DIER = TIM_DIER_UIE;
+    TIM7->CR1 = TIM_CR1_CEN;
+
+    NVIC_EnableIRQ(TIM7_IRQn);
+}
+
+/* ---------------------------------------------------------------------- */
 /* Harness-local stand-ins                                                  */
 /* ---------------------------------------------------------------------- */
 
 static volatile bool s_link_up = true;
+#ifdef BENCH_SELFCHECK_FAIL
+static volatile bool s_sensors = false; /* this image can never pass its self-check */
+#else
 static volatile bool s_sensors = true;
+#endif
 static volatile bool s_modbus = true;
 
 /** Set by the lifecycle stand-in (UpdateServiceTask context), acted on by the bench task. */
@@ -157,6 +246,58 @@ static volatile bool s_start_pending;
 static volatile uint32_t s_start_job;
 static volatile bool s_reset_pending;
 static volatile bool s_rollback_pending;
+
+static ifirmware_image_store_t s_image_ops; /* the real operations, with the cut points wrapped */
+
+static firmware_store_err_t w_write_chunk(firmware_store_t *self, uint32_t offset,
+                                          const uint8_t *data, uint32_t len)
+{
+    const firmware_store_err_t rc = firmware_store_image_ops.write_chunk(self, offset, data, len);
+
+    s_cut_count++;
+    if ((s_cut_kind == CUT_STAGE) && (s_cut_count >= s_cut_n))
+    {
+        NVIC_SystemReset();
+    }
+    return rc;
+}
+
+static firmware_store_err_t w_install_begin(firmware_store_t *self)
+{
+    const firmware_store_err_t rc = firmware_store_image_ops.install_begin(self);
+
+    if (s_cut_kind == CUT_BEGIN)
+    {
+        NVIC_SystemReset();
+    }
+    s_cut_count = 0U;
+    return rc;
+}
+
+static firmware_store_err_t w_install_step(firmware_store_t *self, bool *done_out)
+{
+    const firmware_store_err_t rc = firmware_store_image_ops.install_step(self, done_out);
+
+    s_cut_count++;
+    if ((s_cut_kind == CUT_STEP) && (s_cut_count >= s_cut_n))
+    {
+        NVIC_SystemReset();
+    }
+    return rc;
+}
+
+static firmware_store_err_t w_activate(firmware_store_t *self)
+{
+    if (s_cut_kind == CUT_ACT)
+    {
+        if (s_cut_n == 0U)
+        {
+            NVIC_SystemReset();
+        }
+        s_cut_ms_left = s_cut_n + 1U; /* the 1 kHz interrupt counts it down */
+    }
+    return firmware_store_image_ops.activate(self);
+}
 
 static bool t_is_connected(void *ctx)
 {
@@ -377,6 +518,18 @@ static bool read_raw(uint8_t *buf, uint32_t len)
     return true;
 }
 
+static void print_stat(void)
+{
+    char out[LINE_MAX_LEN];
+    const uint32_t cycles_per_us = cpu_get_sysclk_hz() / US_PER_S;
+
+    (void) snprintf(out, sizeof(out), "STAT us_stack_free_words=%lu gap_max_us=%lu ecc_nmi=%lu\r\n",
+                    (unsigned long) update_service_stack_free_words(s_us),
+                    (unsigned long) (s_gap_max_cycles / cycles_per_us),
+                    (unsigned long) g_flash_ecc_nmi_count);
+    say(out);
+}
+
 static void handle_line(const char *line)
 {
     unsigned long a = 0UL;
@@ -419,7 +572,7 @@ static void handle_line(const char *line)
     }
     else if (strncmp(line, "SEED T", 6U) == 0)
     {
-        seed_and_reset(FIRMWARE_META_STATE_TRIAL_RUNNING);
+        seed_and_reset(FIRMWARE_META_STATE_TRIAL_PENDING);
     }
     else if (strncmp(line, "SEED R", 6U) == 0)
     {
@@ -428,6 +581,44 @@ static void handle_line(const char *line)
     else if (strncmp(line, "INFO", 4U) == 0)
     {
         print_info();
+    }
+    else if (strncmp(line, "STAT", 4U) == 0)
+    {
+        print_stat();
+    }
+    else if (strncmp(line, "CUT ", 4U) == 0)
+    {
+        unsigned long n = 0UL;
+
+        s_cut_count = 0U;
+        s_cut_ms_left = 0U;
+        if (sscanf(line, "CUT STAGE %lu", &n) == 1)
+        {
+            s_cut_kind = CUT_STAGE;
+        }
+        else if (sscanf(line, "CUT STEP %lu", &n) == 1)
+        {
+            s_cut_kind = CUT_STEP;
+        }
+        else if (sscanf(line, "CUT ACT %lu", &n) == 1)
+        {
+            s_cut_kind = CUT_ACT;
+        }
+        else if (strncmp(line, "CUT BEGIN", 9U) == 0)
+        {
+            s_cut_kind = CUT_BEGIN;
+        }
+        else
+        {
+            s_cut_kind = CUT_NONE;
+        }
+        s_cut_n = (uint32_t) n;
+        say((s_cut_kind == CUT_NONE) ? "CUT off\r\n" : "CUT armed\r\n");
+    }
+    else if (strncmp(line, "GAP", 3U) == 0)
+    {
+        s_gap_max_cycles = 0U;
+        say("GAP reset\r\n");
     }
     else
     {
@@ -457,6 +648,7 @@ static void act_as_lifecycle(void)
     if (s_reset_pending)
     {
         s_reset_pending = false;
+        print_stat(); /* the updating image's own figures: it is about to reset */
         say("reset in 2 s (LifecycleController I18)\r\n");
         vTaskDelay(pdMS_TO_TICKS(RESET_GRACE_MS));
         NVIC_SystemReset();
@@ -496,6 +688,11 @@ static void bench_task(void *arg)
 
     char line[LINE_MAX_LEN];
     uint32_t len = 0U;
+
+    /* The scheduler's run-time-stats hook (Src/freertos_hooks.c) zeroes the cycle counter as it
+     * starts, which the meter would read as one gap of 2^32 cycles: arm it from here. */
+    s_gap_last = 0U;
+    s_gap_max_cycles = 0U;
 
     resume_after_boot();
 
@@ -605,8 +802,14 @@ int main(void)
         }
     }
 
+    s_image_ops = firmware_store_image_ops;
+    s_image_ops.write_chunk = w_write_chunk;
+    s_image_ops.install_begin = w_install_begin;
+    s_image_ops.install_step = w_install_step;
+    s_image_ops.activate = w_activate;
+
     const update_service_config_t us_cfg = {
-        .fs_image = &firmware_store_image_ops,
+        .fs_image = &s_image_ops,
         .fs_boot = &firmware_store_boot_ops,
         .fs = s_fs,
         .transport = &s_transport,
@@ -623,6 +826,7 @@ int main(void)
     }
 
     print_info();
+    gap_timer_start();
 
     if (xTaskCreateStatic(bench_task, "UsBench", BENCH_TASK_STACK_WORDS, NULL, BENCH_TASK_PRIORITY,
                           s_bench_stack, &s_bench_tcb) == NULL)

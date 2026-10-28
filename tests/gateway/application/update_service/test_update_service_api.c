@@ -22,6 +22,7 @@
 #include "fake_transport.h"
 #include "freertos_mock.h" /* causes Ceedling to auto-link freertos_mock.c */
 #include "update_service.h"
+#include "us_reason.h"           /* causes Ceedling to auto-link us_reason.c */
 #include "update_service_task.h" /* causes Ceedling to auto-link update_service_task.c */
 #include "us_test_util.h"
 
@@ -464,6 +465,17 @@ void test_TC_US_080_the_mutex_is_never_held_across_a_call_out(void)
     TEST_ASSERT_TRUE(g_mock_xSemaphoreTake_call_count > 0U);
     TEST_ASSERT_EQUAL_UINT32(g_mock_xSemaphoreTake_call_count, g_mock_xSemaphoreGive_call_count);
     TEST_ASSERT_EQUAL_UINT32(0U, fake_audit_violations()); /* also checked in tearDown() */
+}
+
+void test_the_stack_high_water_mark_is_read_from_the_task(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words(ust_us)); /* not created */
+
+    (void) ust_create();
+    g_mock_uxTaskGetStackHighWaterMark_return = 321U;
+    TEST_ASSERT_EQUAL_UINT32(321U, update_service_stack_free_words(ust_us));
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words((update_service_t *) 0x2000));
 }
 
 void test_TC_US_081_a_chunk_that_arrives_while_the_slot_is_full_is_stale(void)

@@ -26,10 +26,14 @@
 
 #define CP_LOG_MODULE "CloudPublisher"
 
+#define CP_OTA_CHUNK_HEADER_LEN                                                                    \
+    8u /**< job (u32 LE) + offset (u32 LE), update-service-lld.md 6.3. */
+
 #define CP_MAX_INSTANCES 1u
 #define CP_JSON_BUF_SIZE 4096u /**< Matches MQTT_PKT_BUF_SIZE; see MQTT-O3. */
 #define CP_ALARM_QUEUE_LEN 8u
 #define CP_CMD_QUEUE_LEN 4u
+#define CP_OTA_QUEUE_LEN 4u /**< Outbound OTA requests and reports (CPC-5). */
 #define CP_TASK_STACK_WORDS 768u
 #define CP_TASK_PRIORITY 3u
 
@@ -56,9 +60,9 @@
 /* Bit 5 is MQTT_CLIENT_WIFI_RECV_READY_BIT, below. */
 #define CP_NOTIFY_FLUSH_REQUEST                                                                    \
     (1u << 6) /**< LifecycleController: drain what is pending (CP-D16). */
-#define CP_NOTIFY_ROLLBACK_REPORT                                                                  \
-    (1u << 7) /**< LifecycleController: report a rollback (CP-D16).                                \
-               */
+/* Bit 7 was the rollback report (CP-D16); UpdateService reports it now (CPC-6). */
+#define CP_NOTIFY_OTA_OUT                                                                          \
+    (1u << 8) /**< UpdateService: an OTA request or report is queued (CPC-5). */
 /* Bit 5 (MQTT_CLIENT_WIFI_RECV_READY_BIT, mqtt_client.h) is set by MqttClient
  * itself, not CloudPublisher — included here so xTaskNotifyWait()'s
  * clear-on-exit mask actually clears it (WIFITASK-O1 Phase 3). Leaving it
@@ -67,7 +71,7 @@
  * cleared afterwards, so every following wait call would return
  * immediately — a busy-loop, not a missed wake. */
 #define CP_NOTIFY_ALL_BITS                                                                         \
-    (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT | CP_NOTIFY_FLUSH_REQUEST | CP_NOTIFY_ROLLBACK_REPORT)
+    (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT | CP_NOTIFY_FLUSH_REQUEST | CP_NOTIFY_OTA_OUT)
 
 #define CP_DEVICE_SERIAL_LEN 25u /**< 24 hex chars (96-bit UID) + null. */
 #define CP_TOPIC_MAX_LEN 64u
@@ -88,6 +92,17 @@ typedef struct
     uint32_t payload_len;
 } cp_command_entry_t;
 
+/** @brief One outbound OTA message waiting for CloudPublisherTask (CPC-5). */
+typedef struct
+{
+    bool is_report; /**< true: report (QoS 1, buffered); false: chunk request (QoS 0). */
+    union
+    {
+        us_chunk_request_t request;
+        us_ota_report_t report;
+    } u;
+} cp_ota_out_t;
+
 struct cloud_publisher_inst
 {
     /* Injected dependencies (all opaque handles) */
@@ -98,7 +113,8 @@ struct cloud_publisher_inst
     health_monitor_handle_t health_write;
     config_service_handle_t cfg_read;
     config_service_handle_t cfg_write;
-    update_service_handle_t update_svc;
+    const iupdate_service_t *update_ops;
+    update_service_t *update;
     lifecycle_handle_t lifecycle;
 
     /* Working state */
@@ -113,10 +129,17 @@ struct cloud_publisher_inst
     char topic_health[CP_TOPIC_MAX_LEN];
     char topic_alarms[CP_TOPIC_MAX_LEN];
     char topic_results[CP_TOPIC_MAX_LEN];
+    char topic_ota_cmd[CP_TOPIC_MAX_LEN];     /**< Subscribed: command (QoS 1).            */
+    char topic_ota_data[CP_TOPIC_MAX_LEN];    /**< Subscribed: chunk (QoS 0).              */
+    char topic_ota_request[CP_TOPIC_MAX_LEN]; /**< Published: chunk request (QoS 0).       */
+    char topic_ota_result[CP_TOPIC_MAX_LEN];  /**< Published: result report (QoS 1).       */
+    bool ota_subscribed;                      /**< Task only: SUBSCRIBEs done on this link. */
+    volatile bool link_up;                    /**< Mirror of is_connected() for any task.  */
 
     /* FreeRTOS objects */
     QueueHandle_t alarm_queue;
     QueueHandle_t command_queue;
+    QueueHandle_t ota_queue;
     TimerHandle_t telemetry_timer;
     TimerHandle_t health_timer;
     TimerHandle_t stats_timer;
@@ -139,6 +162,8 @@ static uint8_t s_alarm_queue_storage[CP_ALARM_QUEUE_LEN * sizeof(cp_alarm_event_
 static StaticQueue_t s_alarm_queue_ctrl;
 static uint8_t s_command_queue_storage[CP_CMD_QUEUE_LEN * sizeof(cp_command_entry_t)];
 static StaticQueue_t s_command_queue_ctrl;
+static uint8_t s_ota_queue_storage[CP_OTA_QUEUE_LEN * sizeof(cp_ota_out_t)];
+static StaticQueue_t s_ota_queue_ctrl;
 
 static StaticTimer_t s_telemetry_timer_ctrl;
 static StaticTimer_t s_health_timer_ctrl;
@@ -164,8 +189,12 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
 static void prv_flush(struct cloud_publisher_inst *inst);
-static void prv_publish_rollback_report(struct cloud_publisher_inst *inst);
+static void prv_drain_ota_out(struct cloud_publisher_inst *inst);
+static void prv_subscribe_ota(struct cloud_publisher_inst *inst);
+static bool prv_ota_enqueue(struct cloud_publisher_inst *inst, const cp_ota_out_t *entry);
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry);
+static void prv_route_ota_command(struct cloud_publisher_inst *inst,
+                                  const cp_command_entry_t *entry);
 static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
                                const sensor_reading_t *reading);
 static void prv_enqueue_alarm(struct cloud_publisher_inst *inst, const cp_alarm_event_t *event);
@@ -204,7 +233,10 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->health_write = config->health_write;
     inst->cfg_read = config->cfg_read;
     inst->cfg_write = config->cfg_write;
-    inst->update_svc = config->update_svc;
+    inst->update_ops = config->update_ops;
+    inst->update = config->update;
+    inst->ota_subscribed = false;
+    inst->link_up = false;
     inst->lifecycle = config->lifecycle;
     inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
     inst->reconnect_countdown_s = 0u; /* CP-D9: attempt connect on the first stats tick */
@@ -221,6 +253,9 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->command_queue =
         xQueueCreateStatic(CP_CMD_QUEUE_LEN, (UBaseType_t) sizeof(cp_command_entry_t),
                            s_command_queue_storage, &s_command_queue_ctrl);
+
+    inst->ota_queue = xQueueCreateStatic(CP_OTA_QUEUE_LEN, (UBaseType_t) sizeof(cp_ota_out_t),
+                                         s_ota_queue_storage, &s_ota_queue_ctrl);
 
     g_active_inst = inst;
 
@@ -278,6 +313,9 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     uint32_t notif = 0u;
     (void) xTaskNotifyWait(0u, CP_NOTIFY_ALL_BITS, &notif, portMAX_DELAY);
 
+    /* The mirror UpdateService reads through IOtaTransport.is_connected (CPC-5). */
+    inst->link_up = mqtt_client_is_connected(inst->mqtt);
+
     /* Alarms and inbound commands run before the periodic telemetry/health
      * publishes: all four ultimately call prv_enqueue_or_publish(), which
      * for QoS1 blocks this single task ~350 ms on the PUBACK, so a telemetry
@@ -292,13 +330,13 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     {
         prv_drain_command_queue(inst);
     }
+    if ((notif & CP_NOTIFY_OTA_OUT) != 0u)
+    {
+        prv_drain_ota_out(inst);
+    }
     if ((notif & CP_NOTIFY_FLUSH_REQUEST) != 0u)
     {
         prv_flush(inst);
-    }
-    if ((notif & CP_NOTIFY_ROLLBACK_REPORT) != 0u)
-    {
-        prv_publish_rollback_report(inst);
     }
     if ((notif & CP_NOTIFY_TELEMETRY_TICK) != 0u)
     {
@@ -467,8 +505,11 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
     {
         inst->reconnect_countdown_s = 0u; /* ready to retry immediately after a future drop */
         inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13: fresh curve next drop */
+        prv_subscribe_ota(inst); /* CPC-1: after every successful connect; retried until it holds */
         return;
     }
+
+    inst->ota_subscribed = false; /* a new session starts with no subscriptions */
 
     if (inst->reconnect_countdown_s > 0u)
     {
@@ -528,14 +569,108 @@ static void prv_flush(struct cloud_publisher_inst *inst)
     }
 }
 
-/* Rollback report (CP-D16): goes through the same gate as every other message, so while the broker
- * is unreachable it is buffered and delivered after the next connect. */
-static void prv_publish_rollback_report(struct cloud_publisher_inst *inst)
-{
-    static const char payload[] = "{\"event\":\"ota\",\"result\":\"rolled_back\"}";
+/* ===================================================================== */
+/* OTA transport (CPC-1, CPC-5)                                           */
+/* ===================================================================== */
 
-    (void) prv_enqueue_or_publish(inst, inst->topic_results, (const uint8_t *) payload,
-                                  (uint32_t) (sizeof(payload) - 1u), MQTT_QOS_1);
+/* Subscribe to the command and chunk topics. Both must succeed for the flag to be set; a failure
+ * is retried on the next stats tick. A Gateway without OTA (update_ops NULL) subscribes to
+ * nothing. */
+static void prv_subscribe_ota(struct cloud_publisher_inst *inst)
+{
+    if ((inst->update_ops == NULL) || inst->ota_subscribed)
+    {
+        return;
+    }
+
+    const mqtt_client_err_t rc_cmd =
+        mqtt_client_subscribe(inst->mqtt, inst->topic_ota_cmd, MQTT_QOS_1);
+    const mqtt_client_err_t rc_data =
+        mqtt_client_subscribe(inst->mqtt, inst->topic_ota_data, MQTT_QOS_0);
+
+    if ((rc_cmd == MQTT_CLIENT_ERR_OK) && (rc_data == MQTT_CLIENT_ERR_OK))
+    {
+        inst->ota_subscribed = true;
+        LOG_INFO(CP_LOG_MODULE, "subscribed to the OTA topics");
+    }
+    else
+    {
+        LOG_WARN(CP_LOG_MODULE, "OTA subscribe failed (cmd=%d, data=%d), retrying", (int) rc_cmd,
+                 (int) rc_data);
+    }
+}
+
+static bool prv_ota_enqueue(struct cloud_publisher_inst *inst, const cp_ota_out_t *entry)
+{
+    if (xQueueSend(inst->ota_queue, entry, 0u) != pdTRUE)
+    {
+        return false;
+    }
+
+    (void) xTaskNotify(inst->task_handle, CP_NOTIFY_OTA_OUT, eSetBits);
+    return true;
+}
+
+/* Send what UpdateService queued. A chunk request is fire-and-forget at QoS 0 and is dropped if
+ * the link is down (UpdateService re-requests at its deadline); a report goes through the normal
+ * gate at QoS 1 so it is buffered while the broker is away. */
+static void prv_drain_ota_out(struct cloud_publisher_inst *inst)
+{
+    cp_ota_out_t entry;
+
+    while (xQueueReceive(inst->ota_queue, &entry, 0u) == pdTRUE)
+    {
+        if (entry.is_report)
+        {
+            const uint32_t len =
+                cp_serialise_ota_report(inst->scratch_buf, CP_JSON_BUF_SIZE, &entry.u.report);
+            if (len > 0u)
+            {
+                (void) prv_enqueue_or_publish(inst, inst->topic_ota_result,
+                                              (const uint8_t *) inst->scratch_buf, len, MQTT_QOS_1);
+            }
+        }
+        else if (mqtt_client_is_connected(inst->mqtt))
+        {
+            const uint32_t len =
+                cp_serialise_ota_request(inst->scratch_buf, CP_JSON_BUF_SIZE, &entry.u.request);
+            if (len > 0u)
+            {
+                (void) mqtt_client_publish(inst->mqtt, inst->topic_ota_request,
+                                           (const uint8_t *) inst->scratch_buf, len, MQTT_QOS_0);
+            }
+        }
+        else
+        {
+            /* Link down: not buffered, UpdateService asks again. */
+        }
+    }
+}
+
+/* cppcheck-suppress constParameterCallback -- the ctx type is fixed by iota_transport_t */
+static bool prv_ota_is_connected(void *ctx)
+{
+    return ((const struct cloud_publisher_inst *) ctx)->link_up;
+}
+
+static bool prv_ota_request_chunk(void *ctx, const us_chunk_request_t *req)
+{
+    cp_ota_out_t entry;
+
+    (void) memset(&entry, 0, sizeof(entry));
+    entry.is_report = false;
+    entry.u.request = *req;
+    return prv_ota_enqueue((struct cloud_publisher_inst *) ctx, &entry);
+}
+
+static bool prv_ota_report(void *ctx, const us_ota_report_t *rep)
+{
+    cp_ota_out_t entry;
+
+    (void) memset(&entry, 0, sizeof(entry));
+    entry.is_report = true;
+    entry.u.report = *rep;
+    return prv_ota_enqueue((struct cloud_publisher_inst *) ctx, &entry);
 }
 
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
@@ -652,9 +787,59 @@ static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
 /* injection hook below in the meantime.                                  */
 /* ===================================================================== */
 
+/** @brief True if @p topic (of @p len bytes) ends with @p suffix. */
+static bool prv_topic_ends_with(const char *topic, uint32_t len, const char *suffix)
+{
+    const uint32_t n = (uint32_t) strlen(suffix);
+
+    return (len >= n) && (memcmp(&topic[len - n], suffix, n) == 0);
+}
+
+/* The OTA chunk (CPC-3): 8-byte header (job, offset; u32 little-endian) then 1..1024 bytes. It is
+ * not queued: the payload does not fit the command queue, UpdateService copies it into its single
+ * chunk slot and returns at once, and the pointer is valid only inside this callback. A chunk that
+ * is not the one outstanding is STALE, which is normal after a retry. */
+static void prv_handle_ota_chunk(struct cloud_publisher_inst *inst, const uint8_t *payload,
+                                 uint32_t payload_len)
+{
+    if ((inst->update_ops == NULL) || (inst->update == NULL))
+    {
+        return;
+    }
+    if (payload_len <= CP_OTA_CHUNK_HEADER_LEN)
+    {
+        LOG_WARN(CP_LOG_MODULE, "OTA chunk too short (%lu bytes)", (unsigned long) payload_len);
+        return;
+    }
+
+    const uint32_t job = (uint32_t) payload[0] | ((uint32_t) payload[1] << 8) |
+                         ((uint32_t) payload[2] << 16) | ((uint32_t) payload[3] << 24);
+    const uint32_t offset = (uint32_t) payload[4] | ((uint32_t) payload[5] << 8) |
+                            ((uint32_t) payload[6] << 16) | ((uint32_t) payload[7] << 24);
+    const update_service_err_t rc =
+        inst->update_ops->on_chunk(inst->update, job, offset, &payload[CP_OTA_CHUNK_HEADER_LEN],
+                                   payload_len - CP_OTA_CHUNK_HEADER_LEN);
+
+    if (rc == UPDATE_SERVICE_ERR_STALE)
+    {
+        LOG_DEBUG(CP_LOG_MODULE, "stale OTA chunk at %lu", (unsigned long) offset);
+    }
+    else if (rc != UPDATE_SERVICE_ERR_OK)
+    {
+        LOG_WARN(CP_LOG_MODULE, "OTA chunk refused (%d)", (int) rc);
+    }
+}
+
 static void prv_msg_cb(struct cloud_publisher_inst *inst, const char *topic, uint16_t topic_len,
                        const uint8_t *payload, uint32_t payload_len)
 {
+    /* /ota/data first: routing is by exact suffix, and "/ota" must not capture it (CPC-2). */
+    if (prv_topic_ends_with(topic, topic_len, MQTT_TOPIC_SUFFIX_OTA_DATA))
+    {
+        prv_handle_ota_chunk(inst, payload, payload_len);
+        return;
+    }
+
     cp_command_entry_t entry;
     (void) memset(&entry, 0, sizeof(entry));
 
@@ -672,6 +857,17 @@ static void prv_msg_cb(struct cloud_publisher_inst *inst, const char *topic, uin
     (void) xTaskNotify(inst->task_handle, CP_NOTIFY_COMMAND_PENDING, eSetBits);
 }
 
+void cloud_publisher_on_message(const char *topic, uint16_t topic_len, const uint8_t *payload,
+                                uint32_t payload_len)
+{
+    if ((g_active_inst == NULL) || (topic == NULL) || (payload == NULL))
+    {
+        return;
+    }
+
+    prv_msg_cb(g_active_inst, topic, topic_len, payload, payload_len);
+}
+
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst)
 {
     cp_command_entry_t entry;
@@ -681,23 +877,67 @@ static void prv_drain_command_queue(struct cloud_publisher_inst *inst)
     }
 }
 
+/* The OTA command (CPC-4): parse it, hand it to UpdateService, or reject it as malformed (UC-19
+ * E2). Whether a well-formed command is acceptable (state, sizes, job range) is UpdateService's
+ * decision and it reports that itself. */
+static void prv_route_ota_command(struct cloud_publisher_inst *inst,
+                                  const cp_command_entry_t *entry)
+{
+    if ((inst->update_ops == NULL) || (inst->update == NULL))
+    {
+        LOG_WARN(CP_LOG_MODULE, "OTA command ignored: no UpdateService");
+        return;
+    }
+
+    us_ota_command_t cmd;
+    uint32_t job = 0u;
+    bool job_known = false;
+
+    if (!cp_parse_ota_command(entry->payload, entry->payload_len, &cmd, &job, &job_known))
+    {
+        const us_ota_report_t rep = {
+            .job_known = job_known,
+            .job = job,
+            .result = US_RESULT_REJECTED,
+            .reason = US_REASON_BAD_COMMAND,
+            .version = 0u,
+            .rollback_count = 0u,
+        };
+        const uint32_t len = cp_serialise_ota_report(inst->scratch_buf, CP_JSON_BUF_SIZE, &rep);
+
+        LOG_WARN(CP_LOG_MODULE, "malformed OTA command rejected");
+        if (len > 0u)
+        {
+            (void) prv_enqueue_or_publish(inst, inst->topic_ota_result,
+                                          (const uint8_t *) inst->scratch_buf, len, MQTT_QOS_1);
+        }
+        return;
+    }
+
+    const update_service_err_t rc = inst->update_ops->handle_command(inst->update, &cmd);
+
+    if (rc != UPDATE_SERVICE_ERR_OK)
+    {
+        LOG_WARN(CP_LOG_MODULE, "OTA command refused by UpdateService (%d)", (int) rc);
+    }
+}
+
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry)
 {
-    if (strstr(entry->topic, "/config") != NULL)
+    if (prv_topic_ends_with(entry->topic, (uint32_t) strlen(entry->topic),
+                            MQTT_TOPIC_SUFFIX_CONFIG))
     {
         bool ok = config_manager_apply(inst->cfg_write, entry->payload, entry->payload_len);
         const char *result = ok ? "{\"result\":\"ack\"}" : "{\"result\":\"reject\"}";
         (void) prv_enqueue_or_publish(inst, inst->topic_results, (const uint8_t *) result,
                                       (uint32_t) strlen(result), MQTT_QOS_1);
     }
-    else if (strstr(entry->topic, "/ota") != NULL)
+    else if (prv_topic_ends_with(entry->topic, (uint32_t) strlen(entry->topic),
+                                 MQTT_TOPIC_SUFFIX_OTA))
     {
-        if (inst->update_svc != NULL) /* CP-O1: update_svc may be NULL. */
-        {
-            update_service_handle_command(inst->update_svc, entry->payload, entry->payload_len);
-        }
+        prv_route_ota_command(inst, entry);
     }
-    else if (strstr(entry->topic, "/control") != NULL)
+    else if (prv_topic_ends_with(entry->topic, (uint32_t) strlen(entry->topic), "/control"))
     {
         lifecycle_handle_remote(inst->lifecycle, entry->payload, entry->payload_len);
     }
@@ -741,6 +981,14 @@ static void prv_build_topics(struct cloud_publisher_inst *inst)
                     inst->device_serial, MQTT_TOPIC_SUFFIX_HEALTH);
     (void) snprintf(inst->topic_alarms, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_PUBLISH,
                     inst->device_serial, MQTT_TOPIC_SUFFIX_ALARMS);
+    (void) snprintf(inst->topic_ota_cmd, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_SUBSCRIBE,
+                    inst->device_serial, MQTT_TOPIC_SUFFIX_OTA);
+    (void) snprintf(inst->topic_ota_data, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_SUBSCRIBE,
+                    inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_DATA);
+    (void) snprintf(inst->topic_ota_request, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_PUBLISH,
+                    inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_REQUEST);
+    (void) snprintf(inst->topic_ota_result, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_PUBLISH,
+                    inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_RESULT);
     /* No shared MQTT_TOPIC_SUFFIX_RESULTS constant exists yet — mqtt_topic_
      * config.h only has OTA_RESULT ("/ota/result"), while this companion's
      * §6 specifies a general "/results" topic for all command acks. Kept
@@ -785,9 +1033,10 @@ cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle)
                : CP_ERR_NO_RESOURCE;
 }
 
-cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_handle_t handle)
+cloud_publisher_err_t cloud_publisher_get_ota_transport(cloud_publisher_handle_t handle,
+                                                        iota_transport_t *out)
 {
-    if (handle == NULL)
+    if ((handle == NULL) || (out == NULL))
     {
         return CP_ERR_NULL_PTR;
     }
@@ -795,9 +1044,13 @@ cloud_publisher_err_t cloud_publisher_report_rollback_result(cloud_publisher_han
     {
         return CP_ERR_NOT_INIT;
     }
-    return (xTaskNotify(handle->task_handle, CP_NOTIFY_ROLLBACK_REPORT, eSetBits) == pdTRUE)
-               ? CP_ERR_OK
-               : CP_ERR_NO_RESOURCE;
+
+    out->ctx = handle;
+    out->is_connected = prv_ota_is_connected;
+    out->request_chunk = prv_ota_request_chunk;
+    out->report = prv_ota_report;
+
+    return CP_ERR_OK;
 }
 
 #ifdef TEST
@@ -818,6 +1071,11 @@ void cloud_publisher_inject_alarm_for_test(cloud_publisher_handle_t handle,
                                            const cp_alarm_event_t *event)
 {
     prv_enqueue_alarm(handle, event);
+}
+
+uint32_t cloud_publisher_ota_entry_size_for_test(void)
+{
+    return (uint32_t) sizeof(cp_ota_out_t);
 }
 
 void cloud_publisher_inject_command_for_test(cloud_publisher_handle_t handle, const char *topic,

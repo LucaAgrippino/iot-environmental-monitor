@@ -27,6 +27,7 @@
 #include "iupdate_service.h"
 #include "lifecycle_controller/ilifecycle.h"
 #include "update_service_types.h"
+#include "us_reason.h"
 
 /** @brief Everything UpdateService needs, bound by the wiring code (§7.1). */
 typedef struct
@@ -52,8 +53,16 @@ typedef struct
 update_service_err_t update_service_create(const update_service_config_t *cfg,
                                            update_service_t **out);
 
-/** @brief Wire string of a reason (§8.4), for CloudPublisher; "" for US_REASON_NONE. */
-const char *update_service_reason_string(us_reason_t reason);
+/**
+ * @brief Words of UpdateServiceTask's stack that have never been used (its high-water mark).
+ *
+ * `verify` runs the software ECDSA in this task, so this is the figure that shows whether the
+ * 4 KB stack of the companion (US-O6) is enough. Reads it from FreeRTOS; 0 for an instance that
+ * was not created.
+ *
+ * @note Threading: any task.
+ */
+uint32_t update_service_stack_free_words(const update_service_t *self);
 
 extern const iupdate_service_t update_service_ops; /**< CloudPublisher.        */
 extern const iupdate_control_t update_control_ops; /**< LifecycleController.   */
