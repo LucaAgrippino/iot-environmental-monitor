@@ -232,7 +232,7 @@ static void post(lifecycle_event_type_t type)
 
 static void remote(const char *json)
 {
-    lifecycle_handle_remote(NULL, (const uint8_t *) json, (uint32_t) strlen(json));
+    lifecycle_handle_remote((const uint8_t *) json, (uint32_t) strlen(json));
 }
 
 static uint32_t telemetry_interval_ms(void)
