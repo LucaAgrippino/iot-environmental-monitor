@@ -1014,7 +1014,7 @@ harness fakes that print the posted events.
 | US-O3 | Stall limit of 10 min is a design value, not an SRS figure | Review at system test | Open |
 | US-O4 | Self-check cannot prove the Field Device link (poller gated by the start gate); "no internet" rolls a good image back | Accepted per HLD; revisit if a field case appears | Open |
 | US-O5 | Broker policy for `/ota` and `/ota/data` (AWS IoT policy, Mosquitto ACL) | **Done 2026-10-27:** `tools/ota/README.md` (Mosquitto ACL and AWS IoT policy), with `scripts/ota_server.py` | Closed |
-| US-O6 | Stack: `verify` runs software ECDSA in this task; FS-O4 (mbedTLS heap, no static arena) is inherited, so REQ-NF-408 is not yet met for verify | **Stack measured 2026-10-27: 580 of 1024 words free after a 480 KB download, verify and install** (peak use about 1.7 KB of the 4 KB), via `update_service_stack_free_words()`. The mbedTLS heap use (FS-O4) is not measured here | Stack closed; FS-O4 open |
+| US-O6 | Stack: `verify` runs software ECDSA in this task; FS-O4 (mbedTLS heap, no static arena) is inherited, so REQ-NF-408 is not yet met for verify | **Stack measured 2026-10-27: 580 of 1024 words free after a 480 KB download, verify and install** (peak use about 1.7 KB of the 4 KB), via `update_service_stack_free_words()`. The mbedTLS heap use (FS-O4) measured 2026-10-28: **3 584 bytes** of heap after download, verify and install, no TLS session open (§26.4) | Stack closed; FS-O4 open (no static arena; with a TLS session open not measured) |
 | US-O7 | Full swap, trial and rollback on target need the bootloader | **Done 2026-10-27** (bootloader.md, PR #102): swap, trial, confirm and rollback measured on the board (§26.4) | Closed |
 | US-O8 | HLD amendments B1–B4 and the VP diagrams | **B1–B4 done 2026-10-27** (PR #104; `components.md`, `state-machines.md`, `sequence-diagrams.md`). CPC-1..6 done on `feature/phase-4-gw-cloud_publisher_ota` (cloud-publisher-lld.md CP-D17). The Visual Paradigm model and PNG diagrams are not updated | Partly closed |
 | v0.1 US-O1 | Watchdog during apply | Step-wise install with a yield (FS-D7) | **Closed** |
@@ -1156,9 +1156,20 @@ the torn-write window can only be reached from Slot B.
 it now writes TRIAL_PENDING. The UART server ended the run on the second command's busy
 rejection; it now checks it and goes on.
 
-**Not covered:** the MQTT transport (CloudPublisher on the board; needs the Gateway `main()`), the
-mbedTLS heap use of `verify` (FS-O4), and the application-side ECC NMI handler, which is built into
-the harness image but was not triggered (no torn record was read by the application).
+**Heap use of `verify` (FS-O4), 2026-10-28:** the harness reports `sbrk(0)` minus `_end` in `STAT`. At
+boot it is 0; after a 132 KB download, ECDSA verify and install it is **3 584 bytes**
+(`UpdateServiceTask` stack 586 of 1024 words free in the same run). This is the heap high-water mark
+of `verify` with no TLS session open.
+
+**Application ECC NMI (BL-O8), 2026-10-28:** `TEAR <us>` rewrites the boot record and resets that many
+microseconds into the program (running from Slot B, where the write does not stall the CPU). A reset
+25 to 45 µs in left a torn copy: the bootloader absorbed one uncorrectable-ECC NMI (`ecc=1`) and the
+application's `NMI_Handler` absorbed two (`ecc_nmi=2`) and kept running, version unchanged. A reset
+50 to 100 µs in left a copy that fails its CRC without an ECC error; 5 to 20 µs left the old record.
+The torn copy stays in flash until the next record write.
+
+**Not covered:** the MQTT transport (CloudPublisher on the board; needs the Gateway `main()`), and
+the heap use of `verify` while a TLS session is open (FS-O4).
 
 ---
 

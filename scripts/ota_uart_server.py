@@ -166,17 +166,25 @@ class Server:
                     # listening for the post-reboot report when a seed or reset was involved.
                     if verdict != "reset" or a.stop_at_reset:
                         self.last_result = verdict
+                        self.leftover = buf  # the harness's pre-reset STAT may already be in it
                         return self.finish()
 
         self.log("timeout")
         return 1
 
     def print_stat(self):
-        """Ask the harness for its measurements (stack headroom, interrupt gap, ECC NMIs)."""
-        self.ser.reset_input_buffer()
-        self.send("STAT")
-        end = time.time() + 2.0
+        """Ask the harness for its measurements (stack headroom, interrupt gap, ECC NMIs, heap).
+
+        With --stop-at-reset the harness has already printed its own STAT line just before its
+        2 s reset grace and is not listening, so read that line instead of asking for another.
+        """
         buf = b""
+        if self.args.stop_at_reset:
+            buf = getattr(self, "leftover", b"")
+        else:
+            self.ser.reset_input_buffer()
+            self.send("STAT")
+        end = time.time() + 2.0
         while time.time() < end and b"STAT" not in buf:
             buf += self.ser.read(256)
         self.log(buf.decode("latin-1").strip() or "no STAT answer")

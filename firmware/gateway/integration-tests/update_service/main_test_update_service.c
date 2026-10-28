@@ -28,8 +28,13 @@
  *   SEED <T|R>                         write a TRIAL_PENDING / ROLLED_BACK record, then reset
  *   INFO                               print the boot info
  *   STAT                               print the UpdateServiceTask stack headroom, the longest gap
- *                                      between 1 kHz interrupts and the absorbed ECC NMIs
+ *                                      between 1 kHz interrupts, the absorbed ECC NMIs and the
+                                      heap high-water mark (FS-O4)
  *   GAP                                reset the gap meter
+ *   TEAR <us>                          rewrite the boot record as CONFIRMED on the copy that is not
+ *                                      selected and reset <us> microseconds into the program: a
+ *                                      torn record. The next boot's FirmwareStore read of that copy
+ *                                      raises the ECC NMI (BL-O8); STAT shows ecc_nmi
  *   CUT STAGE <n> | STEP <n> | BEGIN | ACT <ms> | OFF
  *                                      power cut by reset, once: after the n-th staged chunk, the
  *                                      n-th install step, install_begin, or <ms> milliseconds into
@@ -214,6 +219,28 @@ void TIM7_IRQHandler(void)
     }
 
     s_gap_last = now;
+}
+
+/** Power cut by reset a set number of microseconds after tear_arm(); TIM6 one-shot at 1 MHz. */
+void TIM6_DACUNDER_IRQHandler(void)
+{
+    TIM6->SR = 0U;
+    NVIC_SystemReset();
+}
+
+static void tear_arm(uint32_t us)
+{
+    RCC->APB1ENR1 |= RCC_APB1ENR1_TIM6EN;
+    (void) RCC->APB1ENR1;
+
+    TIM6->CR1 = 0U;
+    TIM6->PSC = (uint16_t) ((cpu_get_pclk1_hz() / US_PER_S) - 1U);
+    TIM6->ARR = (uint16_t) ((us > 0U) ? (us - 1U) : 0U);
+    TIM6->EGR = TIM_EGR_UG; /* load PSC and ARR */
+    TIM6->SR = 0U;
+    TIM6->DIER = TIM_DIER_UIE;
+    NVIC_EnableIRQ(TIM6_DAC_IRQn);
+    TIM6->CR1 = TIM_CR1_CEN | TIM_CR1_OPM;
 }
 
 static void gap_timer_start(void)
@@ -413,8 +440,12 @@ static const ilifecycle_t s_lifecycle = {
 /* Boot record seeding (TC-HW-US-009, -010)                                 */
 /* ---------------------------------------------------------------------- */
 
-/** @brief Write a boot record of the given state to the copy that is not selected, then reset. */
-static void seed_and_reset(uint8_t state)
+/**
+ * @brief Write a boot record of the given state to the copy that is not selected, then reset.
+ * @param tear_us 0 for a normal write; otherwise reset that many microseconds into the program of
+ *                the record (after the page erase), leaving a torn copy.
+ */
+static void seed_and_reset(uint8_t state, uint32_t tear_us)
 {
     firmware_boot_meta_t best = {0};
     uint8_t best_copy = 0U;
@@ -451,8 +482,18 @@ static void seed_and_reset(uint8_t state)
 
     r.crc32 = config_store_crc32((const uint8_t *) &r, FIRMWARE_META_CRC_SPAN);
 
-    if ((internal_flash_driver->erase_page(target) != INTERNAL_FLASH_OK) ||
-        (internal_flash_driver->program(target, (const uint8_t *) &r, 16U) != INTERNAL_FLASH_OK) ||
+    if (internal_flash_driver->erase_page(target) != INTERNAL_FLASH_OK)
+    {
+        say("SEED failed\r\n");
+        return;
+    }
+
+    if (tear_us != 0U)
+    {
+        tear_arm(tear_us); /* the reset lands inside the program below */
+    }
+
+    if ((internal_flash_driver->program(target, (const uint8_t *) &r, 16U) != INTERNAL_FLASH_OK) ||
         (internal_flash_driver->program(target + 16U, ((const uint8_t *) &r) + 16U, 8U) !=
          INTERNAL_FLASH_OK))
     {
@@ -523,10 +564,15 @@ static void print_stat(void)
     char out[LINE_MAX_LEN];
     const uint32_t cycles_per_us = cpu_get_sysclk_hz() / US_PER_S;
 
-    (void) snprintf(out, sizeof(out), "STAT us_stack_free_words=%lu gap_max_us=%lu ecc_nmi=%lu\r\n",
-                    (unsigned long) update_service_stack_free_words(s_us),
-                    (unsigned long) (s_gap_max_cycles / cycles_per_us),
-                    (unsigned long) g_flash_ecc_nmi_count);
+    extern uint8_t _end; /* linker symbol: the heap starts here (Src/sysmem.c) */
+    extern void *_sbrk(ptrdiff_t incr);
+
+    (void) snprintf(
+        out, sizeof(out),
+        "STAT us_stack_free_words=%lu gap_max_us=%lu ecc_nmi=%lu heap_bytes=%lu\r\n",
+        (unsigned long) update_service_stack_free_words(s_us),
+        (unsigned long) (s_gap_max_cycles / cycles_per_us), (unsigned long) g_flash_ecc_nmi_count,
+        (unsigned long) ((uint32_t) (uintptr_t) _sbrk(0) - (uint32_t) (uintptr_t) &_end));
     say(out);
 }
 
@@ -572,11 +618,11 @@ static void handle_line(const char *line)
     }
     else if (strncmp(line, "SEED T", 6U) == 0)
     {
-        seed_and_reset(FIRMWARE_META_STATE_TRIAL_PENDING);
+        seed_and_reset(FIRMWARE_META_STATE_TRIAL_PENDING, 0U);
     }
     else if (strncmp(line, "SEED R", 6U) == 0)
     {
-        seed_and_reset(FIRMWARE_META_STATE_ROLLED_BACK);
+        seed_and_reset(FIRMWARE_META_STATE_ROLLED_BACK, 0U);
     }
     else if (strncmp(line, "INFO", 4U) == 0)
     {
@@ -614,6 +660,11 @@ static void handle_line(const char *line)
         }
         s_cut_n = (uint32_t) n;
         say((s_cut_kind == CUT_NONE) ? "CUT off\r\n" : "CUT armed\r\n");
+    }
+    else if (sscanf(line, "TEAR %lu", &a) == 1)
+    {
+        seed_and_reset(FIRMWARE_META_STATE_CONFIRMED, (uint32_t) a);
+        say("TEAR: the cut did not land\r\n");
     }
     else if (strncmp(line, "GAP", 3U) == 0)
     {
