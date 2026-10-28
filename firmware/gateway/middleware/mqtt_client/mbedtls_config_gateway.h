@@ -20,19 +20,35 @@
  * on-chip RNG (see prv_entropy_poll() in mqtt_client.c). */
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 
-/* mbedTLS's own check_config.h hard-requires this (unconditionally on
- * Windows, so host unit tests need it too). It brings in mbedTLS's
- * internal calloc/free usage for RSA/ECC bignum scratch space — a
- * heap dependency inside the vendored crypto library itself, distinct
- * from and not a violation of this project's "no dynamic allocation
- * after init" rule for MqttClient's own code. Variable-size bignum
- * arithmetic for RSA-2048/ECDHE has no practical static-allocation
- * alternative; this is standard practice for embedded mbedTLS
- * deployments. Bounding this heap (e.g. via
- * mbedtls_memory_buffer_alloc_init() over a fixed static buffer, so
- * mbedTLS itself never touches the linker heap) is part of the
- * RAM-budget validation already tracked as MQTT-O1. */
+/* Platform layer: mbedTLS's allocator and the check_config.h prerequisite of the arena below.
+ * mbedTLS never calls the C library's calloc/free (REQ-NF-408): MBEDTLS_PLATFORM_MEMORY routes
+ * every allocation through mbedtls_platform_set_calloc_free(), and tls_arena_init() points that at
+ * a static arena. Until then the default allocator is the pair below, which refuses every request
+ * (NULL, an mbedTLS ALLOC_FAILED error) instead of silently using the heap. */
+#include <stddef.h>
+
+void *tls_arena_uninit_calloc(size_t count, size_t size);
+void tls_arena_uninit_free(void *ptr);
+
 #define MBEDTLS_PLATFORM_C
+#define MBEDTLS_PLATFORM_MEMORY
+#define MBEDTLS_PLATFORM_STD_CALLOC tls_arena_uninit_calloc
+#define MBEDTLS_PLATFORM_STD_FREE tls_arena_uninit_free
+
+/* The arena's debug dump prints to stderr, which does not exist: print nothing. Its corruption
+ * checks call exit(1): trap, so a damaged arena faults at once instead of running on. */
+#define MBEDTLS_PLATFORM_FPRINTF_MACRO(...) ((void) 0)
+#define MBEDTLS_PLATFORM_EXIT_MACRO(status) __builtin_trap()
+
+/* --- Static arena (tls_arena.c, WP2, MQTT-O1, FS-O4) ----------------
+ * TLS (CloudPublisherTask) and OTA image verification (UpdateServiceTask) both allocate, so the
+ * arena is guarded by a FreeRTOS mutex through mbedTLS's threading layer (threading_alt.h).
+ * MBEDTLS_MEMORY_DEBUG is on in every build, not only in a bring-up one: it costs a few counters
+ * and gives the arena peak (tls_arena_peak_bytes()) for the health report and the harnesses. */
+#define MBEDTLS_MEMORY_BUFFER_ALLOC_C
+#define MBEDTLS_MEMORY_DEBUG
+#define MBEDTLS_THREADING_C
+#define MBEDTLS_THREADING_ALT
 
 /* --- TLS protocol -------------------------------------------------- */
 #define MBEDTLS_SSL_TLS_C
