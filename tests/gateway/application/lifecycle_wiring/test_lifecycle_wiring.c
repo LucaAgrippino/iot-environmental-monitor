@@ -60,6 +60,8 @@ static config_service_err_t s_cfg_restore_result;
 static uint32_t s_cfg_restore_calls;
 static config_service_err_t s_cfg_flush_result;
 static uint32_t s_cfg_flush_calls;
+static config_service_err_t s_cfg_persist_result;
+static uint32_t s_cfg_persist_calls;
 static config_params_t s_params;
 static bool s_params_null;
 
@@ -87,6 +89,12 @@ config_service_err_t config_service_flush(void)
 {
     s_cfg_flush_calls++;
     return s_cfg_flush_result;
+}
+
+config_service_err_t config_service_persist_pending(void)
+{
+    s_cfg_persist_calls++;
+    return s_cfg_persist_result;
 }
 
 const config_params_t *config_service_get_params(void)
@@ -382,6 +390,8 @@ void setUp(void)
     s_cfg_restore_calls = 0U;
     s_cfg_flush_result = CONFIG_SERVICE_OK;
     s_cfg_flush_calls = 0U;
+    s_cfg_persist_result = CONFIG_SERVICE_OK;
+    s_cfg_persist_calls = 0U;
     (void) memset(&s_params, 0, sizeof(s_params));
     s_params.modbus_poll_period_ms = POLL_PERIOD_MS;
     s_params_null = false;
@@ -620,6 +630,17 @@ void test_LW_027_commit_is_a_flush(void)
 
     s_cfg_flush_result = CONFIG_SERVICE_ERR_PERSIST;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.config_manager->commit(NULL));
+}
+
+void test_LW_027b_persist_pending_reaches_ConfigService_and_is_not_a_flush(void)
+{
+    bind_ok();
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.config_manager->persist_pending(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_cfg_persist_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_cfg_flush_calls);
+
+    s_cfg_persist_result = CONFIG_SERVICE_ERR_PERSIST;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.config_manager->persist_pending(NULL));
 }
 
 /* ===================================================================== */
