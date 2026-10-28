@@ -62,6 +62,18 @@
  *   TC-HW-MQTT-009  mqtt_client_get_stats() — counters logged and sanity
  *                   checked (connect_ok == 1, publishes_sent == 2,
  *                   publishes_acked == 1)
+ *   TC-HW-MQTT-014  mbedTLS static arena (WP2, MQTT-O1, FS-O4). Right after the handshake the
+ *                   arena peak is logged; then one ECDSA-P256 verify (the OTA signature check,
+ *                   same mbedTLS calls as ota_crypto.c) runs with the TLS session still open and
+ *                   the peak is logged again. PASS needs the verify to succeed and the C heap
+ *                   (sbrk) not to have grown between mqtt_client_create() and the end of the
+ *                   verify, i.e. mbedTLS used no heap. Expected lines:
+ *                     TC-HW-MQTT-014  arena after TLS handshake: peak=<n> of <size> bytes
+ *                     TC-HW-MQTT-014  arena after verify with session open: peak=<n> of <size>
+ *                       bytes (verify added <d>), heap grew by 0 bytes
+ *                   <size> minus the second peak is the margin; the size is fixed from this number
+ *                   plus 25 % (tls_arena.h). A mqtt_client_connect() failure with an mbedTLS
+ *                   ALLOC_FAILED code means the arena is too small.
  *   TC-HW-MQTT-011  Broker-drop / reconnect resilience (MQTT-O8). Stop the
  *                   MQTT broker when prompted; the test polls
  *                   mqtt_client_process() until disconnect_cb fires (real
@@ -120,8 +132,11 @@
 #include "wifi_driver/wifi_driver.h"
 #include "wifi_task/wifi_task.h"
 
+#include "mbedtls/ecdsa.h"
+#include "mbedtls/ecp.h"
 #include "mqtt_client.h"
 #include "mqtt_topic_config.h"
+#include "tls_arena.h"
 
 #ifdef STM32L475xx
 #include "stm32l475xx.h"
@@ -299,6 +314,79 @@ static void bringup_disconnect_cb(void)
 /* MqttClient task — Phase 2 (post-scheduler).                            */
 /* ---------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------- */
+/* TC-HW-MQTT-014 helpers: a known-answer ECDSA-P256 vector, generated once  */
+/* with an ephemeral key (nothing secret): SHA-256 of a fixed message, its    */
+/* signature and the public point.                                           */
+/* ---------------------------------------------------------------------- */
+
+static const uint8_t s_vector_pubkey[65] = {
+    0x04U, 0x74U, 0xAEU, 0x94U, 0x5FU, 0xD9U, 0x7AU, 0x86U, 0x27U, 0xE5U, 0x62U, 0x62U, 0x66U,
+    0x97U, 0x95U, 0x01U, 0xB4U, 0x2EU, 0x8DU, 0x61U, 0x5BU, 0xC0U, 0xFBU, 0x96U, 0xACU, 0x5BU,
+    0x7BU, 0x76U, 0xB5U, 0x41U, 0xA3U, 0x0DU, 0xDFU, 0xBDU, 0x7FU, 0xD5U, 0x7EU, 0x44U, 0x92U,
+    0x8CU, 0x3FU, 0x35U, 0x4EU, 0x15U, 0x2BU, 0xB1U, 0x3CU, 0x73U, 0xE8U, 0xF3U, 0x88U, 0x51U,
+    0x52U, 0x8FU, 0x36U, 0x1BU, 0xE8U, 0x25U, 0x2EU, 0xBCU, 0xF9U, 0xD3U, 0xB0U, 0x2FU, 0xCEU,
+};
+
+static const uint8_t s_vector_digest[32] = {
+    0x7EU, 0xE1U, 0xD1U, 0x73U, 0x28U, 0xCCU, 0x0DU, 0xF8U, 0x68U, 0x44U, 0x0DU,
+    0x00U, 0x05U, 0x4BU, 0xAFU, 0x58U, 0x24U, 0xC5U, 0xD1U, 0x8FU, 0x62U, 0x38U,
+    0xCFU, 0xA6U, 0x10U, 0x16U, 0x54U, 0xBCU, 0x6AU, 0xF2U, 0x4AU, 0x06U,
+};
+
+static const uint8_t s_vector_r[32] = {
+    0x9AU, 0x93U, 0x11U, 0x56U, 0xD6U, 0x06U, 0x8BU, 0x91U, 0x35U, 0x24U, 0x61U,
+    0xAFU, 0xA5U, 0xEBU, 0x1EU, 0xBEU, 0x6AU, 0xCBU, 0x8FU, 0x4BU, 0x85U, 0xE7U,
+    0x56U, 0x60U, 0x61U, 0xA1U, 0xA0U, 0x79U, 0xE9U, 0xB1U, 0x6CU, 0x81U,
+};
+
+static const uint8_t s_vector_s[32] = {
+    0x7CU, 0x4AU, 0xAEU, 0xCCU, 0xA1U, 0x70U, 0x2FU, 0x63U, 0x41U, 0x02U, 0x43U,
+    0x3EU, 0x40U, 0xB2U, 0x18U, 0x9AU, 0xB6U, 0x8EU, 0x83U, 0xD4U, 0x5BU, 0xAAU,
+    0x5FU, 0x91U, 0x5FU, 0x48U, 0xD0U, 0x73U, 0xA1U, 0x56U, 0x6FU, 0x36U,
+};
+
+/** @brief Bytes the C heap (newlib, via _sbrk) has handed out since boot. */
+static uint32_t bringup_heap_bytes(void)
+{
+    extern uint8_t _end; /* linker symbol: the heap starts here (Src/sysmem.c) */
+    extern void *_sbrk(ptrdiff_t incr);
+
+    return (uint32_t) ((uintptr_t) _sbrk(0) - (uintptr_t) &_end);
+}
+
+/** @brief The OTA signature check on the known-answer vector (same calls as ota_crypto.c). */
+static bool bringup_ecdsa_verify_once(void)
+{
+    mbedtls_ecp_group grp;
+    mbedtls_ecp_point q;
+    mbedtls_mpi r;
+    mbedtls_mpi s;
+    bool ok = false;
+
+    mbedtls_ecp_group_init(&grp);
+    mbedtls_ecp_point_init(&q);
+    mbedtls_mpi_init(&r);
+    mbedtls_mpi_init(&s);
+
+    if ((mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1) == 0) &&
+        (mbedtls_ecp_point_read_binary(&grp, &q, s_vector_pubkey, sizeof(s_vector_pubkey)) == 0) &&
+        (mbedtls_ecp_check_pubkey(&grp, &q) == 0) &&
+        (mbedtls_mpi_read_binary(&r, s_vector_r, sizeof(s_vector_r)) == 0) &&
+        (mbedtls_mpi_read_binary(&s, s_vector_s, sizeof(s_vector_s)) == 0))
+    {
+        ok =
+            (mbedtls_ecdsa_verify(&grp, s_vector_digest, sizeof(s_vector_digest), &q, &r, &s) == 0);
+    }
+
+    mbedtls_mpi_free(&s);
+    mbedtls_mpi_free(&r);
+    mbedtls_ecp_point_free(&q);
+    mbedtls_ecp_group_free(&grp);
+
+    return ok;
+}
+
 static StaticTask_t s_mqtt_task_tcb;
 static StackType_t s_mqtt_task_stack[MQTT_TASK_STACK_WORDS];
 
@@ -349,6 +437,8 @@ static void mqtt_bringup_task(void *arg)
         }
     }
 
+    const uint32_t heap_before_tls = bringup_heap_bytes();
+
     /* TC-HW-MQTT-003 */
     mqtt_client_config_t mqtt_config = {
         .wifi = wifitask_handle,
@@ -385,6 +475,30 @@ static void mqtt_bringup_task(void *arg)
     }
     LOG_INFO("Mqtt", "TC-HW-MQTT-004  connected (TLS 1.2 + MQTT CONNACK accepted)");
     vTaskDelay(pdMS_TO_TICKS(200));
+
+    /* TC-HW-MQTT-014: the arena peak after the handshake, then a verify with the session open. */
+    const uint32_t handshake_peak = tls_arena_peak_bytes();
+    LOG_INFO("Mqtt", "TC-HW-MQTT-014  arena after TLS handshake: peak=%lu of %lu bytes",
+             (unsigned long) handshake_peak, (unsigned long) TLS_ARENA_SIZE_BYTES);
+
+    if (!bringup_ecdsa_verify_once())
+    {
+        bringup_fail("TC-HW-MQTT-014  ECDSA verify with the TLS session open failed");
+    }
+
+    const uint32_t verify_peak = tls_arena_peak_bytes();
+    const uint32_t heap_growth = bringup_heap_bytes() - heap_before_tls;
+    LOG_INFO("Mqtt",
+             "TC-HW-MQTT-014  arena after verify with session open: peak=%lu of %lu bytes "
+             "(verify added %lu), heap grew by %lu bytes",
+             (unsigned long) verify_peak, (unsigned long) TLS_ARENA_SIZE_BYTES,
+             (unsigned long) (verify_peak - handshake_peak), (unsigned long) heap_growth);
+
+    if (heap_growth != 0U)
+    {
+        bringup_fail(
+            "TC-HW-MQTT-014  the C heap grew: mbedTLS (or other code) still allocates there");
+    }
 
     /* TC-HW-MQTT-005 */
     static const uint8_t telemetry_payload[] = "{\"temp_c\":22.5}";
@@ -590,6 +704,8 @@ int main(void)
     {
         bringup_halt();
     }
+
+    tls_arena_init(); /* before the scheduler and before any mbedTLS call (WP2) */
 
     if (gpio_init() != GPIO_OK)
     {

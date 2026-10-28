@@ -181,6 +181,10 @@
     - MQTT_DO_NOT_USE_CUSTOM_CONFIG
     - MBEDTLS_CONFIG_FILE=\"mbedtls_config_gateway.h\"
     - TEST
+  :test_tls_arena:
+    - STM32L475xx
+    - MBEDTLS_CONFIG_FILE=\"mbedtls_config_gateway.h\"
+    - TEST
 
 :cmock:
   :mock_prefix: mock_

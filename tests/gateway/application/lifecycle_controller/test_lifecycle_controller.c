@@ -59,6 +59,7 @@ typedef enum
     C_HA_RESET,
     C_HA_LED,
     C_WDG,
+    C_CM_PERSIST,
     C_COUNT
 } call_id_t;
 
@@ -158,6 +159,24 @@ static lc_dep_status_t spy_cm_restore(void *ctx, const void *buf, uint32_t len)
 }
 
 SPY_STATUS(spy_cm_commit, C_CM_COMMIT)
+
+/* persist_pending runs on every Operational pass (LC-D23), so it is kept out of the shared trace
+ * unless a test turns the tracing on to order it against a reset or the fault LED. */
+static bool g_trace_persist;
+
+static lc_dep_status_t spy_cm_persist(void *ctx)
+{
+    (void) ctx;
+    if (g_trace_persist)
+    {
+        note(C_CM_PERSIST);
+    }
+    else
+    {
+        g_calls[C_CM_PERSIST]++;
+    }
+    return g_status[C_CM_PERSIST];
+}
 SPY_STATUS(spy_sens_init, C_SENS_INIT)
 SPY_READY(spy_sens_ready, C_SENS_READY)
 SPY_STATUS(spy_sens_reconf, C_SENS_RECONF)
@@ -233,7 +252,8 @@ static const lc_config_store_if_t k_config_store = {
 static const lc_config_manager_if_t k_config_manager = {.apply_loaded = spy_cm_apply,
                                                         .snapshot = spy_cm_snapshot,
                                                         .restore_snapshot = spy_cm_restore,
-                                                        .commit = spy_cm_commit};
+                                                        .commit = spy_cm_commit,
+                                                        .persist_pending = spy_cm_persist};
 static const lc_sensors_if_t k_sensors = {
     .init = spy_sens_init, .is_ready = spy_sens_ready, .reconfigure = spy_sens_reconf};
 static const lc_alarms_if_t k_alarms = {.init = spy_alarm_init};
@@ -270,6 +290,7 @@ static void spy_reset_all(void)
         g_ready[i] = true;
     }
     g_flag_self_check = false;
+    g_trace_persist = false;
     g_flag_rollback = false;
     g_fault_code_seen = 0U;
     (void) memset(g_life_seen, 0, sizeof(g_life_seen));
@@ -1565,4 +1586,108 @@ void test_LC_138_a_soft_restart_command_drives_the_whole_two_step_flow(void)
     TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
     TEST_ASSERT_TRUE(trace_has(C_CLOUD_FLUSH));
     TEST_ASSERT_TRUE(trace_index(C_CLOUD_FLUSH) < trace_index(C_RESET));
+}
+
+/* ======================================================================= */
+/* Deferred configuration is written by the controller (LC-D23, WP1 PR-C)  */
+/* ======================================================================= */
+
+/** Forget the trace of the boot and arm the tracing of persist_pending. */
+static void trace_persist_from_here(void)
+{
+    g_trace_len = 0U;
+    (void) memset(g_trace, 0, sizeof(g_trace));
+    g_trace_persist = true;
+}
+
+void test_LC_139_init_rejects_a_missing_persist_pending(void)
+{
+    lc_config_manager_if_t cm = k_config_manager;
+    lifecycle_deps_t d = g_deps;
+
+    cm.persist_pending = NULL;
+    d.config_manager = &cm;
+    TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG,
+                      lifecycle_controller_init(LIFECYCLE_RESET_POWER_ON, &d));
+}
+
+void test_LC_140_every_operational_pass_persists_once(void)
+{
+    boot_operational();
+    const uint32_t before = g_calls[C_CM_PERSIST];
+
+    lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(before + 1U, g_calls[C_CM_PERSIST]);
+
+    lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(before + 2U, g_calls[C_CM_PERSIST]);
+}
+
+void test_LC_141_passes_outside_Operational_do_not_persist(void)
+{
+    boot_editing();
+    const uint32_t before = g_calls[C_CM_PERSIST];
+
+    lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(before, g_calls[C_CM_PERSIST]);
+}
+
+void test_LC_142_the_restart_confirmation_persists_before_the_reset(void)
+{
+    boot_restarting();
+    trace_persist_from_here();
+
+    step(LC_EVENT_RESTART_CONFIRMED, 0U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+    TEST_ASSERT_TRUE(trace_index(C_CM_PERSIST) < trace_index(C_RESET));
+}
+
+void test_LC_143_the_OTA_reset_persists_before_the_reset(void)
+{
+    boot_updating(42U);
+    trace_persist_from_here();
+
+    step(LC_EVENT_OTA_RESET_REQUESTED, 42U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+    TEST_ASSERT_TRUE(trace_index(C_CLOUD_FLUSH) < trace_index(C_CM_PERSIST));
+    TEST_ASSERT_TRUE(trace_index(C_CM_PERSIST) < trace_index(C_RESET));
+}
+
+void test_LC_144_the_rollback_reset_persists_before_the_reset(void)
+{
+    g_flag_self_check = true;
+    boot();
+    trace_persist_from_here();
+
+    step(LC_EVENT_SELF_CHECK_FAIL, 0U);
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+    TEST_ASSERT_TRUE(trace_index(C_FW_ROLLBACK) < trace_index(C_CM_PERSIST));
+    TEST_ASSERT_TRUE(trace_index(C_CM_PERSIST) < trace_index(C_RESET));
+}
+
+void test_LC_145_a_fault_persists_before_the_LED_latch(void)
+{
+    boot_operational();
+    trace_persist_from_here();
+
+    step(LC_EVENT_UNRECOVERABLE_FAULT, 0x77U);
+
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_FAULTED, lifecycle_controller->get_state());
+    TEST_ASSERT_TRUE(trace_index(C_CM_PERSIST) < trace_index(C_HA_LED));
+}
+
+void test_LC_146_a_failed_persist_is_not_a_fault_and_is_retried(void)
+{
+    boot_operational();
+    g_status[C_CM_PERSIST] = LC_DEP_FAIL;
+    const uint32_t before = g_calls[C_CM_PERSIST];
+
+    lifecycle_task_body(NULL);
+    lifecycle_task_body(NULL);
+
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_OPERATIONAL, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(before + 2U, g_calls[C_CM_PERSIST]);
 }

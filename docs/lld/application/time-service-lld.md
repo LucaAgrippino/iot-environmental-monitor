@@ -24,7 +24,7 @@ REQ-NF-201, NF-212
 `sequence-diagrams.md` SD-09;
 `state-machines.md` Machine 2 (Cloud Connectivity);
 `task-breakdown.md` §TimeServiceTask
-**Version:** 1.1
+**Version:** 1.2 (interface header split out 2026-10-28, CP-D23)
 **Date:** October 2026
 **Status:** Pass H — Implementation ready · Gateway implemented (host-tested, bench-validated 2026-10-24)
 
@@ -224,7 +224,8 @@ void logger_log(logger_level_t level, const char *tag,
 ### 3.1 Sync state enum
 
 ```c
-/* time_service.h */
+/* itime_service.h (the vtable and this enum); time_service.h includes it. The split (CP-D23)
+ * lets CloudPublisher include the interface without the whole module header. */
 
 #ifndef TIME_SERVICE_H
 #define TIME_SERVICE_H

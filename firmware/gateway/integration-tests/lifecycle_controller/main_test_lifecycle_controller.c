@@ -309,6 +309,13 @@ static lc_dep_status_t fake_cm_commit(void *ctx)
     return LC_DEP_OK;
 }
 
+/* Nothing is deferred in this harness, so the periodic persist is a silent no-op. */
+static lc_dep_status_t fake_cm_persist(void *ctx)
+{
+    (void) ctx;
+    return LC_DEP_OK;
+}
+
 static lc_dep_status_t fake_sens_init(void *ctx)
 {
     (void) ctx;
@@ -513,7 +520,8 @@ static const lc_config_store_if_t k_config_store = {.check_integrity = fake_cs_c
 static const lc_config_manager_if_t k_config_manager = {.apply_loaded = fake_cm_apply,
                                                         .snapshot = fake_cm_snapshot,
                                                         .restore_snapshot = fake_cm_restore,
-                                                        .commit = fake_cm_commit};
+                                                        .commit = fake_cm_commit,
+                                                        .persist_pending = fake_cm_persist};
 static const lc_sensors_if_t k_sensors = {
     .init = fake_sens_init, .is_ready = fake_sens_ready, .reconfigure = fake_sens_reconf};
 static const lc_alarms_if_t k_alarms = {.init = fake_alarm_init};
