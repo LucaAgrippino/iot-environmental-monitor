@@ -61,6 +61,13 @@ typedef struct
     lc_dep_status_t (*restore_snapshot)(void *ctx, const void *buf, uint32_t len);
     /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*commit)(void *ctx);
+    /**
+     * Write a deferred configuration change to flash if one is waiting. Does nothing and
+     * returns LC_DEP_OK when nothing is pending; on a failure the change stays pending and the
+     * next call retries. May block for the flash write (LC-D23).
+     */
+    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    lc_dep_status_t (*persist_pending)(void *ctx);
 } lc_config_manager_if_t;
 
 /* ======================================================================= */

@@ -130,11 +130,19 @@ static lc_dep_status_t cm_commit(void *ctx)
     return status_of(config_service_flush() == CONFIG_SERVICE_OK);
 }
 
+/* Remote and console changes are applied in RAM; LifecycleController writes them to flash. */
+static lc_dep_status_t cm_persist_pending(void *ctx)
+{
+    (void) ctx;
+    return status_of(config_service_persist_pending() == CONFIG_SERVICE_OK);
+}
+
 static const lc_config_manager_if_t k_config_manager = {.ctx = NULL,
                                                         .apply_loaded = cm_apply_loaded,
                                                         .snapshot = cm_snapshot,
                                                         .restore_snapshot = cm_restore_snapshot,
-                                                        .commit = cm_commit};
+                                                        .commit = cm_commit,
+                                                        .persist_pending = cm_persist_pending};
 
 /* ======================================================================= */
 /* ISensorService / IAlarmService                                           */
