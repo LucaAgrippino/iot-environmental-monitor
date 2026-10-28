@@ -1,7 +1,7 @@
 # LLD Companion — CircularFlashLog
 
 **Document:** `docs/lld/middleware/circular-flash-log.md`
-**Version:** 0.3 (Pass H complete — Gateway implemented)
+**Version:** 0.4 (Pass H complete — Gateway implemented; reports to the real HealthMonitor 2026-10-28)
 **Board:** Gateway (B-L475E-IOT01A) only
 **Layer:** Middleware
 **Status:** Pass H complete — GW v1.0 implemented (2026-09-27), hardware-validated (2026-10-11)
@@ -140,10 +140,10 @@ typedef struct {
 } cfl_config_t;
 ```
 
-`health_monitor_handle_t`, `cfl_health_event_t` and
-`health_report_push_buffer_event()` are declared in the same header as
-guarded placeholders, because the Gateway has no HealthMonitor
-implementation yet. See CFL-D7 and CFL-O5.
+`health_monitor_handle_t` comes from `health_monitor/health_monitor.h`, which
+the header includes. The module reports through `health_monitor_push_event()`
+(CFL-D13); a NULL `health` handle is allowed and skips the report. The
+placeholder event enum and the weak default are gone (CFL-O5 closed).
 
 ### 4.3 Public API — ICircularFlashLog
 
@@ -219,7 +219,7 @@ cfl_err_t cfl_consume_oldest(cfl_handle_t handle);
 /**
  * @brief Drop the oldest record to free space for a new append.
  *
- * Pushes CFL_HEALTH_EVENT_BUFFER_OVERFLOW via IHealthReport. Called by
+ * Pushes HEALTH_EVENT_BUFFER_OVERFLOW to HealthMonitor. Called by
  * StoreAndForward when ring is full (REQ-BF-020).
  *
  * @param[in] handle  CFL handle.
@@ -362,7 +362,7 @@ When the last record is consumed the head is parked on the tail, so an
 empty ring always reads as empty regardless of where the tail sits.
 
 `cfl_drop_oldest()` is identical to `cfl_consume_oldest()` but
-additionally pushes `CFL_HEALTH_EVENT_BUFFER_OVERFLOW`.
+additionally pushes `HEALTH_EVENT_BUFFER_OVERFLOW`.
 
 A record whose CRC fails is still consumable — StoreAndForward advances
 past a corrupt entry after a `CFL_ERR_CORRUPT` peek (§10). Where the
@@ -399,8 +399,8 @@ not been exercised.
 
 | Event | Trigger |
 |---|---|
-| `CFL_HEALTH_EVENT_BUFFER_OVERFLOW` | `cfl_drop_oldest()` — oldest discarded (REQ-BF-020) |
-| `CFL_HEALTH_EVENT_BUFFER_FLASH_ERR` | Flash erase or write failure during append |
+| `HEALTH_EVENT_BUFFER_OVERFLOW` (param 0) | `cfl_drop_oldest()` — oldest discarded (REQ-BF-020); counted in the snapshot as `buffer_overflow_count` |
+| `HEALTH_EVENT_FAULT` (param `CFL_FAULT_CODE_FLASH_ERR`, 0x0C01) | Flash erase or write failure during append. HealthMonitor only logs a FAULT, so there is no snapshot field (CFL-D13) |
 
 Direct-push events (Metric Producer Pattern). Occupancy is polled via
 `cfl_get_occupancy()`. A rejected append that never reached flash
@@ -483,8 +483,8 @@ returns. No retry is performed inside CircularFlashLog — StoreAndForward
 | `CFL_ERR_TOO_LARGE` | Payload zero or > CFL_MAX_RECORD_BYTES; or peek buffer too small | Return immediately; no write | No — caller must split the payload or enlarge the buffer; StoreAndForward limits entries to `SAF_PAYLOAD_MAX` within `CFL_MAX_RECORD_BYTES` | Caller logs at WARN via ILogger |
 | `CFL_ERR_EMPTY` | Peek/consume/drop on empty ring | Return immediately | No — normal drain termination | Not logged (expected condition) |
 | `CFL_ERR_FULL` | Ring full; tail would overwrite head | Return error; nothing written | No — caller must `cfl_drop_oldest()` first | Caller logs at WARN via ILogger |
-| `CFL_ERR_FLASH_ERASE` | QSPI erase failure | Health event pushed; tail unchanged | No retry by CFL — StoreAndForward stops the drain | `CFL_HEALTH_EVENT_BUFFER_FLASH_ERR` pushed |
-| `CFL_ERR_FLASH_WRITE` | QSPI write failure | Health event pushed; remainder of the sector retired; partial record has no header so the boot scan skips it | No retry by CFL — StoreAndForward stops enqueue | `CFL_HEALTH_EVENT_BUFFER_FLASH_ERR` pushed |
+| `CFL_ERR_FLASH_ERASE` | QSPI erase failure | Health event pushed; tail unchanged | No retry by CFL — StoreAndForward stops the drain | `HEALTH_EVENT_FAULT` (`CFL_FAULT_CODE_FLASH_ERR`) pushed |
+| `CFL_ERR_FLASH_WRITE` | QSPI write failure | Health event pushed; remainder of the sector retired; partial record has no header so the boot scan skips it | No retry by CFL — StoreAndForward stops enqueue | `HEALTH_EVENT_FAULT` (`CFL_FAULT_CODE_FLASH_ERR`) pushed |
 | `CFL_ERR_FLASH_READ` | QSPI read failure | Return error; record not readable | No retry by CFL — StoreAndForward skips the record | Caller logs at WARN via ILogger |
 | `CFL_ERR_CORRUPT` | Record CRC mismatch | Return error; record left in place | No — record unrecoverable; StoreAndForward calls `cfl_consume_oldest()` to advance past it | Caller logs at WARN via ILogger |
 
@@ -525,7 +525,7 @@ required.
 | CFL-T06 | N appends + N consumes | FIFO order preserved | PASS |
 | CFL-T07 | Append beyond single sector | Tail advances to next sector; both records readable | PASS |
 | CFL-T08 | Append until full (254 sectors) | Returns `CFL_ERR_FULL`; no flash-error event | PASS |
-| CFL-T09 | Full → `cfl_drop_oldest` → append succeeds | Space freed; `CFL_HEALTH_EVENT_BUFFER_OVERFLOW` pushed | PASS |
+| CFL-T09 | Full → `cfl_drop_oldest` → append succeeds | Space freed; `HEALTH_EVENT_BUFFER_OVERFLOW` pushed | PASS |
 | CFL-T10 | Simulated write failure mid-record | Returns `CFL_ERR_FLASH_WRITE`; occupancy unchanged; next append recovers in a clean sector | PASS |
 | CFL-T11 | CRC corruption on read | Returns `CFL_ERR_CORRUPT`; record still consumable | PASS |
 | CFL-T12 | Boot scan after power-loss (partial tail record) | Partial record rejected; previous records intact; next append avoids the dirty region | PASS |
@@ -589,7 +589,7 @@ area untouched.
 | CFL-O2 | Boot scan latency — if > 100 ms, add a persisted tail pointer to the metadata zone using the same A/B rotation as the head pointer. | **Resolved** | Measured 2026-10-11: 5.6 ms blank, 20.9 ms with two records, both inside the 100 ms budget. A completely full 254-sector ring was not exercised; re-measure if StoreAndForward is expected to boot with a near-full ring. |
 | CFL-O3 | Pack records (current) vs one-per-sector. | **Resolved** | Pack records to maximise capacity and minimise erase frequency. Revisit only if CFL-O1 forces redesign. |
 | CFL-O4 | **Metadata-zone wear (found during implementation).** The A/B rotation erases one of only two sectors on every head-sector advance. At the §7 worst case (1 440 messages/day, ~2 KB each, two records per sector) that is ~720 advances/day, ~131 000 erases per slot per year — past the 100 000-cycle rating inside a year, against ~49 years for a data sector. It only bites under sustained cloud outage, since an idle ring writes no metadata. Mitigation without a format change: treat each metadata sector as log-structured, appending a fresh 16-byte slot into the next free position and erasing only when the sector fills, which divides the erase count by 256. | **Open** | Decide before StoreAndForward drives CFL in anger; prefer the log-structured slot. |
-| CFL-O5 | **IHealthReport is a placeholder.** The Gateway has no HealthMonitor, so `health_monitor_handle_t`, `cfl_health_event_t` and `health_report_push_buffer_event()` are guarded declarations in `circular_flash_log.h`, following the convention in `cloud_publisher.h`. So that the GW image still links, the push has a **weak no-op default** in `circular_flash_log.c` (CFL-D12) — which means a missing HealthMonitor degrades to silence rather than a link error, so the override must not be forgotten. | **Open** | Replace with the real interface at GW HealthMonitor LLD; remove the weak default; reconcile the event enum with `health_event_t`. |
+| CFL-O5 | **IHealthReport is a placeholder.** | **Closed 2026-10-28** | The module includes `health_monitor.h` and calls `health_monitor_push_event()`; the guarded declarations and the weak no-op default (CFL-D12) are removed, and the event enum is reconciled with `health_event_t` (CFL-D13). The bring-up harness reads a real HealthMonitor snapshot. |
 | CFL-O6 | **Consumed records inside the head sector are replayed after a reset.** Only `head_sector` is persisted (CFL-D5), not `head_offset`, so a reboot rediscovers records already consumed within that sector. Acceptable under MQTT QoS 1 at-least-once delivery, but it is a duplicate-delivery window that StoreAndForward's own design should acknowledge. Persisting `head_offset` would fix it at the cost of a metadata write per consume — which CFL-O4 argues against. | **Open** | Confirm acceptable at StoreAndForward LLD, or resolve together with CFL-O4. |
 | CFL-O7 | **Shared driver mutex (QSPID-O1).** `ConfigStore`, `CircularFlashLog` and `FirmwareStore` reach `QspiFlashDriver` from different tasks. | **Closed 2026-10-26** | The mutex is inside `QspiFlashDriver` (statically allocated, created in `qspi_flash_init()`, held for each whole operation, innermost lock), not a separate `qspi_flash_mutex` that consumers acquire; hardware-validated (qspi-flash-driver.md). No change was needed here. |
 | CFL-O8 | **QSPID-O4 decision is now due.** The driver's WIP poll spins for the whole erase — measured 81 ms — blocking the calling task and everything at or below its priority. CircularFlashLog is the consumer QSPID-O4 named: its erases land during cloud outages, exactly when alarms are buffering against the REQ-NF-113 500 ms budget (81 ms ≈ 16%). | **Open** | Decide spin vs `vTaskDelay(1)` vs a low-priority erase task, per QSPID-O4. |
@@ -611,7 +611,8 @@ area untouched.
 | CFL-D9 | A sector whose tail region is not pristine is retired, not reused | NOR programming only clears bits, so writing a new record over the partially programmed remains of an interrupted one stores the bitwise AND of the two — a record that fails CRC on every read and halts the scan at that offset permanently. Detected at boot by scanning for non-0xFF bytes, and on an in-session write failure by retiring the remainder directly. Costs at most the tail of one sector. |
 | CFL-D10 | The persistent head pointer is rewritten only when `head_sector` changes | The slot stores a sector index, so a write per consumed record would add no information while erasing a metadata sector each time. See CFL-O4. |
 | CFL-D11 | On an empty ring the head travels with the tail | An empty ring parks the head on the tail. If an append then crosses into a new sector the head has to move too, or the first record written after the move would be sought at a stale head position holding nothing. |
-| CFL-D12 | IHealthReport push has a weak no-op default | The Gateway has no HealthMonitor, and this module is compiled into the GW image, so without a definition the image would not link at all. A weak binding lets a real implementation, a unit-test spy or a bring-up harness stub override it with an ordinary strong definition — the idiom `panic_symbols.c` already uses for its generated tables. Tracked for removal under CFL-O5. |
+| CFL-D12 | ~~IHealthReport push has a weak no-op default~~ (withdrawn by CFL-D13) | The Gateway has no HealthMonitor, and this module is compiled into the GW image, so without a definition the image would not link at all. A weak binding lets a real implementation, a unit-test spy or a bring-up harness stub override it with an ordinary strong definition — the idiom `panic_symbols.c` already uses for its generated tables. Tracked for removal under CFL-O5. |
+| CFL-D13 | CFL reports through the real HealthMonitor: the overflow as `HEALTH_EVENT_BUFFER_OVERFLOW`, a flash erase or write failure as `HEALTH_EVENT_FAULT` with the module's fault code `CFL_FAULT_CODE_FLASH_ERR` (0x0C01). CFL-D12 (the weak default) is withdrawn. A NULL health handle skips the report | `health_event_t` has no dedicated flash-error event; FAULT ("any: fault code") is the closest existing meaning. **Mapping proposed in WP1 PR-B; to be confirmed by Luca** (alternative: add a dedicated event to HealthMonitor). A silent weak no-op was a silent failure (BARR-C error handling) |
 
 ---
 

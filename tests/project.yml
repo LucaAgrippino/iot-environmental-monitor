@@ -25,6 +25,7 @@
     - -:gateway/application/lifecycle_controller/**
     - -:gateway/application/lifecycle_wiring/**
     - -:gateway/application/update_service/**
+    - -:gateway/application/store_and_forward/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
@@ -35,7 +36,6 @@
     - -:gateway/drivers/magnetometer_driver/**
     - -:gateway/drivers/imu_driver/**
     - -:gateway/drivers/bootloader/**
-    - gateway/middleware/circular_flash_log/**
     - gateway/middleware/mqtt_client/**
     - gateway/middleware/wifi_task/**
   :source:
@@ -54,7 +54,6 @@
     - -:../firmware/gateway/drivers/magnetometer_driver/**
     - -:../firmware/gateway/drivers/imu_driver/**
     - -:../firmware/**/Debug/**
-    - ../firmware/gateway/middleware/circular_flash_log/**
     - ../firmware/gateway/middleware/mqtt_client/**
     - ../firmware/gateway/middleware/wifi_task/**
     - ../firmware/gateway/application/**
@@ -69,6 +68,7 @@
     - -:../firmware/gateway/application/lifecycle_controller/**
     - -:../firmware/gateway/application/lifecycle_wiring/**
     - -:../firmware/gateway/application/device_profile_registry/**
+    - -:../firmware/gateway/application/store_and_forward/**
     - ../vendor/coreMQTT/source/**
     - ../vendor/mbedtls/include/**
   :support:
@@ -176,9 +176,6 @@
   :test_exti_driver:
     - STM32L475xx
     - TEST
-  :test_circular_flash_log:
-    - STM32L475xx
-    - TEST
   :test_mqtt_client:
     - STM32L475xx
     - MQTT_DO_NOT_USE_CUSTOM_CONFIG
@@ -187,10 +184,6 @@
   :test_tls_arena:
     - STM32L475xx
     - MBEDTLS_CONFIG_FILE=\"mbedtls_config_gateway.h\"
-    - TEST
-  :test_store_and_forward:
-    - STM32L475xx
-    - BOARD_GATEWAY
     - TEST
 
 :cmock:

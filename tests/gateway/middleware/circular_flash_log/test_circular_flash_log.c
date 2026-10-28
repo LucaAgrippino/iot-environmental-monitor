@@ -18,6 +18,8 @@
 
 #include "circular_flash_log.h"
 
+#define TEST_HEALTH ((health_monitor_handle_t) 0x1234)
+
 /* ====================================================================== */
 /* Flash simulation                                                       */
 /* ====================================================================== */
@@ -122,19 +124,30 @@ static const iqspi_flash_t s_fake_qspi = {
     .erase_sector = sim_erase_sector,
 };
 
-/* IHealthReport placeholder implementation — the spy. */
-void health_report_push_buffer_event(health_monitor_handle_t handle, cfl_health_event_t event)
+/* HealthMonitor spy: the real entry point, defined here so the module links without it. */
+static uint32_t s_other_events;
+static uint32_t s_last_fault_code;
+
+health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, health_event_t event,
+                                               uint32_t param)
 {
     (void) handle;
 
-    if (event == CFL_HEALTH_EVENT_BUFFER_OVERFLOW)
+    if (event == HEALTH_EVENT_BUFFER_OVERFLOW)
     {
         s_overflow_events++;
     }
-    else
+    else if ((event == HEALTH_EVENT_FAULT) && (param == CFL_FAULT_CODE_FLASH_ERR))
     {
         s_flash_err_events++;
+        s_last_fault_code = param;
     }
+    else
+    {
+        s_other_events++;
+    }
+
+    return HEALTH_MONITOR_ERR_OK;
 }
 
 /* ====================================================================== */
@@ -163,7 +176,7 @@ static cfl_handle_t create_ok(void)
     cfl_handle_t handle = NULL;
     const cfl_config_t config = {
         .qspi = &s_fake_qspi,
-        .health = NULL,
+        .health = TEST_HEALTH,
     };
 
     TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_create(&config, &handle));
@@ -202,6 +215,8 @@ void setUp(void)
     s_erase_count = 0U;
     s_overflow_events = 0U;
     s_flash_err_events = 0U;
+    s_other_events = 0U;
+    s_last_fault_code = 0U;
     cfl_reset_for_test();
 }
 
@@ -241,11 +256,11 @@ void test_cfl_create_null_arguments_return_null_ptr(void)
     cfl_handle_t handle = NULL;
     const cfl_config_t config = {
         .qspi = &s_fake_qspi,
-        .health = NULL,
+        .health = TEST_HEALTH,
     };
     const cfl_config_t no_qspi = {
         .qspi = NULL,
-        .health = NULL,
+        .health = TEST_HEALTH,
     };
 
     TEST_ASSERT_EQUAL_INT(CFL_ERR_NULL_PTR, cfl_create(NULL, &handle));
@@ -262,7 +277,7 @@ void test_cfl_create_second_instance_exhausts_pool(void)
     cfl_handle_t second = NULL;
     const cfl_config_t config = {
         .qspi = &s_fake_qspi,
-        .health = NULL,
+        .health = TEST_HEALTH,
     };
 
     (void) create_ok();
@@ -675,7 +690,7 @@ void test_cfl_flash_failures_propagate(void)
 {
     cfl_config_t config = {
         .qspi = &s_fake_qspi,
-        .health = NULL,
+        .health = TEST_HEALTH,
     };
     cfl_handle_t handle = NULL;
 
@@ -694,6 +709,8 @@ void test_cfl_flash_failures_propagate(void)
     fill_pattern(s_payload, CFL_MAX_RECORD_BYTES, 0x02U);
     TEST_ASSERT_EQUAL_INT(CFL_ERR_FLASH_ERASE, cfl_append(handle, s_payload, CFL_MAX_RECORD_BYTES));
     TEST_ASSERT_EQUAL_UINT32(1U, s_flash_err_events);
+    TEST_ASSERT_EQUAL_UINT32(CFL_FAULT_CODE_FLASH_ERR, s_last_fault_code);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_other_events);
 
     /* The first record is still intact after the failure. */
     s_fail_erase = false;
@@ -724,4 +741,28 @@ void test_cfl_ring_wraps_and_reuses_sectors(void)
     /* Records are still stored and read back correctly after the wrap. */
     append_ok(handle, 64U, 0xEEU);
     peek_expect(handle, 64U, 0xEEU);
+}
+
+/* PR-B: a NULL health handle stays allowed (bring-up harnesses): no event, no crash. */
+void test_cfl_null_health_handle_raises_no_events(void)
+{
+    cfl_config_t config = {
+        .qspi = &s_fake_qspi,
+        .health = NULL,
+    };
+    cfl_handle_t handle = NULL;
+
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_create(&config, &handle));
+    append_ok(handle, CFL_MAX_RECORD_BYTES, 0x01U);
+
+    s_fail_erase = true;
+    fill_pattern(s_payload, CFL_MAX_RECORD_BYTES, 0x02U);
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_FLASH_ERASE, cfl_append(handle, s_payload, CFL_MAX_RECORD_BYTES));
+    s_fail_erase = false;
+
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_drop_oldest(handle));
+
+    TEST_ASSERT_EQUAL_UINT32(0U, s_overflow_events);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_flash_err_events);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_other_events);
 }
