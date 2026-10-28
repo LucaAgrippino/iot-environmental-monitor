@@ -60,6 +60,9 @@
     - gateway/application/config_service/**
     - gateway/application/console_service/**
     - gateway/application/lifecycle_controller/**
+    # update_service: fakes/ holds the scriptable FirmwareStore, transport and lifecycle fakes,
+    # linked by a test's own #include; the tests are in the folder itself.
+    - gateway/application/update_service
     - gateway/application/lifecycle_wiring/**
     - gateway/middleware/ntp_client/**
     - gateway/drivers/humidity_temp_driver/**
@@ -91,6 +94,7 @@
     - ../firmware/gateway/application/config_service/**
     - ../firmware/gateway/application/console_service/**
     - ../firmware/gateway/application/lifecycle_controller/**
+    - ../firmware/gateway/application/update_service/**
     - ../firmware/gateway/application/lifecycle_wiring/**
     - ../firmware/gateway/application/device_profile_registry/**
     - ../firmware/gateway/middleware/ntp_client/**
@@ -119,6 +123,9 @@
     - gateway/middleware/firmware_store/mbedtls_host
     - gateway/middleware/firmware_store/vectors
     - gateway/drivers/internal_flash/fake
+    # UpdateService test infrastructure: scriptable fakes of FirmwareStore, the OTA transport,
+    # the probes and ILifecycle, the logger spy and the shared helpers.
+    - gateway/application/update_service/fakes
   # config_store.h includes "health_monitor/health_monitor.h", so the parent of the
   # health_monitor directory has to be an include root.
   # health_monitor.h includes "modbus_master/modbus_master.h", so the parent of that
@@ -254,6 +261,22 @@
     - BOARD_GATEWAY
     - TEST
   :test_internal_flash:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_update_service_api:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_update_service_download:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_update_service_apply:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_update_service_boot:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST

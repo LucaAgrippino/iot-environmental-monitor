@@ -24,6 +24,7 @@
     - -:gateway/application/console_service/**
     - -:gateway/application/lifecycle_controller/**
     - -:gateway/application/lifecycle_wiring/**
+    - -:gateway/application/update_service/**
     - gateway/drivers/**
     - -:gateway/drivers/gpio/**
     - -:gateway/drivers/led/**
