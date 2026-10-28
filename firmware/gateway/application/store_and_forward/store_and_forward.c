@@ -9,6 +9,8 @@
 
 #include "store_and_forward.h"
 
+#include "health_monitor/health_monitor.h"
+
 #include <stddef.h>
 #include <string.h>
 
@@ -26,7 +28,6 @@
 #define SAF_BLOB_MIN_SZ                                                                            \
     (SAF_BLOB_TOPIC_LEN_SZ + 1U + SAF_BLOB_QOS_SZ + SAF_BLOB_PAYLOAD_LEN_SZ + 1U)
 
-#define SAF_PERCENT_FULL (100U)
 #define SAF_BYTE_SHIFT (8U)
 #define SAF_BYTE_MASK (0xFFU)
 
@@ -55,24 +56,6 @@ struct saf_inst
 static struct saf_inst g_pool[SAF_MAX_INSTANCES];
 static uint8_t g_count;
 
-/**
- * @brief Weak no-op default for the IHealthReport occupancy push.
- *
- * The Gateway has no HealthMonitor yet, so without a definition the image
- * would not link once this module is compiled into it. A real implementation,
- * a unit-test spy or a bring-up harness overrides it with a strong definition.
- * Remove this default when the GW HealthMonitor lands.
- */
-__attribute__((weak)) void health_update_buffer_occupancy(health_monitor_handle_t handle,
-                                                          uint32_t count, uint32_t capacity,
-                                                          uint8_t percent)
-{
-    (void) handle;
-    (void) count;
-    (void) capacity;
-    (void) percent;
-}
-
 /* ====================================================================== */
 /* Helpers                                                                */
 /* ====================================================================== */
@@ -93,28 +76,19 @@ static saf_err_t saf_check_handle(saf_handle_t handle)
 }
 
 /**
- * @brief Push the current occupancy to IHealthReport.
+ * @brief Push the current entry count to HealthMonitor.
  *
- * The percentage is clamped to 100: the capacity is a planning figure, and a
- * ring of small entries can hold more than it, which must not wrap uint8_t.
+ * A NULL health handle is allowed (bring-up harnesses): the push is then skipped. The capacity is
+ * a planning figure kept for saf_get_occupancy(); the health snapshot has no field for it.
  */
 static void saf_report_occupancy(const struct saf_inst *inst)
 {
-    uint32_t percent = 0U;
-
-    if (inst->capacity == 0U)
+    if (inst->health == NULL)
     {
-        percent = (inst->entry_count > 0U) ? SAF_PERCENT_FULL : 0U;
-    }
-    else
-    {
-        uint64_t scaled = ((uint64_t) inst->entry_count * SAF_PERCENT_FULL) / inst->capacity;
-
-        percent = (scaled > SAF_PERCENT_FULL) ? SAF_PERCENT_FULL : (uint32_t) scaled;
+        return;
     }
 
-    health_update_buffer_occupancy(inst->health, inst->entry_count, inst->capacity,
-                                   (uint8_t) percent);
+    (void) health_monitor_update_buffer_occupancy(inst->health, inst->entry_count);
 }
 
 /** @brief Decrement the entry count without wrapping below zero. */

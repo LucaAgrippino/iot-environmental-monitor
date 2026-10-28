@@ -35,17 +35,16 @@ void logger_log(log_level_t level, const char *module, const char *msg)
 
 static uint32_t s_occ_calls;
 static uint32_t s_occ_last_count;
-static uint32_t s_occ_last_capacity;
-static uint8_t s_occ_last_percent;
+static health_monitor_handle_t s_occ_last_handle;
 
-void health_update_buffer_occupancy(health_monitor_handle_t handle, uint32_t count,
-                                    uint32_t capacity, uint8_t percent)
+/* HealthMonitor spy: the real entry point, defined here so the module links without it. */
+health_monitor_err_t health_monitor_update_buffer_occupancy(health_monitor_handle_t handle,
+                                                            uint32_t entry_count)
 {
-    (void) handle;
     s_occ_calls++;
-    s_occ_last_count = count;
-    s_occ_last_capacity = capacity;
-    s_occ_last_percent = percent;
+    s_occ_last_handle = handle;
+    s_occ_last_count = entry_count;
+    return HEALTH_MONITOR_ERR_OK;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -100,8 +99,7 @@ static void fake_reset(void)
     (void) memset(s_last_append, 0, sizeof(s_last_append));
     s_occ_calls = 0U;
     s_occ_last_count = 0U;
-    s_occ_last_capacity = 0U;
-    s_occ_last_percent = 0U;
+    s_occ_last_handle = NULL;
 }
 
 static void fake_pop(void)
@@ -296,7 +294,6 @@ void test_SAF_T01_create_reads_occupancy_and_pushes_it(void)
     TEST_ASSERT_EQUAL_UINT32(1U, s_occupancy_calls);
     TEST_ASSERT_EQUAL_UINT32(1U, s_occ_calls);
     TEST_ASSERT_EQUAL_UINT32(0U, s_occ_last_count);
-    TEST_ASSERT_EQUAL_UINT32(TEST_CAPACITY, s_occ_last_capacity);
 }
 
 void test_SAF_T02_create_rejects_null_arguments(void)
@@ -748,16 +745,14 @@ void test_SAF_T21_unconfirmed_entry_is_republished_after_reset(void)
 /* Occupancy                                                               */
 /* ---------------------------------------------------------------------- */
 
-void test_SAF_T22_initial_occupancy_push_is_zero_percent(void)
+void test_SAF_T22_initial_occupancy_push_is_zero(void)
 {
     create_ok();
 
     TEST_ASSERT_EQUAL_UINT32(0U, s_occ_last_count);
-    TEST_ASSERT_EQUAL_UINT32(TEST_CAPACITY, s_occ_last_capacity);
-    TEST_ASSERT_EQUAL_UINT8(0U, s_occ_last_percent);
 }
 
-void test_SAF_T23_percentage_tracks_the_fill(void)
+void test_SAF_T23_pushed_count_tracks_the_fill(void)
 {
     s_cfg.capacity = 10U;
     create_ok();
@@ -768,7 +763,6 @@ void test_SAF_T23_percentage_tracks_the_fill(void)
     }
 
     TEST_ASSERT_EQUAL_UINT32(5U, s_occ_last_count);
-    TEST_ASSERT_EQUAL_UINT8(50U, s_occ_last_percent);
 }
 
 void test_SAF_T24_drop_and_append_keeps_the_count_at_capacity(void)
@@ -783,7 +777,6 @@ void test_SAF_T24_drop_and_append_keeps_the_count_at_capacity(void)
     }
 
     TEST_ASSERT_EQUAL_UINT32(4U, s_occ_last_count);
-    TEST_ASSERT_EQUAL_UINT8(100U, s_occ_last_percent);
     TEST_ASSERT_EQUAL_UINT32(1U, s_drop_calls);
 }
 
@@ -831,23 +824,19 @@ void test_SAF_T35_is_empty_rejects_null_arguments(void)
     TEST_ASSERT_EQUAL(SAF_ERR_NULL_PTR, saf_is_empty(NULL, &empty));
 }
 
-void test_SAF_T36_zero_capacity_and_overfull_clamp_the_percentage(void)
+void test_SAF_T36_a_null_health_handle_skips_the_push(void)
 {
-    s_cfg.capacity = 0U;
+    s_cfg.health = NULL;
     create_ok();
-    TEST_ASSERT_EQUAL_UINT8(0U, s_occ_last_percent);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_occ_calls);
 
     TEST_ASSERT_EQUAL(SAF_ERR_OK, saf_enqueue(s_h, "t", s_data, 4U, 0U));
-    TEST_ASSERT_EQUAL_UINT8(100U, s_occ_last_percent);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_occ_calls);
+}
 
-    saf_reset_for_test();
-    s_cfg.capacity = 1U;
+void test_SAF_T37_the_push_carries_the_configured_handle(void)
+{
     create_ok();
 
-    for (uint32_t i = 0U; i < 4U; i++)
-    {
-        TEST_ASSERT_EQUAL(SAF_ERR_OK, saf_enqueue(s_h, "t", s_data, 4U, 0U));
-    }
-
-    TEST_ASSERT_EQUAL_UINT8(100U, s_occ_last_percent);
+    TEST_ASSERT_EQUAL_PTR(s_cfg.health, s_occ_last_handle);
 }
