@@ -23,9 +23,17 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "mqtt_client.h"
 #include "alarm_service/alarm_service.h"
+#include "health_monitor/health_monitor.h"
+#include "config_service/iconfig_manager.h"
+#include "config_service/iconfig_provider.h"
+#include "lifecycle_controller/ilifecycle.h"
+#include "modbus_poller/modbus_poller.h"
+#include "mqtt_client.h"
 #include "sensor_service/sensor_service.h"
+#include "store_and_forward/store_and_forward.h"
+#include "time_provider/time_provider.h"
+#include "time_service/itime_service.h"
 
 /** @brief Opaque handle to a CloudPublisher instance. */
 typedef struct cloud_publisher_inst *cloud_publisher_handle_t;
@@ -38,46 +46,10 @@ typedef enum
     CP_ERR_NO_RESOURCE = 3,
     CP_ERR_SERIALISE = 4,      /**< JSON payload exceeded buffer.       */
     CP_ERR_PUBLISH_FAILED = 5, /**< MQTT publish failed; routed to SAF. */
-    CP_ERR_SAF_FULL = 6,       /**< Store-and-forward buffer full.      */
+    CP_ERR_SAF_FULL = 6,       /**< StoreAndForward refused the entry (flash error or too
+                                    large): the message is lost (CP-D29).   */
     CP_ERR_BUFFERED = 7,       /**< Not published now; queued in SAF.   */
 } cloud_publisher_err_t;
-
-/* ===================================================================== */
-/* Placeholder dependency types (CP-O1, CP-O2, F-03)                     */
-/*                                                                        */
-/* The opaque handles, data structures and function prototypes below     */
-/* stand in for GW peer modules that do not yet have a firmware/gateway   */
-/* implementation (ISensorService, IAlarmService, IModbusPoller,         */
-/* IStoreAndForward, IHealthSnapshot/IHealthReport, IConfigProvider/      */
-/* IConfigManager, IUpdateService, ILifecycle). Each type is guarded so   */
-/* the real header can supersede it without a duplicate-definition error  */
-/* once that module's own LLD is implemented for GW. Only the symbols    */
-/* CloudPublisher actually calls are declared here — see the reuse       */
-/* policy in the session prompt for the same convention applied to test  */
-/* stubs.                                                                */
-/* ===================================================================== */
-
-/* --- IModbusPoller (placeholder; see docs/lld/middleware/modbus-master-poller.md) */
-
-#ifndef MODBUS_POLLER_HANDLE_T_DEFINED
-#define MODBUS_POLLER_HANDLE_T_DEFINED
-typedef struct modbus_poller_inst *modbus_poller_handle_t;
-#endif /* MODBUS_POLLER_HANDLE_T_DEFINED */
-
-#ifndef MODBUS_POLLER_FD_READING_T_DEFINED
-#define MODBUS_POLLER_FD_READING_T_DEFINED
-/** @brief Latest Field Device reading relayed over Modbus (§7.1). */
-typedef struct
-{
-    int16_t temp_deci_c;
-    uint8_t humidity_pct;
-    uint16_t pressure_hpa;
-    bool valid; /**< False if the Field Device is offline (REQ-SA-160). */
-} modbus_poller_fd_reading_t;
-#endif /* MODBUS_POLLER_FD_READING_T_DEFINED */
-
-/** @brief Placeholder — returns the latest cached Field Device reading. */
-modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t handle);
 
 /* --- Alarm payload (CloudPublisher's own wire model) ------------------ */
 
@@ -116,138 +88,43 @@ typedef struct
     int32_t measured_value_raw;
     int32_t threshold_value_raw;
     cp_alarm_source_t source;
+    time_provider_ts_t timestamp; /**< Time of detection, from the reading (REQ-AM-040).   */
 } cp_alarm_event_t;
-
-/* --- IStoreAndForward (placeholder; see store-and-forward-lld.md) ----- */
-
-#ifndef STORE_AND_FORWARD_HANDLE_T_DEFINED
-#define STORE_AND_FORWARD_HANDLE_T_DEFINED
-typedef struct store_and_forward_inst *store_and_forward_handle_t;
-#endif /* STORE_AND_FORWARD_HANDLE_T_DEFINED */
-
-#ifndef SAF_ERR_T_DEFINED
-#define SAF_ERR_T_DEFINED
-typedef enum
-{
-    SAF_ERR_OK = 0,
-    SAF_ERR_FULL = 1,
-    SAF_ERR_EMPTY = 2,
-    SAF_ERR_NULL_PTR = 3,
-} saf_err_t;
-#endif /* SAF_ERR_T_DEFINED */
-
-#define SAF_TOPIC_MAX_LEN 64u
-#define SAF_ENTRY_MAX_LEN 512u
-
-#ifndef SAF_ENTRY_T_DEFINED
-#define SAF_ENTRY_T_DEFINED
-typedef struct
-{
-    char topic[SAF_TOPIC_MAX_LEN];
-    uint8_t payload[SAF_ENTRY_MAX_LEN];
-    uint32_t len;
-    mqtt_qos_t qos;
-} saf_entry_t;
-#endif /* SAF_ENTRY_T_DEFINED */
-
-saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
-                                    const uint8_t *buf, uint32_t len, mqtt_qos_t qos);
-saf_err_t store_and_forward_dequeue(store_and_forward_handle_t handle, saf_entry_t *entry_out);
-saf_err_t store_and_forward_confirm(store_and_forward_handle_t handle);
-
-/* --- IHealthSnapshot / IHealthReport (placeholder; see health-monitor.md) */
-
-#ifndef HEALTH_MONITOR_HANDLE_T_DEFINED
-#define HEALTH_MONITOR_HANDLE_T_DEFINED
-typedef struct health_monitor_inst *health_monitor_handle_t;
-#endif /* HEALTH_MONITOR_HANDLE_T_DEFINED */
-
-#ifndef CP_HEALTH_SNAPSHOT_T_DEFINED
-#define CP_HEALTH_SNAPSHOT_T_DEFINED
-/**
- * @brief Minimal placeholder subset of IHealthSnapshot's
- * device_health_snapshot_t. Full schema per health-monitor.md (CP-O_health);
- * only the fields CloudPublisher's health payload needs are modelled here.
- */
-typedef struct
-{
-    uint32_t uptime_s;
-    bool cloud_connected;
-    uint32_t mqtt_reconnect_count;
-    uint32_t buffer_entry_count;
-} cp_health_snapshot_t;
-#endif /* CP_HEALTH_SNAPSHOT_T_DEFINED */
-
-cp_health_snapshot_t health_snapshot_get(health_monitor_handle_t handle);
-void health_report_update_mqtt(health_monitor_handle_t handle, const mqtt_stats_t *stats,
-                               const mqtt_stats_t *last_stats);
-
-#ifndef CP_HEALTH_EVENT_T_DEFINED
-#define CP_HEALTH_EVENT_T_DEFINED
-/** @brief Placeholder subset of health_event_t — only the event CloudPublisher raises. */
-typedef enum
-{
-    CP_HEALTH_EVENT_SAF_FULL = 0,
-    CP_HEALTH_EVENT_ALARM_PUBLISHED = 1, /**< Alarm went out on the wire now.   */
-    CP_HEALTH_EVENT_ALARM_BUFFERED = 2,  /**< Alarm queued in SAF (not connected
-                                              or publish failed); REQ-NF-113's
-                                              clock keeps running until drain. */
-} cp_health_event_t;
-#endif /* CP_HEALTH_EVENT_T_DEFINED */
-
-void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t event);
-
-/* --- IConfigProvider / IConfigManager (placeholder; see config-service.md) */
-
-#ifndef CONFIG_SERVICE_HANDLE_T_DEFINED
-#define CONFIG_SERVICE_HANDLE_T_DEFINED
-typedef struct config_service_inst *config_service_handle_t;
-#endif /* CONFIG_SERVICE_HANDLE_T_DEFINED */
-
-uint32_t config_provider_get_telemetry_interval_s(config_service_handle_t handle);
-uint32_t config_provider_get_health_interval_s(config_service_handle_t handle);
-bool config_manager_apply(config_service_handle_t handle, const uint8_t *payload, uint32_t len);
 
 /* --- IUpdateService / IOtaTransport (update-service-lld.md CPC-1..6) -- */
 
 #include "update_service/iota_transport.h"
 #include "update_service/iupdate_service.h"
 
-/* --- ILifecycle (placeholder; see lifecycle-controller.md) ------------ */
-
-#ifndef LIFECYCLE_HANDLE_T_DEFINED
-#define LIFECYCLE_HANDLE_T_DEFINED
-typedef struct lifecycle_inst *lifecycle_handle_t;
-#endif /* LIFECYCLE_HANDLE_T_DEFINED */
-
-void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len);
-
 /* ===================================================================== */
 /* Configuration and public API                                          */
 /* ===================================================================== */
 
+/** @brief Handler for the /control command payload (LifecycleController's remote dispatch). */
+typedef void (*cp_control_handler_t)(const uint8_t *payload, uint32_t len);
+
 /**
- * @brief CloudPublisher creation configuration.
+ * @brief CloudPublisher creation configuration (CP-D25).
  *
- * All dependencies injected via opaque handles (Gateway ADT default).
+ * All dependencies are injected. The mandatory ones are mqtt, saf, health, cfg_read, cfg_write
+ * and lifecycle; the others may be NULL or 0 (see each member).
  */
 typedef struct
 {
-    mqtt_client_handle_t mqtt;
-    modbus_poller_handle_t poller;        /**< IModbusPoller — FD readings.         */
-    store_and_forward_handle_t saf;       /**< IStoreAndForward — offline buffer.   */
-    health_monitor_handle_t health_read;  /**< IHealthSnapshot — health payload.    */
-    health_monitor_handle_t health_write; /**< IHealthReport — MQTT stats push.     */
-    config_service_handle_t cfg_read;     /**< IConfigProvider — publish intervals. */
-    config_service_handle_t cfg_write;    /**< IConfigManager — remote config cmds. */
-    const iupdate_service_t *update_ops;  /**< IUpdateService; NULL for a Gateway without OTA (the
-                                               OTA topics are then not subscribed). */
-    update_service_t *update;             /**< UpdateService instance, already created.      */
-    lifecycle_handle_t lifecycle;         /**< ILifecycle — restart command.        */
-    mqtt_connect_cfg_t mqtt_connect_cfg; /**< Broker/certs — CloudPublisher owns connect/reconnect
-                                               (CP-D7/CP-D9); stored by value, pointers inside
-                                               remain caller-owned (matches mqtt_client_connect()'s
-                                               own convention). */
+    mqtt_client_handle_t mqtt;            /**< MqttClient, created but not connected.        */
+    saf_handle_t saf;                     /**< StoreAndForward (offline buffer).             */
+    health_monitor_handle_t health;       /**< HealthMonitor: snapshot read and reports.     */
+    const iconfig_provider_t *cfg_read;   /**< config_service_get_provider().                */
+    const iconfig_manager_t *cfg_write;   /**< config_service_get_manager().                 */
+    const itime_service_t *time;          /**< NULL: no NTP retry on reconnect.              */
+    const ilifecycle_t *lifecycle;        /**< get_state only (CP-D27).                      */
+    cp_control_handler_t control_handler; /**< NULL: /control is not subscribed.             */
+    uint8_t fd_slave_addr;                /**< 0: no Field Device in the telemetry.          */
+    uint32_t fw_version;                  /**< major<<24 | minor<<16 | patch, in the health. */
+    const iupdate_service_t *update_ops;  /**< NULL: no OTA; the OTA topics are not subscribed. */
+    update_service_t *update;             /**< UpdateService instance (both or neither).     */
+    mqtt_connect_cfg_t mqtt_connect_cfg;  /**< Broker and certificates; stored by value, the
+                                               pointers inside stay caller-owned (CP-D7/D9).  */
 } cloud_publisher_config_t;
 
 /**
@@ -313,6 +190,16 @@ void cloud_publisher_on_message(const char *topic, uint16_t topic_len, const uin
                                 uint32_t payload_len);
 
 /**
+ * @brief MqttClient's connection-lost callback (CP-D20, CP-O5).
+ *
+ * The twin of cloud_publisher_on_message(): pass it as mqtt_client_config_t::disconnect_cb. It runs
+ * in CloudPublisherTask (inside mqtt_client_process()), records the transition and pushes
+ * HEALTH_EVENT_CLOUD_DISCONNECTED. Reconnecting stays with the 1 Hz stats tick (CP-D9, CP-D13).
+ * A call before cloud_publisher_create() does nothing.
+ */
+void cloud_publisher_on_disconnect(void);
+
+/**
  * @brief Fill the IOtaTransport that carries UpdateService's chunk requests and reports (CPC-5).
  *
  * Requests go out at QoS 0 and only while the broker is connected; they are never buffered. Reports
@@ -330,6 +217,10 @@ cloud_publisher_err_t cloud_publisher_get_ota_transport(cloud_publisher_handle_t
 
 /** @brief Reset all internal static state for unit testing. */
 void cloud_publisher_reset_for_test(void);
+
+/** @brief Alarms the REQ-NF-113 seam saw published now / buffered since the reset (CP-D19). */
+uint32_t cloud_publisher_alarm_published_for_test(void);
+uint32_t cloud_publisher_alarm_buffered_for_test(void);
 
 /** @brief Runs exactly one iteration of the task body (single-step testing). */
 void cloud_publisher_task_step_for_test(cloud_publisher_handle_t handle);

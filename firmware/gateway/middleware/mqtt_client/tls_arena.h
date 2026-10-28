@@ -22,10 +22,13 @@
  * @brief Arena size in bytes.
  *
  * Provisional (WP2): MQTT-O1 estimates 35 to 50 KB for a TLS session, plus the ECDSA verify.
- * To be fixed with a 25 % margin once the peak is measured with a TLS session open and a verify
+ * Lowered from 48 to 44 KB to make the CloudPublisher image fit the 96 KB RAM region once
+ * StoreAndForward, ConfigService and HealthMonitor are linked for real (2 088 bytes over at 48 KB).
+ * A session needs about 33 KB for its two 16 KB record buffers alone, so measure before trusting
+ * it. To be fixed with a 25 % margin once the peak is measured with a TLS session open and a verify
  * running (tls_arena_peak_bytes()).
  */
-#define TLS_ARENA_SIZE_BYTES (48U * 1024U)
+#define TLS_ARENA_SIZE_BYTES (44U * 1024U)
 
 /**
  * @brief Install the mutex layer and hand the static arena to mbedTLS.

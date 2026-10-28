@@ -12,6 +12,7 @@
 
 #include "cloud_publisher.h"
 #include "cloud_publisher_json.h"
+#include "config_service/config_service.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -30,15 +31,17 @@
     8u /**< job (u32 LE) + offset (u32 LE), update-service-lld.md 6.3. */
 
 #define CP_MAX_INSTANCES 1u
-#define CP_JSON_BUF_SIZE 4096u /**< Matches MQTT_PKT_BUF_SIZE; see MQTT-O3. */
+#define CP_JSON_BUF_SIZE 2048u /**< Largest payload (health 1.1 is about 900 B); CP-D28. */
+
+_Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one StoreAndForward entry");
 #define CP_ALARM_QUEUE_LEN 8u
 #define CP_CMD_QUEUE_LEN 4u
 #define CP_OTA_QUEUE_LEN 4u /**< Outbound OTA requests and reports (CPC-5). */
 #define CP_TASK_STACK_WORDS 768u
 #define CP_TASK_PRIORITY 3u
 
-#define CP_TELEMETRY_PERIOD_S_DEFAULT 60u
-#define CP_HEALTH_PERIOD_S_DEFAULT 600u
+#define CP_TELEMETRY_PERIOD_MS_DEFAULT 60000u
+#define CP_HEALTH_PERIOD_MS_DEFAULT 600000u
 #define CP_STATS_PERIOD_MS 1000u
 
 /** CP-D9: retry backoff between failed reconnect attempts (stats ticks). */
@@ -63,6 +66,8 @@
 /* Bit 7 was the rollback report (CP-D16); UpdateService reports it now (CPC-6). */
 #define CP_NOTIFY_OTA_OUT                                                                          \
     (1u << 8) /**< UpdateService: an OTA request or report is queued (CPC-5). */
+#define CP_NOTIFY_CONFIG_CHANGED                                                                   \
+    (1u << 9) /**< ConfigService: a publish interval changed (CP-D31). */
 /* Bit 5 (MQTT_CLIENT_WIFI_RECV_READY_BIT, mqtt_client.h) is set by MqttClient
  * itself, not CloudPublisher — included here so xTaskNotifyWait()'s
  * clear-on-exit mask actually clears it (WIFITASK-O1 Phase 3). Leaving it
@@ -71,7 +76,8 @@
  * cleared afterwards, so every following wait call would return
  * immediately — a busy-loop, not a missed wake. */
 #define CP_NOTIFY_ALL_BITS                                                                         \
-    (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT | CP_NOTIFY_FLUSH_REQUEST | CP_NOTIFY_OTA_OUT)
+    (0x1Fu | MQTT_CLIENT_WIFI_RECV_READY_BIT | CP_NOTIFY_FLUSH_REQUEST | CP_NOTIFY_OTA_OUT |       \
+     CP_NOTIFY_CONFIG_CHANGED)
 
 #define CP_DEVICE_SERIAL_LEN 25u /**< 24 hex chars (96-bit UID) + null. */
 #define CP_TOPIC_MAX_LEN 64u
@@ -105,21 +111,25 @@ typedef struct
 
 struct cloud_publisher_inst
 {
-    /* Injected dependencies (all opaque handles) */
+    /* Injected dependencies (CP-D25) */
     mqtt_client_handle_t mqtt;
-    modbus_poller_handle_t poller;
-    store_and_forward_handle_t saf;
-    health_monitor_handle_t health_read;
-    health_monitor_handle_t health_write;
-    config_service_handle_t cfg_read;
-    config_service_handle_t cfg_write;
+    saf_handle_t saf;
+    health_monitor_handle_t health;
+    const iconfig_provider_t *cfg_read;
+    const iconfig_manager_t *cfg_write;
+    const itime_service_t *time;
+    const ilifecycle_t *lifecycle;
+    cp_control_handler_t control_handler;
+    uint8_t fd_slave_addr;
+    uint32_t fw_version;
     const iupdate_service_t *update_ops;
     update_service_t *update;
-    lifecycle_handle_t lifecycle;
 
     /* Working state */
     char scratch_buf[CP_JSON_BUF_SIZE];
-    mqtt_stats_t last_mqtt_stats;
+    uint32_t telemetry_ms; /**< Period the telemetry timer runs at (CP-D31). */
+    uint32_t health_ms;    /**< Period the health timer runs at (CP-D31).    */
+    bool was_connected;    /**< Task only: the link state last reported (CP-D19). */
     char device_serial[CP_DEVICE_SERIAL_LEN];
     mqtt_connect_cfg_t mqtt_connect_cfg; /**< CP-D9: owned here for connect()/reconnect(). */
     uint32_t reconnect_countdown_s;      /**< CP-D9: stats ticks left before next retry. */
@@ -128,13 +138,18 @@ struct cloud_publisher_inst
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
     char topic_alarms[CP_TOPIC_MAX_LEN];
-    char topic_results[CP_TOPIC_MAX_LEN];
-    char topic_ota_cmd[CP_TOPIC_MAX_LEN];     /**< Subscribed: command (QoS 1).            */
-    char topic_ota_data[CP_TOPIC_MAX_LEN];    /**< Subscribed: chunk (QoS 0).              */
-    char topic_ota_request[CP_TOPIC_MAX_LEN]; /**< Published: chunk request (QoS 0).       */
-    char topic_ota_result[CP_TOPIC_MAX_LEN];  /**< Published: result report (QoS 1).       */
-    bool ota_subscribed;                      /**< Task only: SUBSCRIBEs done on this link. */
-    volatile bool link_up;                    /**< Mirror of is_connected() for any task.  */
+    char topic_config_result[CP_TOPIC_MAX_LEN]; /**< Published: result of /config (CP-D30).  */
+    char topic_config_cmd[CP_TOPIC_MAX_LEN];    /**< Subscribed: /config (QoS 1).            */
+    char topic_control_cmd[CP_TOPIC_MAX_LEN];   /**< Subscribed: /control (QoS 1).           */
+    char topic_ota_cmd[CP_TOPIC_MAX_LEN];       /**< Subscribed: command (QoS 1).            */
+    char topic_ota_data[CP_TOPIC_MAX_LEN];      /**< Subscribed: chunk (QoS 0).              */
+    char topic_ota_request[CP_TOPIC_MAX_LEN];   /**< Published: chunk request (QoS 0).       */
+    char topic_ota_result[CP_TOPIC_MAX_LEN];    /**< Published: result report (QoS 1).       */
+    bool sub_config;                            /**< Task only: SUBSCRIBE done on this link. */
+    bool sub_control;
+    bool sub_ota_cmd;
+    bool sub_ota_data;
+    volatile bool link_up; /**< Mirror of is_connected() for any task.  */
 
     /* FreeRTOS objects */
     QueueHandle_t alarm_queue;
@@ -157,6 +172,14 @@ static uint8_t g_count;
  * callbacks (which carry no user-data parameter in this codebase's mock
  * surface) reach the instance without needing xTimerGetTimerID(). */
 static struct cloud_publisher_inst *g_active_inst;
+
+/** The health snapshot is large: one static copy, since the pool has one instance (CP-D25). */
+static health_snapshot_t s_health_snap;
+
+#ifdef TEST
+static uint32_t s_alarm_published_for_test; /**< REQ-NF-113 seam (CP-D19). */
+static uint32_t s_alarm_buffered_for_test;
+#endif
 
 static uint8_t s_alarm_queue_storage[CP_ALARM_QUEUE_LEN * sizeof(cp_alarm_event_t)];
 static StaticQueue_t s_alarm_queue_ctrl;
@@ -190,7 +213,12 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
 static void prv_flush(struct cloud_publisher_inst *inst);
 static void prv_drain_ota_out(struct cloud_publisher_inst *inst);
-static void prv_subscribe_ota(struct cloud_publisher_inst *inst);
+static void prv_subscribe_commands(struct cloud_publisher_inst *inst);
+static void prv_note_link(struct cloud_publisher_inst *inst, bool connected);
+static void prv_apply_config(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry);
+static void prv_config_changed(config_param_id_t param_id);
+static void prv_update_intervals(struct cloud_publisher_inst *inst);
+static time_provider_ts_t prv_now(void);
 static bool prv_ota_enqueue(struct cloud_publisher_inst *inst, const cp_ota_out_t *entry);
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry);
 static void prv_route_ota_command(struct cloud_publisher_inst *inst,
@@ -210,10 +238,29 @@ static void prv_timer_stats_cb(TimerHandle_t timer);
 /* Public API                                                             */
 /* ===================================================================== */
 
+/** The configured publish period in ms, or the default if ConfigService has none. */
+static uint32_t prv_interval_ms(const struct cloud_publisher_inst *inst, bool telemetry)
+{
+    const config_params_t *params = inst->cfg_read->get_params(inst->cfg_read->ctx);
+    uint32_t ms = 0u;
+
+    if (params != NULL)
+    {
+        ms = telemetry ? params->telemetry_interval_ms : params->health_interval_ms;
+    }
+    if (ms == 0u)
+    {
+        ms = telemetry ? CP_TELEMETRY_PERIOD_MS_DEFAULT : CP_HEALTH_PERIOD_MS_DEFAULT;
+    }
+    return ms;
+}
+
 cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *config,
                                              cloud_publisher_handle_t *handle)
 {
-    if ((config == NULL) || (handle == NULL))
+    if ((config == NULL) || (handle == NULL) || (config->mqtt == NULL) || (config->saf == NULL) ||
+        (config->health == NULL) || (config->cfg_read == NULL) || (config->cfg_write == NULL) ||
+        (config->lifecycle == NULL) || ((config->update_ops == NULL) != (config->update == NULL)))
     {
         return CP_ERR_NULL_PTR;
     }
@@ -223,26 +270,36 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
         return CP_ERR_NO_RESOURCE;
     }
 
+    /* ConfigService tells us when a publish interval changes, whoever changed it (CP-D31). */
+    if (config_service_register_change_cb(prv_config_changed) != CONFIG_SERVICE_OK)
+    {
+        return CP_ERR_NO_RESOURCE;
+    }
+
     struct cloud_publisher_inst *inst = &g_pool[g_count];
     g_count++;
 
     inst->mqtt = config->mqtt;
-    inst->poller = config->poller;
     inst->saf = config->saf;
-    inst->health_read = config->health_read;
-    inst->health_write = config->health_write;
+    inst->health = config->health;
     inst->cfg_read = config->cfg_read;
     inst->cfg_write = config->cfg_write;
+    inst->time = config->time;
+    inst->lifecycle = config->lifecycle;
+    inst->control_handler = config->control_handler;
+    inst->fd_slave_addr = config->fd_slave_addr;
+    inst->fw_version = config->fw_version;
     inst->update_ops = config->update_ops;
     inst->update = config->update;
-    inst->ota_subscribed = false;
-    inst->link_up = false;
-    inst->lifecycle = config->lifecycle;
     inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
+    inst->sub_config = false;
+    inst->sub_control = false;
+    inst->sub_ota_cmd = false;
+    inst->sub_ota_data = false;
+    inst->link_up = false;
+    inst->was_connected = false;
     inst->reconnect_countdown_s = 0u; /* CP-D9: attempt connect on the first stats tick */
     inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13 */
-
-    (void) memset(&inst->last_mqtt_stats, 0, sizeof(inst->last_mqtt_stats));
 
     prv_read_device_serial(inst->device_serial, (uint32_t) sizeof(inst->device_serial));
     prv_build_topics(inst);
@@ -253,7 +310,6 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->command_queue =
         xQueueCreateStatic(CP_CMD_QUEUE_LEN, (UBaseType_t) sizeof(cp_command_entry_t),
                            s_command_queue_storage, &s_command_queue_ctrl);
-
     inst->ota_queue = xQueueCreateStatic(CP_OTA_QUEUE_LEN, (UBaseType_t) sizeof(cp_ota_out_t),
                                          s_ota_queue_storage, &s_ota_queue_ctrl);
 
@@ -262,23 +318,14 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->task_handle = xTaskCreateStatic(prv_task_body, "CloudPublisherTask", CP_TASK_STACK_WORDS,
                                           inst, CP_TASK_PRIORITY, s_task_stack, &s_task_tcb);
 
-    uint32_t telemetry_period_s = config_provider_get_telemetry_interval_s(inst->cfg_read);
-    if (telemetry_period_s == 0u)
-    {
-        telemetry_period_s = CP_TELEMETRY_PERIOD_S_DEFAULT;
-    }
-    uint32_t health_period_s = config_provider_get_health_interval_s(inst->cfg_read);
-    if (health_period_s == 0u)
-    {
-        health_period_s = CP_HEALTH_PERIOD_S_DEFAULT;
-    }
+    inst->telemetry_ms = prv_interval_ms(inst, true);
+    inst->health_ms = prv_interval_ms(inst, false);
 
     inst->telemetry_timer =
-        xTimerCreateStatic("cp_telemetry", pdMS_TO_TICKS(telemetry_period_s * 1000u), pdTRUE, NULL,
+        xTimerCreateStatic("cp_telemetry", pdMS_TO_TICKS(inst->telemetry_ms), pdTRUE, NULL,
                            prv_timer_telemetry_cb, &s_telemetry_timer_ctrl);
-    inst->health_timer =
-        xTimerCreateStatic("cp_health", pdMS_TO_TICKS(health_period_s * 1000u), pdTRUE, NULL,
-                           prv_timer_health_cb, &s_health_timer_ctrl);
+    inst->health_timer = xTimerCreateStatic("cp_health", pdMS_TO_TICKS(inst->health_ms), pdTRUE,
+                                            NULL, prv_timer_health_cb, &s_health_timer_ctrl);
     inst->stats_timer = xTimerCreateStatic("cp_stats", pdMS_TO_TICKS(CP_STATS_PERIOD_MS), pdTRUE,
                                            NULL, prv_timer_stats_cb, &s_stats_timer_ctrl);
 
@@ -293,6 +340,53 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->in_use = true;
     *handle = inst;
     return CP_ERR_OK;
+}
+
+/** Timestamp for a payload: wall-clock when synchronised, uptime otherwise (REQ-TS-040). */
+static time_provider_ts_t prv_now(void)
+{
+    time_provider_ts_t ts;
+
+    if (time_provider_get(&ts) != TIME_PROVIDER_ERR_OK)
+    {
+        LOG_WARN(CP_LOG_MODULE, "TimeProvider unavailable: uptime, unsynchronised");
+        ts.epoch = (uint32_t) (xTaskGetTickCount() / configTICK_RATE_HZ);
+        ts.sync_state = TIME_SYNC_UNSYNCHRONISED;
+    }
+    return ts;
+}
+
+/** ConfigService change callback: runs in the caller's task, so it only wakes ours (CP-D31). */
+static void prv_config_changed(config_param_id_t param_id)
+{
+    struct cloud_publisher_inst *inst = g_active_inst;
+
+    if ((inst == NULL) || (inst->task_handle == NULL))
+    {
+        return;
+    }
+    if ((param_id == CONFIG_PARAM_TELEMETRY_INTERVAL) || (param_id == CONFIG_PARAM_HEALTH_INTERVAL))
+    {
+        (void) xTaskNotify(inst->task_handle, CP_NOTIFY_CONFIG_CHANGED, eSetBits);
+    }
+}
+
+/** Re-read both intervals and retime the timer of each that changed (CP-D31). */
+static void prv_update_intervals(struct cloud_publisher_inst *inst)
+{
+    const uint32_t telemetry_ms = prv_interval_ms(inst, true);
+    const uint32_t health_ms = prv_interval_ms(inst, false);
+
+    if (telemetry_ms != inst->telemetry_ms)
+    {
+        inst->telemetry_ms = telemetry_ms;
+        (void) xTimerChangePeriod(inst->telemetry_timer, pdMS_TO_TICKS(telemetry_ms), 0u);
+    }
+    if (health_ms != inst->health_ms)
+    {
+        inst->health_ms = health_ms;
+        (void) xTimerChangePeriod(inst->health_timer, pdMS_TO_TICKS(health_ms), 0u);
+    }
 }
 
 /* ===================================================================== */
@@ -338,25 +432,17 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     {
         prv_flush(inst);
     }
+    if ((notif & CP_NOTIFY_CONFIG_CHANGED) != 0u)
+    {
+        prv_update_intervals(inst);
+    }
     if ((notif & CP_NOTIFY_TELEMETRY_TICK) != 0u)
     {
         prv_publish_telemetry(inst);
-        uint32_t period_s = config_provider_get_telemetry_interval_s(inst->cfg_read);
-        if (period_s == 0u)
-        {
-            period_s = CP_TELEMETRY_PERIOD_S_DEFAULT;
-        }
-        (void) xTimerChangePeriod(inst->telemetry_timer, pdMS_TO_TICKS(period_s * 1000u), 0u);
     }
     if ((notif & CP_NOTIFY_HEALTH_TICK) != 0u)
     {
         prv_publish_health(inst);
-        uint32_t period_s = config_provider_get_health_interval_s(inst->cfg_read);
-        if (period_s == 0u)
-        {
-            period_s = CP_HEALTH_PERIOD_S_DEFAULT;
-        }
-        (void) xTimerChangePeriod(inst->health_timer, pdMS_TO_TICKS(period_s * 1000u), 0u);
     }
     /* WIFITASK-O1 Phase 3: also re-drive on MQTT_CLIENT_WIFI_RECV_READY_BIT,
      * not just the 1 Hz stats tick — otherwise a TLS handshake or MQTT read
@@ -394,11 +480,12 @@ static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst 
         /* Publish failed while nominally connected — fall through to SAF. */
     }
 
-    saf_err_t saf_rc = store_and_forward_enqueue(inst->saf, topic, buf, len, qos);
-    if (saf_rc == SAF_ERR_FULL)
+    /* The real SAF drops its oldest entry when the ring is full and succeeds (REQ-BF-020), so a
+     * refusal is a flash error or an entry that does not fit: the message is lost (CP-D29). */
+    const saf_err_t saf_rc = saf_enqueue(inst->saf, topic, buf, (uint16_t) len, (uint8_t) qos);
+    if (saf_rc != SAF_ERR_OK)
     {
-        health_report_push_event(inst->health_write, CP_HEALTH_EVENT_SAF_FULL);
-        LOG_WARN(CP_LOG_MODULE, "SAF full, message dropped: %s", topic);
+        LOG_ERROR(CP_LOG_MODULE, "SAF refused %s (code %d), message lost", topic, (int) saf_rc);
         return CP_ERR_SAF_FULL;
     }
 
@@ -417,10 +504,14 @@ static void prv_publish_telemetry(struct cloud_publisher_inst *inst)
         LOG_WARN(CP_LOG_MODULE, "telemetry skipped: no sensor snapshot");
         return;
     }
-    modbus_poller_fd_reading_t fd = modbus_poller_get_latest_fd(inst->poller);
+    modbus_fd_reading_t fd;
+    const bool has_fd =
+        (inst->fd_slave_addr != 0u) &&
+        (modbus_poller_get_fd_reading(inst->fd_slave_addr, &fd) == MODBUS_POLLER_ERR_OK);
+    const time_provider_ts_t ts = prv_now();
 
-    uint32_t n = cp_serialise_telemetry(inst->scratch_buf, CP_JSON_BUF_SIZE, &snap, &fd,
-                                        inst->device_serial);
+    uint32_t n = cp_serialise_telemetry(inst->scratch_buf, CP_JSON_BUF_SIZE, &snap,
+                                        has_fd ? &fd : NULL, &ts, inst->device_serial);
     if (n == 0u)
     {
         LOG_WARN(CP_LOG_MODULE, "telemetry payload exceeded %u bytes", CP_JSON_BUF_SIZE);
@@ -433,10 +524,17 @@ static void prv_publish_telemetry(struct cloud_publisher_inst *inst)
 
 static void prv_publish_health(struct cloud_publisher_inst *inst)
 {
-    cp_health_snapshot_t snap = health_snapshot_get(inst->health_read);
+    /* The stack watermarks are polled on each health tick, before the snapshot (HealthMonitor). */
+    (void) health_monitor_poll(inst->health);
+    if (health_monitor_get_snapshot(inst->health, &s_health_snap) != HEALTH_MONITOR_ERR_OK)
+    {
+        LOG_WARN(CP_LOG_MODULE, "health skipped: no snapshot");
+        return;
+    }
+    const time_provider_ts_t ts = prv_now();
 
-    uint32_t n =
-        cp_serialise_health(inst->scratch_buf, CP_JSON_BUF_SIZE, &snap, inst->device_serial);
+    uint32_t n = cp_serialise_health(inst->scratch_buf, CP_JSON_BUF_SIZE, &s_health_snap,
+                                     inst->fw_version, &ts, inst->device_serial);
     if (n == 0u)
     {
         LOG_WARN(CP_LOG_MODULE, "health payload exceeded %u bytes", CP_JSON_BUF_SIZE);
@@ -452,8 +550,7 @@ static void prv_poll_stats(struct cloud_publisher_inst *inst)
     mqtt_stats_t stats;
     if (mqtt_client_get_stats(inst->mqtt, &stats) == MQTT_CLIENT_ERR_OK)
     {
-        health_report_update_mqtt(inst->health_write, &stats, &inst->last_mqtt_stats);
-        inst->last_mqtt_stats = stats;
+        (void) health_monitor_update_mqtt_stats(inst->health, &stats);
     }
 
     prv_maybe_reconnect(inst);
@@ -466,6 +563,42 @@ static void prv_poll_stats(struct cloud_publisher_inst *inst)
      * live publish still goes through prv_enqueue_or_publish directly and
      * does not jump this drain (REQ-BF-010 ordering). */
     prv_drain_saf(inst);
+}
+
+/**
+ * Record a change of the broker link (CP-D19, CP-D20, CP-D23). Task context only.
+ *
+ * Disconnected to connected: tell HealthMonitor, ask TimeService for an NTP attempt (REQ-TS-0E1:
+ * the boot attempt usually ran before WiFi was up) and forget the subscriptions of the old
+ * session. Connected to disconnected: tell HealthMonitor and mark the subscriptions lost.
+ */
+static void prv_note_link(struct cloud_publisher_inst *inst, bool connected)
+{
+    inst->link_up = connected;
+
+    if (connected == inst->was_connected)
+    {
+        return;
+    }
+    inst->was_connected = connected;
+
+    inst->sub_config = false;
+    inst->sub_control = false;
+    inst->sub_ota_cmd = false;
+    inst->sub_ota_data = false;
+
+    if (connected)
+    {
+        (void) health_monitor_push_event(inst->health, HEALTH_EVENT_CLOUD_CONNECTED, 0u);
+        if (inst->time != NULL)
+        {
+            inst->time->trigger_retry(inst->time->ctx);
+        }
+    }
+    else
+    {
+        (void) health_monitor_push_event(inst->health, HEALTH_EVENT_CLOUD_DISCONNECTED, 0u);
+    }
 }
 
 /**
@@ -503,13 +636,15 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
 {
     if (mqtt_client_is_connected(inst->mqtt))
     {
+        prv_note_link(inst, true);
         inst->reconnect_countdown_s = 0u; /* ready to retry immediately after a future drop */
         inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13: fresh curve next drop */
-        prv_subscribe_ota(inst); /* CPC-1: after every successful connect; retried until it holds */
+        prv_subscribe_commands(
+            inst); /* CPC-1, CP-D26: after every connect; retried until all hold */
         return;
     }
 
-    inst->ota_subscribed = false; /* a new session starts with no subscriptions */
+    prv_note_link(inst, false); /* a new session starts with no subscriptions */
 
     if (inst->reconnect_countdown_s > 0u)
     {
@@ -541,18 +676,24 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
 
 static void prv_drain_saf(struct cloud_publisher_inst *inst)
 {
-    saf_entry_t entry;
-    while (store_and_forward_dequeue(inst->saf, &entry) == SAF_ERR_OK)
+    const saf_entry_t *entry = NULL;
+
+    /* The entry points into SAF's own buffer and is valid only until the next SAF call, so it is
+     * published before anything else touches SAF. A repeated dequeue without a confirm returns
+     * the same entry, which is how a failed publish is retried. */
+    while (saf_dequeue(inst->saf, &entry) == SAF_ERR_OK)
     {
-        mqtt_client_err_t rc =
-            mqtt_client_publish(inst->mqtt, entry.topic, entry.payload, entry.len, entry.qos);
-        if (rc == MQTT_CLIENT_ERR_OK)
-        {
-            (void) store_and_forward_confirm(inst->saf);
-        }
-        else
+        mqtt_client_err_t rc = mqtt_client_publish(inst->mqtt, entry->topic, entry->payload,
+                                                   entry->payload_len, (mqtt_qos_t) entry->qos);
+        if (rc != MQTT_CLIENT_ERR_OK)
         {
             break; /* stop drain; re-attempt on next stats tick */
+        }
+        if (saf_confirm(inst->saf) != SAF_ERR_OK)
+        {
+            /* The entry stays pending and is sent again: a duplicate, acceptable at QoS 1. */
+            LOG_WARN(CP_LOG_MODULE, "SAF confirm failed, drain stops for this tick");
+            break;
         }
     }
 }
@@ -573,32 +714,46 @@ static void prv_flush(struct cloud_publisher_inst *inst)
 /* OTA transport (CPC-1, CPC-5)                                           */
 /* ===================================================================== */
 
-/* Subscribe to the command and chunk topics. Both must succeed for the flag to be set; a failure
- * is retried on the next stats tick. A Gateway without OTA (update_ops NULL) subscribes to
- * nothing. */
-static void prv_subscribe_ota(struct cloud_publisher_inst *inst)
+/* Subscribe to every command topic after a connect (CP-D26). One flag per topic, so a partial
+ * failure retries only what is missing, on the next stats tick. The OTA topics are subscribed only
+ * when UpdateService is wired, /control only when a handler is. */
+static bool prv_subscribe_one(struct cloud_publisher_inst *inst, bool *done, const char *topic,
+                              mqtt_qos_t qos)
 {
-    if ((inst->update_ops == NULL) || inst->ota_subscribed)
+    if (*done)
     {
-        return;
+        return true;
     }
 
-    const mqtt_client_err_t rc_cmd =
-        mqtt_client_subscribe(inst->mqtt, inst->topic_ota_cmd, MQTT_QOS_1);
-    const mqtt_client_err_t rc_data =
-        mqtt_client_subscribe(inst->mqtt, inst->topic_ota_data, MQTT_QOS_0);
+    const mqtt_client_err_t rc = mqtt_client_subscribe(inst->mqtt, topic, qos);
 
-    if ((rc_cmd == MQTT_CLIENT_ERR_OK) && (rc_data == MQTT_CLIENT_ERR_OK))
+    if (rc == MQTT_CLIENT_ERR_OK)
     {
-        inst->ota_subscribed = true;
-        LOG_INFO(CP_LOG_MODULE, "subscribed to the OTA topics");
+        *done = true;
+        return true;
     }
-    else
-    {
-        LOG_WARN(CP_LOG_MODULE, "OTA subscribe failed (cmd=%d, data=%d), retrying", (int) rc_cmd,
-                 (int) rc_data);
-    }
+    LOG_WARN(CP_LOG_MODULE, "subscribe to %s failed (%d), retrying", topic, (int) rc);
+    return false;
 }
+
+static void prv_subscribe_commands(struct cloud_publisher_inst *inst)
+{
+    bool all = prv_subscribe_one(inst, &inst->sub_config, inst->topic_config_cmd, MQTT_QOS_1);
+
+    if (inst->control_handler != NULL)
+    {
+        all =
+            prv_subscribe_one(inst, &inst->sub_control, inst->topic_control_cmd, MQTT_QOS_1) && all;
+    }
+    if (inst->update_ops != NULL)
+    {
+        all = prv_subscribe_one(inst, &inst->sub_ota_cmd, inst->topic_ota_cmd, MQTT_QOS_1) && all;
+        all = prv_subscribe_one(inst, &inst->sub_ota_data, inst->topic_ota_data, MQTT_QOS_0) && all;
+    }
+    (void) all;
+}
+
+/* OTA transport (CPC-1, CPC-5): see also prv_subscribe_commands() above. */
 
 static bool prv_ota_enqueue(struct cloud_publisher_inst *inst, const cp_ota_out_t *entry)
 {
@@ -622,8 +777,9 @@ static void prv_drain_ota_out(struct cloud_publisher_inst *inst)
     {
         if (entry.is_report)
         {
-            const uint32_t len =
-                cp_serialise_ota_report(inst->scratch_buf, CP_JSON_BUF_SIZE, &entry.u.report);
+            const time_provider_ts_t ts = prv_now();
+            const uint32_t len = cp_serialise_ota_report(inst->scratch_buf, CP_JSON_BUF_SIZE,
+                                                         &entry.u.report, &ts, inst->device_serial);
             if (len > 0u)
             {
                 (void) prv_enqueue_or_publish(inst, inst->topic_ota_result,
@@ -632,8 +788,9 @@ static void prv_drain_ota_out(struct cloud_publisher_inst *inst)
         }
         else if (mqtt_client_is_connected(inst->mqtt))
         {
-            const uint32_t len =
-                cp_serialise_ota_request(inst->scratch_buf, CP_JSON_BUF_SIZE, &entry.u.request);
+            const time_provider_ts_t ts = prv_now();
+            const uint32_t len = cp_serialise_ota_request(
+                inst->scratch_buf, CP_JSON_BUF_SIZE, &entry.u.request, &ts, inst->device_serial);
             if (len > 0u)
             {
                 (void) mqtt_client_publish(inst->mqtt, inst->topic_ota_request,
@@ -688,20 +845,27 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
 
         const cloud_publisher_err_t rc = prv_enqueue_or_publish(
             inst, inst->topic_alarms, (const uint8_t *) inst->scratch_buf, n, MQTT_QOS_1);
-        /* Outcome goes to the health report either way: PUBLISHED is the
-         * REQ-NF-113 "detection -> publish" endpoint, BUFFERED means the
-         * alarm is safe in SAF but still owes the cloud a publish. (SAF_FULL
-         * is already pushed inside prv_enqueue_or_publish().) This is also
-         * the seam the hardware bring-up times the alarm path through —
-         * TC-HW-CP-011, main_test_cloud_publisher.c. */
+        /* The REQ-NF-113 "detection -> publish" outcome is a local seam (CP-D19): nothing in the
+         * health snapshot consumes it. PUBLISHED went out now; BUFFERED is safe in SAF but still
+         * owes the cloud a publish. TC-HW-CP-011 times the alarm path from the broker's side. */
+        LOG_DEBUG(CP_LOG_MODULE, "alarm %s: %s", ev.sensor_name,
+                  (rc == CP_ERR_OK) ? "published"
+                                    : ((rc == CP_ERR_BUFFERED) ? "buffered" : "lost"));
+        (void) rc;
+#ifdef TEST
         if (rc == CP_ERR_OK)
         {
-            health_report_push_event(inst->health_write, CP_HEALTH_EVENT_ALARM_PUBLISHED);
+            s_alarm_published_for_test++;
         }
         else if (rc == CP_ERR_BUFFERED)
         {
-            health_report_push_event(inst->health_write, CP_HEALTH_EVENT_ALARM_BUFFERED);
+            s_alarm_buffered_for_test++;
         }
+        else
+        {
+            /* lost: logged above */
+        }
+#endif
     }
 }
 
@@ -763,6 +927,7 @@ static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
                                                         : CP_ALARM_TYPE_CLEAR;
     ev.measured_value_raw = reading->value;
     ev.source = CP_ALARM_SOURCE_GATEWAY;
+    ev.timestamp = reading->timestamp; /* time of detection, not of serialisation (CP-D22) */
 
     int32_t limit = 0;
     if (alarm_service->get_limit(sensor, inst->last_raised[sensor], &limit) == ALARM_SERVICE_ERR_OK)
@@ -868,6 +1033,16 @@ void cloud_publisher_on_message(const char *topic, uint16_t topic_len, const uin
     prv_msg_cb(g_active_inst, topic, topic_len, payload, payload_len);
 }
 
+void cloud_publisher_on_disconnect(void)
+{
+    struct cloud_publisher_inst *inst = g_active_inst;
+
+    if (inst != NULL)
+    {
+        prv_note_link(inst, false);
+    }
+}
+
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst)
 {
     cp_command_entry_t entry;
@@ -903,7 +1078,9 @@ static void prv_route_ota_command(struct cloud_publisher_inst *inst,
             .version = 0u,
             .rollback_count = 0u,
         };
-        const uint32_t len = cp_serialise_ota_report(inst->scratch_buf, CP_JSON_BUF_SIZE, &rep);
+        const time_provider_ts_t ts = prv_now();
+        const uint32_t len = cp_serialise_ota_report(inst->scratch_buf, CP_JSON_BUF_SIZE, &rep, &ts,
+                                                     inst->device_serial);
 
         LOG_WARN(CP_LOG_MODULE, "malformed OTA command rejected");
         if (len > 0u)
@@ -922,24 +1099,142 @@ static void prv_route_ota_command(struct cloud_publisher_inst *inst,
     }
 }
 
+/* ---------------------------------------------------------------------- */
+/* Remote configuration (SD-07, CP-D21, CP-D27)                             */
+/* ---------------------------------------------------------------------- */
+
+/** One parsed command at a time and CloudPublisherTask alone uses it: static, not on the stack. */
+static cp_cfg_cmd_t s_cfg_cmd;
+
+static void prv_publish_config_result(struct cloud_publisher_inst *inst, cp_cfg_status_t status,
+                                      const char *key)
+{
+    const time_provider_ts_t ts = prv_now();
+    const uint32_t n =
+        cp_serialise_config_result(inst->scratch_buf, CP_JSON_BUF_SIZE, s_cfg_cmd.req_known,
+                                   s_cfg_cmd.req, status, key, &ts, inst->device_serial);
+
+    if (n == 0u)
+    {
+        LOG_WARN(CP_LOG_MODULE, "config result exceeded %u bytes", CP_JSON_BUF_SIZE);
+        return;
+    }
+    (void) prv_enqueue_or_publish(inst, inst->topic_config_result,
+                                  (const uint8_t *) inst->scratch_buf, n, MQTT_QOS_1);
+}
+
+/** The current value of a parameter, as the wide integer the parser uses. */
+static int64_t prv_read_param(const config_params_t *params, const cp_cfg_pair_t *pair)
+{
+    const uint8_t *src = &((const uint8_t *) params)[pair->offset];
+
+    if (pair->size == 4u)
+    {
+        uint32_t v;
+        (void) memcpy(&v, src, sizeof(v));
+        return (int64_t) v;
+    }
+    if (pair->is_signed)
+    {
+        int16_t v;
+        (void) memcpy(&v, src, sizeof(v));
+        return (int64_t) v;
+    }
+    uint16_t v;
+    (void) memcpy(&v, src, sizeof(v));
+    return (int64_t) v;
+}
+
+/** set_param_deferred() with the C type of the field (applied in RAM, never writes flash). */
+static config_service_err_t prv_set_param(const struct cloud_publisher_inst *inst,
+                                          const cp_cfg_pair_t *pair, int64_t value)
+{
+    if (pair->size == 4u)
+    {
+        const uint32_t v = (uint32_t) value;
+        return inst->cfg_write->set_param_deferred(inst->cfg_write->ctx, pair->id, &v);
+    }
+    if (pair->is_signed)
+    {
+        const int16_t v = (int16_t) value;
+        return inst->cfg_write->set_param_deferred(inst->cfg_write->ctx, pair->id, &v);
+    }
+    const uint16_t v = (uint16_t) value;
+    return inst->cfg_write->set_param_deferred(inst->cfg_write->ctx, pair->id, &v);
+}
+
+/*
+ * /config: parse a flat JSON object of integers, apply every parameter or none. Nothing is written
+ * to flash here (LifecycleController persists on its idle tick, LC-D23), so the MQTT task never
+ * blocks. Refused unless the Gateway is Operational: a local cancel would restore the snapshot and
+ * silently undo an acknowledged remote change (REQ-LI-120).
+ */
+static void prv_apply_config(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry)
+{
+    const cp_cfg_status_t status =
+        cp_parse_config_command(entry->payload, entry->payload_len, &s_cfg_cmd);
+
+    if (inst->lifecycle->get_state() != LIFECYCLE_STATE_OPERATIONAL)
+    {
+        prv_publish_config_result(inst, CP_CFG_BUSY, NULL);
+        return;
+    }
+    if (status != CP_CFG_OK)
+    {
+        prv_publish_config_result(inst, status, s_cfg_cmd.bad_key);
+        return;
+    }
+
+    const config_params_t *params = inst->cfg_read->get_params(inst->cfg_read->ctx);
+    int64_t old[CP_CFG_MAX_KEYS] = {0};
+
+    for (uint8_t i = 0u; (i < s_cfg_cmd.count) && (params != NULL); i++)
+    {
+        old[i] = prv_read_param(params, &s_cfg_cmd.pairs[i]);
+    }
+
+    for (uint8_t i = 0u; i < s_cfg_cmd.count; i++)
+    {
+        if (prv_set_param(inst, &s_cfg_cmd.pairs[i], s_cfg_cmd.pairs[i].value) != CONFIG_SERVICE_OK)
+        {
+            /* Back out what was applied, newest first, so every state in between stays valid. */
+            for (uint8_t j = i; j > 0u; j--)
+            {
+                if (prv_set_param(inst, &s_cfg_cmd.pairs[j - 1u], old[j - 1u]) != CONFIG_SERVICE_OK)
+                {
+                    LOG_WARN(CP_LOG_MODULE, "could not restore %s", s_cfg_cmd.pairs[j - 1u].key);
+                }
+            }
+            prv_publish_config_result(inst, CP_CFG_INVALID_VALUE, s_cfg_cmd.pairs[i].key);
+            return;
+        }
+    }
+
+    prv_publish_config_result(inst, CP_CFG_OK, NULL);
+}
+
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry)
 {
-    if (prv_topic_ends_with(entry->topic, (uint32_t) strlen(entry->topic),
-                            MQTT_TOPIC_SUFFIX_CONFIG))
+    const uint32_t topic_len = (uint32_t) strlen(entry->topic);
+
+    if (prv_topic_ends_with(entry->topic, topic_len, MQTT_TOPIC_SUFFIX_CONFIG))
     {
-        bool ok = config_manager_apply(inst->cfg_write, entry->payload, entry->payload_len);
-        const char *result = ok ? "{\"result\":\"ack\"}" : "{\"result\":\"reject\"}";
-        (void) prv_enqueue_or_publish(inst, inst->topic_results, (const uint8_t *) result,
-                                      (uint32_t) strlen(result), MQTT_QOS_1);
+        prv_apply_config(inst, entry);
     }
-    else if (prv_topic_ends_with(entry->topic, (uint32_t) strlen(entry->topic),
-                                 MQTT_TOPIC_SUFFIX_OTA))
+    else if (prv_topic_ends_with(entry->topic, topic_len, MQTT_TOPIC_SUFFIX_OTA))
     {
         prv_route_ota_command(inst, entry);
     }
-    else if (prv_topic_ends_with(entry->topic, (uint32_t) strlen(entry->topic), "/control"))
+    else if (prv_topic_ends_with(entry->topic, topic_len, MQTT_TOPIC_SUFFIX_CONTROL))
     {
-        lifecycle_handle_remote(inst->lifecycle, entry->payload, entry->payload_len);
+        if (inst->control_handler != NULL)
+        {
+            inst->control_handler(entry->payload, entry->payload_len);
+        }
+        else
+        {
+            LOG_WARN(CP_LOG_MODULE, "/control ignored: no handler");
+        }
     }
     else
     {
@@ -989,12 +1284,13 @@ static void prv_build_topics(struct cloud_publisher_inst *inst)
                     inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_REQUEST);
     (void) snprintf(inst->topic_ota_result, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_PUBLISH,
                     inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_RESULT);
-    /* No shared MQTT_TOPIC_SUFFIX_RESULTS constant exists yet — mqtt_topic_
-     * config.h only has OTA_RESULT ("/ota/result"), while this companion's
-     * §6 specifies a general "/results" topic for all command acks. Kept
-     * as its own literal pending that naming reconciliation. */
-    (void) snprintf(inst->topic_results, CP_TOPIC_MAX_LEN, "%s%s/results",
-                    MQTT_TOPIC_PREFIX_PUBLISH, inst->device_serial);
+    (void) snprintf(inst->topic_config_result, CP_TOPIC_MAX_LEN, "%s%s%s",
+                    MQTT_TOPIC_PREFIX_PUBLISH, inst->device_serial,
+                    MQTT_TOPIC_SUFFIX_CONFIG_RESULT);
+    (void) snprintf(inst->topic_config_cmd, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_SUBSCRIBE,
+                    inst->device_serial, MQTT_TOPIC_SUFFIX_CONFIG);
+    (void) snprintf(inst->topic_control_cmd, CP_TOPIC_MAX_LEN, "%s%s%s",
+                    MQTT_TOPIC_PREFIX_SUBSCRIBE, inst->device_serial, MQTT_TOPIC_SUFFIX_CONTROL);
 }
 
 static void prv_read_device_serial(char *out, uint32_t out_size)
@@ -1060,6 +1356,19 @@ void cloud_publisher_reset_for_test(void)
     (void) memset(g_pool, 0, sizeof(g_pool));
     g_count = 0u;
     g_active_inst = NULL;
+    s_alarm_published_for_test = 0u;
+    s_alarm_buffered_for_test = 0u;
+    (void) memset(&s_cfg_cmd, 0, sizeof(s_cfg_cmd));
+}
+
+uint32_t cloud_publisher_alarm_published_for_test(void)
+{
+    return s_alarm_published_for_test;
+}
+
+uint32_t cloud_publisher_alarm_buffered_for_test(void)
+{
+    return s_alarm_buffered_for_test;
 }
 
 void cloud_publisher_task_step_for_test(cloud_publisher_handle_t handle)

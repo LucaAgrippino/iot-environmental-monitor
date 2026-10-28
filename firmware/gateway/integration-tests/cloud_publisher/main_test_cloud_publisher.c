@@ -138,7 +138,13 @@
 #include "cpu/cpu.h"
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
+#include "circular_flash_log/circular_flash_log.h"
+#include "config_service/config_service.h"
 #include "gpio/gpio_driver.h"
+#include "health_monitor/health_monitor.h"
+#include "led/led_driver.h"
+#include "qspi_flash/qspi_flash.h"
+#include "store_and_forward/store_and_forward.h"
 #include "logger/logger.h"
 #include "rtc/rtc.h"
 #include "spi/spi.h"
@@ -334,14 +340,6 @@ static const isensor_service_t s_bringup_sensor_vtable = {
 };
 const isensor_service_t *const sensor_service = &s_bringup_sensor_vtable;
 
-modbus_poller_fd_reading_t modbus_poller_get_latest_fd(modbus_poller_handle_t handle)
-{
-    (void) handle;
-    modbus_poller_fd_reading_t fd = {0};
-    fd.valid = false; /* no Field Device wired up for this bring-up */
-    return fd;
-}
-
 static alarm_service_err_t bringup_alarm_subscribe(void (*cb)(sensor_id_t, alarm_event_t,
                                                               const sensor_reading_t *))
 {
@@ -366,75 +364,47 @@ static const ialarm_service_t s_bringup_alarm_vtable = {
 };
 const ialarm_service_t *const alarm_service = &s_bringup_alarm_vtable;
 
-saf_err_t store_and_forward_enqueue(store_and_forward_handle_t handle, const char *topic,
-                                    const uint8_t *buf, uint32_t len, mqtt_qos_t qos)
+/* HealthMonitor, StoreAndForward and ConfigService are the real modules (WP1 PR-D); the image
+ * contains them, so private stand-ins with their names would be duplicate definitions. */
+#define LD2_PIN (14U)
+#define LD2_RED_PIN (5U)
+#define CP_BRINGUP_SAF_CAPACITY (254U)
+#define CP_BRINGUP_FW_VERSION (0x01000000UL)
+
+static health_monitor_handle_t s_hm;
+static saf_handle_t s_saf;
+static uint32_t s_stats_log_divider;
+
+static const led_pin_t k_gw_led_pins[LED_COUNT] = {
+    [LED_GREEN] = {.port = (uint8_t) GPIO_PORT_B,
+                   .pin = (uint8_t) LD2_PIN,
+                   .active_high = true,
+                   .fitted = true},
+    [LED_RED] = {.port = (uint8_t) GPIO_PORT_A,
+                 .pin = LD2_RED_PIN,
+                 .active_high = true,
+                 .fitted = false}, /* LD1 / SB1 - shared with SPI1_SCK */
+};
+
+/* LifecycleController is not in this image: a stand-in that always says Operational, so that
+ * /config is accepted (CP-D27). */
+static lifecycle_state_t bringup_life_state(void)
 {
-    (void) handle;
-    (void) buf;
-    (void) qos;
-    LOG_WARN("CloudPub", "SAF stand-in: dropping %lu-byte message for %s (offline path)",
-             (unsigned long) len, topic);
-    return SAF_ERR_OK;
+    return LIFECYCLE_STATE_OPERATIONAL;
+}
+static const ilifecycle_t s_bringup_lifecycle = {.get_state = bringup_life_state};
+
+static void bringup_control(const uint8_t *payload, uint32_t len)
+{
+    LOG_INFO("CloudPub", "/control received (%lu bytes): %.*s", (unsigned long) len, (int) len,
+             (const char *) payload);
 }
 
-saf_err_t store_and_forward_dequeue(store_and_forward_handle_t handle, saf_entry_t *entry_out)
+/** TC-HW-CP-011 outcome of one alarm: the seam moved out of the health report (CP-D19). */
+static void bringup_alarm_outcome(bool published, uint32_t ms)
 {
-    (void) handle;
-    (void) entry_out;
-    return SAF_ERR_EMPTY; /* bring-up never buffers anything to drain */
-}
-
-saf_err_t store_and_forward_confirm(store_and_forward_handle_t handle)
-{
-    (void) handle;
-    return SAF_ERR_OK;
-}
-
-cp_health_snapshot_t health_snapshot_get(health_monitor_handle_t handle)
-{
-    (void) handle;
-    cp_health_snapshot_t snap = {0};
-    snap.uptime_s = (uint32_t) (xTaskGetTickCount() / configTICK_RATE_HZ);
-    snap.cloud_connected = true;
-    return snap;
-}
-
-void health_report_update_mqtt(health_monitor_handle_t handle, const mqtt_stats_t *stats,
-                               const mqtt_stats_t *last_stats)
-{
-    (void) handle;
-    (void) last_stats;
-    LOG_INFO("CloudPub", "TC-HW-CP-009  stats poll: publishes_sent=%lu publish_failures=%lu",
-             (unsigned long) stats->publishes_sent, (unsigned long) stats->publish_failures);
-
-    /* TC-HW-CP-012: a reconnect completed since the last poll. */
-    if (stats->reconnect_count != s_last_reconnect_count)
-    {
-        s_last_reconnect_count = stats->reconnect_count;
-        const uint32_t ms = (uint32_t) ((xTaskGetTickCount() - s_drop_tick) * portTICK_PERIOD_MS);
-        LOG_INFO("CloudPub",
-                 "TC-HW-CP-012  reconnect #%lu observed ~%lu ms drop->reconnected "
-                 "(informational: dominated by broker-down dwell + reconnect backoff "
-                 "WIFITASK-O2, not a clean handshake wall-clock — the initial connect "
-                 "above is the parity point)",
-                 (unsigned long) stats->reconnect_count, (unsigned long) ms);
-    }
-}
-
-void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t event)
-{
-    (void) handle;
-    if ((event != CP_HEALTH_EVENT_ALARM_PUBLISHED) && (event != CP_HEALTH_EVENT_ALARM_BUFFERED))
-    {
-        LOG_WARN("CloudPub", "health event %d", (int) event);
-        return;
-    }
-
-    /* TC-HW-CP-011: runs in CloudPublisherTask context, right after
-     * prv_enqueue_or_publish() returned for the alarm this task fired. */
     const TickType_t now = xTaskGetTickCount();
-    const uint32_t ms = (uint32_t) ((now - s_alarm_fire_tick) * portTICK_PERIOD_MS);
-    const bool published = (event == CP_HEALTH_EVENT_ALARM_PUBLISHED);
+
     s_alarm_in_flight = false;
     s_alarm_handled++;
     if (published)
@@ -457,7 +427,7 @@ void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t 
     if (ms > CP_BRINGUP_ALARM_BUDGET_MS)
     {
         s_alarm_over_budget++;
-        LOG_ERROR("CloudPub", "TC-HW-CP-011  alarm #%lu %s after %lu ms — OVER %u ms budget",
+        LOG_ERROR("CloudPub", "TC-HW-CP-011  alarm #%lu %s after %lu ms - OVER %u ms budget",
                   (unsigned long) s_alarm_handled, published ? "published" : "buffered",
                   (unsigned long) ms, (unsigned) CP_BRINGUP_ALARM_BUDGET_MS);
     }
@@ -477,33 +447,6 @@ void health_report_push_event(health_monitor_handle_t handle, cp_health_event_t 
                  (unsigned long) s_alarm_max_ms, (unsigned long) s_alarm_over_budget,
                  (s_alarm_over_budget == 0u) ? "PASS" : "FAIL");
     }
-}
-
-uint32_t config_provider_get_telemetry_interval_s(config_service_handle_t handle)
-{
-    (void) handle;
-    return 10U; /* shortened from the 60 s default for faster bring-up observation */
-}
-
-uint32_t config_provider_get_health_interval_s(config_service_handle_t handle)
-{
-    (void) handle;
-    return 20U; /* shortened from the 600 s default for faster bring-up observation */
-}
-
-bool config_manager_apply(config_service_handle_t handle, const uint8_t *payload, uint32_t len)
-{
-    (void) handle;
-    (void) payload;
-    (void) len;
-    return true;
-}
-
-void lifecycle_handle_remote(lifecycle_handle_t handle, const uint8_t *payload, uint32_t len)
-{
-    (void) handle;
-    (void) payload;
-    (void) len;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -526,6 +469,7 @@ static void bringup_msg_cb(const char *topic, uint16_t topic_len, const uint8_t 
     {
         LOG_INFO("CloudPub", "inbound msg: topic='%.*s' payload_len=%u", (int) topic_len, topic,
                  (unsigned) payload_len);
+        cloud_publisher_on_message(topic, topic_len, payload, payload_len); /* CP-O5 */
         return;
     }
 
@@ -597,6 +541,7 @@ static void bringup_msg_cb(const char *topic, uint16_t topic_len, const uint8_t 
 static void bringup_disconnect_cb(void)
 {
     LOG_WARN("CloudPub", "MqttClient disconnect_cb fired");
+    cloud_publisher_on_disconnect(); /* CP-D20 */
 }
 
 /* ---------------------------------------------------------------------- */
@@ -700,18 +645,64 @@ static void cloud_publisher_bringup_task(void *arg)
     }
     LOG_INFO("CloudPub", "TC-HW-CP-005  subscribed to %s, SUBACK received", config_topic);
 
+    /* The real HealthMonitor, StoreAndForward (over CircularFlashLog) and ConfigService (WP1 PR-D).
+     */
+    if (led_init(k_gw_led_pins, (uint8_t) LED_COUNT) != LED_ERR_OK)
+    {
+        bringup_fail("led_init failed");
+    }
+    const health_monitor_config_t hm_config = {.boot_reset_cause = LIFECYCLE_RESET_SOFT};
+
+    if (health_monitor_create(&hm_config, &s_hm) != HEALTH_MONITOR_ERR_OK)
+    {
+        bringup_fail("health_monitor_create failed");
+    }
+    if (qspi_flash_init() != QSPI_FLASH_OK)
+    {
+        bringup_fail("qspi_flash_init failed - check MX25R6435F wiring");
+    }
+    const cfl_config_t cfl_config = {.qspi = qspi_flash_driver, .health = s_hm};
+    cfl_handle_t cfl = NULL;
+
+    if (cfl_create(&cfl_config, &cfl) != CFL_ERR_OK)
+    {
+        bringup_fail("cfl_create failed");
+    }
+    const saf_config_t saf_config = {
+        .cfl = cfl, .health = s_hm, .capacity = CP_BRINGUP_SAF_CAPACITY};
+
+    if (saf_create(&saf_config, &s_saf) != SAF_ERR_OK)
+    {
+        bringup_fail("saf_create failed");
+    }
+    /* No ConfigStore here: the handle is never dereferenced because nothing persists in this
+     * image (LifecycleController, which does, is not part of it). */
+    if (config_service_init((config_store_handle_t) 1) != CONFIG_SERVICE_OK)
+    {
+        bringup_fail("config_service_init failed");
+    }
+    {
+        const uint32_t telemetry_ms = 10000U; /* shortened from the 60 s default for bring-up */
+        const uint32_t health_ms = 20000U;    /* shortened from the 600 s default for bring-up */
+
+        (void) config_service_set_param_deferred(CONFIG_PARAM_TELEMETRY_INTERVAL, &telemetry_ms);
+        (void) config_service_set_param_deferred(CONFIG_PARAM_HEALTH_INTERVAL, &health_ms);
+    }
+
     /* TC-HW-CP-006 */
     cloud_publisher_config_t cp_config = {
         .mqtt = mqtt_handle,
-        .poller = (modbus_poller_handle_t) 1,
-        .saf = (store_and_forward_handle_t) 1,
-        .health_read = (health_monitor_handle_t) 1,
-        .health_write = (health_monitor_handle_t) 1,
-        .cfg_read = (config_service_handle_t) 1,
-        .cfg_write = (config_service_handle_t) 1,
+        .saf = s_saf,
+        .health = s_hm,
+        .cfg_read = config_service_get_provider(),
+        .cfg_write = config_service_get_manager(),
+        .time = NULL, /* no TimeService in this harness: no NTP retry on reconnect */
+        .lifecycle = &s_bringup_lifecycle,
+        .control_handler = bringup_control,
+        .fd_slave_addr = 0U, /* no Field Device wired up for this bring-up */
+        .fw_version = CP_BRINGUP_FW_VERSION,
         .update_ops = NULL, /* no UpdateService in this harness: the OTA topics stay unsubscribed */
         .update = NULL,
-        .lifecycle = (lifecycle_handle_t) 1,
         .mqtt_connect_cfg = connect_cfg,
     };
     cloud_publisher_handle_t cp_handle = NULL;
@@ -772,18 +763,19 @@ static void cloud_publisher_bringup_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(CP_BRINGUP_ALARM_PERIOD_MS));
         s_bringup_publish_count++;
 
-        if (s_alarm_in_flight)
-        {
-            /* The previous alarm has not come back through
-             * health_report_push_event() a full period later — that is a
-             * budget violation in its own right (CloudPublisherTask is
-             * stuck somewhere), counted here since the outcome path will
-             * never report it on time. */
-            s_alarm_over_budget++;
-            LOG_ERROR("CloudPub",
-                      "TC-HW-CP-011  alarm #%lu still unhandled after %u ms — OVER budget",
-                      (unsigned long) s_alarm_fired, (unsigned) CP_BRINGUP_ALARM_PERIOD_MS);
-        }
+        /* The outcome of an alarm is no longer a health event (CP-D19). It is read from the
+         * broker side instead: a QoS 1 publish that went out moves publishes_sent, one that was
+         * buffered moves the StoreAndForward count. The counters are read from this task while
+         * CloudPublisherTask updates them; a torn read only costs one sample of a bring-up log. */
+        mqtt_stats_t before;
+        mqtt_stats_t after;
+        uint32_t occ_before = 0U;
+        uint32_t occ_after = 0U;
+        uint32_t cap = 0U;
+
+        (void) mqtt_client_get_stats(mqtt_handle, &before);
+        (void) saf_get_occupancy(s_saf, &occ_before, &cap);
+
         sensor_reading_t reading = {
             .value = (int32_t) s_alarm_fired,
             .valid = true,
@@ -793,6 +785,50 @@ static void cloud_publisher_bringup_task(void *arg)
         s_alarm_fire_tick = xTaskGetTickCount();
         s_alarm_cb(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH,
                    &reading); /* production: SensorTask context; here: this task */
+
+        bool published = false;
+        bool buffered = false;
+        uint32_t waited_ms = 0U;
+
+        while (!published && !buffered && (waited_ms < CP_BRINGUP_ALARM_PERIOD_MS))
+        {
+            vTaskDelay(1U);
+            waited_ms = (uint32_t) ((xTaskGetTickCount() - s_alarm_fire_tick) * portTICK_PERIOD_MS);
+            (void) mqtt_client_get_stats(mqtt_handle, &after);
+            (void) saf_get_occupancy(s_saf, &occ_after, &cap);
+            published = (after.publishes_sent > before.publishes_sent);
+            buffered = !published && (occ_after > occ_before);
+        }
+
+        if (published || buffered)
+        {
+            bringup_alarm_outcome(published, waited_ms);
+        }
+        else
+        {
+            s_alarm_over_budget++;
+            LOG_ERROR("CloudPub", "TC-HW-CP-011  alarm #%lu unhandled after %u ms - OVER budget",
+                      (unsigned long) s_alarm_fired, (unsigned) CP_BRINGUP_ALARM_PERIOD_MS);
+        }
+
+        (void) mqtt_client_get_stats(mqtt_handle, &after);
+        if ((s_stats_log_divider++ % CP_BRINGUP_ALARM_SUMMARY_EVERY) == 0U)
+        {
+            LOG_INFO("CloudPub", "TC-HW-CP-009  stats: publishes_sent=%lu publish_failures=%lu",
+                     (unsigned long) after.publishes_sent, (unsigned long) after.publish_failures);
+        }
+        /* TC-HW-CP-012: a reconnect completed since the last look. */
+        if (after.reconnect_count != s_last_reconnect_count)
+        {
+            s_last_reconnect_count = after.reconnect_count;
+            const uint32_t ms =
+                (uint32_t) ((xTaskGetTickCount() - s_drop_tick) * portTICK_PERIOD_MS);
+            LOG_INFO("CloudPub",
+                     "TC-HW-CP-012  reconnect #%lu observed ~%lu ms drop->reconnected "
+                     "(informational: dominated by broker-down dwell + reconnect backoff "
+                     "WIFITASK-O2, not a clean handshake wall-clock)",
+                     (unsigned long) after.reconnect_count, (unsigned long) ms);
+        }
     }
 }
 
