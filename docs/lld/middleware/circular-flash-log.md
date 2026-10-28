@@ -451,11 +451,12 @@ logging path from Logger, which `flash-partition-layout.md` §5.2 lists
 this partition as also serving), revisit this section and add a
 priority-inheritance mutex at that point.
 
-Separately, the *driver* below is shared: QSPID-O1 requires a
-cross-cutting `qspi_flash_mutex` that all three QSPI middleware
-consumers acquire before calling `QspiFlashDriver`. CircularFlashLog is
-the first of the three to be implemented, so that mutex does not exist
-yet and is not referenced here. See CFL-O7.
+Separately, the *driver* below is shared by three consumers. Since
+2026-10-26 `QspiFlashDriver` takes its own priority-inheritance mutex
+for the whole of every `read`, `write_page` and `erase_sector`
+(qspi-flash-driver.md, QSPID-O1 closed), so CircularFlashLog acquires
+nothing extra: the lock order is its own mutex, then the driver's. See
+CFL-O7 (closed).
 
 ---
 
@@ -590,7 +591,7 @@ area untouched.
 | CFL-O4 | **Metadata-zone wear (found during implementation).** The A/B rotation erases one of only two sectors on every head-sector advance. At the §7 worst case (1 440 messages/day, ~2 KB each, two records per sector) that is ~720 advances/day, ~131 000 erases per slot per year — past the 100 000-cycle rating inside a year, against ~49 years for a data sector. It only bites under sustained cloud outage, since an idle ring writes no metadata. Mitigation without a format change: treat each metadata sector as log-structured, appending a fresh 16-byte slot into the next free position and erasing only when the sector fills, which divides the erase count by 256. | **Open** | Decide before StoreAndForward drives CFL in anger; prefer the log-structured slot. |
 | CFL-O5 | **IHealthReport is a placeholder.** The Gateway has no HealthMonitor, so `health_monitor_handle_t`, `cfl_health_event_t` and `health_report_push_buffer_event()` are guarded declarations in `circular_flash_log.h`, following the convention in `cloud_publisher.h`. So that the GW image still links, the push has a **weak no-op default** in `circular_flash_log.c` (CFL-D12) — which means a missing HealthMonitor degrades to silence rather than a link error, so the override must not be forgotten. | **Open** | Replace with the real interface at GW HealthMonitor LLD; remove the weak default; reconcile the event enum with `health_event_t`. |
 | CFL-O6 | **Consumed records inside the head sector are replayed after a reset.** Only `head_sector` is persisted (CFL-D5), not `head_offset`, so a reboot rediscovers records already consumed within that sector. Acceptable under MQTT QoS 1 at-least-once delivery, but it is a duplicate-delivery window that StoreAndForward's own design should acknowledge. Persisting `head_offset` would fix it at the cost of a metadata write per consume — which CFL-O4 argues against. | **Open** | Confirm acceptable at StoreAndForward LLD, or resolve together with CFL-O4. |
-| CFL-O7 | **Shared driver mutex (QSPID-O1) is still absent.** `ConfigStore`, `CircularFlashLog` and `FirmwareStore` will all reach `QspiFlashDriver` from different tasks. QSPID-O1 requires a cross-cutting `qspi_flash_mutex` in `task-breakdown.md` §7, acquired by all three before any driver call. CircularFlashLog is the first of the three to land, so nothing is broken yet, but the second consumer makes it a live defect. | **Open** | HLD escalation per QSPID-O1, before the second QSPI consumer is implemented. |
+| CFL-O7 | **Shared driver mutex (QSPID-O1).** `ConfigStore`, `CircularFlashLog` and `FirmwareStore` reach `QspiFlashDriver` from different tasks. | **Closed 2026-10-26** | The mutex is inside `QspiFlashDriver` (statically allocated, created in `qspi_flash_init()`, held for each whole operation, innermost lock), not a separate `qspi_flash_mutex` that consumers acquire; hardware-validated (qspi-flash-driver.md). No change was needed here. |
 | CFL-O8 | **QSPID-O4 decision is now due.** The driver's WIP poll spins for the whole erase — measured 81 ms — blocking the calling task and everything at or below its priority. CircularFlashLog is the consumer QSPID-O4 named: its erases land during cloud outages, exactly when alarms are buffering against the REQ-NF-113 500 ms budget (81 ms ≈ 16%). | **Open** | Decide spin vs `vTaskDelay(1)` vs a low-priority erase task, per QSPID-O4. |
 
 ---
@@ -655,7 +656,7 @@ active harness.
 | H10 | Unit-test plan covers happy + error + boundary cases | PASS — 20 test cases, all passing |
 | H11 | Test file path follows Gateway convention | PASS |
 | H12 | P1–P10 compliance reviewed | PASS — §11 |
-| H13 | Thread safety documented | PASS — §8, single-task access; shared-driver gap tracked as CFL-O7 |
+| H13 | Thread safety documented | PASS — §8, single-task access; shared-driver gap was CFL-O7, closed 2026-10-26 (driver-internal mutex) |
 | H14 | `reset_for_test` hook specified | PASS — §6.6 |
 | H15 | Decisions log complete | PASS — 12 decisions |
 | H16 | Hardware bring-up test specified | PASS — §12.1, 10 cases; all passed on hardware 2026-10-11 |
