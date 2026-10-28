@@ -25,7 +25,7 @@ MB-120, MB-130, MB-0E1; REQ-NF-103, NF-104, NF-110, NF-201, NF-215
 `hld.md` §7.5, §8.4 (Metric Producer);
 `sequence-diagrams.md` SD-02, SD-00b;
 `task-breakdown.md` §ModbusPollerTask
-**Version:** 1.0
+**Version:** 1.1 (Field Device reading query added 2026-10-28, CP-D18)
 **Date:** October 2026
 **Status:** Pass H — Implementation ready (as built; see MBP-D6)
 
@@ -287,6 +287,27 @@ typedef struct {
     uint16_t         reg_count;       /* FC16: 1..123; FC06: ignored */
     uint16_t         data[125];       /* FC16 max: 123 registers; FC06: 1 */
 } modbus_command_t;
+
+/**
+ * @brief  Latest decoded Field Device sensor registers (0x0010-0x0012), register units (CP-D18).
+ *         Units of the register map, as in SensorService and config_params_t; the consumer converts.
+ */
+typedef struct {
+    int16_t  temperature_centi_c;   /* x0.01 degC; valid only if temperature_valid */
+    uint16_t humidity_centi_pct;    /* x0.01 %RH */
+    uint16_t pressure_deci_hpa;     /* x0.1 hPa */
+    bool     temperature_valid;     /* false: sentinel 0x8000, or never received */
+    bool     humidity_valid;        /* false: sentinel 0xFFFF, or never received */
+    bool     pressure_valid;        /* false: sentinel 0xFFFF, or never received */
+    bool     link_online;           /* hysteresis state (REQ-NF-103/-104/-215) */
+    bool     has_data;              /* at least one response decoded since boot */
+    uint32_t updated_tick;          /* xTaskGetTickCount() of the last decode */
+} modbus_fd_reading_t;
+
+/** Copy the latest decoded readings of one slave. OK; NOT_INIT; NULL_ARG; REJECTED if the slave is
+ *  not provisioned. A provisioned slave with no response yet returns OK, has_data false, all invalid.
+ *  Threading: any task (short critical section). */
+modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out);
 
 typedef struct {
     modbus_master_err_t status;
@@ -628,7 +649,7 @@ at integration.
 |---|---|---|
 | `build_poll_request` | `static void build_poll_request(const device_profile_t *profile, modbus_frame_t *out)` | Constructs an FC04 (Read Input Registers) request from the device profile's register range (`input_reg_start`, `input_reg_count`). |
 | `execute_command` | `static void execute_command(modbus_command_t *cmd)` | Builds a `modbus_frame_t` from the command struct, calls `modbus_master_transact()`, posts the result to `cmd->response_queue`. See §5.5. |
-| `forward_response_to_consumers` | `static void forward_response_to_consumers(const device_profile_t *profile, const modbus_frame_t *response)` | Writes decoded register values to the shared data store for consumption by CloudPublisher and LcdDisplay. See MBP-O3. |
+| `forward_response_to_consumers` | `static void forward_response_to_consumers(const device_profile_t *profile, const modbus_frame_t *response)` | Decodes registers 0x0010 to 0x0012 of the FC04 response into the per-slave cache read by `modbus_poller_get_fd_reading()` (CP-D18, MBP-O3 closed). The response must be exactly byte count + 2 x `input_reg_count` bytes, else it is ignored with a WARN; a register outside the polled span, or equal to its sentinel, is invalid. A poll failure does not clear the cache. |
 | `record_poll_outcome` | `static void record_poll_outcome(modbus_slave_state_t *slave, modbus_master_err_t result)` | Updates per-slave link-state hysteresis counters and emits events. See §5.3. |
 | `emit_link_up` | `static void emit_link_up(uint8_t slave_addr)` | `health_monitor_push_event(LINK_UP, slave_addr)`. Logs at INFO via ILogger. |
 | `emit_node_offline` | `static void emit_node_offline(uint8_t slave_addr)` | `health_monitor_push_event(LINK_DOWN, slave_addr)`. Logs at WARN via ILogger. |
@@ -882,6 +903,20 @@ queue/delay stubs.
 | TC-MP-036 | `slave_state_for_test(4)` | `NULL` |
 | TC-MP-037 | Corrupt queued command (FC16, count 124) | Answered `ERR_INVALID_ARG`, no transaction |
 
+Field Device reading (CP-D18), `test_modbus_poller.c`:
+
+| ID | Scenario | Expected |
+|---|---|---|
+| TC-MBP-FD-01 | Valid FC04 response (negative temperature included) | Three values decoded, all valid, `has_data`, `updated_tick` set |
+| TC-MBP-FD-02 | Each sentinel on its own | Only that channel invalid |
+| TC-MBP-FD-03 | Wrong response length | Cache unchanged |
+| TC-MBP-FD-04 | Profile span of two registers | Pressure invalid, the others decoded |
+| TC-MBP-FD-05 | Provisioned but never polled | `OK`, `has_data` false, all channels invalid |
+| TC-MBP-FD-06 | Before init; NULL out; unprovisioned slave | `NOT_INIT`; `NULL_ARG`; `REJECTED` |
+| TC-MBP-FD-07 | Three failed polls after good ones | `link_online` false, last values and validity kept |
+
+Hardware: **TC-HW-MBP-010** (`integration-tests/modbus_poller`, written, to be run): on the loopback bench `get_fd_reading()` returns `OK` with `link_online` true and `has_data` false (an echoed request is not an FC04 response of the expected length), and `REJECTED` for an unknown slave. Real values are checked with a Field Device in WP7.
+
 ---
 
 ## 13. Open items
@@ -892,7 +927,7 @@ queue/delay stubs.
 | MBP-O2 | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. | Address when second Modbus slave is added | Open |
 | MBP-O4 | DeviceProfileRegistry is a placeholder: weak defaults serve one hard-coded Field Device profile. | Replace `device_profile_registry.c` when the real module is built; reconcile the `idevice_profile_provider_t` vtable with `device_profile_get_next()` / `device_profile_is_registered()` | Open |
 | MBP-O5 | Stack headroom — measured on the bench 2026-10-13 (TC-HW-MBP-009): 65 of 512 words free, so about 1.8 KB of the 2 KB budget is used (the `-fstack-usage` estimate of ~1.5 KB missed the FreeRTOS/ISR context frames). Passes, but with only ~260 B margin. | Re-measure with real traffic and the logger active; raise the stack to 640 words if the margin shrinks | Open |
-| MBP-O3 | `forward_response_to_consumers()` target interface — writes decoded register values to a shared data store for CloudPublisher and LcdDisplay consumption. Exact data-store interface TBD in the Gateway data-flow design. | Define when Gateway data-flow companion is written | Open |
+| MBP-O3 | `forward_response_to_consumers()` target interface — writes decoded register values to a shared data store for CloudPublisher and LcdDisplay consumption. | **Closed 2026-10-28** | No separate data store (it would have one reader on the Gateway): ModbusPoller keeps a per-slave cache in its own slave table and exports a pull query, `modbus_poller_get_fd_reading()` (CP-D18, MBP-D8). | Closed |
 
 ---
 
@@ -907,6 +942,7 @@ queue/delay stubs.
 | MBP-D6 | As-built deviations from the first draft: (1) HealthMonitor is fed through `update_modbus_master_stats()` and `push_event(LINK_UP/DOWN)`, not `health_report_update(METRIC_MB_*)` and an event group; `init()` takes the handle. (2) Slave state is found by address, not by iterator index. (3) `modbus_command_t` has `response_queue` first and `send_command()` takes `const`. (4) `ERR_INVALID_ARG` added; commands are validated on the way in and again on the way out. (5) `poll_cycle()` and `execute_command()` are split to keep stack frames apart; `poll_cycle()` is also the unit-test seam. | The draft's API did not exist on `main`. The rest keep a corrupt command from overrunning `modbus_frame_t`, keep the task inside 2 KB, and let the host FreeRTOS mock capture the whole command. |
 | MBP-D5 | Health report every poll cycle (default) | Simplest approach. Profile at integration; add a down-counter if `IHealthReport` call volume is too high. |
 | MBP-D7 | `modbus_poller_is_ready()` returns true once `modbus_poller_init()` has succeeded. It does not require an online link or a started task. | LifecycleController's SelfChecking probe (LC-O6): a Field Device may be absent at boot, and ModbusPollerTask waits on the start gate that opens only after the probe passes, so "started" would deadlock boot. Hardware: TC-HW-MBP-001 checks it before and after init (PASS); TC-HW-MBP-002..009 need the D1-D0 loopback jumper and were not re-run. |
+| MBP-D8 | The decoded Field Device readings are cached inside ModbusPoller (a static array parallel to the slave table, no heap) and read with `modbus_poller_get_fd_reading(slave_addr, &out)`; values keep the register units with per-channel validity from the sentinels; `link_online` is the existing hysteresis state, read at query time | The poller already owns the profile, the register span and the link state. One unit system inside the Gateway (CloudPublisher converts to wire units, CP-D18). Pull access, not push (P7); a separate data-store module would have a single reader (P8) |
 
 ---
 
