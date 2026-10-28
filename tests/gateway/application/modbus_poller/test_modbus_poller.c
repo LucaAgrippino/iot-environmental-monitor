@@ -819,3 +819,152 @@ void test_TC_MP_036_slave_state_accessor_rejects_out_of_range_slot(void)
 {
     TEST_ASSERT_NULL(modbus_poller_slave_state_for_test(4U));
 }
+
+/* ===================================================================== */
+/* Field Device reading cache (CP-D18, closes MBP-O3, CP-O2)             */
+/* ===================================================================== */
+
+/** One OK poll whose FC04 response carries the three sensor registers (byte count + 3 words). */
+static void poll_fd_registers(uint16_t temperature, uint16_t humidity, uint16_t pressure)
+{
+    s_steps[0] = (step_t){.result = MODBUS_MASTER_ERR_OK,
+                          .payload = {6U, (uint8_t) (temperature >> 8), (uint8_t) temperature,
+                                      (uint8_t) (humidity >> 8), (uint8_t) humidity,
+                                      (uint8_t) (pressure >> 8), (uint8_t) pressure},
+                          .payload_len = 7U};
+    s_step_count = 1U;
+    s_transact_calls = 0U;
+    modbus_poller_cycle_for_test();
+}
+
+void test_TC_MBP_FD_01_valid_response_fills_the_three_channels(void)
+{
+    modbus_fd_reading_t r;
+
+    init_ok();
+    g_mock_tick_count = 4321U;
+    poll_fd_registers(0xFF38U /* -2.00 degC */, 4550U, 10132U);
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_TRUE(r.has_data);
+    TEST_ASSERT_TRUE(r.temperature_valid);
+    TEST_ASSERT_TRUE(r.humidity_valid);
+    TEST_ASSERT_TRUE(r.pressure_valid);
+    TEST_ASSERT_EQUAL_INT16(-200, r.temperature_centi_c);
+    TEST_ASSERT_EQUAL_UINT16(4550U, r.humidity_centi_pct);
+    TEST_ASSERT_EQUAL_UINT16(10132U, r.pressure_deci_hpa);
+    TEST_ASSERT_EQUAL_UINT32(4321U, r.updated_tick);
+}
+
+void test_TC_MBP_FD_02_each_sentinel_invalidates_only_its_channel(void)
+{
+    modbus_fd_reading_t r;
+
+    init_ok();
+
+    poll_fd_registers(0x8000U, 4550U, 10132U);
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_FALSE(r.temperature_valid);
+    TEST_ASSERT_TRUE(r.humidity_valid);
+    TEST_ASSERT_TRUE(r.pressure_valid);
+
+    poll_fd_registers(2300U, 0xFFFFU, 10132U);
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_TRUE(r.temperature_valid);
+    TEST_ASSERT_FALSE(r.humidity_valid);
+    TEST_ASSERT_TRUE(r.pressure_valid);
+
+    poll_fd_registers(2300U, 4550U, 0xFFFFU);
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_TRUE(r.temperature_valid);
+    TEST_ASSERT_TRUE(r.humidity_valid);
+    TEST_ASSERT_FALSE(r.pressure_valid);
+}
+
+void test_TC_MBP_FD_03_wrong_length_leaves_the_cache_unchanged(void)
+{
+    modbus_fd_reading_t r;
+
+    init_ok();
+    poll_fd_registers(2300U, 4550U, 10132U);
+
+    /* A response one word short: byte count + 2 words. */
+    s_steps[0] = (step_t){
+        .result = MODBUS_MASTER_ERR_OK, .payload = {4U, 0U, 1U, 0U, 2U}, .payload_len = 5U};
+    s_step_count = 1U;
+    s_transact_calls = 0U;
+    modbus_poller_cycle_for_test();
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_EQUAL_INT16(2300, r.temperature_centi_c);
+    TEST_ASSERT_EQUAL_UINT16(10132U, r.pressure_deci_hpa);
+}
+
+void test_TC_MBP_FD_04_a_span_without_pressure_leaves_it_invalid(void)
+{
+    modbus_fd_reading_t r;
+
+    init_ok();
+    s_profiles[0].input_reg_count = 2U; /* 0x0010 and 0x0011 only */
+    s_steps[0] = (step_t){.result = MODBUS_MASTER_ERR_OK,
+                          .payload = {4U, 0x08U, 0xFCU, 0x11U, 0xC6U},
+                          .payload_len = 5U};
+    s_step_count = 1U;
+    modbus_poller_cycle_for_test();
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_TRUE(r.temperature_valid);
+    TEST_ASSERT_TRUE(r.humidity_valid);
+    TEST_ASSERT_FALSE(r.pressure_valid);
+    TEST_ASSERT_EQUAL_INT16(2300, r.temperature_centi_c);
+    TEST_ASSERT_EQUAL_UINT16(4550U, r.humidity_centi_pct);
+}
+
+void test_TC_MBP_FD_05_never_polled_returns_ok_with_no_data(void)
+{
+    modbus_fd_reading_t r;
+
+    init_ok();
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_FALSE(r.has_data);
+    TEST_ASSERT_FALSE(r.temperature_valid);
+    TEST_ASSERT_FALSE(r.humidity_valid);
+    TEST_ASSERT_FALSE(r.pressure_valid);
+    TEST_ASSERT_FALSE(r.link_online);
+}
+
+void test_TC_MBP_FD_06_argument_and_state_errors(void)
+{
+    modbus_fd_reading_t r;
+
+    /* Before init. */
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_NOT_INIT, modbus_poller_get_fd_reading(SLAVE_A, &r));
+
+    init_ok();
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_NULL_ARG, modbus_poller_get_fd_reading(SLAVE_A, NULL));
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_REJECTED, modbus_poller_get_fd_reading(0x55U, &r));
+}
+
+void test_TC_MBP_FD_07_failed_polls_drop_the_link_but_keep_the_values(void)
+{
+    modbus_fd_reading_t r;
+    const modbus_master_err_t fail = MODBUS_MASTER_ERR_TIMEOUT;
+
+    init_ok();
+
+    /* Three good polls bring the link up (hysteresis), the last one carries the values. */
+    poll_fd_registers(2300U, 4550U, 10132U);
+    poll_fd_registers(2300U, 4550U, 10132U);
+    poll_fd_registers(2300U, 4550U, 10132U);
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_TRUE(r.link_online);
+
+    poll_n(fail, 3U);
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_FALSE(r.link_online);
+    TEST_ASSERT_TRUE(r.has_data);
+    TEST_ASSERT_EQUAL_INT16(2300, r.temperature_centi_c);
+    TEST_ASSERT_TRUE(r.temperature_valid);
+}

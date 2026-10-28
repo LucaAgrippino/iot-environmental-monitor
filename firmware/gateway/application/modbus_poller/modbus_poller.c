@@ -41,6 +41,15 @@
 #define FC16_HEADER_BYTES (5U)       /* reg(2) + count(2) + byte count(1) */
 #define POLL_REQUEST_DATA_BYTES (4U) /* start(2) + count(2) */
 
+/* Field Device sensor registers (docs/hld/modbus-register-map.md 6.2) and their invalid sentinels.
+ */
+#define FD_REG_TEMPERATURE (0x0010U)
+#define FD_REG_HUMIDITY (0x0011U)
+#define FD_REG_PRESSURE (0x0012U)
+#define FD_SENTINEL_INT16 (0x8000U)
+#define FD_SENTINEL_UINT16 (0xFFFFU)
+#define FC04_BYTE_COUNT_BYTES (1U) /* the byte count that precedes the register words */
+
 /* ========================================================================= */
 /* Module state                                                              */
 /* ========================================================================= */
@@ -53,6 +62,21 @@ static struct
 } s_poller;
 
 static modbus_slave_state_t s_slave_states[MODBUS_MAX_SLAVES];
+
+/** Decoded readings, one per slave slot (same index as s_slave_states); no heap (CP-D18). */
+typedef struct
+{
+    int16_t temperature_centi_c;
+    uint16_t humidity_centi_pct;
+    uint16_t pressure_deci_hpa;
+    bool temperature_valid;
+    bool humidity_valid;
+    bool pressure_valid;
+    bool has_data;
+    uint32_t updated_tick;
+} fd_cache_t;
+
+static fd_cache_t s_fd_cache[MODBUS_MAX_SLAVES];
 
 /* Static queue storage — no heap allocation after init (BARR-C, REQ-NF-201). */
 static QueueHandle_t s_cmd_queue;
@@ -142,12 +166,83 @@ static void build_poll_request(const device_profile_t *profile, modbus_frame_t *
     out->data_len = POLL_REQUEST_DATA_BYTES;
 }
 
-/** Hand decoded registers to the shared data store.  Target interface open: MBP-O3. */
+/** Index of a slave's slot, or MODBUS_MAX_SLAVES if it has none yet. */
+static uint8_t find_slot_index(uint8_t slave_addr)
+{
+    for (uint8_t i = 0U; i < MODBUS_MAX_SLAVES; i++)
+    {
+        if (s_slave_states[i].slave_addr == slave_addr)
+        {
+            return i;
+        }
+    }
+
+    return MODBUS_MAX_SLAVES;
+}
+
+/** Big-endian word of one input register of an FC04 response, or false if the span lacks it. */
+static bool read_register_word(const device_profile_t *profile, const modbus_frame_t *response,
+                               uint16_t reg, uint16_t *word_out)
+{
+    if ((reg < profile->input_reg_start) ||
+        (reg >= (uint16_t) (profile->input_reg_start + profile->input_reg_count)))
+    {
+        return false;
+    }
+
+    const uint16_t at = (uint16_t) (FC04_BYTE_COUNT_BYTES +
+                                    ((uint16_t) (reg - profile->input_reg_start) * BYTES_PER_REG));
+
+    *word_out =
+        (uint16_t) (((uint16_t) response->data[at] << BITS_PER_BYTE) | response->data[at + 1U]);
+    return true;
+}
+
+/** Decode the Field Device sensor registers of a poll response into the cache (MBP-O3, CP-D18). */
 static void forward_response_to_consumers(const device_profile_t *profile,
                                           const modbus_frame_t *response)
 {
-    (void) profile;
-    (void) response;
+    const uint16_t expected =
+        (uint16_t) (FC04_BYTE_COUNT_BYTES + ((uint16_t) profile->input_reg_count * BYTES_PER_REG));
+    const uint8_t slot = find_slot_index(profile->slave_addr);
+
+    if (slot >= MODBUS_MAX_SLAVES)
+    {
+        return;
+    }
+
+    if (response->data_len != expected)
+    {
+        LOG_WARN(MODULE_TAG, "slave %u: response length %u, expected %u",
+                 (unsigned) profile->slave_addr, (unsigned) response->data_len,
+                 (unsigned) expected);
+        return;
+    }
+
+    fd_cache_t next = {0};
+    uint16_t word = 0U;
+
+    if (read_register_word(profile, response, FD_REG_TEMPERATURE, &word))
+    {
+        next.temperature_valid = (word != FD_SENTINEL_INT16);
+        next.temperature_centi_c = (int16_t) word;
+    }
+    if (read_register_word(profile, response, FD_REG_HUMIDITY, &word))
+    {
+        next.humidity_valid = (word != FD_SENTINEL_UINT16);
+        next.humidity_centi_pct = word;
+    }
+    if (read_register_word(profile, response, FD_REG_PRESSURE, &word))
+    {
+        next.pressure_valid = (word != FD_SENTINEL_UINT16);
+        next.pressure_deci_hpa = word;
+    }
+    next.has_data = true;
+    next.updated_tick = (uint32_t) xTaskGetTickCount();
+
+    taskENTER_CRITICAL();
+    s_fd_cache[slot] = next;
+    taskEXIT_CRITICAL();
 }
 
 /** Build the wire request of a command (§5.5). */
@@ -320,6 +415,46 @@ static void poll_cycle(void)
 
 /* ========================================================================= */
 /* Public API                                                                */
+modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out)
+{
+    if (!s_poller.initialised)
+    {
+        return MODBUS_POLLER_ERR_NOT_INIT;
+    }
+    if (out == NULL)
+    {
+        return MODBUS_POLLER_ERR_NULL_ARG;
+    }
+    if (!device_profile_is_registered(slave_addr))
+    {
+        return MODBUS_POLLER_ERR_REJECTED;
+    }
+
+    modbus_fd_reading_t reading = {0}; /* a slave not polled yet: no data, every channel invalid */
+    const uint8_t slot = find_slot_index(slave_addr);
+
+    if (slot < MODBUS_MAX_SLAVES)
+    {
+        taskENTER_CRITICAL();
+        const fd_cache_t cached = s_fd_cache[slot];
+        const bool online = s_slave_states[slot].link_online;
+        taskEXIT_CRITICAL();
+
+        reading.temperature_centi_c = cached.temperature_centi_c;
+        reading.humidity_centi_pct = cached.humidity_centi_pct;
+        reading.pressure_deci_hpa = cached.pressure_deci_hpa;
+        reading.temperature_valid = cached.temperature_valid;
+        reading.humidity_valid = cached.humidity_valid;
+        reading.pressure_valid = cached.pressure_valid;
+        reading.has_data = cached.has_data;
+        reading.updated_tick = cached.updated_tick;
+        reading.link_online = online;
+    }
+
+    *out = reading;
+    return MODBUS_POLLER_ERR_OK;
+}
+
 /* ========================================================================= */
 
 modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_handle_t health)
@@ -338,6 +473,7 @@ modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_h
     configASSERT(s_cmd_queue != NULL);
 
     (void) memset(s_slave_states, 0, sizeof(s_slave_states));
+    (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     s_poller.poll_period_ms = poll_period_ms;
     s_poller.health = health;
     s_poller.initialised = true;
@@ -411,6 +547,7 @@ void modbus_poller_reset_for_test(void)
         s_cmd_queue = NULL;
     }
     (void) memset(s_slave_states, 0, sizeof(s_slave_states));
+    (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     (void) memset(&s_poller, 0, sizeof(s_poller));
 }
 
