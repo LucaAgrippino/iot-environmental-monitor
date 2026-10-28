@@ -120,6 +120,41 @@ bool modbus_poller_is_ready(void);
 modbus_poller_err_t modbus_poller_send_command(const modbus_command_t *cmd);
 
 /**
+ * @brief Latest decoded Field Device sensor registers (0x0010 to 0x0012), in register units.
+ *
+ * The values keep the units of the register map (and of SensorService and config_params_t), so
+ * there is one unit system inside the Gateway; the consumer converts to its own wire units.
+ */
+typedef struct
+{
+    int16_t temperature_centi_c; /**< x0.01 degC; meaningful only if temperature_valid.  */
+    uint16_t humidity_centi_pct; /**< x0.01 %RH; meaningful only if humidity_valid.      */
+    uint16_t pressure_deci_hpa;  /**< x0.1 hPa; meaningful only if pressure_valid.       */
+    bool temperature_valid;      /**< false: sentinel 0x8000, or never received.         */
+    bool humidity_valid;         /**< false: sentinel 0xFFFF, or never received.         */
+    bool pressure_valid;         /**< false: sentinel 0xFFFF, or never received.         */
+    bool link_online;            /**< Hysteresis state (REQ-NF-103/-104/-215).           */
+    bool has_data;               /**< At least one response decoded since boot.          */
+    uint32_t updated_tick;       /**< xTaskGetTickCount() of the last decode.            */
+} modbus_fd_reading_t;
+
+/**
+ * @brief Copy the latest decoded readings of one slave (CP-D18, closes MBP-O3).
+ *
+ * A poll failure does not clear the values; the consumer decides what "offline" means from
+ * @c link_online (REQ-SA-160 semantics stay with the consumer).
+ *
+ * @param[in]  slave_addr  Provisioned slave address.
+ * @param[out] out         Receives the copy.
+ * @return MODBUS_POLLER_ERR_OK; MODBUS_POLLER_ERR_NOT_INIT before modbus_poller_init();
+ *         MODBUS_POLLER_ERR_NULL_ARG if @p out is NULL; MODBUS_POLLER_ERR_REJECTED if the slave is
+ *         not provisioned. A provisioned slave with no response yet returns OK with has_data
+ *         false and every channel invalid.
+ * @note Threading: any task. A short critical section guards the copy (about 20 bytes).
+ */
+modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out);
+
+/**
  * @brief ModbusPoller main loop — the ModbusPollerTask entry point.
  *
  * Completes ModbusMaster's two-phase init with modbus_master_start() (MBP-D3), then
