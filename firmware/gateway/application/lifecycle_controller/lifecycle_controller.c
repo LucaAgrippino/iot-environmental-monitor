@@ -157,6 +157,27 @@ static void stop_all_timers(void)
     (void) xTimerStop(s_restart_timer, 0U);
 }
 
+/**
+ * Write a deferred configuration change to flash if one is waiting (LC-D23). Remote and console
+ * changes are applied in RAM with set_param_deferred() and are not written by the caller, so
+ * this is where they reach flash. A failure is never a fault: the change stays pending and the
+ * next call retries.
+ */
+static void persist_config(void)
+{
+    if (s_deps.config_manager->persist_pending(s_deps.config_manager->ctx) != LC_DEP_OK)
+    {
+        LOG_WARN(MODULE_TAG, "configuration persist failed, change stays pending");
+    }
+}
+
+/** Every reset goes through here, so a pending configuration change is written first (LC-D23). */
+static void reset_system(void)
+{
+    persist_config();
+    s_deps.reset_driver->soft_reset(s_deps.reset_driver->ctx); /* does not return on target */
+}
+
 /** Enter Faulted, once. Only a hardware reset leaves it (§12). */
 static void enter_faulted(uint32_t fault_code)
 {
@@ -173,6 +194,7 @@ static void enter_faulted(uint32_t fault_code)
     {
         LOG_WARN(MODULE_TAG, "health push_fault failed");
     }
+    persist_config(); /* before the LED latch: a pending change must not die with the fault */
     if (s_deps.health_admin->set_led_fault(s_deps.health_admin->ctx) != LC_DEP_OK)
     {
         LOG_WARN(MODULE_TAG, "health set_led_fault failed");
@@ -376,7 +398,7 @@ static void roll_back_and_reset(void)
     {
         LOG_ERROR(MODULE_TAG, "firmware rollback failed");
     }
-    s_deps.reset_driver->soft_reset(s_deps.reset_driver->ctx); /* does not return on target */
+    reset_system(); /* does not return on target */
 }
 
 /** The post-update verdict, in Init (SelfChecking) or in UpdatingFirmware (§7.2, §11). */
@@ -547,7 +569,7 @@ static void handle_restarting_event(const lifecycle_event_t *ev)
     case LC_EVENT_RESTART_REQUESTED: /* a second request is the confirmation (§10) */
         (void) xTimerStop(s_restart_timer, 0U);
         LOG_INFO(MODULE_TAG, "Restarting confirmed -> soft reset");
-        s_deps.reset_driver->soft_reset(s_deps.reset_driver->ctx); /* does not return on target */
+        reset_system(); /* does not return on target */
         break;
 
     case LC_EVENT_RESTART_TIMEOUT:
@@ -580,7 +602,7 @@ static void ota_reset(void)
         LOG_WARN(MODULE_TAG, "cloud flush before the OTA reset failed");
     }
     vTaskDelay(pdMS_TO_TICKS(LC_OTA_RESET_GRACE_MS));
-    s_deps.reset_driver->soft_reset(s_deps.reset_driver->ctx); /* does not return on target */
+    reset_system(); /* does not return on target */
 }
 
 /**
@@ -681,6 +703,10 @@ static void run_event_loop_once(void)
     {
         (void) process_event(&ev);
     }
+    if (s_state == LIFECYCLE_STATE_OPERATIONAL)
+    {
+        persist_config(); /* the idle tick: cheap when nothing is pending (LC-D23) */
+    }
     kick_watchdog();
 }
 
@@ -769,6 +795,7 @@ static bool deps_storage_valid(const lifecycle_deps_t *d)
     return (d->config_store->check_integrity != NULL) && (d->config_store->load != NULL) &&
            (d->config_manager->apply_loaded != NULL) && (d->config_manager->snapshot != NULL) &&
            (d->config_manager->restore_snapshot != NULL) && (d->config_manager->commit != NULL) &&
+           (d->config_manager->persist_pending != NULL) &&
            (d->firmware_store->get_pending_flags != NULL) &&
            (d->firmware_store->confirm_self_check != NULL) &&
            (d->firmware_store->rollback != NULL) && (d->reset_driver->soft_reset != NULL);

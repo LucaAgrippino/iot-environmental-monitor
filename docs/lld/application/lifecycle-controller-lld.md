@@ -8,7 +8,7 @@ component — boot orchestration, runtime lifecycle state machine,
 EditingConfig workflow, board-specific Restarting and UpdatingFirmware
 states, and remote-command dispatch.
 
-**Version:** 1.0
+**Version:** 1.1 (LC-D23, deferred-config flush, 2026-10-28)
 **Date:** October 2026
 **Status:** Gateway implemented (see §26 for where the code departs from v0.2); Field Device unchanged
 
@@ -1038,8 +1038,11 @@ Where the Gateway code departs from v0.2. Each row supersedes the section it cit
 | LC-D20 | §11 | UpdatingFirmware ends on SELF_CHECK_PASS, SELF_CHECK_FAIL or a fault. | It also ends on two UpdateService events appended to `lifecycle_event_type_t` (11 `OTA_RESET_REQUESTED`, 12 `OTA_FINISHED`): `OTA_FINISHED` returns to Operational (Machine 1 T19); `OTA_RESET_REQUESTED` flushes CloudPublisher, waits `LC_OTA_RESET_GRACE_MS` (2000 ms, a `vTaskDelay` in LifecycleTask) and resets (Machine 1 I18). Both are ignored with a WARN in any other state. The rollback path keeps no grace delay. | With trial boot the success of an update is known only after the reboot (HLD amendment B3); the controller no longer decides the report (LCC-2). |
 | LC-D21 | §7.2 | `update_service->start(image_size)`. | `start(job)`: the event parameter and the argument are the OTA job id. | UpdateService identifies an update by the job, not by a size (update-service-lld.md §6.1). |
 | LC-D22 | §17 | The wiring carries stand-ins for UpdateService and FirmwareStore. | The wiring binds the real modules through their interface vtables (`iupdate_control_t`, `ifirmware_boot_control_t`) when `lifecycle_wiring_config_t` carries all four OTA members; with all four NULL the stand-ins still apply. A partial set is `LIFECYCLE_ERR_NULL_ARG`. The pending flags are derived from the boot state. | A Gateway without OTA still boots (LC-O6); the vtable binding keeps the wiring free of a link dependency on FirmwareStore and UpdateService, and lets the tests drive spies. |
+| LC-D23 | §17, §9 | The controller does not write configuration. | The controller owns the flush of deferred configuration changes: `lc_config_manager_if_t::persist_pending` (ConfigService `persist_pending()`, which may block for the flash write) runs once per Operational pass of the event loop, before every `soft_reset` (restart confirmation, OTA reset, rollback) and before the fault LED latch. A failure is a LOG_WARN, never a fault: the change stays pending and the next pass retries. The member is required by `lifecycle_controller_init()`. | Remote (CloudPublisher, CP-D21) and console changes are applied in RAM with `set_param_deferred` so they never block the MQTT or console task; ConfigService's contract (CFG-D16) leaves the write to a caller that may block, and the controller is the only task that is allowed to. A change is written within one loop pass (about 1 s) and always before a reset |
 
 Gateway wiring tests (`test_lifecycle_wiring.c`, 66 cases) are TC-LW-001..078: bind, every adapter, the real controller booting through them, and the `/control` path. Hardware: `integration-tests/lifecycle_wiring`, TC-HW-LW-001..009 PASS on 2026-10-26 (real controller over ConfigStore on QSPI, ConfigService, SensorTask, AlarmService, ModbusPoller, HealthMonitor and ResetDriver; a committed interval survived a real reset ordered through `/control`).
+
+LC-D23 tests: TC-LC-139 (init rejects a missing `persist_pending`), 140 (one persist per Operational pass), 141 (none outside Operational), 142/143/144 (persist before the restart, OTA and rollback resets), 145 (before the fault LED), 146 (a failed persist is not a fault and is retried), and TC-LW-027b (the wiring adapter maps it to `config_service_persist_pending()`, not to a flush).
 
 Added test cases, beyond §21: TC-LC-001b/c, 006b, 007b, 012b/c, 050b..j, 056b, 057b/c, 058b, 059b/c, 061b, 063..068, 070b, 071b/c, 074b, 078b, 079..083, 085b, 087b, 090b, 095b, 096b, 097b, 099b, 105b/c, 108b/c, 121, 132b/c and 138. The Gateway suite is 114 cases.
 
