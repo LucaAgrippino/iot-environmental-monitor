@@ -7,7 +7,8 @@
 # (-O0 for project code, -O2 for the mbedTLS library). Output: firmware/gateway/Debug/bench/mqtt_client/
 # (Debug/ is gitignored). Needs firmware/gateway/certs/{bringup_certs.h,bringup_secrets.h}.
 #
-# usage: scripts/build-mqtt-client-bench.sh [--flash]
+# usage: [ARENA_BYTES=61440] scripts/build-mqtt-client-bench.sh [--flash]
+#   ARENA_BYTES  override the mbedTLS arena size to measure the real peak (default: tls_arena.h)
 #   --flash   also program the board with openocd (CubeIDE's copy) and reset it
 set -euo pipefail
 
@@ -31,7 +32,8 @@ common=(-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -std=gnu11 -g
   -I"$v/stm32/iot-node/Drivers/CMSIS/Device/ST/STM32L4xx/Include"
   -I"$gw/../shared" -I"$gw/drivers" -I"$gw/Inc" -I"$gw/middleware" -I"$gw/middleware/mqtt_client"
   -I"$gw/middleware/wifi_task" -I"$v/coreMQTT/source/include" -I"$v/coreMQTT/source/interface"
-  -I"$v/mbedtls/include" -I"$gw/application" -I"$gw/certs")
+  -I"$v/mbedtls/include" -I"$gw/application" -I"$gw/certs"
+  ${ARENA_BYTES:+-DTLS_ARENA_SIZE_BYTES=${ARENA_BYTES}U})
 
 # Project code, -O0.
 project_srcs=(
