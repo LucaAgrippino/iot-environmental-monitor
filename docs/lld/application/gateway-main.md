@@ -201,6 +201,25 @@ session open (TC-HW-MQTT-014, FS-O4), and every stack's high-water mark (the pla
 
 ## 8. Decisions needed
 
+
+### Decisions taken (Pass H, 2026-10-29)
+
+| ID | Decision | Consequence |
+|---|---|---|
+| D-1 | **Measure first.** No RAM option is chosen yet | WP4 session 2 is gated on two measurements, below |
+| D-2 | `update_service_get_instance()`: the accessor returns the static instance before create; CloudPublisher stores the pointer | Small change in UpdateService and in the CloudPublisher wiring; own PR before `main()` |
+| D-3 | BootTask joins the access point with a bounded retry (3 attempts) before creating the MQTT client; a later drop is a follow-up work package | Bench: the first join after reset fails almost every time, so the retry is mandatory |
+| D-6 | BootTask becomes LifecycleTask (calls `lifecycle_task_body()` and never returns) | One boot task, one stack |
+| D-4, D-5 | **Not yet asked.** Proposed defaults: D-4 call `time_service_init(ntp)` in Phase B before `cloud_publisher_create` (idempotent, so the Lifecycle adapter's later call is a no-op); D-5 correct the HLD table to the code values in a separate docs PR | Stand unless changed |
+
+**Measurements that gate D-1** (both are Luca's to run on the board):
+
+1. **TC-HW-MQTT-014**, the mbedTLS arena peak with a TLS session open (also closes FS-O4). Decides whether the 44 KB arena can shrink (option B) or must stay.
+2. **Task stack high-water marks**, from a first image that creates the real task set. The sum in section 6 uses declared sizes; the real use of LifecycleTask (8 KB declared) is the largest unknown (option C).
+
+Until both are in, option A (SRAM2 for 19.9 KB of pools) remains the only measure that is known to cover the
+lower bound, so it is the fallback if the measurements do not free enough.
+
 ### D-1 RAM (F-3)
 
 | Option | What | Cost / risk |
