@@ -212,9 +212,18 @@ session open (TC-HW-MQTT-014, FS-O4), and every stack's high-water mark (the pla
 | D-6 | BootTask becomes LifecycleTask (calls `lifecycle_task_body()` and never returns) | One boot task, one stack |
 | D-4, D-5 | **Not yet asked.** Proposed defaults: D-4 call `time_service_init(ntp)` in Phase B before `cloud_publisher_create` (idempotent, so the Lifecycle adapter's later call is a no-op); D-5 correct the HLD table to the code values in a separate docs PR | Stand unless changed |
 
-**Measurements that gate D-1** (both are Luca's to run on the board):
+**Measurement 1 done 2026-10-29 (TC-HW-MQTT-014, PR #118):** the mbedTLS arena peak with a TLS 1.2 mutual-auth
+session open is **46 280 bytes** (RSA-2048 chain; the ECDSA verify added 0; heap grew 0). The provisional 44 KB
+arena (45 056) is **1 224 bytes too small**: the handshake fails on the board. Effect on section 6: the deficit
+becomes at least **18.1 KB** with the arena at the bare minimum (46 280 + 0 margin) and about **31 KB** with the
+25 % margin (58 KB). Of the 46.3 KB peak, the two 16 KB SSL record buffers are about 33 KB, so option B
+(smaller record buffers) is the biggest single lever; it is a design decision (a peer may send records up to
+16 KB unless a maximum fragment length is negotiated) and is not made here. Not measured: the peak for an
+ECDSA server chain.
 
-1. **TC-HW-MQTT-014**, the mbedTLS arena peak with a TLS session open (also closes FS-O4). Decides whether the 44 KB arena can shrink (option B) or must stay.
+**Measurements that gate D-1** (both are Luca's to run on the board; number 1 is now done, see above):
+
+1. **TC-HW-MQTT-014**, the mbedTLS arena peak with a TLS session open (also closes FS-O4). **Done: 46 280 bytes, the arena must grow, not shrink, unless the record buffers shrink (option B).**
 2. **Task stack high-water marks**, from a first image that creates the real task set. The sum in section 6 uses declared sizes; the real use of LifecycleTask (8 KB declared) is the largest unknown (option C).
 
 Until both are in, option A (SRAM2 for 19.9 KB of pools) remains the only measure that is known to cover the
