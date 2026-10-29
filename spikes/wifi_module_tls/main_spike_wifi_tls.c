@@ -379,12 +379,22 @@ static void wifi_bringup_task(void *arg)
     {
         bringup_fail("SPIKE  BRINGUP_WIFI_SSID is empty (certs/bringup_secrets.h)");
     }
-    const wifi_err_t join = wifi_connect_ap(wifi, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    /* The first join after a reset often fails with a bare module ERROR and the next one succeeds
+     * (seen on the bench 2026-10-29), so try a few times before giving up. */
+    wifi_err_t join = WIFI_ERR_MODULE;
 
+    for (unsigned attempt = 1U; (attempt <= 3U) && (join != WIFI_ERR_OK); attempt++)
+    {
+        join = wifi_connect_ap(wifi, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+        LOG_INFO("Spike", "join attempt %u -> error code %d", attempt, (int) join);
+        if (join != WIFI_ERR_OK)
+        {
+            vTaskDelay(pdMS_TO_TICKS(2000));
+        }
+    }
     if (join != WIFI_ERR_OK)
     {
-        LOG_ERROR("Spike", "wifi_connect_ap() error code: %d", (int) join);
-        bringup_fail("SPIKE  wifi_connect_ap() failed");
+        bringup_fail("SPIKE  wifi_connect_ap() failed 3 times");
     }
     LOG_INFO("Spike", "associated; target %s:%u, verify=%u, cert set %u", SPIKE_TLS_HOST,
              (unsigned) SPIKE_TLS_PORT, (unsigned) SPIKE_TLS_VERIFY, (unsigned) SPIKE_CERT_SET);
