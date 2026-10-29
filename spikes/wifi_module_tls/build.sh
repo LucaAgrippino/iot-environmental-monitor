@@ -15,6 +15,7 @@ mkdir -p "$out"
 cflags=(-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -std=gnu11 -Os -g3 -Wall -Wextra
   -ffunction-sections -fdata-sections --specs=nano.specs
   -DDEBUG -DSTM32L4 -DSTM32 -DB_L475E_IOT01A2 -DSTM32L475VGTx -DSTM32L475xx -DWIFI_SPIKE_RAW_AT
+  "-DWIFI_FIRMWARE_VERSION=\"${SPIKE_MODULE_FW:-C3.5.2.3}\""
   -I"$v/freertos-kernel/portable/GCC/ARM_CM4F" -I"$v/freertos-kernel/include"
   -I"$v/stm32/iot-node/Drivers/CMSIS/Core/Include"
   -I"$v/stm32/iot-node/Drivers/CMSIS/Device/ST/STM32L4xx/Include"

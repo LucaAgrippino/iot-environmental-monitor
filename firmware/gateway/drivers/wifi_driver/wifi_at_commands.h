@@ -57,6 +57,8 @@
 
 /* Required module firmware (UM2153 §7.11.3) — substring-matched against
  * the WIFI_AT_INFO response's FW Revision field. */
+#ifndef WIFI_FIRMWARE_VERSION /* SPIKE: spikes/wifi_module_tls/build.sh overrides it for other module firmware */
 #define WIFI_FIRMWARE_VERSION "C3.5.2.3"
+#endif
 
 #endif /* WIFI_AT_COMMANDS_H */

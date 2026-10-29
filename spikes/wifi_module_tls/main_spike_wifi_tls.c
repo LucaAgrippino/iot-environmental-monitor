@@ -309,9 +309,12 @@ static wifi_err_t spike_load_pem(wifi_handle_t wifi, const char *label, unsigned
 {
     char head[40];
 
+    /* pem[pem_len] is the string literal's NUL; SPIKE_PEM_NUL counts it in the length. */
+    const size_t send_len = pem_len + (SPIKE_PEM_NUL ? 1U : 0U);
+
     (void) snprintf(head, sizeof(head), "PG=%u,%u,%u", (unsigned) SPIKE_CERT_SET, type,
-                    (unsigned) pem_len);
-    return spike_cmd_data(wifi, label, head, (const uint8_t *) pem, pem_len, 20000U);
+                    (unsigned) send_len);
+    return spike_cmd_data(wifi, label, head, (const uint8_t *) pem, send_len, 20000U);
 }
 
 /** Minimal MQTT 3.1.1 packets, enough to prove an application-level round trip. */

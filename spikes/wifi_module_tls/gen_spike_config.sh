@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Generate firmware/gateway/certs/spike_config.h (gitignored: it holds the private key).
-# usage: gen_spike_config.sh <ca.pem> <client-cert.pem> <client-key.pem> <host> <port> [verify 0|1|2] [pf-args] [cert-set]
+# usage: gen_spike_config.sh <ca.pem> <client-cert.pem> <client-key.pem> <host> <port> [verify 0|1|2] [pf-args] [cert-set] [nul 0|1]   (order matters: cert-set comes BEFORE nul)
 #   host      IPv4 literal (local Mosquitto) or a DNS name (AWS IoT endpoint -> the module resolves it with D0)
 #   verify    P9 value: 0 none, 1 optional, 2 required (default 2)
 #   pf-args   argument of PF (default "0,0" = TLS, set 0; the Inventek sheet uses "1,2" for AWS)
+#   nul       1: send each PEM with its terminating NUL counted in the PG length (mbedTLS wants it)
 #   cert-set  first argument of PG (default: the first number of pf-args' second field, i.e. 0)
 # Pass "-" for any PEM file to skip loading that item (a slot, once written, cannot be rewritten).
 set -euo pipefail
 ca=${1:?ca.pem}; cert=${2:?client cert}; key=${3:?client key}; host=${4:?host}; port=${5:?port}
-verify=${6:-2}; pf=${7:-0,0}; set_id=${8:-${pf#*,}}
+verify=${6:-2}; pf=${7:-0,0}; set_id=${8:-${pf#*,}}; nul=${9:-0}
 out="$(cd "$(dirname "$0")/../../firmware/gateway/certs" && pwd)/spike_config.h"
 is_name=0; [[ $host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || is_name=1
-python3 -I - "$out" "$ca" "$cert" "$key" "$host" "$port" "$verify" "$pf" "$set_id" "$is_name" <<'PY'
+python3 -I - "$out" "$ca" "$cert" "$key" "$host" "$port" "$verify" "$pf" "$set_id" "$is_name" "$nul" <<'PY'
 import sys
-out, ca, cert, key, host, port, verify, pf, set_id, is_name = sys.argv[1:]
+out, ca, cert, key, host, port, verify, pf, set_id, is_name, nul = sys.argv[1:]
 def lit(path):
     if path == '-':
         return '""'
@@ -29,6 +30,6 @@ with open(out, 'w') as f:
     f.write('static const char s_spike_ca_pem[] =\n%s;\n' % lit(ca))
     f.write('static const char s_spike_cert_pem[] =\n%s;\n' % lit(cert))
     f.write('static const char s_spike_key_pem[] =\n%s;\n' % lit(key))
-    f.write('#endif\n')
+    f.write('#define SPIKE_PEM_NUL %s\n#endif\n' % nul)
 PY
 echo "wrote $out"
