@@ -949,6 +949,18 @@ void wifi_datardy_irq_handler(void)
     }
 }
 
+#ifdef WIFI_SPIKE_RAW_AT
+wifi_err_t wifi_spike_raw_at(wifi_handle_t handle, const uint8_t *cmd, size_t cmd_len, char *resp,
+                             size_t resp_cap, size_t *out_len, uint32_t timeout_ms)
+{
+    if ((handle == NULL) || (cmd == NULL) || (resp == NULL) || (cmd_len == 0u))
+    {
+        return WIFI_ERR_INVALID_ARG;
+    }
+    return prv_at_command(handle, cmd, cmd_len, resp, resp_cap, out_len, timeout_ms);
+}
+#endif /* WIFI_SPIKE_RAW_AT */
+
 #ifdef TEST
 void wifi_reset_for_test(void)
 {

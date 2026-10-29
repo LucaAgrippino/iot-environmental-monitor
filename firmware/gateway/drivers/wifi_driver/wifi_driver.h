@@ -286,6 +286,24 @@ wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket);
  */
 void wifi_datardy_irq_handler(void);
 
+#ifdef WIFI_SPIKE_RAW_AT
+/**
+ * @brief SPIKE ONLY (branch spike/wifi-module-tls, never merged): send one raw AT command and
+ *        return the module's raw reply.
+ *
+ * @param[in]  handle       WifiDriver handle.
+ * @param[in]  cmd          Complete command bytes, including the trailing CR and any data payload.
+ * @param[in]  cmd_len      Byte count.
+ * @param[out] resp         Receives the reply.
+ * @param[in]  resp_cap     Capacity of @p resp.
+ * @param[out] out_len      Reply length (set even on an ERROR reply).
+ * @param[in]  timeout_ms   Wait for the reply.
+ * @return Driver verdict on the reply (OK / ERROR / timeout).
+ */
+wifi_err_t wifi_spike_raw_at(wifi_handle_t handle, const uint8_t *cmd, size_t cmd_len, char *resp,
+                             size_t resp_cap, size_t *out_len, uint32_t timeout_ms);
+#endif /* WIFI_SPIKE_RAW_AT */
+
 #ifdef TEST
 /** @brief Reset all internal state for unit testing. */
 void wifi_reset_for_test(void);
