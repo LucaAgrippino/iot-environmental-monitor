@@ -212,6 +212,27 @@ session open (TC-HW-MQTT-014, FS-O4), and every stack's high-water mark (the pla
 
 The arena (44 KB) **cannot** move to SRAM2: it is larger than the bank.
 
+**Option E, TLS inside the WiFi module, was investigated on the bench (2026-10-29) and is closed.**
+With the module's own TLS the host would need no record buffers (most of the arena). Results on the
+board with Mosquitto, firmware `C3.5.2.3.BETA9` (as shipped), `C3.5.2.7.STM` and the release `C3.5.2.3`:
+
+| Mode | Result |
+|---|---|
+| `P9=0` (no verification, no client certificate), ECDSA server certificate | Works: handshake 350-600 ms, MQTT CONNECT/CONNACK/PUBLISH through it, TLS 1.2 with ECDHE-ECDSA-AES256-CBC-SHA. **Unauthenticated, so unusable for the product** |
+| `P9=0` with our RSA server certificate | Refused by the broker: `no suitable signature algorithm` (the module offers ECDSA signature algorithms only) |
+| `P9=2` (verify server, client identity) with RSA, ECDSA-signed-by-RSA and all-ECDSA chains; PEM, DER and PEM+NUL; certificate sets 0-3 | **Always** `Unable to initialize TLS identity. Error = [3036]` (or `Initialize Identity failed` on `C3.5.2.7`), before any network traffic. Not documented anywhere online |
+
+Certificate sets are write-once (cleared only by a full module reflash), so each attempt costs a reflash.
+The bench harness is the throwaway branch `spike/wifi-module-tls` (`spikes/wifi_module_tls/`, local, not pushed).
+
+**Untested route (GM-O7):** every `P9=2` attempt loaded the credentials at run time with `PG` from the host.
+Inventek's own documented flow for authenticated TLS (`AN20096` AWS app note, "TCP-SSL-TLS How to Create
+Firmware Image") instead bakes the PEM certificate and PEM key into a customized firmware image with the
+Windows eS-WiFi Demo program (`v1.5.zip`, Firmware > Customize, base image `C3.5.2.3`) and reflashes the
+module; host `PG` is listed only as an alternative. It might work where `PG` does not. It was not tried
+(needs the Windows tool), and even if it works it fixes the certificates into the firmware image, which fits
+per-device certificates poorly. Recommendation stays: keep host mbedTLS (options A and D).
+
 ### D-2 CloudPublisher ↔ UpdateService cycle (F-2)
 
 | Option | What |
@@ -223,7 +244,9 @@ The arena (44 KB) **cannot** move to SRAM2: it is larger than the bank.
 ### D-3 WiFi association (F-4)
 
 Who joins the AP, with what retry policy, and who re-joins after a drop (CloudPublisher
-reconnects MQTT only)? Proposal: BootTask joins with a bounded retry before creating the MQTT
+reconnects MQTT only)? **Bench evidence (2026-10-29):** the first `wifi_connect_ap()` after a module reset
+returned a bare module error (code 3) in almost every run, on both `C3.5.2.3` and `C3.5.2.7`, and the second
+attempt succeeded, so a retry is required whatever else is decided. Proposal: BootTask joins with a bounded retry before creating the MQTT
 client, and a drop is left to a later WP. This is a policy decision and affects availability; not made here.
 
 ### D-4 TimeService creation (F-5)
@@ -276,3 +299,5 @@ for WP4 is not read as covering it.
 | GM-O4 | `us_probe_if_t` provider (F-6): proposal is an adapter in `lifecycle_wiring` next to the others |
 | GM-O5 | HLD task table out of date (F-7, D-5) |
 | GM-O6 | `wifitask_create` "task-context only" rule: the code in `wifi_task.c:409-420` shows no scheduler dependency (it creates a task and attaches a NULL callback). If the rule is stale, Phase B shrinks; I have not tested it pre-scheduler, so it is kept as a constraint |
+| GM-O7 | Untested route for on-module TLS: Inventek's firmware-image customization (Windows eS-WiFi Demo, Firmware > Customize) instead of run-time `PG`. See D-1, option E. Not pursued; reopen only if per-fleet certificates baked into the module image are acceptable |
+| GM-O8 | `docs/SRS.md` CON-001 and `docs/lld/drivers/spi-driver.md:31` still say "All TCP/IP and TLS operations are handled by the module's internal stack". The design (WIFI-D2) and the bench say otherwise: TLS runs on the host with mbedTLS. Correct the requirement text |
