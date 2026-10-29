@@ -9,7 +9,7 @@
  *
  * What it does (all through wifi_spike_raw_at(), every reply logged with CR/LF visible):
  *   S0  I? and PE            module firmware and which certificate sets exist
- *   S1  PF, PG x3, PE        load CA, client certificate and key (skipped if SPIKE_LOAD_CERTS=0)
+ *   S1  PF, PG x3, PE        load CA, client certificate and key (each item skipped if its SPIKE_LOAD_* is 0)
  *   S2  P9, P0, P1=3, P3/D0, P4   configure a TCP-SSL socket
  *   S3  P6=1                 connect + TLS handshake (the experiment; timed)
  *   S4  MQTT CONNECT, R0     expect CONNACK 20 02 00 00 if application data flows
@@ -379,8 +379,11 @@ static void wifi_bringup_task(void *arg)
     {
         bringup_fail("SPIKE  BRINGUP_WIFI_SSID is empty (certs/bringup_secrets.h)");
     }
-    if (wifi_connect_ap(wifi, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD) != WIFI_ERR_OK)
+    const wifi_err_t join = wifi_connect_ap(wifi, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+
+    if (join != WIFI_ERR_OK)
     {
+        LOG_ERROR("Spike", "wifi_connect_ap() error code: %d", (int) join);
         bringup_fail("SPIKE  wifi_connect_ap() failed");
     }
     LOG_INFO("Spike", "associated; target %s:%u, verify=%u, cert set %u", SPIKE_TLS_HOST,
@@ -390,26 +393,31 @@ static void wifi_bringup_task(void *arg)
     (void) spike_cmd(wifi, "S0  I?   (module info)", "I?", 5000U);
     (void) spike_cmd(wifi, "S0  PE   (certificate sets present)", "PE", 5000U);
 
-#if SPIKE_LOAD_CERTS
-    /* S1: certificates. PF selects the active set; PG writes module flash. */
+    /* S1: certificates. PF selects the active set; PG writes module flash, and a slot that has
+     * been written cannot be rewritten ("Selected item unavailable (used)"). */
     (void) spike_cmd(wifi, "S1  PF   (select cert set)", SPIKE_PF_ARGS, 5000U);
+#if SPIKE_LOAD_CA
     if (spike_load_pem(wifi, "S1  PG CA", 0U, s_spike_ca_pem, sizeof(s_spike_ca_pem) - 1U) !=
         WIFI_ERR_OK)
     {
         failed++;
     }
+#endif
+#if SPIKE_LOAD_CERT
     if (spike_load_pem(wifi, "S1  PG client cert", 1U, s_spike_cert_pem,
                        sizeof(s_spike_cert_pem) - 1U) != WIFI_ERR_OK)
     {
         failed++;
     }
+#endif
+#if SPIKE_LOAD_KEY
     if (spike_load_pem(wifi, "S1  PG client key", 2U, s_spike_key_pem,
                        sizeof(s_spike_key_pem) - 1U) != WIFI_ERR_OK)
     {
         failed++;
     }
-    (void) spike_cmd(wifi, "S1  PE   (after load)", "PE", 5000U);
 #endif
+    (void) spike_cmd(wifi, "S1  PE   (after load)", "PE", 5000U);
 
     /* S2: TLS socket. P1=3 is TCP-SSL, P9 is certificate verification. */
     (void) snprintf(line, sizeof(line), "P9=%u", (unsigned) SPIKE_TLS_VERIFY);
