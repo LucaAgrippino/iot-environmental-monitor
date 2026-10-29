@@ -4,7 +4,7 @@
 #   host      IPv4 literal (local Mosquitto) or a DNS name (AWS IoT endpoint -> the module resolves it with D0)
 #   verify    P9 value: 0 none, 1 optional, 2 required (default 2)
 #   pf-args   argument of PF (default "0,0" = TLS, set 0; the Inventek sheet uses "1,2" for AWS)
-#   nul       1: send each PEM with its terminating NUL counted in the PG length (mbedTLS wants it)
+#   nul       2: send DER (binary) instead of PEM; 1: send each PEM with its terminating NUL counted in the PG length (mbedTLS wants it)
 #   cert-set  first argument of PG (default: the first number of pf-args' second field, i.e. 0)
 # Pass "-" for any PEM file to skip loading that item (a slot, once written, cannot be rewritten).
 set -euo pipefail
@@ -15,9 +15,15 @@ is_name=0; [[ $host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || is_name=1
 python3 -I - "$out" "$ca" "$cert" "$key" "$host" "$port" "$verify" "$pf" "$set_id" "$is_name" "$nul" <<'PY'
 import sys
 out, ca, cert, key, host, port, verify, pf, set_id, is_name, nul = sys.argv[1:]
-def lit(path):
+import subprocess
+def lit(path, kind):
     if path == '-':
         return '""'
+    if nul == '2':  # DER: convert, emit as "\\xNN" pieces (the literal's own NUL is the extra byte)
+        cmd = ['openssl', 'ec', '-in', path, '-outform', 'DER'] if kind == 'key' else ['openssl', 'x509', '-in', path, '-outform', 'DER']
+        der = subprocess.run(cmd, check=True, capture_output=True).stdout
+        pieces = ['"\\x%02x"' % b for b in der]
+        return '\n'.join(''.join(pieces[i:i + 16]) for i in range(0, len(pieces), 16))
     data = open(path, 'rb').read().replace(b'\r\n', b'\n').decode('ascii')
     if not data.endswith('\n'):
         data += '\n'
@@ -27,9 +33,9 @@ with open(out, 'w') as f:
     f.write('#ifndef SPIKE_CONFIG_H\n#define SPIKE_CONFIG_H\n')
     f.write('#define SPIKE_TLS_HOST "%s"\n#define SPIKE_TLS_HOST_IS_NAME %s\n#define SPIKE_TLS_PORT %s\n' % (host, is_name, port))
     f.write('#define SPIKE_TLS_VERIFY %s\n#define SPIKE_PF_ARGS "PF=%s"\n#define SPIKE_CERT_SET %s\n#define SPIKE_LOAD_CA %d\n#define SPIKE_LOAD_CERT %d\n#define SPIKE_LOAD_KEY %d\n' % (verify, pf, set_id, ca != '-', cert != '-', key != '-'))
-    f.write('static const char s_spike_ca_pem[] =\n%s;\n' % lit(ca))
-    f.write('static const char s_spike_cert_pem[] =\n%s;\n' % lit(cert))
-    f.write('static const char s_spike_key_pem[] =\n%s;\n' % lit(key))
-    f.write('#define SPIKE_PEM_NUL %s\n#endif\n' % nul)
+    f.write('static const char s_spike_ca_pem[] =\n%s;\n' % lit(ca, 'ca'))
+    f.write('static const char s_spike_cert_pem[] =\n%s;\n' % lit(cert, 'cert'))
+    f.write('static const char s_spike_key_pem[] =\n%s;\n' % lit(key, 'key'))
+    f.write('#define SPIKE_PEM_NUL %s\n#endif\n' % ('1' if nul == '1' else '0'))
 PY
 echo "wrote $out"
