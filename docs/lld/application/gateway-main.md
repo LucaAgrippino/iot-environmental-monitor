@@ -31,6 +31,16 @@ Smaller findings: TimeService is created by the Lifecycle adapter, not by `main(
 interface pointer is NULL when CloudPublisher is created (F-5); `us_probe_if_t` has no
 production provider (F-6); the HLD task table disagrees with the code on five tasks (F-7).
 
+
+**Findings added by the bench (2026-10-30, PR #119):**
+
+| # | Finding | Evidence |
+|---|---|---|
+| F-9 | **ModbusPollerTask must be created after `lifecycle_controller_init()`.** The start gate it waits on is created inside that call, which now runs in BootTask after the scheduler starts. Created in Phase A it calls `xEventGroupWaitBits(NULL, ...)` at scheduler start and hard-faults | Hard fault on the board; the PC decodes to `vTaskPlaceOnUnorderedEventList` from `xEventGroupWaitBits`. The firmware's own panic dump names the wrong function (its symbol table belongs to another image): decode with `addr2line` |
+| F-10 | **Correction of F-3's premise: SRAM2 is not empty, and there is no 128 KB alias.** The console places 24.6 KB of buffers in SRAM2 (`console_mem.h`: two cell grids and the scrollback), leaving 8.1 KB; and `0x20018000` is not accessible on the STM32L475 (a read fails on the board) | Link of the full image; board test |
+| F-11 | **The arena needs more than its peak.** At 48 128 bytes the TLS handshake fails (`RSA private key operation failed: BIGNUM memory allocation failed`, -0x4310) although the peak counter reads 45 364; at 52 992 it works with a peak of 46 280. The RSA private-key operation needs one contiguous block. The working size is in (48 128, 52 992], not bisected | Board |
+| F-12 | **Cloud chain and NTP together are not stable** (cause not isolated): after connecting, `wifitask_send(34 B) failed, err=6` coincides with an NTP sync; the three subscribes fail (`failed (8)`); later `wifitask_send(4039 B) failed, err=7` (a send larger than the WiFi driver's 1536-byte AT buffer reached it) and `Connection lost` | Board, `Debug/bench/logs/stack-A3.log` |
+
 ---
 
 ## 2. What exists today
@@ -59,7 +69,7 @@ their `create`/`init` call; `main()` creates three.
 | `CloudPublisherTask` | `cloud_publisher_create()` | after `wifitask_create` (F-1) | `cloud_publisher.c:318` |
 | `UpdateServiceTask` | `update_service_create()` | after CloudPublisher (F-1, F-2) | `update_service.c:121` |
 | `TimeServiceTask` | `time_service_init()`, which the Lifecycle adapter `time_init` calls in StartingMiddleware | after the scheduler | `time_service.c:106` |
-| `ModbusPollerTask` | `main()`, entry `lifecycle_wiring_poller_task` | before the scheduler | wiring header |
+| `ModbusPollerTask` | BootTask, entry `lifecycle_wiring_poller_task` | **after `lifecycle_controller_init()`** (F-9; was "before the scheduler" in version 0.1) | wiring header |
 | `ConsoleTask` | `main()`, entry `console_task_body` (`console_service_init` creates none) | before the scheduler | `console_service.h` |
 | `LifecycleTask` | `main()`, entry `lifecycle_task_body` | last | companion §17 |
 
@@ -79,7 +89,7 @@ main():                                              -- Phase A, before the sche
     i2c, sensor_task_create                          (creates SensorTask)
     modbus_uart_init, modbus_master_init
     console_service_init                             (after the services it uses)
-    xTaskCreateStatic: ModbusPollerTask (gated), ConsoleTask
+    xTaskCreateStatic: ConsoleTask                   (ModbusPollerTask is NOT here: see F-9)
     xTaskCreateStatic: BootTask                      (NEW, see below)
     vTaskStartScheduler
 
@@ -93,6 +103,7 @@ BootTask (priority above every application task, runs once):   -- Phase B
     cloud_publisher_create                           (creates CloudPublisherTask)
     update_service_create                            (creates UpdateServiceTask; needs F-2 resolved)
     lifecycle_wiring_bind, lifecycle_controller_init
+    xTaskCreateStatic: ModbusPollerTask              (gated; the start gate exists only now, F-9)
     lifecycle_task_body()                            (BootTask becomes LifecycleTask; never returns)
 ```
 
@@ -221,10 +232,42 @@ becomes at least **18.1 KB** with the arena at the bare minimum (46 280 + 0 marg
 16 KB unless a maximum fragment length is negotiated) and is not made here. Not measured: the peak for an
 ECDSA server chain.
 
-**Measurements that gate D-1** (both are Luca's to run on the board; number 1 is now done, see above):
+**Measurement 2 done 2026-10-30 (stack high-water marks, PR #119).** The real task set ran together on the board
+(CloudPublisher in TLS, NTP, telemetry and health publishing, INFO logging, no Field Device). The all-time
+minimum free stack gives the maximum use:
+
+| Task | Declared (words) | Max used | % | Sized at 1.5x use (64-word steps) |
+|---|---|---|---|---|
+| ModbusPoller | 512 | **507** | **99 %** | 768 |
+| log_drain | 256 | **218** | **85 %** | 384 |
+| WifiTask | 256 | 175 | 68 % | 320 |
+| CloudPublisher | 768 | 484 | 63 % | 768 |
+| Console | 768 | 438 | 57 % | 704 |
+| TimeService | 768 | 337 | 44 % | 512 |
+| SensorTask | 384 | 170 | 44 % | 256 |
+| UpdateService | 1024 | 438 (verify path, from the UpdateService bench; idle here 36) | 43 % | 704 |
+| Lifecycle / BootTask | 2048 | 566 (all of Phase B; Restarting, UpdatingFirmware and EditingConfig not driven) | 28 % | 896 |
+| Timer service | 256 | 48 | 19 % | 128 |
+| Idle | 256 | 24 | 9 % | 128 |
+| **Total** | **7 296 words (29.2 KB)** | | | **5 568 words (22.3 KB): saves 6.75 KB** |
+
+Two stacks are already at their limit: ModbusPoller has 5 words free (measured with no Field Device attached,
+so a real one may use more) and log_drain 38. Both must grow whatever else is decided.
+
+**Corrected RAM picture (replaces the figures in section 6 and the premise of option A).** The full image links
+with **150 652 bytes** of static data (147 KB, console included, 44 KB arena), against 98 304 (main bank) plus
+32 768 (SRAM2) = 131 072 bytes. With the arena at the 52 992 that works (+7.9 KB) and the stacks trimmed
+(-6.9 KB) it is about **149.6 KB: roughly 20 KB too much**. The 19.9 KB of pools proposed for SRAM2 in option A
+do not fit: only 8.1 KB of SRAM2 is free while the console is linked. Stacks cannot move there either. The
+only single measure that is large enough is the size of the SSL record buffers (option B: they are about 33 KB of
+the peak; an estimate, not measured, is that an 8 KB input and 4 KB output buffer would free about 20 KB). Other
+candidates: the console scrollback `s_lines` (13 000 bytes), the StoreAndForward pool (8 184), the MqttClient
+pool (6 312).
+
+**Measurements that gate D-1** (both are Luca's to run on the board; both are now done, see above):
 
 1. **TC-HW-MQTT-014**, the mbedTLS arena peak with a TLS session open (also closes FS-O4). **Done: 46 280 bytes, the arena must grow, not shrink, unless the record buffers shrink (option B).**
-2. **Task stack high-water marks**, from a first image that creates the real task set. The sum in section 6 uses declared sizes; the real use of LifecycleTask (8 KB declared) is the largest unknown (option C).
+2. **Task stack high-water marks**, from a first image that creates the real task set. **Done: the table above.** The sum in section 6 uses declared sizes; the real use of LifecycleTask (8 KB declared) is the largest unknown (option C).
 
 Until both are in, option A (SRAM2 for 19.9 KB of pools) remains the only measure that is known to cover the
 lower bound, so it is the fallback if the measurements do not free enough.
@@ -233,7 +276,7 @@ lower bound, so it is the fallback if the measurements do not free enough.
 
 | Option | What | Cost / risk |
 |---|---|---|
-| **A (recommended first step)** | Move the large blocks that nothing needs in the fast bank to SRAM2 with `__attribute__((section(".bss.sram2")))` (the section exists): StoreAndForward pool 8 184, MqttClient pool 6 312, CloudPublisher pool 2 872, logger queue 2 496 = **19 864 B**, and optionally task stacks | Covers the 16.9 KB lower bound with about 3 KB to spare: thin. Needs a check that no DMA or ISR path reads them from a location SRAM2 does not allow (not verified) |
+| ~~**A (recommended first step)**~~ **Superseded by F-10: not feasible while the console is linked (8.1 KB of SRAM2 free, not 32 KB).** Original text: | Move the large blocks that nothing needs in the fast bank to SRAM2 with `__attribute__((section(".bss.sram2")))` (the section exists): StoreAndForward pool 8 184, MqttClient pool 6 312, CloudPublisher pool 2 872, logger queue 2 496 = **19 864 B**, and optionally task stacks | Covers the 16.9 KB lower bound with about 3 KB to spare: thin. Needs a check that no DMA or ISR path reads them from a location SRAM2 does not allow (not verified) |
 | B | Shrink the TLS buffers (smaller record size, needs broker support) and re-measure the arena | Changes MQTT behaviour; needs TC-HW-MQTT-014 first |
 | C | Trim stacks after the high-water marks are logged | Cannot be decided before the first run; LifecycleTask 8 KB is the biggest single item |
 | D | A + C, decided in two steps: A now, C after measurement | My recommendation |
@@ -329,3 +372,8 @@ for WP4 is not read as covering it.
 | GM-O6 | `wifitask_create` "task-context only" rule: the code in `wifi_task.c:409-420` shows no scheduler dependency (it creates a task and attaches a NULL callback). If the rule is stale, Phase B shrinks; I have not tested it pre-scheduler, so it is kept as a constraint |
 | GM-O7 | Untested route for on-module TLS: Inventek's firmware-image customization (Windows eS-WiFi Demo, Firmware > Customize) instead of run-time `PG`. See D-1, option E. Not pursued; reopen only if per-fleet certificates baked into the module image are acceptable |
 | GM-O8 | `docs/SRS.md` CON-001 and `docs/lld/drivers/spi-driver.md:31` still say "All TCP/IP and TLS operations are handled by the module's internal stack". The design (WIFI-D2) and the bench say otherwise: TLS runs on the host with mbedTLS. Correct the requirement text |
+| GM-O9 | ModbusPollerTask creation moves to BootTask after `lifecycle_controller_init()` (F-9). The same applies to any task that waits on the start gate |
+| GM-O10 | ModbusPoller (99 %) and log_drain (85 %) stacks are at their limit; the poller was measured without a Field Device. Resize per the table in section 8 |
+| GM-O11 | The arena size: must be above 48 128 and works at 52 992 (F-11); bisect, then add the margin. Decided with D-1 |
+| GM-O12 | Cloud chain with NTP running: send/subscribe failures and a 4039-byte send reaching the WiFi driver (F-12). Needs its own investigation before WP5 |
+| GM-O13 | The whole product does not fit the chip's 128 KB of SRAM (about 20 KB over after the measured trims): D-1 must choose among the record-buffer size, the console scrollback, the StoreAndForward and MqttClient pools |
