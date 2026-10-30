@@ -54,7 +54,7 @@ Hardware columns come from the bench results recorded during the project; where 
 |---|---|---|
 | Logger | harness exists | |
 | WifiTask | ✅ validated | Alarm-latency decision CP-O6 largely resolved |
-| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (provisional 44 KB, mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open **not yet measured** (TC-HW-MQTT-014, Luca); the two 16 KB SSL record buffers alone take about 33 KB (MQTT-O1) |
+| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (28 KB since WP4 D-1 (MQTT-D19), mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open **not yet measured** (TC-HW-MQTT-014, Luca); the two 16 KB SSL record buffers alone take about 33 KB (MQTT-O1) |
 | NtpClient | ✅ validated | IPv4 servers only |
 | TimeProvider | ✅ TC-HW-TP-001..011 | |
 | ConfigStore | ✅ validated | Diverges from the FD copy (CS-O5) |
