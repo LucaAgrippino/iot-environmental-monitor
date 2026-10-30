@@ -219,7 +219,7 @@ session open (TC-HW-MQTT-014, FS-O4), and every stack's high-water mark (the pla
 
 | ID | Decision | Consequence |
 |---|---|---|
-| D-1 | **Measure first.** No RAM option is chosen yet | WP4 session 2 is gated on two measurements, below |
+| D-1 | ~~**Measure first.** No RAM option is chosen yet~~ **Decided 2026-10-30: option F** (record buffers 5 120 in / 2 048 out, arena 28 KB, stacks at 1.5x use) | TLS part: PR #122 (hardware-checked against AWS IoT). Stacks: per-module constants, done in WP4 session 2 (ModbusPoller 768 and log_drain 384 words first). Static RAM 127 518 of 131 072 after both |
 | D-2 | `update_service_get_instance()`: the accessor returns the static instance before create; CloudPublisher stores the pointer | Small change in UpdateService and in the CloudPublisher wiring; own PR before `main()` |
 | D-3 | BootTask joins the access point with a bounded retry (3 attempts) before creating the MQTT client; a later drop is a follow-up work package | Bench: the first join after reset fails almost every time, so the retry is mandatory |
 | D-6 | BootTask becomes LifecycleTask (calls `lifecycle_task_body()` and never returns) | One boot task, one stack |
@@ -408,9 +408,9 @@ for WP4 is not read as covering it.
 | GM-O8 | `docs/SRS.md` CON-001 and `docs/lld/drivers/spi-driver.md:31` still say "All TCP/IP and TLS operations are handled by the module's internal stack". The design (WIFI-D2) and the bench say otherwise: TLS runs on the host with mbedTLS. Correct the requirement text |
 | GM-O9 | ModbusPollerTask creation moves to BootTask after `lifecycle_controller_init()` (F-9). The same applies to any task that waits on the start gate |
 | GM-O10 | ModbusPoller (99 %) and log_drain (85 %) stacks are at their limit; the poller was measured without a Field Device. Resize per the table in section 8 |
-| GM-O11 | The arena size: must be above 48 128 and works at 52 992 (F-11); bisect, then add the margin. Decided with D-1 |
+| GM-O11 | The arena size: **closed 2026-10-30.** Bisected on the board against AWS IoT: 22 528 and 23 552 fail, 24 576 works, peak 20 920; 28 672 chosen (PR #122, MQTT-D19) |
 | GM-O12 | Cloud chain with NTP running: send/subscribe failures and a 4039-byte send reaching the WiFi driver (F-12). Needs its own investigation before WP5 |
-| GM-O13 | The whole product does not fit the chip's 128 KB of SRAM (about 20 KB over after the measured trims): **option F fits with 3 554 bytes spare (measurement 3)**; D-1 is Luca's to choose among F, the console scrollback, the StoreAndForward and MqttClient pools |
+| GM-O13 | The whole product does not fit the chip's 128 KB of SRAM: **decided, D-1 option F.** The TLS part is PR #122; with the stack trims of session 2 the image is 127 518 bytes against 131 072 (3 554 spare) |
 | GM-O14 | Name resolution (F-13): **decided, D-7**. Driver half `wifi_resolve` in PR #120, MqttClient `tls_server_name` in PR #121; the BootTask call is part of session 2. A failing lookup takes about 10 s and the call may wait up to 60 s |
-| GM-O15 | AWS IoT and max fragment length, and the largest record it sends (Thing `gw-bringup-001` exists, so this can be measured). Decides whether the input buffer of 5 120 is safe for OTA chunks and retained messages |
+| GM-O15 | AWS IoT and max fragment length / the largest record it sends: **not needed.** `MQTT_PKT_BUF_SIZE` is 4 096 and the OTA chunk is 1 024, so no inbound record needs more than the 5 120 input buffer unless two large packets share a record. Reopen if a measured record exceeds it |
 | GM-O16 | The bench-only hooks used for measurement 3 (`MQTT_BENCH_MAX_FRAG_LEN`, `MQTT_BENCH_TLS_HOSTNAME`, `MQTT_BENCH_VERIFY_OPTIONAL`) are not committed. The hostname one is superseded by `tls_server_name` (PR #121); the other two are bench-only |
