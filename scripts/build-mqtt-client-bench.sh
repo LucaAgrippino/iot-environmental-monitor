@@ -9,6 +9,8 @@
 #
 # usage: [ARENA_BYTES=61440] scripts/build-mqtt-client-bench.sh [--flash]
 #   ARENA_BYTES  override the mbedTLS arena size to measure the real peak (default: tls_arena.h)
+#   EXTRA_CFLAGS extra compiler flags for every file, e.g. "-DMBEDTLS_SSL_IN_CONTENT_LEN=4096"
+#   CERTS_DIR    directory holding bringup_certs.h / bringup_secrets.h (default: firmware/gateway/certs)
 #   --flash   also program the board with openocd (CubeIDE's copy) and reset it
 set -euo pipefail
 
@@ -16,9 +18,10 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gw="$root/firmware/gateway"
 v="$root/vendor"
 out="$gw/Debug/bench/mqtt_client"
+certs="${CERTS_DIR:-$gw/certs}"
 
 for f in bringup_certs.h bringup_secrets.h; do
-    [[ -f "$gw/certs/$f" ]] || { echo "missing $gw/certs/$f (see scripts/bringup_secrets.h.example)" >&2; exit 1; }
+    [[ -f "$certs/$f" ]] || { echo "missing $certs/$f (see scripts/bringup_secrets.h.example)" >&2; exit 1; }
 done
 command -v arm-none-eabi-gcc >/dev/null || { echo "arm-none-eabi-gcc not on PATH" >&2; exit 1; }
 mkdir -p "$out"
@@ -32,7 +35,8 @@ common=(-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -std=gnu11 -g
   -I"$v/stm32/iot-node/Drivers/CMSIS/Device/ST/STM32L4xx/Include"
   -I"$gw/../shared" -I"$gw/drivers" -I"$gw/Inc" -I"$gw/middleware" -I"$gw/middleware/mqtt_client"
   -I"$gw/middleware/wifi_task" -I"$v/coreMQTT/source/include" -I"$v/coreMQTT/source/interface"
-  -I"$v/mbedtls/include" -I"$gw/application" -I"$gw/certs"
+  -I"$v/mbedtls/include" -I"$gw/application" -I"$certs"
+  ${EXTRA_CFLAGS:-}
   ${ARENA_BYTES:+-DTLS_ARENA_SIZE_BYTES=${ARENA_BYTES}U})
 
 # Project code, -O0.
