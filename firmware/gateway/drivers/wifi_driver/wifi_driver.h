@@ -30,7 +30,7 @@
 #define WIFI_MAX_SSID_LEN 32u
 #define WIFI_MAX_PASS_LEN 64u
 #define WIFI_IPV4_STR_LEN 16u /**< "255.255.255.255" plus the terminator. */
-#define WIFI_MAX_SOCKETS 4u /**< ISM43362 supports up to 4 concurrent sockets. */
+#define WIFI_MAX_SOCKETS 4u   /**< ISM43362 supports up to 4 concurrent sockets. */
 #define WIFI_INVALID_SOCKET 255u
 #define WIFI_DRDY_EXTI_LINE 1u /**< PE1 — EXTI1. */
 #define WIFI_EXTI_NVIC_PRIORITY                                                                    \
