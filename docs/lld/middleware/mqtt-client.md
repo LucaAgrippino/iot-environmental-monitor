@@ -161,7 +161,11 @@ typedef void (*mqtt_disconnect_cb_t)(void);
  * pointers for the session duration — it does not copy cert material.
  */
 typedef struct {
-    const char    *broker_endpoint;  /**< e.g. "xxxxx.iot.eu-west-1.amazonaws.com" */
+    const char    *broker_endpoint;  /**< Host name or dotted-quad address to connect to. The
+                                          module's P3 does not resolve names: BootTask resolves
+                                          with wifi_resolve() and passes the address. */
+    const char    *tls_server_name;  /**< Name the server certificate must carry; NULL = use
+                                          broker_endpoint (MQTT-D18).                 */
     uint16_t       broker_port;      /**< 8883 (MQTT over TLS).                    */
     const char    *client_id;        /**< Device serial number.                    */
     const uint8_t *client_cert_der;  /**< DER-encoded client certificate.          */
@@ -586,6 +590,8 @@ CONNACK, PUBACK, SUBACK, inbound PUBLISH, or error codes.
 | MQTT-T04 | `mqtt_client_connect` with stub CONNACK=0 | Returns `ERR_OK`; `stats.connect_ok == 1` |
 | MQTT-T05 | `mqtt_client_connect` with stub CONNACK≠0 | Returns `ERR_CONNECT_FAIL` |
 | MQTT-T06 | `mqtt_client_connect` TLS handshake failure | Returns `ERR_TLS_FAIL` |
+| MQTT-T06b | `tls_server_name` NULL (MQTT-D18) | `mbedtls_ssl_set_hostname` receives `broker_endpoint` |
+| MQTT-T06c | `tls_server_name` set, `broker_endpoint` is an address | `mbedtls_ssl_set_hostname` receives `tls_server_name`, not the address |
 | MQTT-T07 | `mqtt_client_publish` QoS 0 | Frame transmitted; `stats.publishes_sent == 1` |
 | MQTT-T08 | `mqtt_client_publish` QoS 1 non-blocking; PUBACK reaped in `process()` (MQTT-D13) | Returns `ERR_OK` with `publishes_sent == 1`, `publishes_acked == 0`; after a `process()` delivering the PUBACK, `publishes_acked == 1` |
 | MQTT-T09 | `mqtt_client_publish` QoS 1 transmit failure (dead socket) | Returns `ERR_PUBLISH_FAIL` fast; `publish_failures == 1`, `publishes_sent == 0` |
@@ -660,6 +666,7 @@ Hardware (`integration-tests/mqtt_client`): **TC-HW-MQTT-014**, the arena peak a
 | MQTT-D15 | The arena is guarded by `MBEDTLS_THREADING_C` + `MBEDTLS_THREADING_ALT` over static FreeRTOS mutexes (`threading_alt.h`, installed by `tls_arena_init()` before the allocator starts) | Two tasks allocate (TLS in CloudPublisherTask, ECDSA verify in UpdateServiceTask) and mbedTLS's buffer allocator is not thread-safe without the threading layer (checked in the vendored 3.6.7 `memory_buffer_alloc.c`). Static storage, so no heap |
 | MQTT-D16 | Before `tls_arena_init()` the default allocator (`MBEDTLS_PLATFORM_STD_CALLOC` / `_FREE`) is a pair of stubs that return NULL; `MBEDTLS_MEMORY_DEBUG` is on in every build (peak via `tls_arena_peak_bytes()`); the arena's stderr dump is a no-op and its `exit(1)` is a trap | A harness or image that forgets the init fails with an mbedTLS ALLOC_FAILED error rather than silently using the heap. `NO_STD_FUNCTIONS` was tried and rejected: it also removes the default `snprintf` that other mbedTLS files use. Peak always available avoids a build-specific define (no `.cproject` change) |
 | MQTT-D17 | `TLS_ARENA_SIZE_BYTES` lowered from 48 to 44 KB (2026-10-28, still provisional) | With StoreAndForward, CircularFlashLog, ConfigService and HealthMonitor linked for real (CloudPublisher image, WP1 PR-D) the 96 KB RAM region overflowed by 2 088 bytes at 48 KB; the real figure comes from TC-HW-MQTT-014. A session already needs about 33 KB for its record buffers, so the margin is thin |
+| MQTT-D18 | `mqtt_connect_cfg_t` gains `tls_server_name` (WP4, GM-O14, 2026-10-30); NULL keeps the old behaviour | The module's socket command takes an address, not a name (WIFI-O18), so BootTask resolves the AWS endpoint after the join and connects to the address; the certificate check still has to run against the endpoint's name. Without the field the check would compare the certificate with the address and fail (measured on the board: the wildcard certificate `*.iot.<region>.amazonaws.com` never matches an address). Existing callers are unchanged |
 
 ---
 
