@@ -63,6 +63,14 @@
  *  C1-C4, and failed at exactly that 5 s mark against a phone hotspot
  *  even though the same sequence completes within it against a router. */
 #define WIFI_JOIN_TIMEOUT_MS 20000u
+/** DNS lookup (D0) response wait, separate from WIFI_RESP_TIMEOUT_MS: a name the
+ *  module's resolver cannot answer holds the module until its own DNS timeout
+ *  ends, and a command sent before that gets no answer at all (bench, 2026-10-30:
+ *  a 5 s wait left the module silent for every later command). Starting value,
+ *  to be tightened from the measured failure time. */
+#ifndef WIFI_DNS_TIMEOUT_MS
+#define WIFI_DNS_TIMEOUT_MS 60000u
+#endif
 #define WIFI_POLL_INTERVAL_US 100u
 /** NAK — appended to an odd-length command to reach an even byte count.
  *  Confirmed against the quick reference's worked example (P0=0\r padded
@@ -192,6 +200,40 @@ WIFI_TEST_VISIBLE wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, i
     }
 
     *out_rssi = (int8_t) (negative ? -value : value);
+    return WIFI_ERR_OK;
+}
+
+/**
+ * @brief Parse a `D0` response: "\r\n<a.b.c.d>\r\nOK\r\n". Copies the address.
+ *
+ * Accepts digits and dots only, so a module that answers with text (or
+ * with an empty line) is reported as WIFI_ERR_MODULE rather than copied.
+ */
+WIFI_TEST_VISIBLE wifi_err_t prv_parse_ipv4(const char *resp, size_t resp_len, char *out_ip,
+                                            size_t out_len)
+{
+    size_t pos = 0u;
+    size_t n = 0u;
+
+    if ((resp_len >= 2u) && (resp[0] == '\r') && (resp[1] == '\n'))
+    {
+        pos = 2u;
+    }
+
+    while ((pos < resp_len) && (((resp[pos] >= '0') && (resp[pos] <= '9')) || (resp[pos] == '.')))
+    {
+        if ((n + 1u) >= out_len)
+        {
+            return WIFI_ERR_MODULE;
+        }
+        out_ip[n++] = resp[pos++];
+    }
+
+    if (n < 7u) /* shorter than "0.0.0.0" */
+    {
+        return WIFI_ERR_MODULE;
+    }
+    out_ip[n] = '\0';
     return WIFI_ERR_OK;
 }
 
@@ -653,6 +695,36 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm)
 
     *rssi_dbm = handle->rssi_dbm;
     return WIFI_ERR_OK;
+}
+
+wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip, size_t out_len)
+{
+    if ((handle == NULL) || (hostname == NULL) || (out_ip == NULL))
+    {
+        return WIFI_ERR_NULL_PTR;
+    }
+    if (out_len < WIFI_IPV4_STR_LEN)
+    {
+        return WIFI_ERR_INVALID_ARG;
+    }
+    if (!handle->ready)
+    {
+        return WIFI_ERR_NOT_INIT;
+    }
+    if (handle->link_state != WIFI_LINK_UP)
+    {
+        return WIFI_ERR_NOT_CONNECTED;
+    }
+
+    size_t resp_len = 0u;
+    const wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_DNS_LOOKUP, hostname, &resp_len, WIFI_DNS_TIMEOUT_MS);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+
+    return prv_parse_ipv4(handle->at_buf, resp_len, out_ip, out_len);
 }
 
 wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const char *remote_addr,

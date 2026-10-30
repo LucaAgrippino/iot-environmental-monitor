@@ -36,7 +36,7 @@ Hardware columns come from the bench results recorded during the project; where 
 | RtcDriver | harness exists | |
 | SpiDriver | harness exists | |
 | LedDriver | harness exists | |
-| WifiDriver (ISM43362) | ✅ validated | 2.4 GHz only, no DNS resolver |
+| WifiDriver (ISM43362) | ✅ validated | 2.4 GHz only; DNS lookup via `D0` (`wifi_resolve`, WIFI-O18), not yet used by callers |
 | QspiFlashDriver | ✅ TC-HW-QSPI-001..010 | Sector erase 81 ms, page program 3.2 ms. QSPID-O1 is closed (2026-10-26): the driver takes its own priority-inheritance mutex for each whole operation, hardware-validated |
 | ModbusUartDriver | ✅ TC-HW-MBUART-001..010 | PA15 RTS/DE unverified |
 | ResetDriver | ✅ TC-HW-RST-001..004 | `reset_trigger()`; reuses `cpu_hw.h`, adds `CPU_HW_DATA_BARRIER`. Committed config survived a real reset ordered via `/control` |

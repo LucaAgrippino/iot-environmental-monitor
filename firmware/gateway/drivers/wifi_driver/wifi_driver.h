@@ -29,6 +29,7 @@
 
 #define WIFI_MAX_SSID_LEN 32u
 #define WIFI_MAX_PASS_LEN 64u
+#define WIFI_IPV4_STR_LEN 16u /**< "255.255.255.255" plus the terminator. */
 #define WIFI_MAX_SOCKETS 4u /**< ISM43362 supports up to 4 concurrent sockets. */
 #define WIFI_INVALID_SOCKET 255u
 #define WIFI_DRDY_EXTI_LINE 1u /**< PE1 — EXTI1. */
@@ -202,6 +203,23 @@ wifi_err_t wifi_get_link_state(wifi_handle_t handle, wifi_link_state_t *state);
 wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm);
 
 /**
+ * @brief Resolve a host name to a dotted-quad IPv4 address.
+ *
+ * Issues the IWIN "D0=<host name>" command and copies the address the module
+ * reports. A literal IPv4 address resolves to itself. The module's "P3" socket
+ * command does not resolve names, so a name must go through this call first.
+ *
+ * @param[in]  handle    WifiDriver handle.
+ * @param[in]  hostname  Null-terminated host name.
+ * @param[out] out_ip    Receives the null-terminated address.
+ * @param[in]  out_len   Size of out_ip; WIFI_IPV4_STR_LEN is always enough.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_NOT_CONNECTED if not associated;
+ *         WIFI_ERR_MODULE if the module returned ERROR or no address.
+ * @note Threading: task-context only, may block. Not ISR-safe.
+ */
+wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip, size_t out_len);
+
+/**
  * @brief Open a TCP or UDP socket to a remote host.
  *
  * Issues the IWIN sequence P0=<slot> (select), P1=<type> (protocol),
@@ -313,6 +331,20 @@ wifi_err_t prv_parse_response(const char *resp, size_t resp_len);
  * @return WIFI_ERR_OK on success; WIFI_ERR_MODULE if no digits found.
  */
 wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, int8_t *out_rssi);
+
+/**
+ * @brief Parse an IWIN "D0" (DNS lookup) response: "\r\n<a.b.c.d>\r\nOK\r\n".
+ *
+ * Exposed for WIFI-T24. Not part of the public driver contract.
+ *
+ * @param[in]  resp      Raw response bytes.
+ * @param[in]  resp_len  Number of valid bytes in resp.
+ * @param[out] out_ip    Receives the null-terminated address.
+ * @param[in]  out_len   Size of out_ip.
+ * @return WIFI_ERR_OK on success; WIFI_ERR_MODULE if the response holds no address or it does
+ *         not fit.
+ */
+wifi_err_t prv_parse_ipv4(const char *resp, size_t resp_len, char *out_ip, size_t out_len);
 
 /**
  * @brief Check an IWIN "I?" response for the required firmware version.
