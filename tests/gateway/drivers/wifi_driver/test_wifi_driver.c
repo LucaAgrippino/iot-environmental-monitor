@@ -358,6 +358,73 @@ void test_WIFI_T04b_parse_rssi_with_leading_crlf(void)
     TEST_ASSERT_EQUAL_INT8(-67, rssi);
 }
 
+void test_WIFI_T24_parse_ipv4(void)
+{
+    const char *resp = "\r\n51.21.11.97\r\nOK\r\n";
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, prv_parse_ipv4(resp, strlen(resp), ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL_STRING("51.21.11.97", ip);
+}
+
+void test_WIFI_T24b_parse_ipv4_rejects_text_and_overlong(void)
+{
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    const char *text = "\r\nERROR\r\n";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_ipv4(text, strlen(text), ip, sizeof(ip)));
+
+    const char *empty = "\r\n\r\nOK\r\n";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_ipv4(empty, strlen(empty), ip, sizeof(ip)));
+
+    const char *overlong = "\r\n123.123.123.123.123\r\nOK\r\n";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_ipv4(overlong, strlen(overlong), ip, sizeof(ip)));
+}
+
+void test_WIFI_T25_resolve_returns_the_module_address(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+
+    helper_script_at_command("\r\n13.60.114.42\r\nOK\r\n"); /* D0 */
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_resolve(handle, "example.test", ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL_STRING("13.60.114.42", ip);
+}
+
+void test_WIFI_T25b_resolve_module_error(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+
+    helper_script_at_command("\r\nERROR\r\n"); /* D0, unknown name */
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, wifi_resolve(handle, "no-such.invalid", ip, sizeof(ip)));
+}
+
+void test_WIFI_T25c_resolve_guards(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_resolve(NULL, "h", ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_resolve(handle, NULL, ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_resolve(handle, "h", NULL, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFI_ERR_INVALID_ARG, wifi_resolve(handle, "h", ip, WIFI_IPV4_STR_LEN - 1u));
+    /* Link down: bails out before touching SPI. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_NOT_CONNECTED, wifi_resolve(handle, "h", ip, sizeof(ip)));
+}
+
 void test_WIFI_T05_firmware_version_match(void)
 {
     const char *resp = "C3.5.2.3.BETA9\r\nOK\r\n";
