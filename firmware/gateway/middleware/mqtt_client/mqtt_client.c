@@ -560,7 +560,9 @@ static mqtt_client_err_t prv_tls_setup(struct mqtt_client_inst *inst, const mqtt
     {
         return MQTT_CLIENT_ERR_TLS_FAIL;
     }
-    if (mbedtls_ssl_set_hostname(&net_ctx->ssl, cfg->broker_endpoint) != 0)
+    const char *server_name =
+        (cfg->tls_server_name != NULL) ? cfg->tls_server_name : cfg->broker_endpoint;
+    if (mbedtls_ssl_set_hostname(&net_ctx->ssl, server_name) != 0)
     {
         return MQTT_CLIENT_ERR_TLS_FAIL;
     }

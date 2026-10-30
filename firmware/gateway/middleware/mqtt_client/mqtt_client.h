@@ -106,7 +106,12 @@ typedef void (*mqtt_disconnect_cb_t)(void);
  */
 typedef struct
 {
-    const char *broker_endpoint;    /**< e.g. "xxxxx.iot.eu-west-1.amazonaws.com" */
+    const char *broker_endpoint;    /**< Host name or dotted-quad address to connect to,
+                                         e.g. "xxxxx.iot.eu-west-1.amazonaws.com". The module's
+                                         socket command does not resolve names: BootTask
+                                         resolves with wifi_resolve() and passes the address. */
+    const char *tls_server_name;    /**< Name the server certificate must carry (the host name
+                                         check); NULL = use broker_endpoint (MQTT-D18).        */
     uint16_t broker_port;           /**< 8883 (MQTT over TLS).                   */
     const char *client_id;          /**< Device serial number.                   */
     const uint8_t *client_cert_der; /**< DER-encoded client certificate.      */
