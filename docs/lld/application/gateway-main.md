@@ -40,6 +40,8 @@ production provider (F-6); the HLD task table disagrees with the code on five ta
 | F-10 | **Correction of F-3's premise: SRAM2 is not empty, and there is no 128 KB alias.** The console places 24.6 KB of buffers in SRAM2 (`console_mem.h`: two cell grids and the scrollback), leaving 8.1 KB; and `0x20018000` is not accessible on the STM32L475 (a read fails on the board) | Link of the full image; board test |
 | F-11 | **The arena needs more than its peak.** At 48 128 bytes the TLS handshake fails (`RSA private key operation failed: BIGNUM memory allocation failed`, -0x4310) although the peak counter reads 45 364; at 52 992 it works with a peak of 46 280. The RSA private-key operation needs one contiguous block. The working size is in (48 128, 52 992], not bisected | Board |
 | F-12 | **Cloud chain and NTP together are not stable** (cause not isolated): after connecting, `wifitask_send(34 B) failed, err=6` coincides with an NTP sync; the three subscribes fail (`failed (8)`); later `wifitask_send(4039 B) failed, err=7` (a send larger than the WiFi driver's 1536-byte AT buffer reached it) and `Connection lost` | Board, `Debug/bench/logs/stack-A3.log` |
+| F-13 | **The WiFi module cannot open a socket to a host name.** `wifitask_open_socket()` with `a29hfe9n68rs9a-ats.iot.eu-north-1.amazonaws.com` returns `WIFI_ERR_SOCKET` (6) in under a second, before any TLS traffic; the same call with the resolved address `13.60.114.42` works. Nothing in the firmware resolves names, and AWS addresses change | Board, MqttClient harness against AWS IoT (measurement 3). The cause (the module's `P3` rejecting a name, or its DNS failing) is not isolated |
+| F-14 | **A TLS handshake message must fit the input record buffer, with or without maximum fragment length.** Mosquitto honours RFC 6066 max_fragment_length (the ServerHello echoes it and the 5.6 KB Certificate message arrives in 2048-byte records), but mbedTLS 3.6.7 reassembles a fragmented handshake message inside the input buffer, so the handshake still failed at an input size of 2048. Also `mbedtls_ssl_conf_max_frag_len()` fails (BAD_INPUT_DATA) for a size above the smaller of the input and output buffers; the bench call ignored the result at first | Board against Mosquitto with a 5.2 KB server certificate; the AWS chain is 3 847 B (measurement 3) |
 
 ---
 
@@ -229,8 +231,8 @@ arena (45 056) is **1 224 bytes too small**: the handshake fails on the board. E
 becomes at least **18.1 KB** with the arena at the bare minimum (46 280 + 0 margin) and about **31 KB** with the
 25 % margin (58 KB). Of the 46.3 KB peak, the two 16 KB SSL record buffers are about 33 KB, so option B
 (smaller record buffers) is the biggest single lever; it is a design decision (a peer may send records up to
-16 KB unless a maximum fragment length is negotiated) and is not made here. Not measured: the peak for an
-ECDSA server chain.
+16 KB unless a maximum fragment length is negotiated) and is not made here. Not measured then: the peak for an
+ECDSA server chain (measurement 3 below).
 
 **Measurement 2 done 2026-10-30 (stack high-water marks, PR #119).** The real task set ran together on the board
 (CloudPublisher in TLS, NTP, telemetry and health publishing, INFO logging, no Field Device). The all-time
@@ -264,7 +266,37 @@ the peak; an estimate, not measured, is that an 8 KB input and 4 KB output buffe
 candidates: the console scrollback `s_lines` (13 000 bytes), the StoreAndForward pool (8 184), the MqttClient
 pool (6 312).
 
-**Measurements that gate D-1** (both are Luca's to run on the board; both are now done, see above):
+**Measurement 3 done 2026-10-30 (TLS memory levers, MqttClient harness, PR #118/#119 bench script).** The arena
+peak was re-measured on the board with the record buffers shrunk (`MBEDTLS_SSL_IN_CONTENT_LEN` /
+`MBEDTLS_SSL_OUT_CONTENT_LEN`, build-time only, no source change) and with an ECDSA instead of an RSA chain:
+
+| Chain | Server | Input / output buffer | Arena peak |
+|---|---|---|---|
+| RSA-2048 | Mosquitto | 16 384 / 16 384 (current) | 46 280 |
+| RSA-2048 | Mosquitto | 4 096 / 2 048 | 19 656 |
+| ECDSA P-256 | Mosquitto | 16 384 / 16 384 | 39 452 |
+| ECDSA P-256 | Mosquitto | 4 096 / 2 048 | 12 828 |
+| ECDSA P-256, max fragment length 2048 | Mosquitto | 2 048 / 2 048 | 10 784 |
+| **RSA-2048 client certificate, real server chain** | **AWS IoT Core (eu-north-1)** | **5 120 / 2 048** | **20 920** |
+
+The last row is the product configuration: TLS 1.2 mutual authentication against the real endpoint, full
+certificate verification, MQTT CONNACK, QoS 0 and QoS 1 publish and a subscription all worked. The buffer
+shrink saves exactly 26 624 bytes; an ECDSA client certificate would save about 6.8 KB more. AWS IoT's server
+chain is RSA (three certificates, 1 535 + 1 122 + 1 174 bytes), so ECDSA only helps on the client side. The
+server's Certificate handshake message is **3 847 bytes**, which sets the floor of the input buffer (F-14); 5 120
+leaves 1 273 bytes for a longer chain after a rotation. The record size of application data is not bounded by
+that: a peer may send a record up to 16 384 bytes unless max fragment length is negotiated, and AWS IoT's
+support for the extension is **not tested**. The measurements used the 60 KB bench arena; the peak is what counts
+(F-11 says the working size must also leave room for the contiguous RSA block, so the arena is not set to the
+peak).
+
+Effect on the RAM budget (bytes, from the 150 652 of the full image): arena 45 056 → 28 672 (peak 20 920 plus
+a 37 % margin), stacks at 1.5x use (-6 750): **150 652 − 45 056 + 28 672 − 6 750 = 127 518 against 131 072,
+3 554 bytes spare.** That is thin (2.7 %): a 32 KB arena already goes over by 542 bytes, so the stack trims and
+the arena size are one decision. Further room, if wanted: ECDSA client certificate (-6.8 KB of peak), the console
+scrollback (13 000), the StoreAndForward pool (8 184).
+
+**Measurements that gate D-1** (all three are now done, see above):
 
 1. **TC-HW-MQTT-014**, the mbedTLS arena peak with a TLS session open (also closes FS-O4). **Done: 46 280 bytes, the arena must grow, not shrink, unless the record buffers shrink (option B).**
 2. **Task stack high-water marks**, from a first image that creates the real task set. **Done: the table above.** The sum in section 6 uses declared sizes; the real use of LifecycleTask (8 KB declared) is the largest unknown (option C).
@@ -277,9 +309,10 @@ lower bound, so it is the fallback if the measurements do not free enough.
 | Option | What | Cost / risk |
 |---|---|---|
 | ~~**A (recommended first step)**~~ **Superseded by F-10: not feasible while the console is linked (8.1 KB of SRAM2 free, not 32 KB).** Original text: | Move the large blocks that nothing needs in the fast bank to SRAM2 with `__attribute__((section(".bss.sram2")))` (the section exists): StoreAndForward pool 8 184, MqttClient pool 6 312, CloudPublisher pool 2 872, logger queue 2 496 = **19 864 B**, and optionally task stacks | Covers the 16.9 KB lower bound with about 3 KB to spare: thin. Needs a check that no DMA or ISR path reads them from a location SRAM2 does not allow (not verified) |
-| B | Shrink the TLS buffers (smaller record size, needs broker support) and re-measure the arena | Changes MQTT behaviour; needs TC-HW-MQTT-014 first |
+| B | Shrink the TLS buffers (smaller record size, needs broker support) and re-measure the arena | **Measured (measurement 3): the peak against AWS IoT falls from 46 280 to 20 920 with input 5 120 / output 2 048.** Risk: a peer record larger than the input buffer ends the connection; a handshake message larger than it (AWS: 3 847 B) cannot be fragmented around it (F-14). AWS support for max fragment length not tested |
 | C | Trim stacks after the high-water marks are logged | Cannot be decided before the first run; LifecycleTask 8 KB is the biggest single item |
-| D | A + C, decided in two steps: A now, C after measurement | My recommendation |
+| D | A + C, decided in two steps: A now, C after measurement | Superseded: A is not feasible (F-10) |
+| **F (proposed)** | **B + C:** input buffer 5 120, output 2 048, arena about 28 KB (set after a bisection, F-11), stacks at 1.5x use (ModbusPoller 768 and log_drain 384 whatever is decided) | Fits with 3 554 bytes spare (measurement 3). Needs: a record-size check against AWS (traffic larger than 5 KB per record, or max fragment length), the arena bisection, and a rerun of the stack marks with a real Field Device. **My recommendation** |
 
 The arena (44 KB) **cannot** move to SRAM2: it is larger than the bank.
 
@@ -376,4 +409,7 @@ for WP4 is not read as covering it.
 | GM-O10 | ModbusPoller (99 %) and log_drain (85 %) stacks are at their limit; the poller was measured without a Field Device. Resize per the table in section 8 |
 | GM-O11 | The arena size: must be above 48 128 and works at 52 992 (F-11); bisect, then add the margin. Decided with D-1 |
 | GM-O12 | Cloud chain with NTP running: send/subscribe failures and a 4039-byte send reaching the WiFi driver (F-12). Needs its own investigation before WP5 |
-| GM-O13 | The whole product does not fit the chip's 128 KB of SRAM (about 20 KB over after the measured trims): D-1 must choose among the record-buffer size, the console scrollback, the StoreAndForward and MqttClient pools |
+| GM-O13 | The whole product does not fit the chip's 128 KB of SRAM (about 20 KB over after the measured trims): **option F fits with 3 554 bytes spare (measurement 3)**; D-1 is Luca's to choose among F, the console scrollback, the StoreAndForward and MqttClient pools |
+| GM-O14 | Name resolution (F-13): decide how the Gateway reaches `AWS_ENDPOINT`: the module's DNS command (not investigated), or a resolver in the driver, or a fixed address. Needed before WP5; BootTask's join step (D-3) is the natural place |
+| GM-O15 | AWS IoT and max fragment length, and the largest record it sends (Thing `gw-bringup-001` exists, so this can be measured). Decides whether the input buffer of 5 120 is safe for OTA chunks and retained messages |
+| GM-O16 | The bench-only hooks used for measurement 3 (`MQTT_BENCH_MAX_FRAG_LEN`, `MQTT_BENCH_TLS_HOSTNAME`, `MQTT_BENCH_VERIFY_OPTIONAL`) are not committed; production needs a hostname separate from the connect address if GM-O14 settles on an address |
