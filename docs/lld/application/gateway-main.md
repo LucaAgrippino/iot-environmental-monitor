@@ -413,7 +413,7 @@ for WP4 is not read as covering it.
 ## 10c. Session 3 results (2026-10-31, PRs #125 to #130)
 
 The first runs of the production image on the board found four faults below `main()`. Each has its own PR, stacked on
-#124 (merge order: `docs/wp4-merge-plan.md`, also posted as a comment on #124).
+PR #124 (merge order: `docs/wp4-merge-plan.md`, also posted as a comment on that PR).
 
 | Fault | Evidence | PR |
 |---|---|---|
