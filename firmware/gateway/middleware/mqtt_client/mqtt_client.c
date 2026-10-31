@@ -292,6 +292,16 @@ MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char
 {
     NetworkContext_t *net_ctx = (NetworkContext_t *) ctx;
 
+    /* One module send carries at most WIFITASK_MAX_SEND_BYTES, but an mbedTLS record can be larger
+     * (up to the output buffer plus 29 bytes of framing and tag): a bigger buffer was rejected with
+     * WIFI_ERR_INVALID_ARG, the record stayed pending inside mbedTLS and every later write failed
+     * with it (WP4 finding F-12). mbedTLS accepts a short BIO write and sends the rest on the next
+     * call, so send what fits and report that. */
+    if (len > WIFITASK_MAX_SEND_BYTES)
+    {
+        len = WIFITASK_MAX_SEND_BYTES;
+    }
+
     wifitask_err_t err = wifitask_send(net_ctx->wifi, net_ctx->socket, buf, len);
     if (err == WIFITASK_ERR_OK)
     {
