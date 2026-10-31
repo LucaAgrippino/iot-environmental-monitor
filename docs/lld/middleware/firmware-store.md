@@ -313,7 +313,7 @@ void firmware_store_reset_for_test(void);
 | Function | Purpose | Allowed boot state | Result |
 |---|---|---|---|
 | `get_boot_info(const self, firmware_boot_info_t *info_out)` | Report cached boot state; no flash access | any | — |
-| `confirm(self)` | Self-check passed | TRIAL_RUNNING (CONFIRMED → OK, no-op) | CONFIRMED; previous slot's descriptor erased |
+| `confirm(self)` | Self-check passed | TRIAL_RUNNING (CONFIRMED → OK, no-op) | CONFIRMED; rollback count reset to 0 (BL-D5); previous slot's descriptor erased |
 | `rollback(self)` | Self-check failed | TRIAL_RUNNING | `active = previous`, ROLLED_BACK, `rollback_count + 1` |
 | `acknowledge_rollback(self)` | Result reported to the cloud | ROLLED_BACK (CONFIRMED → OK, no-op) | CONFIRMED; failed slot's descriptor erased |
 
@@ -545,7 +545,7 @@ not advance the state; this is treated as inconsistent.
 |---|---|---|---|
 | App | `activate` | CONFIRMED | `active` = inactive, `previous` = running, TRIAL_PENDING |
 | Bootloader | Boot | TRIAL_PENDING | TRIAL_RUNNING, then jump to `active` |
-| App | `confirm` | TRIAL_RUNNING | CONFIRMED; erase descriptor of `previous` |
+| App | `confirm` | TRIAL_RUNNING | CONFIRMED; count = 0; erase descriptor of `previous` |
 | App | `rollback` | TRIAL_RUNNING | `active` = `previous`, `previous` = failed slot, ROLLED_BACK, count + 1 |
 | Bootloader | Boot | TRIAL_RUNNING (app never confirmed: crash, watchdog, power loss) | Same as `rollback` |
 | App | `acknowledge_rollback` | ROLLED_BACK | CONFIRMED; erase descriptor of `previous` (the failed image) |

@@ -10,9 +10,9 @@ which defines the **data contract** (register addresses, types,
 encoding, exception responses). This companion *references* that
 contract — it does not duplicate the per-register tables.
 
-**Version:** 1.0
-**Date:** June 2026
-**Status:** Pass H — Implementation ready
+**Version:** 1.1
+**Date:** October 2026
+**Status:** Pass H — Implementation ready (v1.1: `CMD_SET_TIME`, LLD-D16, TS-O5)
 
 **HLD anchor:** ModbusRegisterMap in `components.md` (FD application layer)
 
@@ -483,6 +483,23 @@ thresholds at 0x0110–0x0113), not across mixed config + command
 ranges; this matches the data spec's "atomic configuration block
 write" purpose. Resolved as **MRM-O2** below.
 
+#### 6.4.2 The command block (LLD-D16)
+
+Before phase 1, `write_multiple_regs` applies the data-spec §6.5 rules for the command range
+0x0200–0x02FF, so a refused block has no side effect:
+
+```
+    if addr == CMD_SET_TIME_HI and count == 2:
+        return apply_cmd_set_time(values[0], values[1])      /* §8.5 */
+    if any register of the block is CMD_SET_TIME_HI or CMD_SET_TIME_LO   /* one half, or any other span */
+       or more than one register of the block lies in 0x0200..0x02FF:
+        return ILLEGAL_DATA_VALUE
+    /* otherwise phase 1 and phase 2 as above */
+```
+
+A one-register FC16 on one of the three older command registers still works. Before v1.1 an FC16
+over several command registers executed all of them; the data spec has always said 0x03.
+
 ### 6.5 Exception mapping summary
 
 | Condition | Returned exception | Where detected |
@@ -494,6 +511,9 @@ write" purpose. Resolved as **MRM-O2** below.
 | Value out of range | `0x03` | `slot.validate_fn` |
 | Destructive command without magic | `0x03` | `slot.write_fn` |
 | Count = 0 or > max per PDU | `0x03` | First lines of read / write |
+| FC16 over more than one command register, or over one half of the time pair | `0x03` | Command-block rule (§6.4.2) |
+| FC06 to `CMD_SET_TIME_HI` or `_LO` | `0x03` | `write_cmd_set_time_single` |
+| `CMD_SET_TIME` outside 2000..2099, or refused by TimeProvider | `0x03` | `apply_cmd_set_time` (§8.5) |
 
 ---
 
@@ -591,9 +611,36 @@ The Modbus response to the FC06 write completes before LifecycleTask
 processes the restart event — the queue decouples the write handler
 from the reset execution.
 
+### 8.5 `CMD_SET_TIME_HI` / `CMD_SET_TIME_LO` (0x0210–0x0211, LLD-D16)
+
+The Gateway's TimeService pushes the UTC time after every NTP sync as **one FC16 of exactly two
+registers at 0x0210** (data-spec §6.5, TS-D14). The value is applied only when both words arrive in
+that request.
+
+```
+apply_cmd_set_time(hi, lo):
+    cmd_set_time_hi_last = hi;  cmd_set_time_lo_last = lo        /* read-after-write, as §8.1..8.3 */
+    epoch = (hi << 16) | lo
+    if epoch < 946684800 (2000-01-01) or epoch > 4102444799 (2099-12-31 23:59:59):
+        return ILLEGAL_DATA_VALUE
+    if time->set_time(epoch) != OK:                               /* delta check, RTC failure */
+        return ILLEGAL_DATA_VALUE
+    return NONE
+```
+
+`time->set_time` (TimeProvider) writes the RTC and marks the provider synchronised, which is what
+state-machines.md Machine 5 I5 asks for (`RtcDriver.set_time(); TimeProvider.mark_synced()`).
+
+**LLD-D16.** The range check lives here, at the bus boundary, because the RTC driver documents the
+years 2000..2099 but does not check them: `year - 2000` would wrap and program a wrong date.
+A refusal by TimeProvider (its one-day delta check once synchronised, TP-O3, or a failing RTC) is
+also `0x03`: the Field Device exception set has no "slave failure" code (data-spec §7). FC06 to
+either half, and every FC16 that is not exactly the two-register block, is `0x03` with nothing
+latched (§6.4.2). Reading either register returns the last block that arrived as a unit, 0 before any.
+
 ### 8.4 Read-after-write cells
 
-The three `cmd_*_last` fields in the MRM context are written **only**
+The five `cmd_*_last` fields in the MRM context are written **only**
 in `ModbusSlaveTask` context (the write paths above) and read **only**
 in the same task context (FC03 reads via `read_cmd_*`). Single-task
 access → no mutex required.
@@ -837,11 +884,19 @@ Unity host-side tests. All providers mocked. Test file:
 | TC-MRM-025 | FC04 with `count == 0` → `MB_EXC_ILLEGAL_DATA_VALUE` | Defensive count check |
 | TC-MRM-026 | FC04 with `count > MAX_REGS_PER_READ` → `MB_EXC_ILLEGAL_DATA_VALUE` | Defensive count check |
 | TC-MRM-027 | All vtable functions called with NULL `ctx` → `MB_EXC_ILLEGAL_DATA_VALUE` | Defensive NULL ctx |
+| TC-MRM-028 | FC16 of the two time registers at 0x0210 → `set_time` once, with `HI:LO` | CMD_SET_TIME applied (TS-O5) |
+| TC-MRM-029 | FC03 of 0x0210 x2 returns 0 before any write, then the last block | Read-after-write |
+| TC-MRM-030 | FC06 to 0x0210 / 0x0211, FC16 of one register → `0x03`, no `set_time`, nothing latched | One half is refused |
+| TC-MRM-031 | FC16 of three registers at 0x0210, two at 0x0211, three at 0x020F → `0x03` | Any other span is refused |
+| TC-MRM-032 | Epoch 0, 946 684 799, 4 102 444 800, 0xFFFFFFFF → `0x03`; 946 684 800 and 4 102 444 799 accepted | RTC range (LLD-D16) |
+| TC-MRM-033 | `set_time` returns an error → `0x03`; the same block again applies | Provider refusal, repeated write |
+| TC-MRM-034 | FC16 of two registers at 0x0200 → `0x03`, nothing executed; one register still works | Command-block rule (§6.4.2) |
 
 ### 15.1 Integration tests — on target
 
 | Test | Setup |
 |---|---|
+| CMD_SET_TIME (TS-O5) | `integration-tests/modbus_register_map`, Phase 5b: the real TimeProvider and RTC, the time block written through the vtable as the Gateway writes it; expected output in the harness header. Written and compiled for the Field Device; **not run on a board** |
 | End-to-end FC04 sensor read | Gateway polls; verify response matches `SensorService` latest |
 | End-to-end FC16 config write | Gateway writes a temperature threshold block; verify `ConfigStore` persists across reboot |
 | Soft-restart via Modbus | Gateway issues `CMD_SOFT_RESTART = 0xA5A5`; verify response is sent, then the FD reboots |
@@ -858,6 +913,7 @@ Unity host-side tests. All providers mocked. Test file:
 | MRM-O3 | Slave-address change effect timing. | Confirmed: `MODBUS_SLAVE_ADDR` write takes effect immediately; the response to the changeover FC06 goes out on the old address; the master retries on the new address. Rule frozen in §7.1. | Resolved |
 | MRM-O4 | Lookup-strategy revisit if slot table grows past ~120 entries (binary search becomes worthwhile). | Linear scan retained at this size; revisit at the integration-time measurement gate. | Open (deferred — measurement gate) |
 | MRM-O5 | FC16 maximum-block boundary handling at the Modbus PDU layer. | Enforced upstream by `ModbusSlave` frame-length check before reaching MRM; MRM also enforces a defensive `count > MAX_REGS_PER_WRITE → ILLEGAL_DATA_VALUE` check (TC-MRM-026 covers it). | Resolved |
+| MRM-O6 | `time_provider_set_time()` checks a range only through the RTC driver, which does not check one; the 2000..2099 range is enforced in the register map (LLD-D16). Candidates: the same check in TimeProvider, or in the RTC driver | Open. Not changed here: TimeProvider and the RTC driver are not part of this work package | Open |
 
 ---
 

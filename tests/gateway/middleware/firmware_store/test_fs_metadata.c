@@ -558,7 +558,7 @@ void test_TC_FS_073_confirm_settles_the_trial_and_erases_the_old_descriptor(void
     TEST_ASSERT_EQUAL_UINT8(FIRMWARE_BANK_B, r.active_bank);
     TEST_ASSERT_EQUAL_UINT8(FIRMWARE_BANK_A, r.previous_bank);
     TEST_ASSERT_EQUAL_UINT32(4U, r.generation);
-    TEST_ASSERT_EQUAL_UINT32(2U, r.rollback_count);
+    TEST_ASSERT_EQUAL_UINT32(0U, r.rollback_count); /* a confirmed image ends the run (BL-O2) */
 
     /* The superseded image can never be booted by the bootloader's fallback. */
     TEST_ASSERT_FALSE(desc_valid(FIRMWARE_SLOT_A));
@@ -647,7 +647,7 @@ void test_TC_FS_078_acknowledging_a_rollback_confirms_and_erases_the_failed_imag
 
     TEST_ASSERT_EQUAL_UINT8(FIRMWARE_META_STATE_CONFIRMED, r.boot_state);
     TEST_ASSERT_EQUAL_UINT8(FIRMWARE_BANK_A, r.active_bank);
-    TEST_ASSERT_EQUAL_UINT32(1U, r.rollback_count); /* the count is history, it stays */
+    TEST_ASSERT_EQUAL_UINT32(0U, r.rollback_count); /* acknowledged: the run of rollbacks ends */
 
     TEST_ASSERT_FALSE(desc_valid(FIRMWARE_SLOT_B));
     TEST_ASSERT_TRUE(desc_valid(FIRMWARE_SLOT_A));

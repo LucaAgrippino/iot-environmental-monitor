@@ -98,7 +98,8 @@ Argument checks run first and touch no register. The check order is: initialised
 It does not verify what it wrote (FirmwareStore reads back: FS-D9), does not decide what may be
 written (the running slot, the bootloader and the metadata are FirmwareStore's policy), has no
 mass erase, and cannot reach the option bytes, system memory or OTP: the accepted range is exactly
-the 1 MB main flash.
+the 1 MB main flash for reads, and main flash from `0x0800_4000` upward for erase and program: the
+bootloader (pages 0 to 7) is refused with `ERR_ADDR` (WP11 D-3, BL-D12).
 
 ---
 
@@ -232,6 +233,8 @@ Against `fake_flash_ctrl`, which models the controller and records every registe
 | TC-IFD-029 | Programming `0x00` bytes onto erased flash works | §3.3 |
 | TC-IFD-030 | The vtable `internal_flash_driver` points at the three operations | §2.2 |
 | TC-IFD-031 | `internal_flash_reset_for_test` returns the driver to un-initialised | §2.2 |
+| TC-IFD-032 | Erase and program refuse any address below `0x0800_4000` (the bootloader), including a write that straddles it: `ERR_ADDR`, nothing written | §2.5 |
+| TC-IFD-033 | The first page above the bootloader is accepted; reads are not restricted | §2.5 |
 
 ---
 

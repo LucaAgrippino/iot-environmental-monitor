@@ -494,6 +494,72 @@ void test_MQTT_T06_connect_tls_handshake_failure(void)
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_TLS_FAIL, mqtt_client_connect(handle, &cfg));
 }
 
+static const char *s_tls_server_name_seen;
+
+static int prv_capture_hostname(mbedtls_ssl_context *ssl, const char *hostname, int num_calls)
+{
+    (void) ssl;
+    (void) num_calls;
+    s_tls_server_name_seen = hostname;
+    return 0;
+}
+
+void test_MQTT_T06b_tls_server_name_defaults_to_the_endpoint(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    mbedtls_ssl_set_hostname_StubWithCallback(prv_capture_hostname);
+    prv_queue_connack(0u);
+    s_tls_server_name_seen = NULL;
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+    TEST_ASSERT_EQUAL_STRING("test.iot.example.com", s_tls_server_name_seen);
+}
+
+void test_MQTT_T06c_tls_server_name_is_checked_instead_of_the_connect_address(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    mbedtls_ssl_set_hostname_StubWithCallback(prv_capture_hostname);
+    prv_queue_connack(0u);
+    s_tls_server_name_seen = NULL;
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    cfg.broker_endpoint = "13.60.114.42"; /* what BootTask resolved */
+    cfg.tls_server_name = "xxxxx.iot.eu-north-1.amazonaws.com";
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+    TEST_ASSERT_EQUAL_STRING("xxxxx.iot.eu-north-1.amazonaws.com", s_tls_server_name_seen);
+}
+
+/* The TLS record is larger than one module send can carry (WP4 F-12): the BIO send hands over
+ * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The context
+ * is not built by a connect here: only its first fields (the WifiTask handle and the socket) are read,
+ * and the stub ignores both. */
+int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
+
+void test_MQTT_T06d_bio_send_is_capped_at_the_module_ceiling(void)
+{
+    static uint8_t ctx[256];
+    static unsigned char record[3000];
+
+    memset(ctx, 0, sizeof(ctx));
+    TEST_ASSERT_EQUAL_INT((int) WIFITASK_MAX_SEND_BYTES,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+    TEST_ASSERT_EQUAL_UINT32(1u, (uint32_t) s_send_call_count);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFITASK_MAX_SEND_BYTES, (uint32_t) s_send_total_bytes);
+}
+
+void test_MQTT_T06e_bio_send_below_the_ceiling_is_sent_whole(void)
+{
+    static uint8_t ctx[256];
+    static unsigned char record[300];
+
+    memset(ctx, 0, sizeof(ctx));
+    TEST_ASSERT_EQUAL_INT((int) sizeof(record), prv_mbedtls_net_send(ctx, record, sizeof(record)));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) sizeof(record), (uint32_t) s_send_total_bytes);
+}
+
 /* ========================================================================
  * MQTT-T07..T10 — mqtt_client_publish()
  * ==================================================================== */
