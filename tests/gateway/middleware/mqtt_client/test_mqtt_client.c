@@ -494,6 +494,44 @@ void test_MQTT_T06_connect_tls_handshake_failure(void)
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_TLS_FAIL, mqtt_client_connect(handle, &cfg));
 }
 
+static const char *s_tls_server_name_seen;
+
+static int prv_capture_hostname(mbedtls_ssl_context *ssl, const char *hostname, int num_calls)
+{
+    (void) ssl;
+    (void) num_calls;
+    s_tls_server_name_seen = hostname;
+    return 0;
+}
+
+void test_MQTT_T06b_tls_server_name_defaults_to_the_endpoint(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    mbedtls_ssl_set_hostname_StubWithCallback(prv_capture_hostname);
+    prv_queue_connack(0u);
+    s_tls_server_name_seen = NULL;
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+    TEST_ASSERT_EQUAL_STRING("test.iot.example.com", s_tls_server_name_seen);
+}
+
+void test_MQTT_T06c_tls_server_name_is_checked_instead_of_the_connect_address(void)
+{
+    mqtt_client_handle_t handle = prv_create_default();
+    prv_mock_tls_handshake(0);
+    mbedtls_ssl_set_hostname_StubWithCallback(prv_capture_hostname);
+    prv_queue_connack(0u);
+    s_tls_server_name_seen = NULL;
+
+    mqtt_connect_cfg_t cfg = prv_default_connect_cfg();
+    cfg.broker_endpoint = "13.60.114.42"; /* what BootTask resolved */
+    cfg.tls_server_name = "xxxxx.iot.eu-north-1.amazonaws.com";
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
+    TEST_ASSERT_EQUAL_STRING("xxxxx.iot.eu-north-1.amazonaws.com", s_tls_server_name_seen);
+}
+
 /* ========================================================================
  * MQTT-T07..T10 — mqtt_client_publish()
  * ==================================================================== */
