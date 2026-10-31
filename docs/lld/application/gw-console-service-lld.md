@@ -1434,7 +1434,13 @@ ST-Link VCP at 115200 8N1.
 | IT-GCS-017 | Console REPL: `prov commit` + 30 s timeout | Times out; pending discarded |
 | IT-GCS-018 | Console REPL: `selftest` | Per-subsystem results; overall pass/fail |
 | IT-GCS-019 | Console REPL: `profiles list` | Shows registered device profiles |
-| IT-GCS-020 | Console REPL: `profiles add addr=5 sensors=temp,hum` + `profiles list` | New profile appears |
+| IT-GCS-020 | Superseded by IT-GCS-030..035 (key=value syntax, WP8) | — |
+| IT-GCS-030 | `profiles list` shows the default profile (slave 1, map 1, vendor 0x1A45) | Listed |
+| IT-GCS-031 | `profiles add addr=5 map=1 vendor=0x1A45 desc=Boiler room` then `profiles list` | `[OK]`; slave 5 listed with its description (flash save, about 0.8 s) |
+| IT-GCS-032 | `profiles add addr=0 ...`; a line with more than 8 words | `[ERR]`; `too many words`, nothing truncated |
+| IT-GCS-033 | `profiles remove 5`, then again | `[OK]`; then `no profile for that slave address` |
+| IT-GCS-034 | Add slave 6, reboot, `profiles list` | Slave 6 and the default survived the reset |
+| IT-GCS-035 | `profiles remove 6` | Removed (restores the bench) |
 | IT-GCS-021 | Console REPL: `wifi status` | WiFi info matches reality |
 | IT-GCS-022 | Console REPL: `mqtt status` | MQTT info matches reality |
 | IT-GCS-023 | Console REPL: `modbus status` | Modbus master info matches reality |
