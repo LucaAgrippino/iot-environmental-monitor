@@ -24,21 +24,44 @@
 #include "config_params.h"
 #include "config_service_types.h"
 #include "config_store/config_store.h"
+#include "device_profile_registry/device_profile_registry.h"
 #include "iconfig_manager.h"
 #include "iconfig_provider.h"
 
 /** Version of the stored blob layout; a mismatch discards the stored configuration (CFG-D5). */
-#define CONFIG_SCHEMA_VERSION (1U)
+#define CONFIG_SCHEMA_VERSION (2U)
 
-/** @brief Stored form of the configuration: schema version followed by the parameters. */
+/** Schema 1 held the parameters only; it is still read, with an empty profile list (CFG-D17). */
+#define CONFIG_SCHEMA_VERSION_V1 (1U)
+
+/** @brief Stored device profiles (device-profile-registry-lld.md §5.1, D-2). */
+typedef struct
+{
+    uint8_t count;       /**< Profiles in use, 0..DEVICE_PROFILE_MAX. */
+    uint8_t reserved[3]; /**< Padding; zero. */
+    device_profile_t entries[DEVICE_PROFILE_MAX];
+} config_profiles_t;
+
+/** @brief Stored form of the configuration: schema version, the parameters, the profiles. */
 typedef struct
 {
     uint32_t schema_version;
     config_params_t params;
+    config_profiles_t profiles;
 } config_blob_t;
 
-_Static_assert(sizeof(config_blob_t) == (sizeof(uint32_t) + sizeof(config_params_t)),
+/** @brief Schema 1 stored form: kept to recognise and migrate an older blob. */
+typedef struct
+{
+    uint32_t schema_version;
+    config_params_t params;
+} config_blob_v1_t;
+
+_Static_assert(sizeof(config_blob_t) ==
+                   (sizeof(uint32_t) + sizeof(config_params_t) + sizeof(config_profiles_t)),
                "config blob has unexpected padding");
+_Static_assert(sizeof(config_blob_v1_t) == (sizeof(uint32_t) + sizeof(config_params_t)),
+               "config blob v1 has unexpected padding");
 _Static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
                "config blob exceeds ConfigStore capacity");
 
@@ -81,6 +104,33 @@ const iconfig_manager_t *config_service_get_manager(void);
  * @note Threading: task context; takes the mutex.
  */
 config_service_err_t config_service_apply_loaded(const void *blob, uint32_t len);
+
+/**
+ * @brief Copy the stored device profiles out (storage callback of DeviceProfileRegistry).
+ *
+ * @param[out] out        Receives up to @p max profiles.
+ * @param[in]  max        Capacity of @p out.
+ * @param[out] count_out  Receives the number copied.
+ * @return true if at least one profile is stored; false if none, on a NULL argument, or before
+ * init.
+ * @note Threading: any task.
+ */
+bool config_service_get_profiles(device_profile_t *out, uint8_t max, uint8_t *count_out);
+
+/**
+ * @brief Replace the stored device profiles and persist them (storage callback of
+ * DeviceProfileRegistry).
+ *
+ * The profiles are not validated here (the registry does that). On a failed save the previous
+ * profiles are kept and false is returned, so memory and flash agree. May block for the save
+ * (CFG-O7, about 0.8 s).
+ *
+ * @param[in] in     The new list.
+ * @param[in] count  Number of profiles, at most DEVICE_PROFILE_MAX.
+ * @return true if saved.
+ * @note Threading: any task except the one running the ConfigStore save.
+ */
+bool config_service_set_profiles(const device_profile_t *in, uint8_t count);
 
 /**
  * @brief Get the live configuration.
