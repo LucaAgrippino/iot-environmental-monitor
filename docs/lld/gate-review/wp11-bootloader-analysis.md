@@ -1,6 +1,6 @@
 # WP11 — Bootloader hardening: analysis (session 1)
 
-**Date:** 2026-10-31 · **Gate:** GATE-DESIGN — nothing here is implemented; each decision is Luca's.
+**Date:** 2026-10-31 · **Gate:** GATE-DESIGN. **Luca confirmed D-1 to D-5 as recommended on 2026-10-31**; section 8 records what was done.
 **Source:** `docs/lld/drivers/bootloader.md` v1.0 §9, `firmware/gateway/bootloader/`, FirmwareStore.
 **Rule kept throughout:** no read-out protection level 2 and no option-byte setting that cannot be
 undone is proposed. Option bytes are programmed by Luca only.
@@ -51,8 +51,8 @@ check adds no protection against them unless read-out and write protection are a
 a corrupt download, the CRC is sufficient.
 
 A signature check in the bootloader would also cost: the bootloader is 16 KB (0x08000000..0x08004000),
-signature code and a public key would have to fit in what is left of those 16 KB (current size not measured in
-this session), and 480 KB would be hashed a second time per boot.
+signature code and a public key would have to fit in what is left of those 16 KB (the image is 4.9 KB, see
+`module-implementation-status.md`), and 480 KB would be hashed a second time per boot.
 
 | Option | Cost |
 |---|---|
@@ -104,11 +104,11 @@ The budget is 500 ms and about 4 % of REQ-NF-203.
 | Option | Gain | Cost |
 |---|---|---|
 | **A. Leave it** | none | none |
-| B. Word-wise loop, slicing-by-4 table | Several times faster | About 4 KB of table in the 16 KB bootloader; its size has to be measured first |
+| B. Word-wise loop, slicing-by-4 table | Several times faster | About 4 KB of table in the 16 KB bootloader; the image is 4.9 KB of 16 KB today |
 | C. Hardware CRC peripheral | Fastest | Its polynomial 0x04C11DB7 with input/output reflection and final XOR matches the table CRC (0xEDB88320, init and final 0xFFFFFFFF), so images stay compatible, but the equivalence has to be proven on the board with the existing test images, and the peripheral clock enable and restore on hand-over must be added |
 
 **Recommendation: A.** The time is already within budget and a faster table costs bootloader space
-that was not measured here.
+(4.9 KB of 16 KB used).
 
 ## 6. Decisions for Luca
 
@@ -125,3 +125,17 @@ that was not measured here.
 D-1 B is a FirmwareStore change with host tests, then the LLD rows are closed. D-2 and D-4 A are LLD text.
 D-3 C is a small driver change plus tests. D-3 A is not mine to do: it needs your option-byte session and
 the three checks in section 4.
+
+## 8. Outcome (2026-10-31)
+
+| ID | Done |
+|---|---|
+| D-1 | `settle_confirmed` writes count 0 (so `confirm` and `acknowledge_rollback`, which share it, both clear it). Tests updated: TC-FS-073, -078, -088a, -088c; new test_BL028f. BL-D5 and BL-O2 rewritten |
+| D-2 | BL-D11 added, BL-O3 closed |
+| D-3 | Guard in `internal_flash_erase_page` and `internal_flash_program` (`INTERNAL_FLASH_WRITABLE_FROM_ADDR` = `0x0800_4000`); TC-IFD-032, -033; existing driver tests moved from page 5 to page 20. BL-D12 added. BL-O4 stays open for the bench option-byte step, Luca only |
+| D-4 | BL-O10 closed, nothing changed |
+| D-5 | BL-O9 was already closed in the LLD |
+
+One consequence to know: `acknowledge_rollback` clears the count too, because it settles through the same
+function. After a rolled-back update the count therefore returns to 0 as soon as the application on the old
+image acknowledges it, which is what the LLD row originally suggested.
