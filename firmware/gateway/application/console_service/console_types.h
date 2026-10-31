@@ -34,17 +34,6 @@ typedef enum
     CONSOLE_SERVICE_ERR_LINE_OVERFLOW = 7,
 } console_service_err_t;
 
-/**
- * @brief Read side of DeviceProfileRegistry (ISP split, LLD §20 P3).
- *
- * The registry has no add / remove on the Gateway yet, so there is no write-side interface.
- */
-typedef struct
-{
-    /* cppcheck-suppress unusedStructMember -- called by `profiles list` */
-    bool (*get_next)(const device_profile_t **profile, uint8_t *index);
-} idevice_profile_provider_t;
-
 /** @brief Everything ConsoleService reads from or writes to. All pointers must be non-NULL. */
 typedef struct
 {

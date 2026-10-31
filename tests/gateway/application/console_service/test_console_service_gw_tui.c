@@ -848,16 +848,18 @@ void test_answering_with_no_prompt_pending_does_nothing(void)
 void test_profiles_list_prints_each_registered_profile(void)
 {
     g_spy_profiles[0].slave_addr = 1U;
-    g_spy_profiles[0].input_reg_start = 0U;
-    g_spy_profiles[0].input_reg_count = 10U;
+    g_spy_profiles[0].map_version = 1U;
+    g_spy_profiles[0].vendor_code = 0x1A45U;
+    (void) strcpy(g_spy_profiles[0].description, "Field Device 1");
     g_spy_profiles[1].slave_addr = 5U;
-    g_spy_profiles[1].input_reg_start = 100U;
-    g_spy_profiles[1].input_reg_count = 4U;
+    g_spy_profiles[1].map_version = 2U;
+    g_spy_profiles[1].vendor_code = 0x0042U;
+    (void) strcpy(g_spy_profiles[1].description, "Spare");
     g_spy_profile_count = 2U;
 
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("profiles list"));
-    TEST_ASSERT_TRUE(has_line("slave   1   input regs 0..9"));
-    TEST_ASSERT_TRUE(has_line("slave   5   input regs 100..103"));
+    TEST_ASSERT_TRUE(has_line("slave   1   map 1   vendor 0x1A45   Field Device 1"));
+    TEST_ASSERT_TRUE(has_line("slave   5   map 2   vendor 0x0042   Spare"));
 }
 
 /* TC-GCS-181 */
@@ -870,7 +872,8 @@ void test_profiles_list_when_empty(void)
 /* TC-GCS-182, 183 */
 void test_profiles_add_validates_then_reports_not_available(void)
 {
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("profiles add addr=5 sensors=temp,hum"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                      run("profiles add addr=5 sensors=temp,hum"));
     TEST_ASSERT_TRUE(has_line("DeviceProfileRegistry is read-only"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add sensors=temp"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=0"));
@@ -902,10 +905,12 @@ void test_reboot_only_raises_a_request_flag(void)
 /* TC-GCS-190: every command leaves the scrollback ending in output, never half-written */
 void test_every_table_command_runs_without_crashing_on_a_healthy_system(void)
 {
-    static const char *const lines[] = {"help", "version", "serial", "sensors", "read t", "status",
-                                        "alarms", "thresholds", "uptime", "selftest", "selftest-result",
-                                        "config list", "profiles list", "wifi status", "mqtt status",
-                                        "modbus status", "net", "config discard", "prov discard"};
+    static const char *const lines[] = {
+        "help",          "version",        "serial",          "sensors",
+        "read t",        "status",         "alarms",          "thresholds",
+        "uptime",        "selftest",       "selftest-result", "config list",
+        "profiles list", "wifi status",    "mqtt status",     "modbus status",
+        "net",           "config discard", "prov discard"};
 
     for (uint32_t i = 0U; i < (sizeof(lines) / sizeof(lines[0])); i++)
     {
@@ -1178,14 +1183,17 @@ void test_menu_goes_out_first_and_the_panel_is_skipped_when_another_key_is_alrea
     const size_t mark = g_spy_tx_len;
 
     s_inject_calls = 0U;
-    g_spy_send_hook = inject_arrow_down_once; /* a second arrow arrives while the menu is being sent */
+    g_spy_send_hook =
+        inject_arrow_down_once; /* a second arrow arrives while the menu is being sent */
     type("\x1b[B");
     g_spy_send_hook = NULL;
 
-    TEST_ASSERT_FALSE(sent_since(mark, "SYSTEM STATUS")); /* the intermediate panel was never sent */
+    TEST_ASSERT_FALSE(
+        sent_since(mark, "SYSTEM STATUS"));              /* the intermediate panel was never sent */
     TEST_ASSERT_TRUE(sent_since(mark, "System status")); /* but the menu highlight moved */
 
-    (void) console_service_cycle_for_test(0U); /* the waiting key is handled, nothing is waiting now */
+    (void) console_service_cycle_for_test(
+        0U); /* the waiting key is handled, nothing is waiting now */
     TEST_ASSERT_TRUE(sent_since(mark, "ACTIVE ALARMS"));
     TEST_ASSERT_FALSE(sent_since(mark, "SYSTEM STATUS"));
 }
@@ -1236,7 +1244,7 @@ void test_reboot_tears_the_screen_down_then_resets(void)
 void test_firmware_panel_reboots_only_after_the_user_confirms(void)
 {
     start();
-    type("7\r");  /* firmware panel, cursor on "Check for update" */
+    type("7\r");    /* firmware panel, cursor on "Check for update" */
     type("\x1b[B"); /* cursor on "Reboot gateway" */
     const size_t mark = g_spy_tx_len;
 

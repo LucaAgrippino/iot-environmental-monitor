@@ -20,6 +20,7 @@
     - -:gateway/application/alarm_service/**
     - -:gateway/application/cloud_publisher/**
     - -:gateway/application/time_service/**
+    - -:gateway/application/device_profile_registry/**
     - -:gateway/application/config_service/**
     - -:gateway/application/console_service/**
     - -:gateway/application/lifecycle_controller/**
