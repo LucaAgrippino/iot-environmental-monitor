@@ -51,8 +51,25 @@ scripts/ota_server.py --host <broker> --device-id <24 hex chars> \
 
 `--job` must be unique per update; sending the same job again resumes an interrupted download
 (US-D14). `--silent-at`, `--drop-requests` and `--corrupt-body` bend the server for the failure
-cases; `--selftest` checks the framing without a broker. For the debug-UART bench harness use
+cases; `--selftest` checks the framing without a broker. At the end it prints the download rate
+(`served N chunks ... KiB/s, ms per chunk`), the figure US-O1 asks for. It needs the `paho-mqtt` package. For the debug-UART bench harness use
 `scripts/ota_uart_server.py` instead.
+
+## Building a release (both slots)
+
+`scripts/build-release.sh --version X.Y.Z --private KEY.pem --out DIR` links the production Gateway image for
+Slot A and Slot B, signs both, and writes the Slot-A descriptor. It refuses to build when
+`firmware_store/ota_public_key.c` is not the public half of `KEY.pem`. With `--fail-selfcheck` the image's
+self-check cannot pass (TC-SYS-OTA-002). `--flash-only --out DIR [--bootloader bootloader.elf]` provisions a board
+from an existing release. The full bench procedure is `docs/lld/application/update-service-lld.md` section 23.3.
+
+## Bench broker with the access list
+
+`scripts/make-operator-cert.sh` creates the operator certificate (common name `ota-operator`) with the bring-up CA,
+and `DETACH=1 scripts/start-mosquitto-ota.sh` starts Mosquitto with `tools/ota/mosquitto/mosquitto_ota.conf` and
+`acl.conf` (the rules of the next section). Checked with Mosquitto's own clients: a command from the operator
+reaches the device, the same command from the device's own certificate is dropped (`Denied PUBLISH`), and a
+device can publish only under its own `dt/iotmonitor/<id>/` prefix.
 
 ## Who may publish (REQ-DM-056, US-O5)
 
