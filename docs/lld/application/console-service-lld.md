@@ -785,10 +785,10 @@ Earlier IDs (CS-O1..CS-O3) assigned in passes A–G.
 
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
-| **CS-O4** | GW `components.md` entry omits `IConfigManager` | Follow-up PR to correct `components.md` alongside this companion | Open |
+| **CS-O4** | GW `components.md` entry omits `IConfigManager` | **Closed 2026-10-31 (WP12)**, see `gw-console-service-lld.md` CS-O4 / CS-O9 | Closed |
 | **CS-O5** | Self-test depth: driver-level loopback and destructive flash verify not implementable without adding driver interfaces to `ConsoleService` | Evaluate at integration whether the current depth is acceptable for REQ-LI-130 | Open |
 | **CS-O6** | Certificate provisioning (REQ-LI-060): certificates may be hundreds of bytes; `prov set mqtt-cert` workflow needs a multi-line paste mode | Define `prov cert-begin` / `prov cert-end` UX at implementation time | Open |
-| **CS-O7** | Confirm-prompt blocking read timeout (30 s, matching LC-O4) | `IDebugUart` must expose a timed read, or `ConsoleTask` uses a FreeRTOS timer — confirm mechanism at implementation | Open |
+| **CS-O7** | Confirm-prompt blocking read timeout (30 s, matching LC-O4) | `IDebugUart` must expose a timed read, or `ConsoleTask` uses a FreeRTOS timer — confirm mechanism at implementation. **Gateway: closed** (data-tick counter, 30 ticks at 1 Hz, `gw-console-service-lld.md` CS-O7); Field Device: still to confirm | Open (FD) |
 | **CS-O8** | GW `profiles add` command input format: key=value pairs vs JSON snippet | Recommendation: key=value for CLI simplicity; confirm before implementing | Open |
 
 ---

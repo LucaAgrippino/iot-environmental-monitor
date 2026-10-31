@@ -631,7 +631,7 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **LAYER:** Application
 **RESPONSIBILITY:** Provides a local console for provisioning and diagnostic, exposing sensor, configuration, and health data through CLI commands.
 **PROVIDES (upward):** *(none — top of the stack)*
-**USES (downward):** DebugUartDriver, ISensorService, IConfigProvider, DeviceProfileRegistry, IHealthSnapshot, Logger
+**USES (downward):** DebugUartDriver, ISensorService, IAlarmService, IConfigProvider, IConfigManager, IHealthSnapshot, IDeviceProfileProvider, IDeviceProfileManager, Logger
 
 **NAME:** ModbusPoller
 **LAYER:** Application
