@@ -76,10 +76,15 @@ tree during the post-GUI clean restart; the full snapshot is preserved at tag
 ├── docs/                   Design documents (SRS, HLD, LLD, coding standard)
 ├── firmware/
 │   ├── field-device/       STM32F469 Discovery firmware
-│   ├── gateway/            B-L475E-IOT01A firmware
+│   ├── gateway/            B-L475E-IOT01A firmware (application, bootloader, boot stub)
 │   └── shared/             Code shared between both targets
-├── tests/                  Unit and integration tests (Ceedling / Unity / CMock)
-├── tools/                  Developer scripts (traceability checker, etc.)
+├── tests/                  Unit tests (Ceedling / Unity / CMock), one project per board
+├── scripts/                Build, test and bench scripts (module checks, bootloader and
+│                           Slot-A images, local TLS broker, version header)
+├── tools/                  Developer tools (traceability checker, console simulator, OTA helpers)
+├── vendor/                 Git submodules: FreeRTOS-Kernel, coreMQTT, mbedTLS
+├── local-test/             Local Mosquitto broker configuration for bring-up
+├── simulator/, spikes/     LCD UI simulator; one-off hardware experiments
 ├── design/                 Visual Paradigm UML models
 └── .github/workflows/      CI/CD
 ```
@@ -88,13 +93,38 @@ tree during the post-GUI clean restart; the full snapshot is preserved at tag
 
 | Tool | Version |
 |------|---------|
-| STM32CubeIDE | 2.1.1 |
+| STM32CubeIDE | 2.2.0 |
 | Host OS | Ubuntu 24.04 |
+| Ceedling (Unity, CMock) | 0.31.1, on Ruby 3.x |
+| clang-format | 17 |
+| cppcheck | 2.x |
+| Python | 3 (version header, scripts) |
+
+Clone with `git clone --recurse-submodules`: the vendored libraries are submodules.
 
 ## Build Instructions
 
-Host unit tests: run `ceedling test:all` from `tests/`. Firmware images for both
-targets are built with STM32CubeIDE (headless builds are used in CI).
+**Host unit tests.** The firmware version header is generated first (CI does the same):
+
+```bash
+python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
+cd tests
+ceedling test:all                                                  # Field Device and shared tests
+CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml ceedling test:all   # Gateway tests
+```
+
+The two Ceedling projects are separate because a Gateway module and a Field Device module can
+share a file name. One module, with static analysis and formatting, from the repository root:
+
+```bash
+scripts/test-module.sh -m gw-<module>      # Ceedling + cppcheck + clang-format-17 (add -f to fix)
+scripts/test-module.sh -m fd-<module>
+```
+
+**Firmware images.** Both targets are built with STM32CubeIDE (headless builds are used in CI).
+The Gateway bootloader and the Slot-A image have their own scripts, `scripts/build-bootloader.sh`
+and `scripts/build-slot-a.sh`. Flashing and bench procedures for each module are in the header
+of its bring-up harness under `firmware/*/integration-tests/`.
 
 ## Development Methodology
 

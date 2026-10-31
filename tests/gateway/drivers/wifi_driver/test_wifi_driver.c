@@ -41,7 +41,7 @@
 /* ====================================================================== */
 
 /* Generous headroom: WIFI-T17 alone opens 4 sockets x 5 IWIN commands each. */
-#define MAX_SCRIPTED_LEVELS 512u
+#define MAX_SCRIPTED_LEVELS 4096u
 #define MAX_SCRIPTED_WORDS 256u
 #define MAX_CAPTURED_BYTES 512u
 #define MAX_CAPTURED_WRITES 256u
@@ -358,6 +358,73 @@ void test_WIFI_T04b_parse_rssi_with_leading_crlf(void)
     TEST_ASSERT_EQUAL_INT8(-67, rssi);
 }
 
+void test_WIFI_T24_parse_ipv4(void)
+{
+    const char *resp = "\r\n51.21.11.97\r\nOK\r\n";
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, prv_parse_ipv4(resp, strlen(resp), ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL_STRING("51.21.11.97", ip);
+}
+
+void test_WIFI_T24b_parse_ipv4_rejects_text_and_overlong(void)
+{
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    const char *text = "\r\nERROR\r\n";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_ipv4(text, strlen(text), ip, sizeof(ip)));
+
+    const char *empty = "\r\n\r\nOK\r\n";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_ipv4(empty, strlen(empty), ip, sizeof(ip)));
+
+    const char *overlong = "\r\n123.123.123.123.123\r\nOK\r\n";
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, prv_parse_ipv4(overlong, strlen(overlong), ip, sizeof(ip)));
+}
+
+void test_WIFI_T25_resolve_returns_the_module_address(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+
+    helper_script_at_command("\r\n13.60.114.42\r\nOK\r\n"); /* D0 */
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_resolve(handle, "example.test", ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL_STRING("13.60.114.42", ip);
+}
+
+void test_WIFI_T25b_resolve_module_error(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+
+    helper_script_at_command("\r\nERROR\r\n"); /* D0, unknown name */
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+    TEST_ASSERT_EQUAL(WIFI_ERR_MODULE, wifi_resolve(handle, "no-such.invalid", ip, sizeof(ip)));
+}
+
+void test_WIFI_T25c_resolve_guards(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_resolve(NULL, "h", ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_resolve(handle, NULL, ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_resolve(handle, "h", NULL, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFI_ERR_INVALID_ARG, wifi_resolve(handle, "h", ip, WIFI_IPV4_STR_LEN - 1u));
+    /* Link down: bails out before touching SPI. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_NOT_CONNECTED, wifi_resolve(handle, "h", ip, sizeof(ip)));
+}
+
 void test_WIFI_T05_firmware_version_match(void)
 {
     const char *resp = "C3.5.2.3.BETA9\r\nOK\r\n";
@@ -496,6 +563,124 @@ void test_WIFI_T15_drdy_timeout(void)
     TEST_ASSERT_EQUAL(GPIO_LEVEL_HIGH, last_write_level(NSS_PORT, NSS_PIN));
 }
 
+static wifi_handle_t helper_create_connected(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+    return handle;
+}
+
+/* WIFI-O19 / GM-O22: a module that takes longer than the old 100 ms to accept the next command
+ * (seen right after a send on the board) is waited for, not reported as a failure. 1500 polls of
+ * 100 us are 150 ms. */
+void test_WIFI_T15b_a_slow_module_still_gets_the_command(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_LOW, 1500u);
+    helper_script_at_command("\r\n-67\r\nOK\r\n");
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
+    TEST_ASSERT_EQUAL_INT8(-67, rssi);
+}
+
+/* WIFI-O19: a module that does not accept the command at all is still given up on (1 s). */
+void test_WIFI_T15c_a_module_that_never_gets_ready_times_out(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_LOW, 3000u); /* 300 ms, then the stub falls back to LOW for ever */
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_get_rssi(handle, &rssi));
+}
+
+/* GM-O22: wifi_send() reports a timeout as a timeout and a refusal as a socket error. */
+void test_WIFI_T15d_send_reports_a_timeout_as_a_timeout(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    /* Nothing scripted: the P0 that selects the socket never gets a Command Phase. */
+    const uint8_t payload[] = {0x01u, 0x02u};
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_send(handle, sock, payload, sizeof(payload)));
+}
+
+/* GM-O22: the module can be asked whether it answers. */
+void test_WIFI_T26_ping_reports_an_answering_module(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_ping(handle));
+    TEST_ASSERT_TRUE(helper_tx_contains("I?"));
+}
+
+void test_WIFI_T26b_ping_reports_a_wedged_module_as_a_timeout(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    /* Nothing scripted: the module never gives a Command Phase. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_ping(handle));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_ping(NULL));
+}
+
+/* GM-O22: a reset brings the module back to a fresh boot state: link down, sockets gone. */
+void test_WIFI_T27_reset_module_boots_it_again_and_forgets_the_link_and_sockets(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    helper_script_boot_cursor();
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u);
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_reset_module(handle));
+
+    wifi_link_state_t state = WIFI_LINK_UP;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_link_state(handle, &state));
+    TEST_ASSERT_EQUAL(WIFI_LINK_DOWN, state);
+    const uint8_t payload[] = {0x01u};
+    TEST_ASSERT_EQUAL(WIFI_ERR_NOT_CONNECTED, wifi_send(handle, sock, payload, sizeof(payload)));
+}
+
+void test_WIFI_T27b_a_reset_that_fails_leaves_the_driver_not_ready(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    /* Nothing scripted: no boot cursor, the module is dead. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_reset_module(handle));
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_NOT_INIT, wifi_get_rssi(handle, &rssi));
+
+    /* A later reset that works brings it back. */
+    helper_script_boot_cursor();
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u);
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_reset_module(handle));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_reset_module(NULL));
+}
+
 void test_WIFI_T16_nss_deasserted_on_spi_error(void)
 {
     wifi_handle_t handle = helper_create_ready();
@@ -584,8 +769,8 @@ void test_WIFI_T23_close_socket_frees_slot_even_when_stop_client_fails(void)
      * command errors. wifi_close_socket() must still free the local slot so
      * a reconnect can reopen it — the previous code leaked it, wedging every
      * subsequent open with WIFI_ERR_SOCKET. */
-    helper_script_at_command("\r\nOK\r\n");            /* P0= (select) */
-    helper_script_at_command("\r\nERROR: dead\r\n");   /* P6=0 fails */
+    helper_script_at_command("\r\nOK\r\n");          /* P0= (select) */
+    helper_script_at_command("\r\nERROR: dead\r\n"); /* P6=0 fails */
     TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET, wifi_close_socket(handle, sock));
 
     /* Slot must be reusable despite the failed stop-client. */

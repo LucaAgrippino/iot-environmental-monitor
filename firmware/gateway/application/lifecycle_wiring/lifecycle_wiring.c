@@ -17,6 +17,7 @@
 #include "event_groups.h"
 #endif /* TEST */
 
+#include "device_profile_registry/device_profile_registry.h"
 #include "lifecycle_wiring_internal.h"
 
 #ifdef TEST
@@ -234,12 +235,21 @@ static const lc_cloud_if_t k_cloud = {
 /* IModbusPoller / ITimeService                                             */
 /* ======================================================================= */
 
+/* The registry keeps its profiles in ConfigService's blob (device-profile-registry-lld.md §5.1). */
+static const device_profile_storage_t k_profile_storage = {.load = config_service_get_profiles,
+                                                           .save = config_service_set_profiles};
+
 static lc_dep_status_t poller_init(void *ctx)
 {
     (void) ctx;
     const config_params_t *params = config_service_get_params();
 
     if (params == NULL)
+    {
+        return LC_DEP_FAIL;
+    }
+    if ((device_profile_registry_init(&k_profile_storage) != DEVICE_PROFILE_REGISTRY_OK) ||
+        (device_profile_registry_load() != DEVICE_PROFILE_REGISTRY_OK))
     {
         return LC_DEP_FAIL;
     }

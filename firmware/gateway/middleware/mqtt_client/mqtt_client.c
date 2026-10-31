@@ -181,7 +181,16 @@ struct mqtt_client_inst
     MQTTSubAckStatus_t suback_status;
 };
 
-static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
+/* The instance pool (6 312 bytes: TLS contexts, the 4 096-byte packet buffer, coreMQTT state) lives
+ * in SRAM2, zeroed by the startup code with the rest of .bss.sram2 (WP4, gateway-main.md D-1 option
+ * F): the main 96 KB bank overflows by 5 744 bytes without it. Nothing here is touched by DMA or an
+ * ISR. */
+#ifdef TEST
+#define MQTT_CLIENT_POOL_RAM /* host builds: ordinary static storage */
+#else
+#define MQTT_CLIENT_POOL_RAM __attribute__((section(".bss.sram2")))
+#endif
+MQTT_CLIENT_POOL_RAM static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
 static uint8_t g_count;
 
 /* ========================================================================
@@ -291,6 +300,16 @@ MQTT_CLIENT_TEST_VISIBLE int prv_entropy_poll(void *data, unsigned char *output,
 MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 {
     NetworkContext_t *net_ctx = (NetworkContext_t *) ctx;
+
+    /* One module send carries at most WIFITASK_MAX_SEND_BYTES, but an mbedTLS record can be larger
+     * (up to the output buffer plus 29 bytes of framing and tag): a bigger buffer was rejected with
+     * WIFI_ERR_INVALID_ARG, the record stayed pending inside mbedTLS and every later write failed
+     * with it (WP4 finding F-12). mbedTLS accepts a short BIO write and sends the rest on the next
+     * call, so send what fits and report that. */
+    if (len > WIFITASK_MAX_SEND_BYTES)
+    {
+        len = WIFITASK_MAX_SEND_BYTES;
+    }
 
     wifitask_err_t err = wifitask_send(net_ctx->wifi, net_ctx->socket, buf, len);
     if (err == WIFITASK_ERR_OK)
@@ -412,7 +431,7 @@ static int32_t prv_transport_recv(NetworkContext_t *net_ctx, void *buf, size_t l
         return (int32_t) out_len;
     }
     /* This must stay the raw WifiDriver WIFI_ERR_TIMEOUT (4), not
-     * WIFITASK_ERR_TIMEOUT (3, a different condition) — see wifi-task.md
+     * WIFITASK_ERR_TIMEOUT (0x103, a different condition) — see wifi-task.md
      * §10 WIFITASK-O3. TEST-only: this path still uses the blocking
      * wifitask_recv(); the production recv (prv_mbedtls_net_recv() above)
      * moved to wifitask_try_recv()'s poll-enum contract under
@@ -560,7 +579,9 @@ static mqtt_client_err_t prv_tls_setup(struct mqtt_client_inst *inst, const mqtt
     {
         return MQTT_CLIENT_ERR_TLS_FAIL;
     }
-    if (mbedtls_ssl_set_hostname(&net_ctx->ssl, cfg->broker_endpoint) != 0)
+    const char *server_name =
+        (cfg->tls_server_name != NULL) ? cfg->tls_server_name : cfg->broker_endpoint;
+    if (mbedtls_ssl_set_hostname(&net_ctx->ssl, server_name) != 0)
     {
         return MQTT_CLIENT_ERR_TLS_FAIL;
     }
@@ -634,6 +655,30 @@ static void prv_teardown_connection(struct mqtt_client_inst *inst)
     prv_tls_close(inst);
     (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
     inst->connected = false;
+}
+
+/**
+ * @brief Drop the session after a send failed on an established connection (GM-O21).
+ *
+ * coreMQTT writes a packet in pieces (header, then payload). When a later piece fails, the earlier
+ * ones are already inside a TLS record that goes out on the next write, so the stream carries a
+ * truncated MQTT packet and the next packet follows it: the broker answers "RESERVED packet" or
+ * "malformed packet" and drops the connection, minutes after the failure that caused it. The only
+ * safe recovery is a fresh session, so tear down here exactly as mqtt_client_process() does for
+ * MQTTSendFailed, and let the owner reconnect.
+ */
+static void prv_drop_after_send_failure(struct mqtt_client_inst *inst, MQTTStatus_t status)
+{
+    if (status != MQTTSendFailed)
+    {
+        return;
+    }
+    LOG_WARN(MQTT_CLIENT_LOG_MODULE, "Send failed, dropping the session");
+    prv_teardown_connection(inst);
+    if (inst->disconnect_cb != NULL)
+    {
+        inst->disconnect_cb();
+    }
 }
 
 /* ========================================================================
@@ -915,9 +960,11 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
      * returns PUBLISH_FAIL here, so CloudPublisher routes it to SAF; only a
      * PUBACK lost on a still-live connection goes untracked, an inherent
      * QoS1/clean-session tail bounded by the keep-alive. */
-    if (MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id) != MQTTSuccess)
+    const MQTTStatus_t publish_status = MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id);
+    if (publish_status != MQTTSuccess)
     {
         handle->stats.publish_failures++;
+        prv_drop_after_send_failure(handle, publish_status);
         return MQTT_CLIENT_ERR_PUBLISH_FAIL;
     }
     handle->stats.publishes_sent++;
@@ -944,9 +991,12 @@ mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char 
     uint16_t packet_id = MQTT_GetPacketId(&handle->mqtt_ctx);
     handle->suback_received = false;
 
-    if (MQTT_Subscribe(&handle->mqtt_ctx, &sub_info, 1u, packet_id) != MQTTSuccess)
+    const MQTTStatus_t subscribe_status =
+        MQTT_Subscribe(&handle->mqtt_ctx, &sub_info, 1u, packet_id);
+    if (subscribe_status != MQTTSuccess)
     {
         handle->stats.subscribe_failures++;
+        prv_drop_after_send_failure(handle, subscribe_status);
         return MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
     }
 
@@ -1035,5 +1085,10 @@ void mqtt_client_reset_for_test(void)
 {
     (void) memset(g_pool, 0, sizeof(g_pool));
     g_count = 0u;
+}
+
+void *mqtt_client_net_ctx_for_test(mqtt_client_handle_t handle)
+{
+    return &handle->net_ctx;
 }
 #endif
