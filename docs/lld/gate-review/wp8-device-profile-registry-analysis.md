@@ -1,6 +1,6 @@
 # WP8 — DeviceProfileRegistry: LLD against the as-built (session 1)
 
-**Date:** 2026-10-31 · **Gate:** GATE-DESIGN. Analysis only; session 2 (implementation) waits for your answers and Pass H.
+**Date:** 2026-10-31 · **Gate:** GATE-DESIGN. **Luca accepted all recommendations D-1 to D-8 on 2026-10-31** (section 7).
 **Compared:** `device-profile-registry-lld.md` v0.1 (Draft, May 2026) with the placeholder
 (`firmware/gateway/application/device_profile_registry/`), ModbusPoller, ConfigStore, ConfigService,
 ConsoleService, the SRS (REQ-MB-110/-111/-120/-130, REQ-DM-100/-101) and the Field Device register map.
@@ -97,3 +97,19 @@ Dependencies: the Field Device already answers 0x0000 and 0x0001, so no Field De
 - That the Field Device returns a stable `device_class` value (read the register map LLD for the number before D-4).
 - The exact ConfigService save path timing with a larger blob (CFG-O7 is 774 ms today).
 - Whether `link_rejected` fits the existing `HEALTH_EVENT_MODBUS_LINK_*` events or needs a new one.
+
+## 7. Decisions taken (2026-10-31)
+
+| ID | Decision |
+|---|---|
+| D-1 | Version key plus a built-in table in ModbusPoller (span, decode) |
+| D-2 | Profiles inside the ConfigService blob, `CONFIG_SCHEMA_VERSION` 2 with migration of schema 1 |
+| D-3 | A failed persist rolls the in-memory change back and returns `ERR_PERSIST` |
+| D-4 | Identity = device class and a supported map version; the profile gains a class byte |
+| D-5 | New `modbus_poller_reprobe(addr)` |
+| D-6 | Default profile seeded when the store has none; persisted only after the first change |
+| D-7 | Mismatch gives `link_rejected`, re-checked at the link-retry interval, logged once per transition |
+| D-8 | One singleton provider vtable (`get_next`, `get_by_addr`, `is_registered`) and one manager vtable |
+
+Work order (separate PRs): LLD v0.2; the registry module; ConfigService schema 2; ModbusPoller (identity,
+`link_rejected`, reprobe, map table); ConsoleService `profiles add/remove`; harness.
