@@ -530,6 +530,8 @@ void test_MQTT_T06c_tls_server_name_is_checked_instead_of_the_connect_address(vo
     cfg.tls_server_name = "xxxxx.iot.eu-north-1.amazonaws.com";
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
     TEST_ASSERT_EQUAL_STRING("xxxxx.iot.eu-north-1.amazonaws.com", s_tls_server_name_seen);
+}
+
 /* The TLS record is larger than one module send can carry (WP4 F-12): the BIO send hands over
  * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The context
  * is not built by a connect here: only its first fields (the WifiTask handle and the socket) are read,
