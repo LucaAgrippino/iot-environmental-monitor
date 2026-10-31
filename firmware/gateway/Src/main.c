@@ -206,7 +206,13 @@ static bool probe_sensors(void *ctx)
 static bool probe_modbus(void *ctx)
 {
     (void) ctx;
+#if defined(GATEWAY_FORCE_SELF_CHECK_FAIL) && (GATEWAY_FORCE_SELF_CHECK_FAIL != 0)
+    /* TC-SYS-OTA-002: an image whose self-check cannot pass, to see the rollback. Build only with
+     * scripts/build-release.sh --fail-selfcheck; never part of a normal image. */
+    return false;
+#else
     return modbus_poller_is_ready();
+#endif
 }
 
 static const us_probe_if_t k_probes = {
