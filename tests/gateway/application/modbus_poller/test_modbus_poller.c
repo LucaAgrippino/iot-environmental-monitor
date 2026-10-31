@@ -107,13 +107,13 @@ modbus_master_err_t modbus_master_get_stats(modbus_master_stats_t *stats_out)
 static device_profile_t s_profiles[MAX_PROFILES];
 static uint8_t s_profile_count;
 
-bool device_profile_get_next(const device_profile_t **profile, uint8_t *index)
+bool device_profile_get_next(device_profile_t *profile, uint8_t *index)
 {
     if (*index >= s_profile_count)
     {
         return false;
     }
-    *profile = &s_profiles[*index];
+    *profile = s_profiles[*index];
     (*index)++;
     return true;
 }
@@ -197,8 +197,8 @@ void setUp(void)
     s_update_handle = NULL;
     (void) memset(&s_update_stats, 0, sizeof(s_update_stats));
 
-    s_profiles[0] = (device_profile_t){
-        .slave_addr = SLAVE_A, .input_reg_start = 0x0010U, .input_reg_count = 3U};
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
     s_profile_count = 1U;
 }
 
@@ -484,7 +484,7 @@ void test_TC_MP_022_poll_request_is_fc04_over_the_profile_span(void)
 void test_TC_MP_023_two_slaves_keep_independent_link_state(void)
 {
     s_profiles[1] =
-        (device_profile_t){.slave_addr = SLAVE_B, .input_reg_start = 0U, .input_reg_count = 1U};
+        (device_profile_t){.slave_addr = SLAVE_B, .map_version = 1U, .vendor_code = 0x1A45U};
     s_profile_count = 2U;
     init_ok();
 
@@ -510,7 +510,7 @@ void test_TC_MP_024_slave_beyond_table_size_is_skipped(void)
     for (uint8_t i = 0U; i < MAX_PROFILES; i++)
     {
         s_profiles[i] = (device_profile_t){
-            .slave_addr = (uint8_t) (i + 1U), .input_reg_start = 0U, .input_reg_count = 1U};
+            .slave_addr = (uint8_t) (i + 1U), .map_version = 1U, .vendor_code = 0x1A45U};
     }
     s_profile_count = 5U; /* table holds 4 */
     init_ok();
@@ -900,24 +900,23 @@ void test_TC_MBP_FD_03_wrong_length_leaves_the_cache_unchanged(void)
     TEST_ASSERT_EQUAL_UINT16(10132U, r.pressure_deci_hpa);
 }
 
-void test_TC_MBP_FD_04_a_span_without_pressure_leaves_it_invalid(void)
+void test_TC_MBP_FD_04_a_map_version_the_poller_does_not_know_is_not_polled(void)
 {
     modbus_fd_reading_t r;
 
     init_ok();
-    s_profiles[0].input_reg_count = 2U; /* 0x0010 and 0x0011 only */
+    s_profiles[0].map_version = 99U;
     s_steps[0] = (step_t){.result = MODBUS_MASTER_ERR_OK,
-                          .payload = {4U, 0x08U, 0xFCU, 0x11U, 0xC6U},
-                          .payload_len = 5U};
+                          .payload = {6U, 0x08U, 0xFCU, 0x11U, 0xC6U, 0x27U, 0x9CU},
+                          .payload_len = 7U};
     s_step_count = 1U;
     modbus_poller_cycle_for_test();
 
+    TEST_ASSERT_EQUAL_UINT32(0U, s_transact_calls);
     TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
-    TEST_ASSERT_TRUE(r.temperature_valid);
-    TEST_ASSERT_TRUE(r.humidity_valid);
+    TEST_ASSERT_FALSE(r.temperature_valid);
+    TEST_ASSERT_FALSE(r.humidity_valid);
     TEST_ASSERT_FALSE(r.pressure_valid);
-    TEST_ASSERT_EQUAL_INT16(2300, r.temperature_centi_c);
-    TEST_ASSERT_EQUAL_UINT16(4550U, r.humidity_centi_pct);
 }
 
 void test_TC_MBP_FD_05_never_polled_returns_ok_with_no_data(void)

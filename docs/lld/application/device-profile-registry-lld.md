@@ -100,7 +100,7 @@ typedef enum
 
 typedef struct
 {
-    bool (*get_next)(const device_profile_t **profile, uint8_t *index);
+    bool (*get_next)(device_profile_t *out, uint8_t *index);
     device_profile_registry_err_t (*get_by_addr)(uint8_t slave_addr, device_profile_t *out);
     bool (*is_registered)(uint8_t slave_addr);
 } idevice_profile_provider_t;
@@ -115,10 +115,9 @@ extern const idevice_profile_provider_t *const device_profile_provider;
 extern const idevice_profile_manager_t *const device_profile_manager;
 ```
 
-`get_next` keeps the iterator contract ModbusPoller already uses (`*index` = 0 first, returns the profile at
-`*index` and advances). `get_next` hands out a pointer into the table: the caller must not hold it across a
-manager call; ModbusPoller copies what it needs within one cycle (the poll cycle and manager calls are
-serialised by the mutex only per call, so the pointer is valid while the slot is unchanged; see §7).
+`get_next` keeps the iterator contract ModbusPoller already uses (`*index` = 0 first; each true return
+advances `*index`) but **copies** the profile into `*out` under the lock (changed from a pointer into the
+table, because a writer swaps the whole table). A copy is 38 bytes.
 The free functions `device_profile_get_next` and `device_profile_is_registered` of the placeholder remain
 as thin wrappers over the vtable until the consumers migrate.
 
@@ -247,10 +246,10 @@ open item DPR-O3.
 Version 1: `0x0010`, 3 registers, temperature / humidity / pressure. The poller builds its FC04 request
 from the table entry of the slave's profile, not from profile fields.
 
-### 7.3 Pointer lifetime
+### 7.3 Copy, not pointer
 
-`get_next` returns a pointer into the table. The poller copies the profile (`device_profile_t` is 38 bytes)
-before calling the master, so a concurrent manager call cannot change what it is using.
+The poller and the console receive a copy of each profile, so a write that commits during a poll cycle
+never changes what they are using.
 
 ---
 

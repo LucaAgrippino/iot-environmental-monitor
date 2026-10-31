@@ -42,7 +42,8 @@ uint32_t console_port_millis(void)
 static health_snapshot_t g_spy_health;
 static health_monitor_err_t g_spy_health_rc;
 
-health_monitor_err_t health_monitor_get_snapshot(health_monitor_handle_t handle, health_snapshot_t *snap_out)
+health_monitor_err_t health_monitor_get_snapshot(health_monitor_handle_t handle,
+                                                 health_snapshot_t *snap_out)
 {
     (void) handle;
     *snap_out = g_spy_health;
@@ -66,7 +67,8 @@ static bool spy_is_ready(void)
     return g_spy_ready;
 }
 
-static const isensor_service_t g_spy_sensors = {.get_snapshot = spy_get_snapshot, .is_ready = spy_is_ready};
+static const isensor_service_t g_spy_sensors = {.get_snapshot = spy_get_snapshot,
+                                                .is_ready = spy_is_ready};
 
 /* ---- alarms ------------------------------------------------------------ */
 
@@ -147,13 +149,13 @@ static const iconfig_manager_t g_spy_cfg_write = {.ctx = NULL,
 static device_profile_t g_spy_profiles[4];
 static uint8_t g_spy_profile_count;
 
-static bool spy_profile_next(const device_profile_t **p, uint8_t *index)
+static bool spy_profile_next(device_profile_t *p, uint8_t *index)
 {
     if (*index >= g_spy_profile_count)
     {
         return false;
     }
-    *p = &g_spy_profiles[*index];
+    *p = g_spy_profiles[*index];
     (*index)++;
     return true;
 }
@@ -166,7 +168,8 @@ static uint8_t g_spy_tx[65536];
 static size_t g_spy_tx_len;
 static debug_uart_err_t g_spy_send_rc;
 static debug_uart_err_t g_spy_attach_rc;
-static void (*g_spy_send_hook)(void); /* called inside every send: lets a test inject a key mid-frame */
+static void (*g_spy_send_hook)(
+    void); /* called inside every send: lets a test inject a key mid-frame */
 static debug_uart_byte_callback_t g_spy_rx_cb;
 
 static debug_uart_err_t spy_send(const uint8_t *data, size_t len, uint32_t timeout_ms)

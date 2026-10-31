@@ -154,15 +154,42 @@ static void record_poll_outcome(modbus_slave_state_t *slave, modbus_master_err_t
     }
 }
 
-/** Build an FC04 request from the profile's register span (§5.7). */
-static void build_poll_request(const device_profile_t *profile, modbus_frame_t *out)
+/** The FC04 span polled for one map version (device-profile-registry-lld.md §7.2, D-1). */
+typedef struct
+{
+    uint16_t map_version;
+    uint16_t input_reg_start; /* FC04 range start  */
+    uint16_t input_reg_count; /* FC04 range length */
+} map_entry_t;
+
+/** Map versions this poller knows.  Version 1: temperature, humidity, pressure. */
+static const map_entry_t k_map_table[] = {
+    {1U, 0x0010U, 3U},
+};
+
+/** Table entry of a profile's map version, or NULL if the poller does not know it. */
+static const map_entry_t *map_for(const device_profile_t *profile)
+{
+    for (uint8_t i = 0U; i < (sizeof(k_map_table) / sizeof(k_map_table[0])); i++)
+    {
+        if (k_map_table[i].map_version == profile->map_version)
+        {
+            return &k_map_table[i];
+        }
+    }
+    return NULL;
+}
+
+/** Build an FC04 request from the map entry's register span (§5.7). */
+static void build_poll_request(const device_profile_t *profile, const map_entry_t *map,
+                               modbus_frame_t *out)
 {
     out->slave_addr = profile->slave_addr;
     out->function_code = FC_READ_INPUT_REGS;
-    out->data[0] = (uint8_t) (profile->input_reg_start >> BITS_PER_BYTE);
-    out->data[1] = (uint8_t) (profile->input_reg_start & BYTE_MASK);
-    out->data[2] = (uint8_t) (profile->input_reg_count >> BITS_PER_BYTE);
-    out->data[3] = (uint8_t) (profile->input_reg_count & BYTE_MASK);
+    out->data[0] = (uint8_t) (map->input_reg_start >> BITS_PER_BYTE);
+    out->data[1] = (uint8_t) (map->input_reg_start & BYTE_MASK);
+    out->data[2] = (uint8_t) (map->input_reg_count >> BITS_PER_BYTE);
+    out->data[3] = (uint8_t) (map->input_reg_count & BYTE_MASK);
     out->data_len = POLL_REQUEST_DATA_BYTES;
 }
 
@@ -181,17 +208,17 @@ static uint8_t find_slot_index(uint8_t slave_addr)
 }
 
 /** Big-endian word of one input register of an FC04 response, or false if the span lacks it. */
-static bool read_register_word(const device_profile_t *profile, const modbus_frame_t *response,
-                               uint16_t reg, uint16_t *word_out)
+static bool read_register_word(const map_entry_t *map, const modbus_frame_t *response, uint16_t reg,
+                               uint16_t *word_out)
 {
-    if ((reg < profile->input_reg_start) ||
-        (reg >= (uint16_t) (profile->input_reg_start + profile->input_reg_count)))
+    if ((reg < map->input_reg_start) ||
+        (reg >= (uint16_t) (map->input_reg_start + map->input_reg_count)))
     {
         return false;
     }
 
     const uint16_t at = (uint16_t) (FC04_BYTE_COUNT_BYTES +
-                                    ((uint16_t) (reg - profile->input_reg_start) * BYTES_PER_REG));
+                                    ((uint16_t) (reg - map->input_reg_start) * BYTES_PER_REG));
 
     *word_out =
         (uint16_t) (((uint16_t) response->data[at] << BITS_PER_BYTE) | response->data[at + 1U]);
@@ -199,11 +226,11 @@ static bool read_register_word(const device_profile_t *profile, const modbus_fra
 }
 
 /** Decode the Field Device sensor registers of a poll response into the cache (MBP-O3, CP-D18). */
-static void forward_response_to_consumers(const device_profile_t *profile,
+static void forward_response_to_consumers(const device_profile_t *profile, const map_entry_t *map,
                                           const modbus_frame_t *response)
 {
     const uint16_t expected =
-        (uint16_t) (FC04_BYTE_COUNT_BYTES + ((uint16_t) profile->input_reg_count * BYTES_PER_REG));
+        (uint16_t) (FC04_BYTE_COUNT_BYTES + ((uint16_t) map->input_reg_count * BYTES_PER_REG));
     const uint8_t slot = find_slot_index(profile->slave_addr);
 
     if (slot >= MODBUS_MAX_SLAVES)
@@ -222,17 +249,17 @@ static void forward_response_to_consumers(const device_profile_t *profile,
     fd_cache_t next = {0};
     uint16_t word = 0U;
 
-    if (read_register_word(profile, response, FD_REG_TEMPERATURE, &word))
+    if (read_register_word(map, response, FD_REG_TEMPERATURE, &word))
     {
         next.temperature_valid = (word != FD_SENTINEL_INT16);
         next.temperature_centi_c = (int16_t) word;
     }
-    if (read_register_word(profile, response, FD_REG_HUMIDITY, &word))
+    if (read_register_word(map, response, FD_REG_HUMIDITY, &word))
     {
         next.humidity_valid = (word != FD_SENTINEL_UINT16);
         next.humidity_centi_pct = word;
     }
-    if (read_register_word(profile, response, FD_REG_PRESSURE, &word))
+    if (read_register_word(map, response, FD_REG_PRESSURE, &word))
     {
         next.pressure_valid = (word != FD_SENTINEL_UINT16);
         next.pressure_deci_hpa = word;
@@ -378,11 +405,13 @@ static void drain_commands(void)
 /** Poll every provisioned slave once (§5.2, step 2). */
 static void poll_slaves(void)
 {
-    const device_profile_t *profile = NULL;
+    device_profile_t profile_copy; /* a copy: a profile change cannot alter it mid-cycle */
+    const device_profile_t *const profile = &profile_copy;
     uint8_t index = 0U;
 
-    while (device_profile_get_next(&profile, &index))
+    while (device_profile_get_next(&profile_copy, &index))
     {
+        const map_entry_t *map = map_for(profile);
         modbus_slave_state_t *slave = find_or_claim_slot(profile->slave_addr);
         modbus_frame_t request = {0};
         modbus_frame_t response = {0};
@@ -393,14 +422,21 @@ static void poll_slaves(void)
             continue;
         }
 
-        build_poll_request(profile, &request);
+        if (map == NULL)
+        {
+            /* A map version this build does not know: not polled (the identity check that
+             * reports it as rejected comes with the link-establishment change, LLD §7.1). */
+            continue;
+        }
+
+        build_poll_request(profile, map, &request);
 
         const modbus_master_err_t result = modbus_master_transact(&request, &response);
 
         record_poll_outcome(slave, result);
         if (result == MODBUS_MASTER_ERR_OK)
         {
-            forward_response_to_consumers(profile, &response);
+            forward_response_to_consumers(profile, map, &response);
         }
     }
 }

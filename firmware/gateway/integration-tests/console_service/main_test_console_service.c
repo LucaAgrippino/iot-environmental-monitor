@@ -333,13 +333,25 @@ static void link_task(void *arg)
     }
 }
 
-/* Read side of DeviceProfileRegistry for `profiles list`. */
-static bool profile_next(const device_profile_t **p, uint8_t *index)
+/* DeviceProfileRegistry for `profiles list`: nothing is stored on this bench, so the default
+ * profile is seeded; saving is not supported here. */
+static bool profiles_load(device_profile_t *out, uint8_t max, uint8_t *count_out)
 {
-    return device_profile_get_next(p, index);
+    (void) out;
+    (void) max;
+    (void) count_out;
+    return false;
 }
 
-static const idevice_profile_provider_t k_profiles = {.get_next = profile_next};
+static bool profiles_save(const device_profile_t *in, uint8_t count)
+{
+    (void) in;
+    (void) count;
+    return false;
+}
+
+static const device_profile_storage_t k_profile_storage = {.load = profiles_load,
+                                                           .save = profiles_save};
 
 static void bringup_spin(uint32_t n)
 {
@@ -449,13 +461,21 @@ int main(void)
      * xTaskNotifyFromISR (DUART-O5). */
     NVIC_SetPriority(USART1_IRQn, USART1_IRQ_PRIORITY);
 
+    if ((device_profile_registry_init(&k_profile_storage) != DEVICE_PROFILE_REGISTRY_OK) ||
+        (device_profile_registry_load() != DEVICE_PROFILE_REGISTRY_OK))
+    {
+        for (;;)
+        {
+        }
+    }
+
     const console_deps_t deps = {.uart = debug_uart,
                                  .sensors = sensor_service,
                                  .alarms = alarm_service,
                                  .cfg_read = config_service_get_provider(),
                                  .cfg_write = config_service_get_manager(),
                                  .health = s_hm,
-                                 .prof_read = &k_profiles};
+                                 .prof_read = device_profile_provider};
 
     if (console_service_init(&deps) != CONSOLE_SERVICE_ERR_OK)
     {
