@@ -144,3 +144,11 @@ has no entry point and could never link. The Field Device has no production `mai
 Build `gateway/Release` (needs the real credential headers for a working image), flash `Release/gateway.elf`, and check:
 it reaches `Operational`, connects to the broker, and the one-minute `Stack` report prints no `LOW` line. Record the
 lowest free stack words next to the `-O0` figures in `gateway-main.md` section 10b.
+
+**First run, 2026-10-31 (by the author, on the base of PR #124 without the fixes of #125 to #127):** the `-Os` image
+reached `Operational`, synchronised NTP, and connected to the broker over TLS with the same arena peak as the `-O0`
+image (20 680 of 28 672 bytes). Free stack words in the one-minute report were equal or higher than the `-O0` figures
+for every task (SensorTask 128 against 87, CloudPublisher 489 against 287, WifiTask 176 against 154, lifecycle 302
+against 334, ModbusPoller 289 against 261) and no `LOW` line appeared. After the connection the known burst of stale
+store-and-forward entries (GM-O20) disturbed the session, as it does on any build of that base. Note that the image
+has the console on: the UART runs at 460800 baud after start-up, not 115200.
