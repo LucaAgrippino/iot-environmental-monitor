@@ -26,9 +26,10 @@
 
 #include "wifi_driver/wifi_driver.h"
 
-/** Largest payload one wifitask_send() / wifi_send() call can carry: the IWIN S3 packet-size ceiling
- *  (WIFI_MAX_PACKET_SIZE, private to wifi_driver.c). A longer buffer is rejected with
- *  WIFI_ERR_INVALID_ARG, so a caller that may hold more has to split it (MqttClient's TLS send does). */
+/** Largest payload one wifitask_send() / wifi_send() call can carry: the IWIN S3 packet-size
+ * ceiling (WIFI_MAX_PACKET_SIZE, private to wifi_driver.c). A longer buffer is rejected with
+ *  WIFI_ERR_INVALID_ARG, so a caller that may hold more has to split it (MqttClient's TLS send
+ * does). */
 #define WIFITASK_MAX_SEND_BYTES 1460u
 
 #define WIFITASK_MAX_SSID_LEN WIFI_MAX_SSID_LEN
