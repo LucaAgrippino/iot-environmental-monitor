@@ -383,6 +383,8 @@ static const iupdate_service_t g_spy_update_ops = {.handle_command = spy_update_
 
 static mqtt_client_err_t g_spy_mqtt_publish_return;
 static uint32_t g_spy_mqtt_publish_calls;
+/* Ticks each publish takes, added to the mock tick counter (the drain's time budget, CP-D32). */
+static TickType_t g_spy_mqtt_publish_tick_step;
 static char g_spy_mqtt_publish_last_topic[SAF_TOPIC_MAX];
 static char g_spy_mqtt_publish_last_payload[TC_JSON_BUF_SIZE];
 static uint32_t g_spy_mqtt_publish_last_len;
@@ -392,6 +394,7 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
 {
     (void) handle;
     g_spy_mqtt_publish_calls++;
+    g_mock_tick_count += g_spy_mqtt_publish_tick_step;
     (void) strncpy(g_spy_mqtt_publish_last_topic, topic, SAF_TOPIC_MAX - 1u);
     uint32_t copy_len = (len < (sizeof(g_spy_mqtt_publish_last_payload) - 1u))
                             ? len
@@ -537,6 +540,7 @@ void setUp(void)
     (void) memset(g_spy_mqtt_subscribe_topic, 0, sizeof(g_spy_mqtt_subscribe_topic));
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_publish_calls = 0u;
+    g_spy_mqtt_publish_tick_step = 0u;
     (void) memset(g_spy_mqtt_publish_last_topic, 0, sizeof(g_spy_mqtt_publish_last_topic));
     (void) memset(g_spy_mqtt_publish_last_payload, 0, sizeof(g_spy_mqtt_publish_last_payload));
     (void) memset(&g_spy_mqtt_stats, 0, sizeof(g_spy_mqtt_stats));
@@ -2413,6 +2417,134 @@ void test_CP_T106_the_placeholder_symbols_are_not_part_of_the_build(void)
      * line is the proof; the done-when check on the ELF repeats it with nm (WP1 section 12). */
     prv_create_and_connect();
     TEST_ASSERT_TRUE(cloud_publisher_is_ready(g_handle));
+}
+
+/* ======================================================================= */
+/* CP-T107..T112 - paced store-and-forward replay (CP-D32, GM-O20)           */
+/* ======================================================================= */
+
+/* Let the mock clock run, then take a stats tick: the drain's pacing is in ticks, not in calls. */
+static void prv_stats_tick_after_ms(uint32_t ms)
+{
+    g_mock_tick_count += pdMS_TO_TICKS(ms);
+    prv_stats_tick();
+}
+
+static void prv_load_backlog(uint32_t entries, uint32_t payload_len)
+{
+    saf_entry_t entry;
+
+    (void) memset(&entry, 0, sizeof(entry));
+    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX - 1u);
+    entry.payload_len = payload_len;
+    entry.qos = MQTT_QOS_0;
+    g_spy_saf_dequeue_entry = entry;
+    g_spy_saf_dequeue_return = SAF_ERR_OK;
+    g_spy_saf_dequeue_available = entries;
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+}
+
+void test_CP_T107_a_replay_pass_stops_at_the_entry_limit(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 2u);
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_saf_confirm_calls);
+    /* The link is served after each entry, not only at the end of the pass. */
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(4u, g_spy_mqtt_process_calls);
+}
+
+void test_CP_T108_a_replay_pass_stops_at_the_byte_limit(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 4000u);
+
+    prv_stats_tick();
+
+    /* One 4000 B entry is over the 2048 B limit and ends the pass. */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T109_a_replay_pass_stops_at_the_time_limit(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 2u);
+    g_spy_mqtt_publish_tick_step = pdMS_TO_TICKS(300u);
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T110_a_failed_replay_publish_backs_off_before_the_next_attempt(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(40u, 2u);
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_PUBLISH_FAIL;
+
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+
+    prv_stats_tick_after_ms(4900u); /* CP_DRAIN_BACKOFF_MIN_S is 5 s */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+
+    prv_stats_tick_after_ms(200u);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_confirm_calls);
+}
+
+void test_CP_T111_an_entry_that_fails_three_times_in_a_row_is_dropped(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(60u, 2u);
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_PUBLISH_FAIL;
+
+    for (uint32_t i = 0u; (i < 40u) && (g_spy_mqtt_publish_calls < 3u); i++)
+    {
+        prv_stats_tick_after_ms(1000u);
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_confirm_calls); /* the drop */
+    bool dropped_reported = false;
+    for (uint32_t i = 0u; (i < g_spy_health_push_event_calls) && (i < TC_EVENT_LOG); i++)
+    {
+        dropped_reported |= (g_spy_health_events[i] == HEALTH_EVENT_BUFFER_OVERFLOW);
+    }
+    TEST_ASSERT_TRUE(dropped_reported);
+}
+
+void test_CP_T112_replay_is_not_attempted_while_the_link_is_down(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 2u);
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_saf_dequeue_calls = 0u;
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_dequeue_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T113_a_second_pass_waits_for_the_pass_interval_however_often_it_is_woken(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(40u, 2u);
+
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_publish_calls);
+
+    /* Receive-ready wakes run the same code path as the 1 Hz tick. */
+    prv_stats_tick_after_ms(100u);
+    prv_stats_tick_after_ms(100u);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_publish_calls);
+
+    prv_stats_tick_after_ms(900u); /* CP_DRAIN_PASS_INTERVAL_MS has run out */
+    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_publish_calls);
 }
 
 /* ======================================================================= */
