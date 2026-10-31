@@ -107,6 +107,10 @@ class Server:
                     data = bytes(buf)
                 self.images[slot] = data
         self.requests = 0
+        self.chunks = 0
+        self.chunk_bytes = 0
+        self.first_chunk = None
+        self.last_chunk = None
         self.silent_until = 0.0
         self.silent_done = False
         self.done = threading.Event()
@@ -176,6 +180,13 @@ class Server:
             self.log(f"! offset {offset} is past the end of the slot-{slot} image")
             return
         self.client.publish(self.t["data"], frame_chunk(job, offset, data), qos=0)
+        now = time.time()
+        with self.lock:
+            if self.first_chunk is None:
+                self.first_chunk = now
+            self.last_chunk = now
+            self.chunks += 1
+            self.chunk_bytes += len(data)
         if offset % (64 * 1024) == 0:
             self.log(f"< slot {slot} offset {offset}  ({100 * offset // len(image)}%)")
 
@@ -186,6 +197,15 @@ class Server:
             self.result = rep["result"]
             self.done.set()
 
+    def summary(self):
+        """US-O1: the real download rate, from the first chunk served to the last."""
+        with self.lock:
+            chunks, size = self.chunks, self.chunk_bytes
+            span = (self.last_chunk - self.first_chunk) if self.first_chunk is not None else 0.0
+        if chunks and span > 0:
+            self.log(f"served {chunks} chunks, {size} bytes in {span:.1f}s: "
+                     f"{size / span / 1024:.1f} KiB/s, {span / chunks * 1000:.0f} ms per chunk")
+
     def run(self):
         a = self.args
         self.client.connect(a.host, a.port, keepalive=30)
@@ -193,6 +213,7 @@ class Server:
         finished = self.done.wait(a.timeout)
         self.client.loop_stop()
         self.client.disconnect()
+        self.summary()
         if not finished:
             self.log("timeout")
             return 1

@@ -35,7 +35,13 @@
  *  MqttClient bring-up; never caught by this driver's own bring-up test
  *  (a ~24-byte "hello" message, well under the old 512-byte cap). */
 #define WIFI_AT_BUF_SIZE 1536u
-#define WIFI_DRDY_TIMEOUT_MS 100u  /**< DRDY assert wait (WIFI-O5). */
+#define WIFI_DRDY_TIMEOUT_MS 100u /**< DRDY assert wait (WIFI-O5). */
+/** Wait for the module to accept the next command (DRDY high at the start of a command phase).
+ *  After a send the module's TCP stack can hold the next command for a little over 100 ms; with
+ *  the 100 ms bound above, 5 of 8 boots on the board saw a P0 time out right after a send and the
+ *  session was lost (WIFI-O19, GM-O22). The module was ready within one poll step after the
+ *  bound. The wait is a busy-poll, so a longer bound only costs time when the module is busy. */
+#define WIFI_CMD_READY_TIMEOUT_MS 1000u
 #define WIFI_RESP_TIMEOUT_MS 5000u /**< AT response wait (WIFI-O5). */
 #define WIFI_RESET_PULSE_MS 10u
 #define WIFI_BOOT_WAIT_MS 500u
@@ -63,6 +69,14 @@
  *  C1-C4, and failed at exactly that 5 s mark against a phone hotspot
  *  even though the same sequence completes within it against a router. */
 #define WIFI_JOIN_TIMEOUT_MS 20000u
+/** DNS lookup (D0) response wait, separate from WIFI_RESP_TIMEOUT_MS: a name the
+ *  module's resolver cannot answer holds the module until its own DNS timeout
+ *  ends, and a command sent before that gets no answer at all (bench, 2026-10-30:
+ *  a 5 s wait left the module silent for every later command). Starting value,
+ *  to be tightened from the measured failure time. */
+#ifndef WIFI_DNS_TIMEOUT_MS
+#define WIFI_DNS_TIMEOUT_MS 60000u
+#endif
 #define WIFI_POLL_INTERVAL_US 100u
 /** NAK — appended to an odd-length command to reach an even byte count.
  *  Confirmed against the quick reference's worked example (P0=0\r padded
@@ -192,6 +206,40 @@ WIFI_TEST_VISIBLE wifi_err_t prv_parse_rssi(const char *resp, size_t resp_len, i
     }
 
     *out_rssi = (int8_t) (negative ? -value : value);
+    return WIFI_ERR_OK;
+}
+
+/**
+ * @brief Parse a `D0` response: "\r\n<a.b.c.d>\r\nOK\r\n". Copies the address.
+ *
+ * Accepts digits and dots only, so a module that answers with text (or
+ * with an empty line) is reported as WIFI_ERR_MODULE rather than copied.
+ */
+WIFI_TEST_VISIBLE wifi_err_t prv_parse_ipv4(const char *resp, size_t resp_len, char *out_ip,
+                                            size_t out_len)
+{
+    size_t pos = 0u;
+    size_t n = 0u;
+
+    if ((resp_len >= 2u) && (resp[0] == '\r') && (resp[1] == '\n'))
+    {
+        pos = 2u;
+    }
+
+    while ((pos < resp_len) && (((resp[pos] >= '0') && (resp[pos] <= '9')) || (resp[pos] == '.')))
+    {
+        if ((n + 1u) >= out_len)
+        {
+            return WIFI_ERR_MODULE;
+        }
+        out_ip[n++] = resp[pos++];
+    }
+
+    if (n < 7u) /* shorter than "0.0.0.0" */
+    {
+        return WIFI_ERR_MODULE;
+    }
+    out_ip[n] = '\0';
     return WIFI_ERR_OK;
 }
 
@@ -360,13 +408,15 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
         *out_resp_len = 0u;
     }
 
-    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
-
-    if (!prv_wait_drdy(inst, true, WIFI_DRDY_TIMEOUT_MS))
+    /* Wait for the Command Phase with NSS still HIGH and select the module only once DRDY is up,
+     * as ST's reference driver does. Holding NSS low while the module was still busy left DRDY
+     * down for the whole wait on the board and it came up within 100 us of NSS being released
+     * (GM-O22). */
+    if (!prv_wait_drdy(inst, true, WIFI_CMD_READY_TIMEOUT_MS))
     {
-        gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
         return WIFI_ERR_TIMEOUT;
     }
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
 
     const wifi_err_t send_err = prv_send_words(inst, cmd, cmd_len);
 
@@ -397,6 +447,59 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
     }
 
     return prv_parse_response(resp_buf, received);
+}
+
+static wifi_err_t prv_send_kv(struct wifi_inst *inst, const char *code, const char *value,
+                              size_t *out_resp_len, uint32_t resp_timeout_ms);
+
+/**
+ * @brief Hardware reset of the module and the boot handshake up to a verified "I?" answer
+ *        (companion §3.6 Phase 1). Used by wifi_create() and wifi_reset_module().
+ */
+static wifi_err_t prv_boot_module(struct wifi_inst *inst)
+{
+    /* Hardware reset sequence (companion §3.6 Phase 1). */
+    gpio_write_pin(inst->boot0_port, inst->boot0_pin, GPIO_LEVEL_LOW);
+    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_LOW);
+    cpu_delay_ms(WIFI_RESET_PULSE_MS);
+    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_HIGH);
+    cpu_delay_ms(WIFI_BOOT_WAIT_MS);
+    gpio_write_pin(inst->wakeup_port, inst->wakeup_pin, GPIO_LEVEL_HIGH);
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
+
+    (void) exti_configure(WIFI_DRDY_EXTI_LINE, EXTI_PORT_E, EXTI_EDGE_RISING);
+
+    /* Drain the post-reset boot prompt before issuing any AT command
+     * (datasheet §10.2.1). */
+    wifi_err_t err = prv_drain_boot_cursor(inst);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+
+    /* The module needs more real settle time to reach the first genuine
+     * Command Phase than steady-state per-command turnaround
+     * (WIFI_DRDY_TIMEOUT_MS) allows for — confirmed on hardware (WIFI-O7):
+     * the boot cursor drains fine, but DRDY doesn't rise again within
+     * 100 ms afterward. Wait for it here, generously, before the first
+     * command; prv_at_command()'s own (tight) pre-send wait then passes
+     * near-instantly since DRDY is already high by the time it checks. */
+    if (!prv_wait_drdy(inst, true, WIFI_BOOT_DRDY_TIMEOUT_MS))
+    {
+        return WIFI_ERR_TIMEOUT;
+    }
+
+    /* WIFI_AT_INFO ("I?") — module info and liveness check in one step.
+     * The quick-reference AT command doc marks "?" (print help) as "Not
+     * available in SPI firmware", so it is never sent here. */
+    size_t resp_len = 0u;
+    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len, WIFI_RESP_TIMEOUT_MS);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+
+    return prv_check_firmware_version(inst->at_buf, resp_len);
 }
 
 /**
@@ -468,48 +571,7 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
     inst->datardy_ctx = NULL;
     inst->ready = false;
 
-    /* Hardware reset sequence (companion §3.6 Phase 1). */
-    gpio_write_pin(inst->boot0_port, inst->boot0_pin, GPIO_LEVEL_LOW);
-    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_LOW);
-    cpu_delay_ms(WIFI_RESET_PULSE_MS);
-    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_HIGH);
-    cpu_delay_ms(WIFI_BOOT_WAIT_MS);
-    gpio_write_pin(inst->wakeup_port, inst->wakeup_pin, GPIO_LEVEL_HIGH);
-    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
-
-    (void) exti_configure(WIFI_DRDY_EXTI_LINE, EXTI_PORT_E, EXTI_EDGE_RISING);
-
-    /* Drain the post-reset boot prompt before issuing any AT command
-     * (datasheet §10.2.1). */
-    wifi_err_t err = prv_drain_boot_cursor(inst);
-    if (err != WIFI_ERR_OK)
-    {
-        return err;
-    }
-
-    /* The module needs more real settle time to reach the first genuine
-     * Command Phase than steady-state per-command turnaround
-     * (WIFI_DRDY_TIMEOUT_MS) allows for — confirmed on hardware (WIFI-O7):
-     * the boot cursor drains fine, but DRDY doesn't rise again within
-     * 100 ms afterward. Wait for it here, generously, before the first
-     * command; prv_at_command()'s own (tight) pre-send wait then passes
-     * near-instantly since DRDY is already high by the time it checks. */
-    if (!prv_wait_drdy(inst, true, WIFI_BOOT_DRDY_TIMEOUT_MS))
-    {
-        return WIFI_ERR_TIMEOUT;
-    }
-
-    /* WIFI_AT_INFO ("I?") — module info and liveness check in one step.
-     * The quick-reference AT command doc marks "?" (print help) as "Not
-     * available in SPI firmware", so it is never sent here. */
-    size_t resp_len = 0u;
-    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len, WIFI_RESP_TIMEOUT_MS);
-    if (err != WIFI_ERR_OK)
-    {
-        return err;
-    }
-
-    err = prv_check_firmware_version(inst->at_buf, resp_len);
+    const wifi_err_t err = prv_boot_module(inst);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -521,6 +583,45 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
 
     *handle = inst;
     return WIFI_ERR_OK;
+}
+
+wifi_err_t wifi_reset_module(wifi_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return WIFI_ERR_NULL_PTR;
+    }
+    if (!handle->in_use)
+    {
+        return WIFI_ERR_NOT_INIT;
+    }
+
+    /* The reset drops the association and every socket the module held. */
+    handle->ready = false;
+    handle->link_state = WIFI_LINK_DOWN;
+    handle->rssi_dbm = 0;
+    memset(handle->socket_open, 0, sizeof(handle->socket_open));
+
+    const wifi_err_t err = prv_boot_module(handle);
+    if (err != WIFI_ERR_OK)
+    {
+        return err; /* stays not ready: every later command answers NOT_INIT until a reset works */
+    }
+    handle->ready = true;
+    return WIFI_ERR_OK;
+}
+
+wifi_err_t wifi_ping(wifi_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return WIFI_ERR_NULL_PTR;
+    }
+    if (!handle->ready)
+    {
+        return WIFI_ERR_NOT_INIT;
+    }
+    return prv_send_kv(handle, WIFI_AT_INFO, NULL, NULL, WIFI_RESP_TIMEOUT_MS);
 }
 
 wifi_err_t wifi_attach_datardy_callback(wifi_handle_t handle, wifi_datardy_cb_t cb, void *ctx)
@@ -655,6 +756,36 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm)
     return WIFI_ERR_OK;
 }
 
+wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip, size_t out_len)
+{
+    if ((handle == NULL) || (hostname == NULL) || (out_ip == NULL))
+    {
+        return WIFI_ERR_NULL_PTR;
+    }
+    if (out_len < WIFI_IPV4_STR_LEN)
+    {
+        return WIFI_ERR_INVALID_ARG;
+    }
+    if (!handle->ready)
+    {
+        return WIFI_ERR_NOT_INIT;
+    }
+    if (handle->link_state != WIFI_LINK_UP)
+    {
+        return WIFI_ERR_NOT_CONNECTED;
+    }
+
+    size_t resp_len = 0u;
+    const wifi_err_t err =
+        prv_send_kv(handle, WIFI_AT_DNS_LOOKUP, hostname, &resp_len, WIFI_DNS_TIMEOUT_MS);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+
+    return prv_parse_ipv4(handle->at_buf, resp_len, out_ip, out_len);
+}
+
 wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const char *remote_addr,
                             uint16_t remote_port, wifi_socket_t *out_socket)
 {
@@ -752,7 +883,9 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
         prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        /* A timeout is reported as one (as wifi_recv() does), not folded into SOCKET: the caller
+         * and the log can tell "the module did not answer" from "the module refused" (GM-O22). */
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
     /* S3=<len> — set packet size and send in one command; payload follows
@@ -771,7 +904,7 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
                          WIFI_AT_BUF_SIZE, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
     return WIFI_ERR_OK;

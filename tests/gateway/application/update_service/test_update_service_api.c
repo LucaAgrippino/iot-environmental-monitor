@@ -189,6 +189,36 @@ void test_TC_US_003_operations_on_a_foreign_handle_are_refused(void)
     TEST_ASSERT_FALSE(update_control_ops.is_created(foreign));
 }
 
+void test_TC_US_003b_the_instance_handle_is_valid_before_create_and_refused_until_then(void)
+{
+    update_service_t *early = update_service_get_instance();
+    const us_ota_command_t cmd = {.job = 1U, .size_a = 1000U, .size_b = 1000U};
+    const uint8_t data[4] = {0};
+
+    TEST_ASSERT_NOT_NULL(early);
+    TEST_ASSERT_EQUAL_PTR(early, update_service_get_instance());
+
+    /* Before create: every operation on the early handle is refused, nothing is acted on. */
+    TEST_ASSERT_FALSE(update_control_ops.is_created(early));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_NOT_INITIALISED,
+                          update_service_ops.handle_command(early, &cmd));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_NOT_INITIALISED,
+                          update_service_ops.on_chunk(early, 1U, 0U, data, 4U));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_NOT_INITIALISED, update_control_ops.start(early, 1U));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_NOT_INITIALISED,
+                          update_control_ops.resume_self_checking(early));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_NOT_INITIALISED,
+                          update_control_ops.resume_rollback(early));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_NOT_INITIALISED,
+                          update_control_ops.resume_after_rollback(early));
+    TEST_ASSERT_EQUAL_UINT32(0U, update_service_stack_free_words(early));
+
+    /* After create it is the very same handle, and it now works. */
+    TEST_ASSERT_EQUAL_PTR(early, ust_create());
+    TEST_ASSERT_TRUE(update_control_ops.is_created(early));
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, update_service_ops.handle_command(early, &cmd));
+}
+
 void test_TC_US_004_create_caches_the_boot_info_and_makes_no_other_flash_call(void)
 {
     (void) ust_create();

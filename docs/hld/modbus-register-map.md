@@ -298,8 +298,10 @@ when both words arrive in that single request; an FC16 touching only one
 of them, or any other span, returns exception **0x03**. FC06 to either
 register is also rejected with **0x03**, because a half-written time
 would otherwise be applied or latched inconsistently. The GW-side sender
-is `TimeService` (`time-service-lld.md` §7); the FD-side handler is not
-yet implemented (TS-O5).
+is `TimeService` (`time-service-lld.md` §7); the FD-side handler is
+`apply_cmd_set_time` in `ModbusRegisterMap` (`modbus-register-map-lld.md` §8.5,
+LLD-D16, TS-O5 closed). A time outside 2000..2099, or one that TimeProvider
+refuses, also returns exception **0x03**.
 
 ---
 
@@ -438,8 +440,9 @@ harness phase.
   value split high/low. Verify the FD clock reads that time within 2 s
   and `UPTIME_SECONDS` is unaffected. Then verify an FC06 write to
   0x0210 and an FC16 write of one register at 0x0211 both return
-  exception **0x03** and leave the clock unchanged. *(Pending the FD
-  implementation, TS-O5.)*
+  exception **0x03** and leave the clock unchanged. *(Host tests
+  TC-MRM-028..034; bench harness `integration-tests/modbus_register_map`
+  Phase 5b written, not yet run on a board.)*
 
 ---
 
