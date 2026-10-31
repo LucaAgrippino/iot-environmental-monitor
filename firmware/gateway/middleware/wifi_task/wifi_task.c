@@ -15,9 +15,10 @@
 #include "task.h"
 
 #define WIFITASK_MAX_INSTANCES 1u
-#define WIFITASK_TASK_STACK_WORDS 320u /**< D-1 F (WP4): 175 of 256 words used; was 256 (D29, memory-budget.md §1.1). */
-#define WIFITASK_TASK_PRIORITY 3u      /**< D29. */
-#define WIFITASK_QUEUE_DEPTH 3u /**< Sized by producer count (companion §2), not throughput. */
+#define WIFITASK_TASK_STACK_WORDS                                                                  \
+    320u /**< D-1 F (WP4): 175 of 256 words used; was 256 (D29, memory-budget.md §1.1). */
+#define WIFITASK_TASK_PRIORITY 3u /**< D29. */
+#define WIFITASK_QUEUE_DEPTH 3u   /**< Sized by producer count (companion §2), not throughput. */
 
 /** WIFI_LIVENESS_CHECK_PERIOD_MS: provisional, not yet validated against
  *  field data (WIFITASK-O4, companion §10). Doubles as the queue-receive
