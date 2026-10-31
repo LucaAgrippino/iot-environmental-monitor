@@ -53,6 +53,8 @@ struct modbus_register_map
     uint16_t cmd_ack_alarm_last;
     uint16_t cmd_reset_metrics_last;
     uint16_t cmd_soft_restart_last;
+    uint16_t cmd_set_time_hi_last; /* LLD-D16: read-after-write cells of the time pair */
+    uint16_t cmd_set_time_lo_last;
     modbus_slave_stats_t last_stats_snapshot;
 };
 
@@ -89,6 +91,21 @@ static modbus_register_map_t s_mrm;
 #define LCD_TIMEOUT_MAX ((uint16_t) 3600U)
 #define SLAVE_ADDR_MIN ((uint16_t) 1U)
 #define SLAVE_ADDR_MAX ((uint16_t) 247U)
+
+/* ===================================================================== */
+/* Command block and CMD_SET_TIME (data-spec §6.5, LLD-D16)              */
+/* ===================================================================== */
+
+#define MRM_CMD_BLOCK_FIRST ((uint16_t) 0x0200U)
+#define MRM_CMD_BLOCK_LAST ((uint16_t) 0x02FFU)
+#define MRM_REG_CMD_SET_TIME_HI ((uint16_t) 0x0210U)
+#define MRM_REG_CMD_SET_TIME_LO ((uint16_t) 0x0211U)
+#define MRM_SET_TIME_REG_COUNT ((uint16_t) 2U)
+
+/* The RTC driver documents the years 2000..2099 and does not check them (rtc_driver.h): an epoch
+ * outside that span would program a wrong date, so it is refused here, at the bus boundary. */
+#define MRM_SET_TIME_MIN_EPOCH ((uint32_t) 946684800UL)  /* 2000-01-01T00:00:00Z */
+#define MRM_SET_TIME_MAX_EPOCH ((uint32_t) 4102444799UL) /* 2099-12-31T23:59:59Z */
 
 /* ===================================================================== */
 /* Slot-table type definitions                                          */
@@ -202,6 +219,10 @@ static modbus_exception_t read_cmd_reset_metrics(const modbus_register_map_t *s,
 static modbus_exception_t write_cmd_reset_metrics(modbus_register_map_t *s, uint16_t v);
 static modbus_exception_t read_cmd_soft_restart(const modbus_register_map_t *s, uint16_t *o);
 static modbus_exception_t write_cmd_soft_restart(modbus_register_map_t *s, uint16_t v);
+static modbus_exception_t read_cmd_set_time_hi(const modbus_register_map_t *s, uint16_t *o);
+static modbus_exception_t read_cmd_set_time_lo(const modbus_register_map_t *s, uint16_t *o);
+static modbus_exception_t write_cmd_set_time_single(modbus_register_map_t *s, uint16_t v);
+static modbus_exception_t apply_cmd_set_time(modbus_register_map_t *s, uint16_t hi, uint16_t lo);
 
 /* ===================================================================== */
 /* Slot table — sorted ascending by address (invariant checked at init)  */
@@ -266,11 +287,17 @@ static const reg_slot_t k_slots[] = {
     /* Modbus slave address (0x0150) — deviation from data-spec §6.4 reserved range */
     {0x0150u, REG_TYPE_UINT16, REG_ACCESS_RW, read_modbus_slave_addr, write_modbus_slave_addr_reg,
      validate_slave_addr},
-    /* Command registers (0x0200–0x0202) */
+    /* Command registers (0x0200–0x0202, CMD_SET_TIME pair 0x0210–0x0211) */
     {0x0200u, REG_TYPE_UINT16, REG_ACCESS_RW, read_cmd_ack_alarm, write_cmd_ack_alarm, NULL},
     {0x0201u, REG_TYPE_UINT16, REG_ACCESS_RW, read_cmd_reset_metrics, write_cmd_reset_metrics,
      NULL},
     {0x0202u, REG_TYPE_UINT16, REG_ACCESS_RW, read_cmd_soft_restart, write_cmd_soft_restart, NULL},
+    /* The time pair is applied only by a two-register FC16 (mrm_write_multiple_regs); a write
+     * of either register on its own is refused. */
+    {0x0210u, REG_TYPE_UINT16, REG_ACCESS_RW, read_cmd_set_time_hi, write_cmd_set_time_single,
+     NULL},
+    {0x0211u, REG_TYPE_UINT16, REG_ACCESS_RW, read_cmd_set_time_lo, write_cmd_set_time_single,
+     NULL},
 };
 
 #define K_SLOTS_COUNT ((uint16_t) (sizeof k_slots / sizeof k_slots[0]))
@@ -815,6 +842,58 @@ static modbus_exception_t write_cmd_soft_restart(modbus_register_map_t *s, uint1
     return MB_EXC_NONE;
 }
 
+static modbus_exception_t read_cmd_set_time_hi(const modbus_register_map_t *s, uint16_t *o)
+{
+    *o = s->cmd_set_time_hi_last;
+    return MB_EXC_NONE;
+}
+static modbus_exception_t read_cmd_set_time_lo(const modbus_register_map_t *s, uint16_t *o)
+{
+    *o = s->cmd_set_time_lo_last;
+    return MB_EXC_NONE;
+}
+
+/* FC06 to either half, or an FC16 reaching a half through the slot table: refused, nothing is
+ * latched. A half-written time must never be applied or kept (data-spec §6.5). */
+static modbus_exception_t write_cmd_set_time_single(modbus_register_map_t *s, uint16_t v)
+{
+    (void) s;
+    (void) v;
+    LOG_WARN(LOG_MODULE, "CMD_SET_TIME refused: the pair must arrive in one FC16");
+    return MB_EXC_ILLEGAL_DATA_VALUE;
+}
+
+/**
+ * @brief Apply CMD_SET_TIME_HI:LO that arrived in one two-register FC16.
+ *
+ * The block is cached first (read-after-write, like the other commands), then range-checked and
+ * handed to TimeProvider, which writes the RTC and marks the provider synchronised
+ * (state-machines.md Machine 5, I5). A value TimeProvider refuses (its delta sanity check, a
+ * failing RTC) is reported as Illegal Data Value: the Field Device exception set has no
+ * "slave failure" code (data-spec §7).
+ */
+static modbus_exception_t apply_cmd_set_time(modbus_register_map_t *s, uint16_t hi, uint16_t lo)
+{
+    s->cmd_set_time_hi_last = hi;
+    s->cmd_set_time_lo_last = lo;
+
+    const uint32_t epoch = ((uint32_t) hi << 16) | (uint32_t) lo;
+
+    if ((epoch < MRM_SET_TIME_MIN_EPOCH) || (epoch > MRM_SET_TIME_MAX_EPOCH))
+    {
+        LOG_WARN(LOG_MODULE, "CMD_SET_TIME refused: %lu is outside 2000..2099",
+                 (unsigned long) epoch);
+        return MB_EXC_ILLEGAL_DATA_VALUE;
+    }
+    if (s->time->set_time(epoch) != TIME_PROVIDER_ERR_OK)
+    {
+        LOG_WARN(LOG_MODULE, "CMD_SET_TIME refused by TimeProvider: %lu", (unsigned long) epoch);
+        return MB_EXC_ILLEGAL_DATA_VALUE;
+    }
+    LOG_INFO(LOG_MODULE, "CMD_SET_TIME applied: %lu", (unsigned long) epoch);
+    return MB_EXC_NONE;
+}
+
 /* ===================================================================== */
 /* Vtable dispatch functions (static; exposed through get_iface)        */
 /* ===================================================================== */
@@ -910,6 +989,36 @@ static modbus_exception_t mrm_write_multiple_regs(void *ctx, uint16_t addr, uint
     }
     if (count == 0u || count > MRM_MAX_REGS_PER_WRITE)
     {
+        return MB_EXC_ILLEGAL_DATA_VALUE;
+    }
+
+    /* Command block (data-spec §6.5, LLD-D16). Checked before any slot lookup, so a refused block
+     * has no side effect and the answer does not depend on which addresses are mapped. */
+    uint16_t cmd_regs = 0u;
+    bool touches_time_pair = false;
+
+    for (uint16_t i = 0u; i < count; i++)
+    {
+        const uint16_t a = (uint16_t) (addr + i);
+
+        if ((a >= MRM_CMD_BLOCK_FIRST) && (a <= MRM_CMD_BLOCK_LAST))
+        {
+            cmd_regs++;
+        }
+        if ((a == MRM_REG_CMD_SET_TIME_HI) || (a == MRM_REG_CMD_SET_TIME_LO))
+        {
+            touches_time_pair = true;
+        }
+    }
+    if ((addr == MRM_REG_CMD_SET_TIME_HI) && (count == MRM_SET_TIME_REG_COUNT))
+    {
+        return apply_cmd_set_time(self, values[0], values[1]);
+    }
+    if (touches_time_pair || (cmd_regs > 1u))
+    {
+        /* One half only, any other span over the pair, or more than one command register. */
+        LOG_WARN(LOG_MODULE, "FC16 over the command block refused at 0x%04X x%u", (unsigned) addr,
+                 (unsigned) count);
         return MB_EXC_ILLEGAL_DATA_VALUE;
     }
 

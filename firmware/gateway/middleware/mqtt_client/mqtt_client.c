@@ -657,6 +657,30 @@ static void prv_teardown_connection(struct mqtt_client_inst *inst)
     inst->connected = false;
 }
 
+/**
+ * @brief Drop the session after a send failed on an established connection (GM-O21).
+ *
+ * coreMQTT writes a packet in pieces (header, then payload). When a later piece fails, the earlier
+ * ones are already inside a TLS record that goes out on the next write, so the stream carries a
+ * truncated MQTT packet and the next packet follows it: the broker answers "RESERVED packet" or
+ * "malformed packet" and drops the connection, minutes after the failure that caused it. The only
+ * safe recovery is a fresh session, so tear down here exactly as mqtt_client_process() does for
+ * MQTTSendFailed, and let the owner reconnect.
+ */
+static void prv_drop_after_send_failure(struct mqtt_client_inst *inst, MQTTStatus_t status)
+{
+    if (status != MQTTSendFailed)
+    {
+        return;
+    }
+    LOG_WARN(MQTT_CLIENT_LOG_MODULE, "Send failed, dropping the session");
+    prv_teardown_connection(inst);
+    if (inst->disconnect_cb != NULL)
+    {
+        inst->disconnect_cb();
+    }
+}
+
 /* ========================================================================
  * IMqttClient
  * ==================================================================== */
@@ -936,9 +960,11 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
      * returns PUBLISH_FAIL here, so CloudPublisher routes it to SAF; only a
      * PUBACK lost on a still-live connection goes untracked, an inherent
      * QoS1/clean-session tail bounded by the keep-alive. */
-    if (MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id) != MQTTSuccess)
+    const MQTTStatus_t publish_status = MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id);
+    if (publish_status != MQTTSuccess)
     {
         handle->stats.publish_failures++;
+        prv_drop_after_send_failure(handle, publish_status);
         return MQTT_CLIENT_ERR_PUBLISH_FAIL;
     }
     handle->stats.publishes_sent++;
@@ -965,9 +991,12 @@ mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char 
     uint16_t packet_id = MQTT_GetPacketId(&handle->mqtt_ctx);
     handle->suback_received = false;
 
-    if (MQTT_Subscribe(&handle->mqtt_ctx, &sub_info, 1u, packet_id) != MQTTSuccess)
+    const MQTTStatus_t subscribe_status =
+        MQTT_Subscribe(&handle->mqtt_ctx, &sub_info, 1u, packet_id);
+    if (subscribe_status != MQTTSuccess)
     {
         handle->stats.subscribe_failures++;
+        prv_drop_after_send_failure(handle, subscribe_status);
         return MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
     }
 

@@ -41,6 +41,12 @@ static bool in_flash(uint32_t addr, uint32_t len)
     return (addr >= INTERNAL_FLASH_BASE_ADDR) && (addr < end) && (len <= (end - addr));
 }
 
+/** @brief True if [addr, addr + len) lies in main flash and above the bootloader. */
+static bool in_writable_flash(uint32_t addr, uint32_t len)
+{
+    return in_flash(addr, len) && (addr >= INTERNAL_FLASH_WRITABLE_FROM_ADDR);
+}
+
 /** @brief Wait, bounded, for the controller to go idle. */
 static bool wait_idle(void)
 {
@@ -129,7 +135,7 @@ internal_flash_err_t internal_flash_erase_page(uint32_t addr)
         return INTERNAL_FLASH_ERR_ALIGN;
     }
 
-    if (!in_flash(addr, INTERNAL_FLASH_PAGE_SIZE_BYTES))
+    if (!in_writable_flash(addr, INTERNAL_FLASH_PAGE_SIZE_BYTES))
     {
         return INTERNAL_FLASH_ERR_ADDR;
     }
@@ -183,7 +189,7 @@ internal_flash_err_t internal_flash_program(uint32_t addr, const uint8_t *data, 
         return INTERNAL_FLASH_ERR_ALIGN;
     }
 
-    if (!in_flash(addr, len))
+    if (!in_writable_flash(addr, len))
     {
         return INTERNAL_FLASH_ERR_ADDR;
     }

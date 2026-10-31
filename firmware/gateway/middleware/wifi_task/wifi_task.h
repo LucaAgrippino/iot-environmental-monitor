@@ -65,6 +65,9 @@ typedef enum
     WIFITASK_OP_SEND,
     WIFITASK_OP_RECV,
     WIFITASK_OP_CLOSE_SOCKET,
+    WIFITASK_OP_RESOLVE,
+    WIFITASK_OP_PING,
+    WIFITASK_OP_RESET_MODULE,
 } wifitask_op_t;
 
 /**
@@ -108,6 +111,11 @@ typedef struct
     size_t rx_buf_len;
     size_t rx_len;
     uint32_t timeout_ms;
+
+    /* RESOLVE: hostname in, dotted-quad address out */
+    const char *hostname;
+    char *ip_out;
+    size_t ip_out_len;
 
     wifi_err_t wifi_status;
 } wifitask_request_t;
@@ -294,6 +302,37 @@ wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket,
  * @note Same blocking/threading contract as wifitask_connect_ap().
  */
 wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t socket);
+
+/**
+ * @brief Resolve a host name to a dotted-quad address through the module's D0 command (routed
+ *        through WifiTask, so it cannot interleave with another module command).
+ *
+ * The ISM43362 takes only addresses in its socket commands. A lookup that fails holds the module
+ * for about 10 s before it answers ERROR (WIFI-O18), so this call can block that long.
+ *
+ * @param[in]  hostname   Null-terminated host name (a literal address returns itself).
+ * @param[out] ip_out     Receives the null-terminated address.
+ * @param[in]  ip_out_len Capacity of ip_out (WIFI_IPV4_STR_LEN is enough).
+ * @return WIFITASK_ERR_OK, WIFITASK_ERR_NULL_PTR, WIFITASK_ERR_TIMEOUT, or the WifiDriver error
+ *         passed through. Task context only (GM-O18).
+ */
+wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, char *ip_out,
+                                size_t ip_out_len);
+
+/**
+ * @brief Ask the Wi-Fi module whether it answers (wifi_ping(), routed through WifiTask).
+ * @return WIFITASK_ERR_OK if it did; WIFI_ERR_TIMEOUT (passed through) if it is wedged.
+ */
+wifitask_err_t wifitask_ping(wifitask_handle_t handle);
+
+/**
+ * @brief Hardware-reset the Wi-Fi module and boot it again (wifi_reset_module(), GM-O22).
+ *
+ * Last-resort recovery for a module that stopped answering. The association and every socket are
+ * gone afterwards, so the caller joins the access point again. WifiTask's pending receive state is
+ * cleared. Blocks for the boot sequence (about 1 s, up to 8 s when it fails).
+ */
+wifitask_err_t wifitask_reset_module(wifitask_handle_t handle);
 
 #ifdef TEST
 
