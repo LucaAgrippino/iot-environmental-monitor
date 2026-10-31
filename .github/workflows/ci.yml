@@ -46,10 +46,10 @@ jobs:
           - target: l475
             project_path: firmware/gateway
             project_target: gateway/Debug
-          # The production image: Src/main.c and every module, no harness (build-configurations.md).
-          - target: l475-app
+          # The production image (Release): Src/main.c and every module, no harness (build-configurations.md).
+          - target: l475-release
             project_path: firmware/gateway
-            project_target: gateway/Gateway-App
+            project_target: gateway/Release
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +64,7 @@ jobs:
       # The production main needs the git-ignored credential headers. CI has none, so it builds with
       # placeholders: the image compiles, links and has the right size, but cannot connect.
       - name: Placeholder credential headers
-        if: matrix.target == 'l475-app'
+        if: matrix.target == 'l475-release'
         run: bash scripts/make-placeholder-bringup-headers.sh
 
       - name: Build with STM32CubeIDE
@@ -79,9 +79,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The configurations CI builds: Debug on both boards, Gateway-App on the Gateway.
+      # The configurations CI builds: Debug and Release on the Gateway, Debug on the Field Device
+      # (its Release is stale: build-configurations.md section 7).
       - name: Check that each configuration compiles exactly one main()
-        run: python3 scripts/check-build-exclusions.py --config Debug --config Gateway-App
+        run: |
+          python3 scripts/check-build-exclusions.py --config Debug --config Release firmware/gateway
+          python3 scripts/check-build-exclusions.py --config Debug firmware/field-device
 
   cppcheck:
     name: Static analysis (cppcheck)
