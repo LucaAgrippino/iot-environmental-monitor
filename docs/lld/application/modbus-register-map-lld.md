@@ -583,7 +583,7 @@ write_cmd_reset_metrics(value):
         return ILLEGAL_DATA_VALUE
     /* LLD-D15: routed via LifecycleController, which dispatches to
      * health_admin->reset_metrics(). MRM does not call HealthMonitor
-     * directly — see lifecycle-controller.md §3.                       */
+     * directly — see lifecycle-controller-lld.md §3.                       */
     lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_RESET_METRICS)
     /* MRM must also zero its own stats snapshot so the next poll does
      * not compute a negative delta (see §9.3).                          */
@@ -845,7 +845,7 @@ Initialisation order (called from system init):
    `ModbusSlave` via `modbus_slave_bind_register_map()`.
 4. `ModbusSlaveTask` is created and starts processing frames.
 
-The start-gate event group (per `lifecycle-controller.md`, **LC-O3**)
+The start-gate event group (per `lifecycle-controller-lld.md`, **LC-O3**)
 ensures `ModbusSlaveTask` does not begin until step 3 completes.
 
 ---

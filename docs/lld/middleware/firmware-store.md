@@ -1018,7 +1018,7 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 - `docs/state-machines.md` Machine 1 (UpdatingFirmware, I18), Machine 3
 - `docs/sequence-diagrams.md` SD-00c, SD-06a–d
 - `docs/task-breakdown.md` (`UpdateServiceTask`, D23, D26)
-- `docs/lld/application/lifecycle-controller.md` (`get_pending_flags` consumer)
+- `docs/lld/application/lifecycle-controller-lld.md` (`get_pending_flags` consumer)
 - `docs/lld/application/update-service-lld.md` (Draft — to be aligned, §15)
 - `docs/lld/drivers/qspi-flash-driver.md` (QSPID-O1)
 - `docs/architecture-principles.md` P1, P3, P4, P6, P7, P8, P10
