@@ -17,6 +17,7 @@
 #include "event_groups.h"
 #endif /* TEST */
 
+#include "device_profile_registry/device_profile_registry.h"
 #include "lifecycle_wiring_internal.h"
 
 #ifdef TEST
@@ -234,12 +235,38 @@ static const lc_cloud_if_t k_cloud = {
 /* IModbusPoller / ITimeService                                             */
 /* ======================================================================= */
 
+/* Interim profile storage: nothing is stored and a change is refused (PERSIST) until ConfigService
+ * carries the profiles in its blob (device-profile-registry-lld.md §5.1, D-2).  The registry serves
+ * its default profile, which is what the placeholder did. */
+static bool profiles_load(device_profile_t *out, uint8_t max, uint8_t *count_out)
+{
+    (void) out;
+    (void) max;
+    (void) count_out;
+    return false;
+}
+
+static bool profiles_save(const device_profile_t *in, uint8_t count)
+{
+    (void) in;
+    (void) count;
+    return false;
+}
+
+static const device_profile_storage_t k_profile_storage = {.load = profiles_load,
+                                                           .save = profiles_save};
+
 static lc_dep_status_t poller_init(void *ctx)
 {
     (void) ctx;
     const config_params_t *params = config_service_get_params();
 
     if (params == NULL)
+    {
+        return LC_DEP_FAIL;
+    }
+    if ((device_profile_registry_init(&k_profile_storage) != DEVICE_PROFILE_REGISTRY_OK) ||
+        (device_profile_registry_load() != DEVICE_PROFILE_REGISTRY_OK))
     {
         return LC_DEP_FAIL;
     }

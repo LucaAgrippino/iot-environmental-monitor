@@ -1014,7 +1014,7 @@ static console_service_err_t cmd_prov_discard(int argc, const char *argv[])
 
 static console_service_err_t cmd_profiles_list(int argc, const char *argv[])
 {
-    const device_profile_t *p = NULL;
+    device_profile_t p;
     uint8_t index = 0U;
     uint8_t listed = 0U;
 
@@ -1022,9 +1022,8 @@ static console_service_err_t cmd_profiles_list(int argc, const char *argv[])
     (void) argv;
     while ((listed < PROFILES_MAX_LISTED) && s_deps->prof_read->get_next(&p, &index))
     {
-        SAY(PAL_INK, "  slave %3u   input regs %u..%u", (unsigned) p->slave_addr,
-            (unsigned) p->input_reg_start,
-            (unsigned) (p->input_reg_start + p->input_reg_count - 1U));
+        SAY(PAL_INK, "  slave %3u   map %u   vendor 0x%04X   %s", (unsigned) p.slave_addr,
+            (unsigned) p.map_version, (unsigned) p.vendor_code, p.description);
         listed++;
     }
     if (listed == 0U)

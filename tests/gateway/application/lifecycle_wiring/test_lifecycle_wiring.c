@@ -10,6 +10,7 @@
 
 #include <string.h>
 
+#include "device_profile_registry_stub.h"
 #include "freertos_mock.h"
 #include "lifecycle_controller.h"
 #include "lifecycle_wiring.h"
@@ -161,6 +162,22 @@ static uint32_t s_poller_period_seen;
 static health_monitor_handle_t s_poller_health_seen;
 static bool s_poller_ready;
 static uint32_t s_poller_run_calls;
+
+static device_profile_registry_err_t s_registry_init_result;
+static device_profile_registry_err_t s_registry_load_result;
+static uint32_t s_registry_init_calls;
+
+device_profile_registry_err_t device_profile_registry_init(const device_profile_storage_t *storage)
+{
+    (void) storage;
+    s_registry_init_calls++;
+    return s_registry_init_result;
+}
+
+device_profile_registry_err_t device_profile_registry_load(void)
+{
+    return s_registry_load_result;
+}
 
 modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_handle_t health)
 {
@@ -408,6 +425,9 @@ void setUp(void)
     s_cloud_handle_seen = NULL;
     s_poller_init_result = MODBUS_POLLER_ERR_OK;
     s_poller_init_calls = 0U;
+    s_registry_init_result = DEVICE_PROFILE_REGISTRY_OK;
+    s_registry_load_result = DEVICE_PROFILE_REGISTRY_OK;
+    s_registry_init_calls = 0U;
     s_poller_period_seen = 0U;
     s_poller_health_seen = NULL;
     s_poller_ready = true;
@@ -735,6 +755,26 @@ void test_LW_042_poller_init_uses_the_configured_period_and_the_health_handle(vo
     TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.modbus_poller->init(NULL));
     TEST_ASSERT_EQUAL_UINT32(POLL_PERIOD_MS, s_poller_period_seen);
     TEST_ASSERT_EQUAL_PTR(HEALTH, s_poller_health_seen);
+}
+
+void test_LW_042b_the_profile_registry_is_initialised_and_loaded_before_the_poller(void)
+{
+    bind_ok();
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.modbus_poller->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_registry_init_calls);
+}
+
+void test_LW_042c_a_registry_failure_stops_the_poller_from_starting(void)
+{
+    bind_ok();
+    s_registry_init_result = DEVICE_PROFILE_REGISTRY_ERR_NO_RESOURCE;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.modbus_poller->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_poller_init_calls);
+
+    s_registry_init_result = DEVICE_PROFILE_REGISTRY_OK;
+    s_registry_load_result = DEVICE_PROFILE_REGISTRY_ERR_NOT_INIT;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.modbus_poller->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_poller_init_calls);
 }
 
 void test_LW_043_poller_init_failures_are_reported(void)
