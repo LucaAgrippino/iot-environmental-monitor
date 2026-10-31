@@ -494,6 +494,34 @@ void test_MQTT_T06_connect_tls_handshake_failure(void)
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_TLS_FAIL, mqtt_client_connect(handle, &cfg));
 }
 
+/* The TLS record is larger than one module send can carry (WP4 F-12): the BIO send hands over
+ * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The context
+ * is not built by a connect here: only its first fields (the WifiTask handle and the socket) are read,
+ * and the stub ignores both. */
+int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
+
+void test_MQTT_T06d_bio_send_is_capped_at_the_module_ceiling(void)
+{
+    static uint8_t ctx[256];
+    static unsigned char record[3000];
+
+    memset(ctx, 0, sizeof(ctx));
+    TEST_ASSERT_EQUAL_INT((int) WIFITASK_MAX_SEND_BYTES,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+    TEST_ASSERT_EQUAL_UINT32(1u, (uint32_t) s_send_call_count);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFITASK_MAX_SEND_BYTES, (uint32_t) s_send_total_bytes);
+}
+
+void test_MQTT_T06e_bio_send_below_the_ceiling_is_sent_whole(void)
+{
+    static uint8_t ctx[256];
+    static unsigned char record[300];
+
+    memset(ctx, 0, sizeof(ctx));
+    TEST_ASSERT_EQUAL_INT((int) sizeof(record), prv_mbedtls_net_send(ctx, record, sizeof(record)));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) sizeof(record), (uint32_t) s_send_total_bytes);
+}
+
 /* ========================================================================
  * MQTT-T07..T10 — mqtt_client_publish()
  * ==================================================================== */
