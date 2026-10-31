@@ -93,6 +93,7 @@ console_service_err_t repl_execute(const char *line)
     char copy[LINE_COPY_MAX];
     const char *argv[MAX_ARGS];
     int argc = 0;
+    bool too_many = false;
 
     (void) snprintf(copy, sizeof(copy), "%s", line);
 
@@ -115,6 +116,10 @@ console_service_err_t repl_execute(const char *line)
             argv[argc] = p;
             argc++;
         }
+        else
+        {
+            too_many = true; /* never drop words silently: a description would be cut short */
+        }
         while ((*p != '\0') && (*p != ' ') && (*p != '\t'))
         {
             p++;
@@ -127,5 +132,10 @@ console_service_err_t repl_execute(const char *line)
         return CONSOLE_SERVICE_ERR_OK;
     }
     prv_echo(line);
+    if (too_many)
+    {
+        repl_puts(PAL_ERR, "[ERR] too many words (max 8)");
+        return CONSOLE_SERVICE_ERR_LINE_OVERFLOW;
+    }
     return commands_dispatch(argc, argv);
 }
