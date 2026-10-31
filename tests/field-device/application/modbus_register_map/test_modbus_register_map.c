@@ -106,6 +106,17 @@ static modbus_slave_err_t stub_set_address(uint8_t new_addr)
     return MODBUS_SLAVE_ERR_OK;
 }
 
+static uint32_t s_time_set_call_count;
+static uint32_t s_time_set_last_epoch;
+static time_provider_err_t s_time_set_rc;
+
+static time_provider_err_t stub_time_set(uint32_t new_epoch)
+{
+    s_time_set_call_count++;
+    s_time_set_last_epoch = new_epoch;
+    return s_time_set_rc;
+}
+
 static lifecycle_err_t stub_handle_remote_command(lifecycle_remote_cmd_t cmd)
 {
     s_lc_cmd_called = true;
@@ -177,6 +188,10 @@ void setUp(void)
     s_mb_stats_vtable.snapshot = stub_mb_stats_snapshot;
     s_mb_slave_vtable.set_address = stub_set_address;
     s_lifecycle_vtable.handle_remote_command = stub_handle_remote_command;
+    s_time_vtable.set_time = stub_time_set;
+    s_time_set_call_count = 0u;
+    s_time_set_last_epoch = 0u;
+    s_time_set_rc = TIME_PROVIDER_ERR_OK;
 
     /* Default params */
     memset(&s_params, 0, sizeof s_params);
@@ -671,4 +686,134 @@ void test_TC_MRM_027_command_registers(void)
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, exc);
     TEST_ASSERT_TRUE(s_lc_cmd_called);
     TEST_ASSERT_EQUAL_INT(LC_REMOTE_CMD_SOFT_RESTART, s_last_lc_cmd);
+}
+
+/* ===================================================================== */
+/* TC-MRM-028..034: CMD_SET_TIME (data-spec §6.5, LLD-D16, TS-O5)         */
+/* ===================================================================== */
+
+#define TC_EPOCH ((uint32_t) 1793440168UL) /* 2026-10-31 */
+#define TC_EPOCH_MIN ((uint32_t) 946684800UL)
+#define TC_EPOCH_MAX ((uint32_t) 4102444799UL)
+
+static modbus_exception_t write_time_block(uint32_t epoch)
+{
+    const uint16_t words[2] = {(uint16_t) (epoch >> 16), (uint16_t) (epoch & 0xFFFFu)};
+
+    return s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 2u, words);
+}
+
+/* TC-MRM-028: both halves in one FC16 set the time once, from HI:LO */
+void test_TC_MRM_028_set_time_both_halves_in_one_fc16(void)
+{
+    init_mrm();
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, write_time_block(TC_EPOCH));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_time_set_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_EPOCH, s_time_set_last_epoch);
+}
+
+/* TC-MRM-029: reading the pair returns the last block written, 0 before any */
+void test_TC_MRM_029_set_time_read_after_write(void)
+{
+    init_mrm();
+    uint16_t buf[2] = {0xFFFFu, 0xFFFFu};
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, s_iface.read_holding_regs(s_iface.ctx, 0x0210u, 2u, buf));
+    TEST_ASSERT_EQUAL_HEX16(0u, buf[0]);
+    TEST_ASSERT_EQUAL_HEX16(0u, buf[1]);
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, write_time_block(TC_EPOCH));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, s_iface.read_holding_regs(s_iface.ctx, 0x0210u, 2u, buf));
+    TEST_ASSERT_EQUAL_HEX16((uint16_t) (TC_EPOCH >> 16), buf[0]);
+    TEST_ASSERT_EQUAL_HEX16((uint16_t) (TC_EPOCH & 0xFFFFu), buf[1]);
+}
+
+/* TC-MRM-030: one half on its own is refused, by FC06 and by a one-register FC16; nothing is
+ * applied and nothing is latched */
+void test_TC_MRM_030_set_time_one_half_is_refused(void)
+{
+    init_mrm();
+    const uint16_t one = 0x1234u;
+    uint16_t buf[2] = {0xFFFFu, 0xFFFFu};
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_single_reg(s_iface.ctx, 0x0210u, one));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_single_reg(s_iface.ctx, 0x0211u, one));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 1u, &one));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_multiple_regs(s_iface.ctx, 0x0211u, 1u, &one));
+
+    TEST_ASSERT_EQUAL_UINT32(0u, s_time_set_call_count);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, s_iface.read_holding_regs(s_iface.ctx, 0x0210u, 2u, buf));
+    TEST_ASSERT_EQUAL_HEX16(0u, buf[0]);
+    TEST_ASSERT_EQUAL_HEX16(0u, buf[1]);
+}
+
+/* TC-MRM-031: any other span over the pair is refused, whatever it also covers */
+void test_TC_MRM_031_set_time_other_spans_are_refused(void)
+{
+    init_mrm();
+    const uint16_t words[3] = {0x6B00u, 0x1234u, 0x0000u};
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 3u, words));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_multiple_regs(s_iface.ctx, 0x0211u, 2u, words));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_multiple_regs(s_iface.ctx, 0x020Fu, 3u, words));
+    TEST_ASSERT_EQUAL_UINT32(0u, s_time_set_call_count);
+}
+
+/* TC-MRM-032: a time outside the RTC's 2000..2099 is refused; both limits are accepted */
+void test_TC_MRM_032_set_time_range(void)
+{
+    init_mrm();
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE, write_time_block(0u));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE, write_time_block(TC_EPOCH_MIN - 1u));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE, write_time_block(TC_EPOCH_MAX + 1u));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE, write_time_block(0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL_UINT32(0u, s_time_set_call_count);
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, write_time_block(TC_EPOCH_MIN));
+    TEST_ASSERT_EQUAL_UINT32(TC_EPOCH_MIN, s_time_set_last_epoch);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, write_time_block(TC_EPOCH_MAX));
+    TEST_ASSERT_EQUAL_UINT32(TC_EPOCH_MAX, s_time_set_last_epoch);
+    TEST_ASSERT_EQUAL_UINT32(2u, s_time_set_call_count);
+}
+
+/* TC-MRM-033: a refusal by TimeProvider (its delta check, a failing RTC) is Illegal Data Value;
+ * a repeated write applies again */
+void test_TC_MRM_033_set_time_provider_refusal_and_repeat(void)
+{
+    init_mrm();
+
+    s_time_set_rc = TIME_PROVIDER_ERR_RTC_FAIL;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE, write_time_block(TC_EPOCH));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_time_set_call_count);
+
+    s_time_set_rc = TIME_PROVIDER_ERR_OK;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, write_time_block(TC_EPOCH));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, write_time_block(TC_EPOCH));
+    TEST_ASSERT_EQUAL_UINT32(3u, s_time_set_call_count);
+}
+
+/* TC-MRM-034: an FC16 over more than one command register is refused (data-spec §6.5); one
+ * command register by FC16 still works */
+void test_TC_MRM_034_fc16_over_several_command_registers_is_refused(void)
+{
+    init_mrm();
+    const uint16_t both[2] = {0x0001u, 0x0001u};
+    const uint16_t ack = 0x0001u;
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_DATA_VALUE,
+                          s_iface.write_multiple_regs(s_iface.ctx, 0x0200u, 2u, both));
+    TEST_ASSERT_FALSE(s_ack_all_called);
+    TEST_ASSERT_FALSE(s_lc_cmd_called);
+
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, s_iface.write_multiple_regs(s_iface.ctx, 0x0200u, 1u, &ack));
+    TEST_ASSERT_TRUE(s_ack_all_called);
 }

@@ -56,14 +56,21 @@ jobs:
       - name: Generate firmware_version.h
         run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
 
-      - name: Generate firmware_version.h
-        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
-
       - name: Build with STM32CubeIDE
         uses: xanderhendriks/action-build-stm32cubeide@v15.0
         with:
           project-path: ${{ matrix.project_path }}
           project-target: ${{ matrix.project_target }}
+
+  build-exclusions:
+    name: Build configurations (one main() each)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Debug is the only configuration built here. Add Gateway-App once it exists.
+      - name: Check that each configuration compiles exactly one main()
+        run: python3 scripts/check-build-exclusions.py --config Debug
 
   cppcheck:
     name: Static analysis (cppcheck)
@@ -79,9 +86,11 @@ jobs:
 
       - name: Run cppcheck
         run: |
+          # Every module directory, the Gateway bootloader and boot stub, and the shared headers.
           sources=$(find firmware \
             \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \
-               -o -path '*/integration-tests/*' \) \
+               -o -path '*/integration-tests/*' -o -path '*/bootloader/*' -o -path '*/boot-stub/*' \
+               -o -path 'firmware/shared/*' \) \
             \( -name '*.c' -o -name '*.h' \) 2>/dev/null || true)
           if [ -z "$sources" ]; then
             echo "cppcheck: no project source files found — skipping"
@@ -106,10 +115,12 @@ jobs:
 
       - name: Check formatting
         run: |
+          # Same set as the cppcheck job, minus the generated firmware_version.h.
           files=$(find firmware \
             \( -path '*/drivers/*' -o -path '*/middleware/*' -o -path '*/application/*' \
-               -o -path '*/integration-tests/*' \) \
-            \( -name '*.c' -o -name '*.h' \) 2>/dev/null || true)
+               -o -path '*/integration-tests/*' -o -path '*/bootloader/*' -o -path '*/boot-stub/*' \
+               -o -path 'firmware/shared/*' \) \
+            \( -name '*.c' -o -name '*.h' \) ! -name firmware_version.h 2>/dev/null || true)
           if [ -z "$files" ]; then
             echo "clang-format: no project source files found — skipping"
             exit 0

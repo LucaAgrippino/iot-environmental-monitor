@@ -57,6 +57,8 @@ typedef enum
     WIFI_ERR_NULL_PTR = 9,      /**< Required pointer argument was NULL. */
     WIFI_ERR_NO_RESOURCE = 10,  /**< Static instance pool or socket table exhausted. */
 } wifi_err_t;
+/* Keep every wifi_err_t value below 0x100: WifiTask passes them through in its own error type,
+ * whose own codes start at 0x100 (wifi_task.h). */
 
 typedef enum
 {
@@ -218,6 +220,26 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm);
  * @note Threading: task-context only, may block. Not ISR-safe.
  */
 wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip, size_t out_len);
+
+/**
+ * @brief Ask the module whether it answers: sends "I?" and checks for a reply (GM-O22).
+ *
+ * @return WIFI_ERR_OK if it answered; WIFI_ERR_TIMEOUT if it did not accept the command or reply
+ *         (a wedged module); WIFI_ERR_NOT_INIT before wifi_create() or after a failed reset.
+ */
+wifi_err_t wifi_ping(wifi_handle_t handle);
+
+/**
+ * @brief Hardware-reset the module and bring it up again, as wifi_create() does (GM-O22).
+ *
+ * Last-resort recovery for a module that no longer answers. The association and every socket are
+ * gone afterwards (link state DOWN, socket table cleared): the caller must join the access point
+ * and open its sockets again. Blocks for the boot sequence, about 1 s when it works and up to
+ * 3 s + 5 s when it does not. On failure the driver stays not ready until a later reset works.
+ *
+ * @return WIFI_ERR_OK, or the error of the boot step that failed.
+ */
+wifi_err_t wifi_reset_module(wifi_handle_t handle);
 
 /**
  * @brief Open a TCP or UDP socket to a remote host.
