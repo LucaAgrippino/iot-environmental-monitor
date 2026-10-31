@@ -72,6 +72,9 @@ static size_t s_recv_call_count;
 static wifi_err_t s_close_socket_result;
 static size_t s_close_socket_call_count;
 static wifi_socket_t s_close_socket_last_socket;
+static wifi_err_t s_resolve_result;
+static uint32_t s_resolve_call_count;
+static char s_resolve_last_host[64];
 
 static size_t s_attach_datardy_callback_call_count;
 
@@ -108,6 +111,19 @@ static void prv_reset_wifi_stub(void)
     s_close_socket_last_socket = WIFI_INVALID_SOCKET;
 
     s_attach_datardy_callback_call_count = 0u;
+
+    s_resolve_result = WIFI_ERR_OK;
+    s_resolve_call_count = 0u;
+    s_resolve_last_host[0] = '\0';
+}
+
+wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip, size_t out_len)
+{
+    (void) handle;
+    s_resolve_call_count++;
+    (void) strncpy(s_resolve_last_host, hostname, sizeof(s_resolve_last_host) - 1u);
+    (void) strncpy(out_ip, "13.60.114.42", out_len);
+    return s_resolve_result;
 }
 
 wifi_err_t wifi_connect_ap(wifi_handle_t handle, const char *ssid, const char *password)
@@ -806,4 +822,48 @@ void test_WIFITASK_T26_close_socket_resets_recv_slot(void)
     TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
                       wifitask_try_recv(handle, 0u, buf, sizeof(buf), &out_len, 0u, &poll));
     TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_PENDING, poll);
+}
+
+/* GM-O18: the host name goes to the driver on WifiTask's context and the address comes back. */
+void test_WIFITASK_T27_step_dispatches_resolve(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+
+    wifitask_request_t req = {0};
+    req.op = WIFITASK_OP_RESOLVE;
+    req.hostname = "broker.example.test";
+    req.ip_out = ip;
+    req.ip_out_len = sizeof(ip);
+    req.caller = (TaskHandle_t) 0x1234;
+    s_resolve_result = WIFI_ERR_OK;
+
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_resolve_call_count);
+    TEST_ASSERT_EQUAL_STRING("broker.example.test", s_resolve_last_host);
+    TEST_ASSERT_EQUAL_STRING("13.60.114.42", ip);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFI_ERR_OK, g_mock_xTaskNotify_last_value);
+}
+
+void test_WIFITASK_T28_resolve_passes_the_driver_error_through_and_checks_its_arguments(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_resolve(handle, NULL, ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_resolve(handle, "h", NULL, sizeof(ip)));
+
+    wifitask_request_t req = {0};
+    req.op = WIFITASK_OP_RESOLVE;
+    req.hostname = "unknown.example.test";
+    req.ip_out = ip;
+    req.ip_out_len = sizeof(ip);
+    req.caller = (TaskHandle_t) 0x1234;
+    s_resolve_result = WIFI_ERR_MODULE;
+
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFI_ERR_MODULE, g_mock_xTaskNotify_last_value);
 }

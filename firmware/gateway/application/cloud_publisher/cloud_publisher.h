@@ -126,7 +126,16 @@ typedef struct
                                                update_service_get_instance(), valid before
                                                update_service_create() (US-D15).               */
     mqtt_connect_cfg_t mqtt_connect_cfg;  /**< Broker and certificates; stored by value, the
-                                               pointers inside stay caller-owned (CP-D7/D9).  */
+                                               pointers inside stay caller-owned (CP-D7/D9).
+                                               client_id NULL: the device serial (the CPU
+                                               unique id) is used, which is also the topic
+                                               prefix (CP-D33, GM-O19).                       */
+    /** Called in task context before every fresh connect attempt (CP-D34, GM-O17/O18). Gets the
+     *  link ready (rejoin the access point, resolve the broker name) and returns the address to
+     *  connect to, which must stay valid until the next call, or NULL when the link is not
+     *  ready; the attempt then counts as a failure and backs off like any other. NULL hook: the
+     *  address in mqtt_connect_cfg is used as given. It may block for many seconds. */
+    const char *(*connect_prepare)(void);
 } cloud_publisher_config_t;
 
 /**
