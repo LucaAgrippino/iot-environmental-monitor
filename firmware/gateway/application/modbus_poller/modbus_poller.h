@@ -67,6 +67,14 @@ typedef struct
     uint16_t data_len;                         /**< Valid words in data[]. */
 } modbus_command_response_t;
 
+/** @brief Whether a slave has proved its identity against its profile (REQ-MB-120). */
+typedef enum
+{
+    MODBUS_SLAVE_UNVERIFIED = 0, /**< Not checked yet, or must be checked again.            */
+    MODBUS_SLAVE_VERIFIED,       /**< Map version and vendor code match the profile.         */
+    MODBUS_SLAVE_REJECTED        /**< Mismatch or unsupported map version; not polled for data. */
+} modbus_slave_identity_t;
+
 /** @brief Per-slave runtime state; exposed for test observability only. */
 typedef struct
 {
@@ -74,6 +82,8 @@ typedef struct
     uint8_t consecutive_successes;
     uint8_t consecutive_failures;
     bool link_online;
+    modbus_slave_identity_t identity;
+    uint8_t recheck_cycles; /**< Cycles until a rejected slave is checked again. */
 } modbus_slave_state_t;
 
 /**
@@ -155,6 +165,20 @@ typedef struct
 modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out);
 
 /**
+ * @brief Make the next poll cycle check a slave's identity again (REQ-DM-101).
+ *
+ * Call after a profile for @p slave_addr was added or updated at runtime (the registry does not
+ * call the poller). The slave is marked unverified, so before its next data poll the poller repeats
+ * the identity check against the profile as it now is. A rejected slave is re-checked at once.
+ *
+ * @param[in] slave_addr  Provisioned slave address.
+ * @return MODBUS_POLLER_ERR_OK; MODBUS_POLLER_ERR_NOT_INIT before modbus_poller_init();
+ *         MODBUS_POLLER_ERR_REJECTED if the address is not provisioned.
+ * @note Threading: any task.
+ */
+modbus_poller_err_t modbus_poller_reprobe(uint8_t slave_addr);
+
+/**
  * @brief ModbusPoller main loop — the ModbusPollerTask entry point.
  *
  * Completes ModbusMaster's two-phase init with modbus_master_start() (MBP-D3), then
@@ -182,6 +206,11 @@ void modbus_poller_cycle_for_test(void);
  * @return The slot, or NULL if out of range.
  */
 const modbus_slave_state_t *modbus_poller_slave_state_for_test(uint8_t slot);
+
+/**
+ * @brief Mark a slave verified without the identity read, claiming its slot (unit tests only).
+ */
+void modbus_poller_trust_slave_for_test(uint8_t slave_addr);
 #endif /* TEST */
 
 #endif /* MODBUS_POLLER_H */
