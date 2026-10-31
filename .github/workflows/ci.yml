@@ -65,6 +65,16 @@ jobs:
           project-path: ${{ matrix.project_path }}
           project-target: ${{ matrix.project_target }}
 
+  build-exclusions:
+    name: Build configurations (one main() each)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Debug is the only configuration built here. Add Gateway-App once it exists.
+      - name: Check that each configuration compiles exactly one main()
+        run: python3 scripts/check-build-exclusions.py --config Debug
+
   cppcheck:
     name: Static analysis (cppcheck)
     runs-on: ubuntu-latest
