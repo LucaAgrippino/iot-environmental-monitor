@@ -9,7 +9,7 @@
  *
  * Boards: Field Device (STM32F469I-DISCO) and Gateway (B-L475E-IOT01A).
  *
- * @see docs/lld/application/lifecycle-controller.md
+ * @see docs/lld/application/lifecycle-controller-lld.md
  */
 
 #ifndef LIFECYCLE_CONTROLLER_H
