@@ -198,20 +198,21 @@ and a WARN, so a factory-blank or damaged Gateway still polls its one Field Devi
 ```
 add_or_update(p):
     validate(p) else INVALID
-    take mutex
-    snapshot = copy of table and count          /* for rollback */
-    update in place, or append (FULL if count == MAX)
-    release mutex
-    if !storage.save(table, count):
-        take mutex; restore snapshot; release mutex
-        return PERSIST                          /* what runs is what survives a reboot */
-    revision++ ; return OK
+    take write_mutex                            /* one writer at a time            */
+    take mutex; candidate = copy of table and count; release mutex
+    update candidate in place, or append (FULL if count == MAX)
+    if !storage.save(candidate, count):         /* flash I/O, no lock held         */
+        release write_mutex; return PERSIST     /* the live table was never touched */
+    take mutex; table = candidate; revision++; release mutex
+    release write_mutex
+    return OK
 ```
 
-`remove` swaps the last entry into the freed slot (order is not significant) and saves the same way.
-The save runs outside `mutex` (it is flash I/O), so readers are never blocked by it. Writers are serialised
-by a second static mutex, `write_mutex`, taken for the whole `add_or_update` or `remove` (snapshot, change,
-save, possible rollback). A second writer waits; readers never take `write_mutex`.
+The change is made on a **candidate copy** and the live table is replaced only after the save succeeded, so
+a failed save needs no rollback and a reader (the poller) can never see a table that is not on flash: what
+runs is what survives a reboot (D-3). `remove` swaps the last entry into the freed slot on the candidate
+(order is not significant) and saves the same way. `mutex` protects the live table and is never held across
+`save`; `write_mutex` serialises writers for the whole operation; readers never take `write_mutex`.
 
 ### 6.3 Re-probe (D-5, fixes M-8)
 
@@ -274,7 +275,7 @@ and `mutex` is released before `save`.
 | `ERR_NOT_FOUND` | Address not registered | None | Not logged (normal query result) |
 | `ERR_FULL` | 8 profiles registered | Not added | WARN |
 | `ERR_INVALID` | Failed validation | Registry unchanged | WARN |
-| `ERR_PERSIST` | `save` failed | **Change rolled back** (D-3), registry as before the call | WARN |
+| `ERR_PERSIST` | `save` failed | Live table untouched (the change was made on a copy, D-3) | WARN |
 | `ERR_LOAD` | Not returned by `load` (§6.1 seeds the default) | Reserved | — |
 | `ERR_NULL_ARG` / `ERR_NOT_INIT` | Programming error | None | ERROR |
 
@@ -283,7 +284,7 @@ and `mutex` is released before `save`.
 ## 10. Memory
 
 Table 8 × 38 B = 304 B, plus count, revision, two static semaphores and the storage pair: about 400 B static.
-No stack buffer for persistence (the save callback takes the table). ConfigService's blob grows by
+A writer holds one candidate copy on its stack (8 × 38 B + count, about 310 B). ConfigService's blob grows by
 8 × 38 + 1 B.
 
 ---
@@ -310,7 +311,7 @@ Mocks: storage pair, Logger, mutex via the FreeRTOS host fake.
 | TC-DPR-014 | `get_by_addr` found / not found |
 | TC-DPR-015 | `get_next` iterates all, then false; NULL arguments return false |
 | TC-DPR-016 | `is_registered` true / false |
-| TC-DPR-017 | A reader during a failing save sees the old table (rollback is invisible to the poller) |
+| TC-DPR-017 | A reader called from inside a `save` (before and during a failing save) sees the old table |
 | TC-DPR-018 | The description is copied, not referenced (caller buffer changed after the call) |
 
 On target (harness): profile survives a reboot; removed profile is no longer polled; identity mismatch
