@@ -15,15 +15,18 @@
 #   --out DIR            writes gateway_slot_{a,b}.{bin,elf,map,ota} and desc_a.bin there
 #   --fail-selfcheck     build with -DGATEWAY_FORCE_SELF_CHECK_FAIL=1: the modbus probe is false, so the
 #                        trial self-check fails and the bootloader must roll back (TC-SYS-OTA-002)
-#   --flash              provision the board: erase the boot metadata and the slot descriptors, program
-#                        Slot A and its descriptor, reset. The bootloader must already be in flash
-#   --bootloader FILE    with --flash: also program this bootloader.elf (scripts/build-bootloader.sh)
+#   --flash              after the build, provision the board: erase the boot metadata and the slot
+#                        descriptors, program Slot A and its descriptor, reset
+#   --flash-only         provision from an existing --out directory without building (no --version or
+#                        --private needed)
+#   --bootloader FILE    with --flash / --flash-only: also program this bootloader.elf
+#                        (scripts/build-bootloader.sh); otherwise it must already be in flash
 # Needs the Python package "cryptography".
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gw="$root/firmware/gateway"
-version="" key="" out="" fail_sc=0 flash=0 bootloader=""
+version="" key="" out="" fail_sc=0 flash=0 flash_only=0 bootloader=""
 while (( $# )); do
     case "$1" in
         --version) version="$2"; shift 2 ;;
@@ -31,15 +34,17 @@ while (( $# )); do
         --out) out="$2"; shift 2 ;;
         --fail-selfcheck) fail_sc=1; shift ;;
         --flash) flash=1; shift ;;
+        --flash-only) flash=1; flash_only=1; shift ;;
         --bootloader) bootloader="$2"; shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-[[ -n "$version" && -n "$key" && -n "$out" ]] || { sed -n '/^# usage/,/^# Needs/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
-[[ -f "$key" ]] || { echo "no such key: $key" >&2; exit 1; }
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--version must be major.minor.patch" >&2; exit 1; }
+[[ -n "$out" && ( $flash_only == 1 || ( -n "$version" && -n "$key" ) ) ]] || { sed -n '/^# usage/,/^# Needs/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
+if (( ! flash_only )); then  # the build half (not indented: it contains a literal heredoc)
+[[ -f "$key" ]] || { echo "no such key: $key" >&2; exit 1; }
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--version must be major.minor.patch" >&2; exit 1; }
 
 # The key compiled into the image must be the public half of the signing key.
 python3 - "$key" "$gw/middleware/firmware_store/ota_public_key.c" "$root" <<'PY'
@@ -62,7 +67,7 @@ extra="${EXTRA_CFLAGS:-}"
 for slot in A B; do
     lower="${slot,,}"
     echo "== Slot $slot"
-    SLOT="$slot" EXTRA_CFLAGS="$extra" "$root/scripts/build-gateway-app.sh"
+    SLOT="$slot" EXTRA_CFLAGS="$extra" bash "$root/scripts/build-gateway-app.sh"
     build="$gw/Debug/app_slot_${lower}"
     cp "$build/gateway_app.bin" "$out/gateway_slot_${lower}.bin"
     cp "$build/gateway_app.elf" "$out/gateway_slot_${lower}.elf"
@@ -76,6 +81,7 @@ desc_version=$(printf '0x%08x' $(( (major << 24) | (minor << 16) | patch )))
 python3 "$root/scripts/make_slot_descriptor.py" "$out/gateway_slot_a.bin" --slot A \
     --version "$desc_version" -o "$out/desc_a.bin"
 echo "release $version$( (( fail_sc )) && echo ' (self-check forced to fail)') written to $out"
+fi
 
 if (( flash )); then
     p=/opt/st/stm32cubeide_2.2.0/plugins
