@@ -406,7 +406,28 @@ for WP4 is not read as covering it.
 - Lowest free stack words: stack_report 279 of 448, IDLE 104/128, ModbusPoller 301/768, lifecycle 337/896,
   WifiTask 154/320, Tmr Svc 84/128, CloudPublisher 287/768, console 373/704, log_drain 167/384, SensorTask 88/256,
   TS 176/512, UpdateService 668/704. None below the warning line of 48 words.
-- Not validated: end-to-end publishing (GM-O20), the Lifecycle states that were not driven, the Field Device.
+- Not validated: end-to-end publishing (GM-O20, closed in section 10c), the Lifecycle states that were not driven, the Field Device.
+
+---
+
+## 10c. Session 3 results (2026-10-31, PRs #125 to #130)
+
+The first runs of the production image on the board found four faults below `main()`. Each has its own PR, stacked on
+#124 (merge order: `docs/wp4-merge-plan.md`, also posted as a comment on #124).
+
+| Fault | Evidence | PR |
+|---|---|---|
+| Stale backlog replayed in one burst | 311 entries x 4 010 bytes at connect; with the log drained, 2+ minutes clean | #126 |
+| Failed send left a broken session | Broker `RESERVED packet`; subscribes failing every 15 s for minutes | #125 |
+| Module not ready after a send | 8 of 10 boots lost a send; 4 of 10 with a 1 s wait; 0 of 10 with NSS high; 10-minute soak clean | #127 |
+| Module stops answering | A real 1 460-byte send timeout during an unpaced replay recovered by reset in about 15 s | #129 |
+
+Also in this session: boot offline and the connect hook (GM-O17/18/19, #128) and the error-code ranges (GM-O23, #130).
+
+- Image with the console: main bank 97 256 / 98 304 bytes (1 048 spare), SRAM2 30 928 / 32 768. No task can be added.
+- Traps found: restarting the Mosquitto container between bench boots makes the previous boot log a failed send
+  and a session drop (it looks like a firmware failure); two branches that append tests at the same place conflict,
+  and git moves the closing brace of the first test to the wrong side.
 
 ---
 
@@ -425,12 +446,16 @@ for WP4 is not read as covering it.
 | GM-O9 | ModbusPollerTask creation moves to BootTask after `lifecycle_controller_init()` (F-9). The same applies to any task that waits on the start gate |
 | GM-O10 | ModbusPoller (99 %) and log_drain (85 %) stacks are at their limit; the poller was measured without a Field Device. Resize per the table in section 8 |
 | GM-O11 | The arena size: **closed 2026-10-30.** Bisected on the board against AWS IoT: 22 528 and 23 552 fail, 24 576 works, peak 20 920; 28 672 chosen (PR #122, MQTT-D19) |
-| GM-O12 | Cloud chain with NTP running: send/subscribe failures and a 4039-byte send reaching the WiFi driver (F-12). Needs its own investigation before WP5 |
+| GM-O12 | Cloud chain with NTP running: send/subscribe failures and a 4039-byte send reaching the WiFi driver (F-12). Needs its own investigation before WP5 **Closed 2026-10-31:** the cause was the F-12 record split (PR #123) plus the replay of stale StoreAndForward entries and a Wi-Fi module stall, not NTP; see GM-O20 to O22 |
 | GM-O13 | The whole product does not fit the chip's 128 KB of SRAM: **decided, D-1 option F.** The TLS part is PR #122; with the stack trims of session 2 the image is 127 518 bytes against 131 072 (3 554 spare) |
 | GM-O14 | Name resolution (F-13): **decided, D-7**. Driver half `wifi_resolve` in PR #120, MqttClient `tls_server_name` in PR #121; the BootTask call is part of session 2. A failing lookup takes about 10 s and the call may wait up to 60 s |
 | GM-O15 | AWS IoT and max fragment length / the largest record it sends: **not needed.** `MQTT_PKT_BUF_SIZE` is 4 096 and the OTA chunk is 1 024, so no inbound record needs more than the 5 120 input buffer unless two large packets share a record. Reopen if a measured record exceeds it |
 | GM-O16 | The bench-only hooks used for measurement 3 (`MQTT_BENCH_MAX_FRAG_LEN`, `MQTT_BENCH_TLS_HOSTNAME`, `MQTT_BENCH_VERIFY_OPTIONAL`) are not committed. The hostname one is superseded by `tls_server_name` (PR #121); the other two are bench-only |
-| GM-O17 | BootTask halts when the join or the name resolution fails after their retries (it calls `halt_with`): the device then runs no Lifecycle at all. Decide the policy (retry forever with a back-off, or continue offline: the Lifecycle and the StoreAndForward work without a link) |
-| GM-O18 | The broker address is resolved once, at boot. AWS IoT addresses change, so a long-running device reconnects to a stale address. Needs a re-resolve on a failed reconnect (CloudPublisher cooperation) |
-| GM-O19 | The MQTT client id is the placeholder `gw-bringup-001`; CloudPublisher builds its topics from the CPU unique id (`002d004f...`). An AWS IoT policy on `${iot:Connection.Thing.ThingName}` would not match both. Decide the device identity (and where the TLS material and the Wi-Fi credentials are provisioned: they still come from the gitignored bring-up headers) |
-| GM-O20 | Unstable cloud session on the production image after the connect: `wifitask_send(N B) failed, err=6` (module socket error), subscribes `failed (8)`, `Connection lost`, reconnect, repeat. It follows NTP syncs (a UDP socket next to the TCP one, every ~60 s) and the replay of stale StoreAndForward entries (310 old entries from harness runs in the QSPI log, each a 4 010-byte publish). Not isolated. Test with NTP off and with the CircularFlashLog region erased |
+| GM-O17 | BootTask halts when the join or the name resolution fails: **decided and done 2026-10-31 (PR #128).** It no longer halts: the device boots offline and runs (Lifecycle, sensors, Modbus, the log in flash). Luca chose: boot offline plus a reconnect hook |
+| GM-O18 | The broker address is resolved once, at boot: **done (PR #128).** CloudPublisher calls `connect_prepare` before every fresh connect attempt (CP-D34); `main.c` resolves the name again and, if that fails, rejoins the access point and resolves once more. Not tested on hardware: recovery after a real access-point loss |
+| GM-O19 | The MQTT client id was the placeholder `gw-bringup-001`: **decided and done (PR #128).** Luca chose the CPU unique id: `client_id` NULL means the device serial, which is also the topic prefix (CP-D33). **Each board needs an AWS IoT Thing named by its CPU id** and a policy on `${iot:Connection.Thing.ThingName}`. Where the TLS material and the Wi-Fi credentials are provisioned is still open: they come from the gitignored bring-up headers |
+| GM-O20 | Unstable cloud session after the connect (`err=6`, subscribes `failed (8)`, reconnect loop): **closed 2026-10-31.** Not NTP. The 311 stale StoreAndForward entries (4 010 bytes each) were replayed in one burst at connect. With the log drained the session ran clean for over 2 minutes. Fix: paced replay, PR #126 (CP-D32). Residual intermittent failures are GM-O21 and GM-O22 |
+| GM-O21 | A failed publish or subscribe send left the MQTT session marked connected with a truncated packet in the TLS stream (coreMQTT writes in pieces); the broker answered `RESERVED packet` / `malformed packet` and subscribes failed every 15 s. **Fixed, PR #125** (MQTT-D20): the session is torn down and the owner told |
+| GM-O22 | The Wi-Fi module did not raise DRDY for the next command after a send (the `P0` timed out; 8 of 10 boots on the board). **Fixed, PR #127:** the driver waits with NSS high and selects the module once DRDY is up (WIFI-D14), 0 of 10 boots after. Cause inferred from timing (DRDY returned within 100 us of NSS being released). **Follow-up, PR #129:** a module that stops answering altogether (seen after the unpaced burst) is reset by `wifi_reset_module()` when a ping gets no answer (WIFI-D15); a real stall recovered in about 15 s |
+| GM-O23 | `wifitask_err_t` codes 1, 2, 3 were also `WIFI_ERR_NOT_INIT`, `_SPI`, `_MODULE`, and MqttClient retries on two of them. Latent. **Fixed, PR #130:** WifiTask's own codes start at 0x100 (WIFITASK-D8) |
+| GM-O24 | End-to-end publishing and the OTA path are not validated on the production image with a real AWS IoT Thing; the NTP sync is not retried after an offline boot (TimeService behaviour); recovery after a real access-point loss is untested |
