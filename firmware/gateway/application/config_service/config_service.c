@@ -383,7 +383,15 @@ static void prv_apply_defaults(config_params_t *p)
 /* The blob being written. It lives here, not on the caller's stack: a persist is called from small
  * task stacks (the console task has 3 KB) and the blob is over 500 bytes. persist_mutex guards it
  * and is held for the whole save, so one buffer is enough. */
-static config_blob_t s_persist_blob;
+#ifdef TEST
+#define PERSIST_BLOB_PLACEMENT /* host builds: ordinary static storage */
+#else
+/* SRAM2, like the console's big buffers: the 96 KB main bank is full (gateway-main.md GM-O13) and a
+ * 520-byte blob there made the production image fail to link. The blob is only read by the CPU
+ * (ConfigStore copies it to flash), so the bank makes no difference. */
+#define PERSIST_BLOB_PLACEMENT __attribute__((section(".bss.sram2")))
+#endif
+static config_blob_t s_persist_blob PERSIST_BLOB_PLACEMENT;
 
 /* Write the current parameters and profiles to flash. Call with NO mutex held.
  *

@@ -580,8 +580,10 @@ silenced the board (FreeRTOS stack-overflow hook). Fixed by measurement (`-fstac
 
 `persist_mutex` is now taken **before** the data mutex copy (it was after), so a save that starts later always
 holds the newest values; the old order let an older copy overwrite a newer one when two persists raced.
-The static blob costs about 520 bytes of RAM, saved on every caller's stack (the console, CloudPublisher
-and the lifecycle task).
+The static blob costs about 520 bytes, saved on every caller's stack (the console, CloudPublisher and the
+lifecycle task). It sits in **SRAM2** (`.bss.sram2`, like the console's buffers): in the 96 KB main bank it made the
+production image fail to link by 504 bytes (found by CI on the merged tree, 2026-10-31). The registry's table
+is in SRAM2 for the same reason. Slack of the `Release` image after this: 748 bytes in the main bank, 596 bytes in SRAM2.
 
 ### §7.4 Vtable singletons
 

@@ -20,8 +20,9 @@
  * Task stacks follow decision D-1 option F (1.5x the measured use). Every task's lowest free stack
  * is logged by the stack reporter, with a warning when it runs low.
  *
- * This file is excluded from the CubeIDE build (`excluding="main.c"` in .cproject, standing rule:
- * not edited by Claude); scripts/build-gateway-app.sh builds the image without CubeIDE.
+ * This file is the entry point of the CubeIDE `Release` configuration (the production image;
+ * `Debug` stays the bring-up harness build, see docs/dev-tools/build-configurations.md). The same
+ * image is built without CubeIDE by scripts/build-gateway-app.sh.
  */
 
 #include <stdint.h>
@@ -186,13 +187,13 @@ static const led_pin_t k_gw_led_pins[LED_COUNT] = {
 };
 
 #if GATEWAY_WITH_CONSOLE
-/* Read side of DeviceProfileRegistry for the console's `profiles list`. */
-static bool profile_next(const device_profile_t **p, uint8_t *index)
+/* `profiles add` and the remote profile commands change what the poller must verify: after a change
+ * the poller checks that slave's identity again (REQ-DM-101). The registry does not call the poller
+ * (P1), so the caller does, through this hook. */
+static void reprobe_after_profile_change(uint8_t slave_addr)
 {
-    return device_profile_get_next(p, index);
+    (void) modbus_poller_reprobe(slave_addr);
 }
-
-static const idevice_profile_provider_t k_profiles = {.get_next = profile_next};
 #endif
 
 /* UpdateService's self-check probes (GM-O4: there is no provider module yet; this adapter is it).
@@ -651,7 +652,9 @@ int main(void)
                                          .cfg_read = config_service_get_provider(),
                                          .cfg_write = config_service_get_manager(),
                                          .health = s_hm,
-                                         .prof_read = &k_profiles};
+                                         .prof_read = device_profile_provider,
+                                         .prof_write = device_profile_manager,
+                                         .on_profile_changed = reprobe_after_profile_change};
 
     if (console_service_init(&console_deps) != CONSOLE_SERVICE_ERR_OK)
     {

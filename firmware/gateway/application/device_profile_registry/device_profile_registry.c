@@ -43,7 +43,13 @@ typedef struct
     bool initialised;
 } registry_t;
 
-static registry_t s_reg;
+#ifdef TEST
+#define REGISTRY_PLACEMENT /* host builds: ordinary static storage */
+#else
+/* SRAM2: the 96 KB main bank of the production image has almost no room left (GM-O13). */
+#define REGISTRY_PLACEMENT __attribute__((section(".bss.sram2")))
+#endif
+static registry_t s_reg REGISTRY_PLACEMENT;
 
 /* ====================================================================== */
 /* Helpers                                                                */
