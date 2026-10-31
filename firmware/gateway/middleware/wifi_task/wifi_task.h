@@ -60,6 +60,8 @@ typedef enum
     WIFITASK_OP_RECV,
     WIFITASK_OP_CLOSE_SOCKET,
     WIFITASK_OP_RESOLVE,
+    WIFITASK_OP_PING,
+    WIFITASK_OP_RESET_MODULE,
 } wifitask_op_t;
 
 /**
@@ -310,6 +312,21 @@ wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t soc
  */
 wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, char *ip_out,
                                 size_t ip_out_len);
+
+/**
+ * @brief Ask the Wi-Fi module whether it answers (wifi_ping(), routed through WifiTask).
+ * @return WIFITASK_ERR_OK if it did; WIFI_ERR_TIMEOUT (passed through) if it is wedged.
+ */
+wifitask_err_t wifitask_ping(wifitask_handle_t handle);
+
+/**
+ * @brief Hardware-reset the Wi-Fi module and boot it again (wifi_reset_module(), GM-O22).
+ *
+ * Last-resort recovery for a module that stopped answering. The association and every socket are
+ * gone afterwards, so the caller joins the access point again. WifiTask's pending receive state is
+ * cleared. Blocks for the boot sequence (about 1 s, up to 8 s when it fails).
+ */
+wifitask_err_t wifitask_reset_module(wifitask_handle_t handle);
 
 #ifdef TEST
 

@@ -55,7 +55,8 @@
 #define WIFITASK_WIFI_RESP_TIMEOUT_MS 5000u
 #define WIFITASK_WIFI_JOIN_TIMEOUT_MS 20000u
 #define WIFITASK_WIFI_SOCKET_CONNECT_TIMEOUT_MS 15000u
-#define WIFITASK_WIFI_DNS_TIMEOUT_MS 60000u /**< WifiDriver WIFI_DNS_TIMEOUT_MS (WIFI-O18). */
+#define WIFITASK_WIFI_RESET_TIMEOUT_MS 10000u /**< Boot sequence of wifi_reset_module(). */
+#define WIFITASK_WIFI_DNS_TIMEOUT_MS 60000u   /**< WifiDriver WIFI_DNS_TIMEOUT_MS (WIFI-O18). */
 
 /** WIFITASK-O5 resolution: reply-wait bound is this request's own
  *  worst-case dispatch time plus queueing margin for up to 2 other
@@ -201,6 +202,12 @@ static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *r
         return wifi_close_socket(inst->wifi, req->socket);
     case WIFITASK_OP_RESOLVE:
         return wifi_resolve(inst->wifi, req->hostname, req->ip_out, req->ip_out_len);
+    case WIFITASK_OP_PING:
+        return wifi_ping(inst->wifi);
+    case WIFITASK_OP_RESET_MODULE:
+        prv_recv_slot_reset(inst); /* the module's sockets are gone */
+        inst->last_known_link_state = WIFI_LINK_DOWN;
+        return wifi_reset_module(inst->wifi);
     default:
         return WIFI_ERR_INVALID_ARG;
     }
@@ -539,6 +546,20 @@ wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, 
     };
     return prv_submit_and_wait(handle, &req,
                                WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_DNS_TIMEOUT_MS));
+}
+
+wifitask_err_t wifitask_ping(wifitask_handle_t handle)
+{
+    wifitask_request_t req = {.op = WIFITASK_OP_PING};
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+}
+
+wifitask_err_t wifitask_reset_module(wifitask_handle_t handle)
+{
+    wifitask_request_t req = {.op = WIFITASK_OP_RESET_MODULE};
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESET_TIMEOUT_MS));
 }
 
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,

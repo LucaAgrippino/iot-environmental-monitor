@@ -563,6 +563,68 @@ void test_WIFI_T15_drdy_timeout(void)
     TEST_ASSERT_EQUAL(GPIO_LEVEL_HIGH, last_write_level(NSS_PORT, NSS_PIN));
 }
 
+/* GM-O22: the module can be asked whether it answers. */
+void test_WIFI_T26_ping_reports_an_answering_module(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_ping(handle));
+    TEST_ASSERT_TRUE(helper_tx_contains("I?"));
+}
+
+void test_WIFI_T26b_ping_reports_a_wedged_module_as_a_timeout(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    /* Nothing scripted: the module never gives a Command Phase. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_ping(handle));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_ping(NULL));
+}
+
+/* GM-O22: a reset brings the module back to a fresh boot state: link down, sockets gone. */
+void test_WIFI_T27_reset_module_boots_it_again_and_forgets_the_link_and_sockets(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    helper_script_boot_cursor();
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u);
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_reset_module(handle));
+
+    wifi_link_state_t state = WIFI_LINK_UP;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_link_state(handle, &state));
+    TEST_ASSERT_EQUAL(WIFI_LINK_DOWN, state);
+    const uint8_t payload[] = {0x01u};
+    TEST_ASSERT_EQUAL(WIFI_ERR_NOT_CONNECTED, wifi_send(handle, sock, payload, sizeof(payload)));
+}
+
+void test_WIFI_T27b_a_reset_that_fails_leaves_the_driver_not_ready(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    /* Nothing scripted: no boot cursor, the module is dead. */
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_reset_module(handle));
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_NOT_INIT, wifi_get_rssi(handle, &rssi));
+
+    /* A later reset that works brings it back. */
+    helper_script_boot_cursor();
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u);
+    helper_script_at_command("C3.5.2.3.BETA9\r\nOK\r\n"); /* I? */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_reset_module(handle));
+    TEST_ASSERT_EQUAL(WIFI_ERR_NULL_PTR, wifi_reset_module(NULL));
+}
+
 void test_WIFI_T16_nss_deasserted_on_spi_error(void)
 {
     wifi_handle_t handle = helper_create_ready();
@@ -651,8 +713,8 @@ void test_WIFI_T23_close_socket_frees_slot_even_when_stop_client_fails(void)
      * command errors. wifi_close_socket() must still free the local slot so
      * a reconnect can reopen it — the previous code leaked it, wedging every
      * subsequent open with WIFI_ERR_SOCKET. */
-    helper_script_at_command("\r\nOK\r\n");            /* P0= (select) */
-    helper_script_at_command("\r\nERROR: dead\r\n");   /* P6=0 fails */
+    helper_script_at_command("\r\nOK\r\n");          /* P0= (select) */
+    helper_script_at_command("\r\nERROR: dead\r\n"); /* P6=0 fails */
     TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET, wifi_close_socket(handle, sock));
 
     /* Slot must be reusable despite the failed stop-client. */

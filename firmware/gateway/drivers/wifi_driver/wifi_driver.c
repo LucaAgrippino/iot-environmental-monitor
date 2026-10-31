@@ -441,6 +441,59 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
     return prv_parse_response(resp_buf, received);
 }
 
+static wifi_err_t prv_send_kv(struct wifi_inst *inst, const char *code, const char *value,
+                              size_t *out_resp_len, uint32_t resp_timeout_ms);
+
+/**
+ * @brief Hardware reset of the module and the boot handshake up to a verified "I?" answer
+ *        (companion §3.6 Phase 1). Used by wifi_create() and wifi_reset_module().
+ */
+static wifi_err_t prv_boot_module(struct wifi_inst *inst)
+{
+    /* Hardware reset sequence (companion §3.6 Phase 1). */
+    gpio_write_pin(inst->boot0_port, inst->boot0_pin, GPIO_LEVEL_LOW);
+    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_LOW);
+    cpu_delay_ms(WIFI_RESET_PULSE_MS);
+    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_HIGH);
+    cpu_delay_ms(WIFI_BOOT_WAIT_MS);
+    gpio_write_pin(inst->wakeup_port, inst->wakeup_pin, GPIO_LEVEL_HIGH);
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
+
+    (void) exti_configure(WIFI_DRDY_EXTI_LINE, EXTI_PORT_E, EXTI_EDGE_RISING);
+
+    /* Drain the post-reset boot prompt before issuing any AT command
+     * (datasheet §10.2.1). */
+    wifi_err_t err = prv_drain_boot_cursor(inst);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+
+    /* The module needs more real settle time to reach the first genuine
+     * Command Phase than steady-state per-command turnaround
+     * (WIFI_DRDY_TIMEOUT_MS) allows for — confirmed on hardware (WIFI-O7):
+     * the boot cursor drains fine, but DRDY doesn't rise again within
+     * 100 ms afterward. Wait for it here, generously, before the first
+     * command; prv_at_command()'s own (tight) pre-send wait then passes
+     * near-instantly since DRDY is already high by the time it checks. */
+    if (!prv_wait_drdy(inst, true, WIFI_BOOT_DRDY_TIMEOUT_MS))
+    {
+        return WIFI_ERR_TIMEOUT;
+    }
+
+    /* WIFI_AT_INFO ("I?") — module info and liveness check in one step.
+     * The quick-reference AT command doc marks "?" (print help) as "Not
+     * available in SPI firmware", so it is never sent here. */
+    size_t resp_len = 0u;
+    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len, WIFI_RESP_TIMEOUT_MS);
+    if (err != WIFI_ERR_OK)
+    {
+        return err;
+    }
+
+    return prv_check_firmware_version(inst->at_buf, resp_len);
+}
+
 /**
  * @brief Format and send a single IWIN command: `<code>[=<value>]<CR>`.
  *
@@ -510,48 +563,7 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
     inst->datardy_ctx = NULL;
     inst->ready = false;
 
-    /* Hardware reset sequence (companion §3.6 Phase 1). */
-    gpio_write_pin(inst->boot0_port, inst->boot0_pin, GPIO_LEVEL_LOW);
-    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_LOW);
-    cpu_delay_ms(WIFI_RESET_PULSE_MS);
-    gpio_write_pin(inst->rst_port, inst->rst_pin, GPIO_LEVEL_HIGH);
-    cpu_delay_ms(WIFI_BOOT_WAIT_MS);
-    gpio_write_pin(inst->wakeup_port, inst->wakeup_pin, GPIO_LEVEL_HIGH);
-    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
-
-    (void) exti_configure(WIFI_DRDY_EXTI_LINE, EXTI_PORT_E, EXTI_EDGE_RISING);
-
-    /* Drain the post-reset boot prompt before issuing any AT command
-     * (datasheet §10.2.1). */
-    wifi_err_t err = prv_drain_boot_cursor(inst);
-    if (err != WIFI_ERR_OK)
-    {
-        return err;
-    }
-
-    /* The module needs more real settle time to reach the first genuine
-     * Command Phase than steady-state per-command turnaround
-     * (WIFI_DRDY_TIMEOUT_MS) allows for — confirmed on hardware (WIFI-O7):
-     * the boot cursor drains fine, but DRDY doesn't rise again within
-     * 100 ms afterward. Wait for it here, generously, before the first
-     * command; prv_at_command()'s own (tight) pre-send wait then passes
-     * near-instantly since DRDY is already high by the time it checks. */
-    if (!prv_wait_drdy(inst, true, WIFI_BOOT_DRDY_TIMEOUT_MS))
-    {
-        return WIFI_ERR_TIMEOUT;
-    }
-
-    /* WIFI_AT_INFO ("I?") — module info and liveness check in one step.
-     * The quick-reference AT command doc marks "?" (print help) as "Not
-     * available in SPI firmware", so it is never sent here. */
-    size_t resp_len = 0u;
-    err = prv_send_kv(inst, WIFI_AT_INFO, NULL, &resp_len, WIFI_RESP_TIMEOUT_MS);
-    if (err != WIFI_ERR_OK)
-    {
-        return err;
-    }
-
-    err = prv_check_firmware_version(inst->at_buf, resp_len);
+    const wifi_err_t err = prv_boot_module(inst);
     if (err != WIFI_ERR_OK)
     {
         return err;
@@ -563,6 +575,45 @@ wifi_err_t wifi_create(const wifi_config_t *config, wifi_handle_t *handle)
 
     *handle = inst;
     return WIFI_ERR_OK;
+}
+
+wifi_err_t wifi_reset_module(wifi_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return WIFI_ERR_NULL_PTR;
+    }
+    if (!handle->in_use)
+    {
+        return WIFI_ERR_NOT_INIT;
+    }
+
+    /* The reset drops the association and every socket the module held. */
+    handle->ready = false;
+    handle->link_state = WIFI_LINK_DOWN;
+    handle->rssi_dbm = 0;
+    memset(handle->socket_open, 0, sizeof(handle->socket_open));
+
+    const wifi_err_t err = prv_boot_module(handle);
+    if (err != WIFI_ERR_OK)
+    {
+        return err; /* stays not ready: every later command answers NOT_INIT until a reset works */
+    }
+    handle->ready = true;
+    return WIFI_ERR_OK;
+}
+
+wifi_err_t wifi_ping(wifi_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return WIFI_ERR_NULL_PTR;
+    }
+    if (!handle->ready)
+    {
+        return WIFI_ERR_NOT_INIT;
+    }
+    return prv_send_kv(handle, WIFI_AT_INFO, NULL, NULL, WIFI_RESP_TIMEOUT_MS);
 }
 
 wifi_err_t wifi_attach_datardy_callback(wifi_handle_t handle, wifi_datardy_cb_t cb, void *ctx)
