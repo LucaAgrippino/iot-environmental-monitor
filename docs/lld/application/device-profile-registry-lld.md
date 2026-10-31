@@ -3,32 +3,34 @@
 **Board:** Gateway only.
 **Layer:** Application.
 
-Holds the configurable registry of device profiles. Each profile
-binds a Modbus slave address to an expected device identifier
-(`MAP_VERSION`) and a human-readable description. Provides the polling
-allowlist to `ModbusPoller`, supports profile management from the CLI
-and from remote configuration, and delegates persistence to
-`ConfigStore`.
+Holds the configurable registry of device profiles. Each profile binds a Modbus slave address to the
+identity the Gateway expects from that slave (map version and vendor code) and a human-readable
+description. Provides the profile lookup to `ModbusPoller` and `ConsoleService`, accepts profile
+changes from the console and from remote configuration, and hands persistence to a storage callback.
 
-**Version:** 0.1
-**Date:** May 2026
-**Status:** Draft
-
+**Version:** 0.2
+**Date:** October 2026
+**Status:** Draft — reconciled with the as-built on 2026-10-31 (WP8 session 1 analysis,
+`docs/lld/gate-review/wp8-device-profile-registry-analysis.md`); decisions D-1..D-8 accepted by Luca.
 **HLD anchor:** DeviceProfileRegistry in `components.md` (GW application layer)
+
 ---
 
 ## 1. Sources
 
 | Field | Value |
 |---|---|
-| **Provides** | `IDeviceProfileProvider` *(read-only)*, `IDeviceProfileManager` *(write)* |
-| **Uses** | `IConfigStore`, `ILogger` |
-| **Callers of `IDeviceProfileProvider`** | `ModbusPoller`, `ConsoleService` |
-| **Callers of `IDeviceProfileManager`** | `ConfigService` *(remote config)*, `ConsoleService` *(CLI provisioning)* |
+| **Provides** | `idevice_profile_provider_t` (read), `idevice_profile_manager_t` (write) |
+| **Uses** | a storage callback pair (`device_profile_storage_t`), `Logger` |
+| **Callers of the provider** | `ModbusPoller`, `ConsoleService` |
+| **Callers of the manager** | `ConfigService` (remote configuration), `ConsoleService` (provisioning) |
+| **Called at boot by** | `LifecycleController` / `main()`: `device_profile_registry_init()` then `_load()` |
 
-**Pattern: ISP (P3).** Read and write access are segregated into two
-interfaces so `ModbusPoller` never acquires a write capability it does
-not need.
+**Pattern: ISP (P3).** Read and write are separate vtables, so `ModbusPoller` never holds a write capability.
+
+**Naming (D-8, fixes M-3).** Module prefix `device_profile_registry_`; type `device_profile_t` (kept: it is
+the poller's type today); errors `device_profile_registry_err_t` / `DEVICE_PROFILE_REGISTRY_ERR_*`;
+capacity `DEVICE_PROFILE_MAX`. The names `DPR_*`, `dpr_err_t`, `DPR_MAX_SLAVES` of v0.1 are retired.
 
 ---
 
@@ -36,325 +38,218 @@ not need.
 
 | Concern | SRS requirements | Use cases |
 |---|---|---|
-| Profile carries device ID, slave address, register-map spec | REQ-MB-110, MB-111 | UC-16, UC-19 |
-| Polling allowlist provided to ModbusPoller | REQ-MB-100 | UC-07 |
-| Profile binding during link establishment | REQ-MB-120 | UC-07 |
-| Unsupported MAP_VERSION → reject from allowlist | REQ-MB-130 | UC-07 |
-| Accept profile updates via provisioning and remote config | REQ-DM-100 | UC-15, UC-16 |
-| Re-probe affected slave on add/update | REQ-DM-101 | UC-15, UC-16 |
+| Registry, one entry per expected field device | REQ-MB-110 | UC-16, UC-19 |
+| Profile content: identifier, description, address, register-map specification | REQ-MB-111 | UC-16, UC-19 |
+| Polling allowlist | REQ-MB-100 | UC-07 |
+| Identity check at link establishment, reject mismatch | REQ-MB-120 | UC-07 |
+| Log validation failures with the identifier and address | REQ-MB-130 | UC-07 |
+| Accept updates from provisioning and remote configuration | REQ-DM-100 | UC-15, UC-16 |
+| Re-probe an affected slave on add or update | REQ-DM-101 | UC-15, UC-16 |
 | Persistence across reboots | REQ-DM-090 | — |
 
 ---
 
-## 3. Profile data type
+## 3. Profile data type (D-1, D-4)
 
 ```c
-#define DPR_MAX_PROFILES   8U
-#define DPR_DESC_MAX      64U
+#define DEVICE_PROFILE_MAX (8U)
+#define DEVICE_PROFILE_DESC_MAX (32U) /* including the terminating NUL */
 
-typedef struct {
-    uint8_t  slave_addr;              /* 1..247, Modbus RTU address         */
-    uint16_t expected_map_version;    /* MAP_VERSION the gateway accepts
-                                         from this slave type; links to the
-                                         polling descriptor table in
-                                         ModbusPoller LLD                   */
-    char     description[DPR_DESC_MAX]; /* human-readable label              */
+typedef struct
+{
+    uint8_t slave_addr;    /* 1..247                                                      */
+    uint16_t map_version;  /* MAP_VERSION (register 0x0000) the Gateway accepts; != 0     */
+    uint16_t vendor_code;  /* VENDOR_CODE (register 0x0007) the slave must return; != 0   */
+    char description[DEVICE_PROFILE_DESC_MAX];
 } device_profile_t;
 ```
 
-**Register-map specification** is encoded as `expected_map_version`.
-`ModbusPoller` holds a static const descriptor table that maps each
-supported `MAP_VERSION` to the set of registers to poll. The profile
-carries the version key; the polling knowledge lives in `ModbusPoller`.
-Adding a new field-device type requires: (a) a new entry in
-`ModbusPoller`'s descriptor table, and (b) a profile with the
-corresponding `expected_map_version`. No firmware rebuild is needed for
-the profile itself — it is pure configuration (D18).
+**The register-map specification is the map version (REQ-MB-111, D-1).** The span to poll, the scaling and the
+channel decode for each supported `map_version` are a `const` table owned by ModbusPoller
+(`modbus_map_table`, version 1: FC04 `0x0010`, 3 registers). The profile carries the key. Adding a new
+device type needs a table entry (a firmware change); adding a unit of a known type does not.
+**This replaces the placeholder fields `input_reg_start` / `input_reg_count` of `device_profile_t`.**
+
+**The identity (D-4, corrected 2026-10-31).** v0.1 and the first analysis assumed a `device_class` register.
+The as-built Field Device has none: `0x0001` and `0x0002` are a 32-bit device ID (`MRM_DEVICE_ID_HI/LO`),
+currently the constant 0 on every unit, and `0x0007` is `VENDOR_CODE` (`0x1A45`). A constant ID cannot
+distinguish units, so the check is **map version supported and equal to the profile's, and vendor code
+equal to the profile's**. When units get distinct IDs a 32-bit `device_id` field can be added with a
+schema bump. (The Field Device register-map LLD still lists `0x0001` as `device_class`; it disagrees with
+its own code and is recorded as RM-F1 for the next revision of that document.)
+
+**Description** is 32 bytes including the NUL (was 64): console input lines are short and the whole table
+is 8 × 38 B = 304 B.
 
 ---
 
-## 2. Public API
-
-### 4.1 `IDeviceProfileProvider` (read-only)
+## 4. Public API
 
 ```c
-typedef struct IDeviceProfileProvider IDeviceProfileProvider;
+typedef enum
+{
+    DEVICE_PROFILE_REGISTRY_OK = 0,
+    DEVICE_PROFILE_REGISTRY_ERR_NULL_ARG,
+    DEVICE_PROFILE_REGISTRY_ERR_NOT_INIT,
+    DEVICE_PROFILE_REGISTRY_ERR_NOT_FOUND,
+    DEVICE_PROFILE_REGISTRY_ERR_FULL,
+    DEVICE_PROFILE_REGISTRY_ERR_INVALID,
+    DEVICE_PROFILE_REGISTRY_ERR_PERSIST,
+    DEVICE_PROFILE_REGISTRY_ERR_LOAD
+} device_profile_registry_err_t;
 
-struct IDeviceProfileProvider {
-    void *ctx;
+typedef struct
+{
+    bool (*get_next)(const device_profile_t **profile, uint8_t *index);
+    device_profile_registry_err_t (*get_by_addr)(uint8_t slave_addr, device_profile_t *out);
+    bool (*is_registered)(uint8_t slave_addr);
+} idevice_profile_provider_t;
 
-    /* Look up a profile by slave address.
-     * Returns DPR_OK and fills *out, or DPR_ERR_NOT_FOUND.             */
-    dpr_err_t (*get_by_addr)(void *ctx,
-                             uint8_t slave_addr,
-                             device_profile_t *out);
+typedef struct
+{
+    device_profile_registry_err_t (*add_or_update)(const device_profile_t *profile);
+    device_profile_registry_err_t (*remove)(uint8_t slave_addr);
+} idevice_profile_manager_t;
 
-    /* Populate out_addrs[] with all registered slave addresses.
-     * Returns the count written (≤ max_count).                          */
-    uint8_t   (*get_allowlist)(void *ctx,
-                               uint8_t *out_addrs,
-                               uint8_t max_count);
-
-    /* Return the number of registered profiles.                         */
-    uint8_t   (*get_count)(void *ctx);
-};
+extern const idevice_profile_provider_t *const device_profile_provider;
+extern const idevice_profile_manager_t *const device_profile_manager;
 ```
 
-### 4.2 `IDeviceProfileManager` (write)
-
-```c
-typedef struct IDeviceProfileManager IDeviceProfileManager;
-
-struct IDeviceProfileManager {
-    void *ctx;
-
-    /* Add a new profile or overwrite an existing one with the same
-     * slave_addr. Validates fields; persists to ConfigStore.
-     * Returns DPR_ERR_FULL if DPR_MAX_PROFILES already registered.     */
-    dpr_err_t (*add_or_update)(void *ctx,
-                               const device_profile_t *profile);
-
-    /* Remove the profile bound to slave_addr.
-     * Returns DPR_ERR_NOT_FOUND if no such profile exists.              */
-    dpr_err_t (*remove)(void *ctx, uint8_t slave_addr);
-};
-```
+`get_next` keeps the iterator contract ModbusPoller already uses (`*index` = 0 first, returns the profile at
+`*index` and advances). `get_next` hands out a pointer into the table: the caller must not hold it across a
+manager call; ModbusPoller copies what it needs within one cycle (the poll cycle and manager calls are
+serialised by the mutex only per call, so the pointer is valid while the slot is unchanged; see §7).
+The free functions `device_profile_get_next` and `device_profile_is_registered` of the placeholder remain
+as thin wrappers over the vtable until the consumers migrate.
 
 ---
 
-## 3. Internal design
+## 5. Internal design
 
 ```c
-typedef struct {
-    device_profile_t profiles[DPR_MAX_PROFILES];
-    uint8_t          count;        /* active entries, 0..DPR_MAX_PROFILES */
-    StaticSemaphore_t mutex_buf;
-    SemaphoreHandle_t mutex;       /* protects profiles[] and count        */
-    IConfigStore     *config_store;
-    ILogger          *log;
-} device_profile_registry_t;
+typedef struct
+{
+    device_profile_t profiles[DEVICE_PROFILE_MAX];
+    uint8_t count;
+    uint32_t revision;           /* +1 on every successful change; lets a reader see that it changed */
+    SemaphoreHandle_t mutex;     /* static binary semaphore, created by init                         */
+    device_profile_storage_t storage;
+    bool initialised;
+} device_profile_registry_inst_t;   /* one static instance */
 ```
 
-The mutex is taken briefly for read (array copy) and write (array
-update + persist call). `ConfigStore` I/O is not performed while the
-mutex is held — see §8.
+Singleton, no heap, mutex held for one array scan (≤ 8 iterations). Task-safe, not ISR-safe.
+
+### 5.1 Storage callback (D-2, fixes M-4 and M-5)
+
+ConfigStore stores one blob and ConfigService owns it. The registry therefore does not call ConfigStore:
+
+```c
+typedef struct
+{
+    /* Read the stored profiles. Returns false if there are none or they are unreadable. */
+    bool (*load)(device_profile_t *out, uint8_t max, uint8_t *count_out);
+    /* Store the profiles; returns false if the write failed. May block for ~0.8 s (CFG-O7). */
+    bool (*save)(const device_profile_t *in, uint8_t count);
+} device_profile_storage_t;
+```
+
+`main()` binds the pair to ConfigService (`config_service_get_profiles` / `config_service_set_profiles`).
+ConfigService's blob gains `profiles[DEVICE_PROFILE_MAX]` and `profile_count`; `CONFIG_SCHEMA_VERSION`
+becomes 2 and a schema-1 blob loads with an empty profile list (so the default is seeded, §6.1).
+The registry has no compile-time dependency on ConfigService or ConfigStore (P1, P2).
+
+### 5.2 Validation
+
+| Field | Rule |
+|---|---|
+| `slave_addr` | 1..247 |
+| `map_version`, `vendor_code` | ≠ 0 |
+| `description` | NUL-terminated within 32 bytes, at least one printable character |
+| Existing address | An update, not an error (fixes M-13) |
+
+A `map_version` the poller's table does not know is **accepted** (the profile is configuration) but the
+slave will be `link_rejected` until the table knows it; the console warns.
 
 ---
-
-
-### Synchronisation
-
-This component uses an internal mutex to serialise concurrent callers. The mutex is created during `_init()` and held only for the duration of each guarded operation (bounded, short hold time). All public functions are task-safe but not ISR-safe.
-
-### Principles applied
-
-- **P1 (Strict directional layering).** Depends on IConfigStore (middleware layer) and Logger; no lower-layer protocol dependencies.
-- **P2 (Dependency Inversion).** Exposes `idevice_profile_provider_t` and `idevice_profile_manager_t` vtables; ModbusPoller depends on `IDeviceProfileProvider`.
-- **P3 (Interface Segregation).** `IDeviceProfileProvider` (read-only — ModbusPoller) and `IDeviceProfileManager` (write — CLI and remote config) are separate interfaces because their consumer sets are non-overlapping (LLD-D17).
-- **P4 (Cross-cutting concern exception).** Logger referenced concretely per the cross-cutting exception; documented in §1 Sources.
-- **P5 (Bounded resources, no dynamic allocation post-init).** Static default-profile table `s_default_profiles[]` embedded at compile time (LLD-D17); runtime profile list bounded by `DEVICE_PROFILE_MAX`; no heap.
-- **P6 (Responsibility traces to requirements).** Profile lookup, add, and remove functions trace to REQ-MB-110/120 device-profile management requirements.
-- **P8 (Total error propagation, no silent failures).** All operations return `device_profile_registry_err_t`; profile-not-found and capacity-exceeded are distinct error codes.
-- **P9 (BARR-C coding standard).** Modbus slave address `uint8_t`; profile ID `uint8_t`; description as bounded `char[]`; no floating-point.
-- **P10 (Naming conventions).** Prefix `device_profile_registry_`; interfaces `IDeviceProfileProvider` -> `idevice_profile_provider_t`, `IDeviceProfileManager` -> `idevice_profile_manager_t`; errors `DEVICE_PROFILE_REGISTRY_ERR_*`.
-
 
 ## 6. Algorithms
 
-### 6.0 Storage model — LLD-D17
-
-**Decision:** the initial implementation embeds a static const default profile
-table directly in firmware flash. At boot, `dpr_load_from_store()` seeds the
-runtime registry from ConfigStore; if ConfigStore returns an empty result (first
-boot or factory reset), the registry is seeded instead from the compile-time
-default table:
-
-```c
-/* device_profile_registry.c — compiled into firmware */
-static const device_profile_t s_default_profiles[] = {
-    /* { slave_addr, expected_map_version, description } */
-    { 1, 0x0100, "Field Device #1 (default)" },
-};
-static const uint8_t s_default_profile_count =
-    (uint8_t)(sizeof(s_default_profiles) / sizeof(s_default_profiles[0]));
-```
-
-**Rationale (LLD-D17).** The field device roster is known at firmware build
-time for the first production deployment. Embedding the defaults eliminates a
-dependency on a provisioned ConfigStore entry for system startup, reduces
-the risk of a factory-blank gateway failing to poll anything, and avoids a
-mandatory provisioning step during manufacturing.
-
-**Interface seam (future migration path).** `IDeviceProfileProvider` and
-`IDeviceProfileManager` are the stable interface boundaries. The static const
-table is an implementation detail of the concrete registry instance. A future
-revision can replace the static table with a ConfigStore-only or cloud-sourced
-boot load without any change to `ModbusPoller`, `ConsoleService`, or
-`ConfigService` — they all consume the interfaces, not the implementation.
-
-**Singleton vtable (LLD-D10).**
-
-```c
-/* device_profile_registry.h */
-
-typedef struct {
-    dpr_err_t (*get_by_addr)(uint8_t slave_addr, device_profile_t *out);
-    uint8_t   (*get_allowlist)(uint8_t *out_addrs, uint8_t max_count);
-    uint8_t   (*get_count)(void);
-} idevice_profile_provider_t;
-
-typedef struct {
-    dpr_err_t (*add_or_update)(const device_profile_t *profile);
-    dpr_err_t (*remove)(uint8_t slave_addr);
-} idevice_profile_manager_t;
-
-extern const idevice_profile_provider_t * const device_profile_provider;
-extern const idevice_profile_manager_t  * const device_profile_manager;
-```
-
-The ctx-based `IDeviceProfileProvider` / `IDeviceProfileManager` structs above
-(§4.1, §4.2) document the interface contract; the singleton vtables are the
-LLD-D10-conformant wire-up. Unit tests substitute mock vtables via the same
-`*(const idevice_profile_provider_t **)&device_profile_provider = &mock;`
-pattern used elsewhere.
-
-### 6.1 `get_by_addr`
+### 6.1 `load` and the default profile (D-6, fixes M-6)
 
 ```
-get_by_addr(slave_addr, out):
+load():
+    ok = storage.load(profiles, MAX, &count)
+    if !ok or count == 0:
+        profiles[0] = { 1, 1, 0x1A45, "Field Device 1 (default)" }; count = 1   /* not persisted */
+        log_info("DPR: no stored profiles, default seeded")
+    else
+        log_info("DPR: loaded %u profile(s)", count)
+    revision++
+    return OK
+```
+
+The default is written to flash only by the first successful change. A corrupt blob also yields the default
+and a WARN, so a factory-blank or damaged Gateway still polls its one Field Device. A factory reset
+(ConfigService erase) returns to the default. This resolves the contradiction between v0.1 §6.0 and §7.3.
+
+### 6.2 `add_or_update` and `remove` (D-3)
+
+```
+add_or_update(p):
+    validate(p) else INVALID
     take mutex
-    for i in 0..count-1:
-        if profiles[i].slave_addr == slave_addr:
-            *out = profiles[i]
-            release mutex
-            return DPR_OK
+    snapshot = copy of table and count          /* for rollback */
+    update in place, or append (FULL if count == MAX)
     release mutex
-    return DPR_ERR_NOT_FOUND
+    if !storage.save(table, count):
+        take mutex; restore snapshot; release mutex
+        return PERSIST                          /* what runs is what survives a reboot */
+    revision++ ; return OK
 ```
 
-### 6.2 `get_allowlist`
+`remove` swaps the last entry into the freed slot (order is not significant) and saves the same way.
+The save runs outside `mutex` (it is flash I/O), so readers are never blocked by it. Writers are serialised
+by a second static mutex, `write_mutex`, taken for the whole `add_or_update` or `remove` (snapshot, change,
+save, possible rollback). A second writer waits; readers never take `write_mutex`.
 
-```
-get_allowlist(out_addrs, max_count):
-    take mutex
-    n = min(count, max_count)
-    for i in 0..n-1:
-        out_addrs[i] = profiles[i].slave_addr
-    release mutex
-    return n
-```
+### 6.3 Re-probe (D-5, fixes M-8)
 
-Called by `ModbusPoller` at boot and after each `add_or_update` or
-`remove` to refresh its internal poll schedule.
-
-### 6.3 `add_or_update`
-
-```
-add_or_update(profile):
-    validate(profile)   /* slave_addr 1..247; map_version != 0;
-                           description not empty — DPR_ERR_INVALID */
-
-    take mutex
-    /* Check for existing entry with same slave_addr */
-    for i in 0..count-1:
-        if profiles[i].slave_addr == profile.slave_addr:
-            profiles[i] = *profile
-            release mutex
-            persist()   /* ConfigStore write outside mutex */
-            return DPR_OK
-
-    /* New entry */
-    if count >= DPR_MAX_PROFILES:
-        release mutex
-        return DPR_ERR_FULL
-
-    profiles[count] = *profile
-    count++
-    release mutex
-    persist()
-    return DPR_OK
-```
-
-The caller (`ConfigService`) is responsible for triggering the re-probe
-via `IModbusPoller.reprobe_slave(slave_addr)` after `add_or_update`
-returns `DPR_OK` (REQ-DM-101). `DeviceProfileRegistry` does not call
-`ModbusPoller` directly — it has no `USES` dependency on it (P1).
-
-### 6.4 `remove`
-
-```
-remove(slave_addr):
-    take mutex
-    for i in 0..count-1:
-        if profiles[i].slave_addr == slave_addr:
-            /* Compact array */
-            profiles[i] = profiles[count-1]
-            count--
-            release mutex
-            persist()
-            return DPR_OK
-    release mutex
-    return DPR_ERR_NOT_FOUND
-```
+The registry does not call ModbusPoller (P1). After a successful `add_or_update` the **caller**
+(ConfigService, ConsoleService) calls `modbus_poller_reprobe(slave_addr)`, which marks that slave
+unverified so the next poll cycle repeats the identity check (§7.1). A `remove` needs no re-probe: the
+slave is no longer in the registry and is not polled.
 
 ---
 
-## 7. Persistence
+## 7. ModbusPoller behaviour this module requires (D-4, D-5, D-7)
 
-### 7.1 Serialisation format
+### 7.1 Identity check at link establishment (REQ-MB-120, REQ-MB-130; fixes M-9)
 
-A compact flat binary blob, written to `ConfigStore` under the key
-`CONFIG_KEY_DEVICE_PROFILES`:
+A slave starts **unverified**. Before its first data poll (and again after `reprobe`) the poller reads FC04
+`0x0000`, count 8 (map version, device ID, hardware revision, firmware version, vendor code) and compares:
 
-```
-[ count : 1 byte ]
-[ profile_0 : sizeof(device_profile_t) bytes ]
-[ profile_1 : sizeof(device_profile_t) bytes ]
-...
-[ profile_{count-1} ]
-```
+| Result | Action |
+|---|---|
+| Map version = profile's, supported by the table, vendor code = profile's | Slave **verified**; normal polling begins |
+| Any difference | Slave **link_rejected**; WARN log once per transition: slave address, expected and got map version and vendor code (REQ-MB-130); no data polling |
+| No response | Ordinary link failure (retries, hysteresis); verification is retried on the next cycle |
 
-`sizeof(device_profile_t)` = 1 (slave_addr) + 2 (map_version) + 64 (desc)
-= **67 bytes**. Maximum blob size: 1 + 8 × 67 = **537 bytes**. Well within
-`ConfigStore`'s 32 KB slot.
+A `link_rejected` slave is re-checked at the existing link-retry interval, so replacing the device with the
+right one recovers without a reboot. It is logged on entering the state, not each re-check. It reports
+`HEALTH_EVENT_MODBUS_LINK_DOWN` as a failed link does; whether a distinct health event is worth adding is
+open item DPR-O3.
 
-### 7.2 `persist()` (internal)
+### 7.2 Map table (D-1)
 
-```
-persist():
-    serialise profiles[] → buf[]
-    config_store->write(config_store,
-                        CONFIG_KEY_DEVICE_PROFILES,
-                        buf, buf_len)
-```
+`modbus_map_table[]` in ModbusPoller: `{ map_version, input_reg_start, input_reg_count, decode }`.
+Version 1: `0x0010`, 3 registers, temperature / humidity / pressure. The poller builds its FC04 request
+from the table entry of the slave's profile, not from profile fields.
 
-Called outside the mutex (the array copy under the mutex ensures a
-consistent snapshot). `ConfigStore.write()` is not reentrant-safe for
-concurrent writes to the same key, but since all write paths (CLI, remote
-config) funnel through `IDeviceProfileManager` and take the registry
-mutex before modifying the array, only one `persist()` can be in flight
-at a time.
+### 7.3 Pointer lifetime
 
-### 7.3 Boot load
-
-Called from `LifecycleController` during Init (SD-00b):
-
-```
-dpr_load_from_store(self):
-    config_store->read(config_store,
-                       CONFIG_KEY_DEVICE_PROFILES,
-                       buf, sizeof buf, &len)
-    if len == 0:
-        count = 0  /* first boot — no profiles */
-        log_info("DPR: no profiles found, registry empty")
-        return DPR_OK
-    deserialise(buf, len, profiles, &count)
-    log_info("DPR: loaded %u profile(s)", count)
-    return DPR_OK
-```
-
-If deserialisation fails (truncated blob, unknown format), the registry
-starts empty and logs a warning. Profiles must be re-provisioned.
+`get_next` returns a pointer into the table. The poller copies the profile (`device_profile_t` is 38 bytes)
+before calling the master, so a concurrent manager call cannot change what it is using.
 
 ---
 
@@ -362,149 +257,84 @@ starts empty and logs a warning. Profiles must be re-provisioned.
 
 | Caller | Interface | Task | Protection |
 |---|---|---|---|
-| `LifecycleController` | `dpr_load_from_store()` | Init context (single-threaded boot) | No mutex needed at boot |
-| `ModbusPoller` | `IDeviceProfileProvider` | `ModbusMasterTask` | Mutex taken in `get_by_addr`, `get_allowlist` |
-| `ConsoleService` | Both | `ConsoleTask` | Mutex taken in all methods |
-| `ConfigService` | `IDeviceProfileManager` | `CloudPublisherTask` | Mutex taken in `add_or_update`, `remove` |
+| `main()` | `init`, `load` | Boot, single-threaded | none needed |
+| `ModbusPoller` | provider | `ModbusPollerTask` | `mutex` per call |
+| `ConsoleService` | both | `ConsoleTask` | `mutex` per read; `write_mutex` for writes |
+| `ConfigService` | manager | the task that runs remote commands | `write_mutex` for the whole write |
 
-The mutex is a FreeRTOS static binary semaphore, created at
-`device_profile_registry_init()`. Maximum hold time: one array scan
-(≤ 8 iterations) — microseconds.
-
-`ConfigStore.write()` is called outside the mutex to avoid holding the
-registry lock during flash I/O (which may block for milliseconds on
-QSPI sector erase). The write uses the serialised snapshot taken under
-the mutex, so it is consistent even if a concurrent reader updates the
-live array between mutex release and the write call. The next `persist()`
-call (from the next write operation) will overwrite with the latest state.
+`save` blocks for ~0.8 s; the poller is never blocked by it because readers do not take `write_mutex`,
+and `mutex` is released before `save`.
 
 ---
 
-## 9. Validation rules
+## 9. Error and fault behaviour
 
-| Field | Rule |
+| Error | Cause | Local behaviour | Observability |
+|---|---|---|---|
+| `ERR_NOT_FOUND` | Address not registered | None | Not logged (normal query result) |
+| `ERR_FULL` | 8 profiles registered | Not added | WARN |
+| `ERR_INVALID` | Failed validation | Registry unchanged | WARN |
+| `ERR_PERSIST` | `save` failed | **Change rolled back** (D-3), registry as before the call | WARN |
+| `ERR_LOAD` | Not returned by `load` (§6.1 seeds the default) | Reserved | — |
+| `ERR_NULL_ARG` / `ERR_NOT_INIT` | Programming error | None | ERROR |
+
+---
+
+## 10. Memory
+
+Table 8 × 38 B = 304 B, plus count, revision, two static semaphores and the storage pair: about 400 B static.
+No stack buffer for persistence (the save callback takes the table). ConfigService's blob grows by
+8 × 38 + 1 B.
+
+---
+
+## 11. Unit-test plan (host, `tests/gateway/application/device_profile_registry/`)
+
+Mocks: storage pair, Logger, mutex via the FreeRTOS host fake.
+
+| ID | Case |
 |---|---|
-| `slave_addr` | 1..247 (Modbus spec) |
-| `expected_map_version` | ≠ 0 |
-| `description` | At least one non-null character; null-terminated within 64 bytes |
-| Duplicate slave_addr | Allowed — treated as update, not error |
+| TC-DPR-001 | `init` rejects NULL storage; second `init` is idempotent |
+| TC-DPR-002 | Functions before `init` return `NOT_INIT` |
+| TC-DPR-003 | `load` with nothing stored: default profile `{1, 1, 0x1A45}` seeded, not saved |
+| TC-DPR-004 | `load` with 2 stored profiles: count 2, contents equal |
+| TC-DPR-005 | `load` when the storage reports failure: default seeded, WARN logged |
+| TC-DPR-006 | `add_or_update` new: appended, saved once, revision +1 |
+| TC-DPR-007 | `add_or_update` existing address: overwritten, count unchanged, saved |
+| TC-DPR-008 | `add_or_update` with 8 present and a new address: `FULL`, nothing saved |
+| TC-DPR-009 | Invalid: address 0, 248; `map_version` 0; `vendor_code` 0; empty description; unterminated description: `INVALID`, nothing saved |
+| TC-DPR-010 | `save` fails on add: `PERSIST`, table and count as before |
+| TC-DPR-011 | `save` fails on update: old contents restored |
+| TC-DPR-012 | `save` fails on remove: entry still present |
+| TC-DPR-013 | `remove` existing: count−1, saved; `remove` unknown: `NOT_FOUND`, nothing saved |
+| TC-DPR-014 | `get_by_addr` found / not found |
+| TC-DPR-015 | `get_next` iterates all, then false; NULL arguments return false |
+| TC-DPR-016 | `is_registered` true / false |
+| TC-DPR-017 | A reader during a failing save sees the old table (rollback is invisible to the poller) |
+| TC-DPR-018 | The description is copied, not referenced (caller buffer changed after the call) |
+
+On target (harness): profile survives a reboot; removed profile is no longer polled; identity mismatch
+gives `link_rejected` and a log line with both versions; a corrected profile recovers.
 
 ---
 
-## 5. Sequence integration
+## 12. Open items
 
-See the HLD sequence diagrams for inter-component flows. This component is called synchronously; no task-level sequencing diagram is required beyond the HLD.
-
-### SD trace
-
-| SD | Component role | Key function |
+| ID | Item | Status |
 |---|---|---|
-| SD-00 | SD-00b: `LifecycleController` calls `device_profile_registry_load()` to load persisted device profiles from `ConfigStore`; `ModbusPoller` iterates profiles to probe each slave | `device_profile_registry_load()`, `device_profile_registry_get_next()` |
-| SD-07 | `CloudPublisher` routes the remote-profile-update command to `device_profile_registry_update_profile()` | `device_profile_registry_update_profile()` |
-| SD-10 | `ConsoleService` calls `device_profile_registry_add_profile()` for each device profile entered during provisioning | `device_profile_registry_add_profile()` |
+| DPR-O1 | The map table lives in ModbusPoller (D-1); the exact name and layout are fixed by the ModbusPoller PR | Open (implementation) |
+| DPR-O2 | Schema versioning: closed — `CONFIG_SCHEMA_VERSION` 2 carries the profiles (D-2) | Closed |
+| DPR-O3 | Distinct health event for `link_rejected`, or reuse `LINK_DOWN` | Open |
+| DPR-O4 | A 32-bit `device_id` in the profile once Field Devices have distinct IDs (they return 0 today) | Open |
+| RM-F1 | The Field Device register-map LLD lists `0x0001` as `device_class`; the code has `device_id_hi` | Open (FD LLD) |
+| DPR-O5 | Visual Paradigm: DeviceProfileRegistry is absent from the Gateway component diagram (COMP-DIAG-01) | Open (Luca) |
 
 ---
 
-## 6. Error and fault behaviour
+## 13. References
 
-All public functions return `dpr_err_t`; callers must not ignore non-OK
-returns.  No retry is performed inside DeviceProfileRegistry — callers
-(ConfigService, ConsoleService) apply the retry and logging policy.
-
-| Error value | Cause | Local behaviour | Caller-visible result | Retry | Observability |
-|---|---|---|---|---|---|
-| `DPR_ERR_NOT_FOUND` | `get_by_addr()` called for an address not in the registry | Return error; no state change | Non-OK return | No retry — caller handles "not found" as a normal query result | Not logged (expected query outcome) |
-| `DPR_ERR_FULL` | `add_or_update()` called when the registry has reached `DPR_MAX_SLAVES` entries | Return error; entry not added | Non-OK return | No retry — operator must remove a stale profile before adding another | Logged at WARN via ILogger |
-| `DPR_ERR_INVALID` | Profile data failed validation (e.g., slave address 0, duplicate address) | Return error; registry unchanged | Non-OK return | No retry — caller must correct the profile data | Logged at WARN via ILogger |
-| `DPR_ERR_PERSIST` | ConfigStore write failed after an add/update/remove operation | Return error; in-memory state already updated (new state active but not persisted) | Non-OK return | No retry by DPR — caller (ConfigService/ConsoleService) logs and reports; next write attempt will try again | Logged at WARN via ILogger; `HEALTH_EVENT_CONFIG_WRITE_FAIL` pushed to IHealthReport |
-| `DPR_ERR_LOAD` | ConfigStore read or deserialise failed at boot | Return error; registry starts empty | Non-OK return | No retry — LifecycleController continues to Operational with an empty registry; operator must re-provision | Logged at WARN via ILogger; `HEALTH_EVENT_CONFIG_READ_FAIL` pushed |
-| `DPR_ERR_NULL_ARG` | Null pointer argument | Return error | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
-| `DPR_ERR_NOT_INIT` | Function called before `device_profile_registry_init()` | Return error | Non-OK return | No retry — programming error | Logged at ERROR via ILogger |
-
-
-## 11. Initialisation
-
-```c
-dpr_err_t device_profile_registry_init(device_profile_registry_t *self,
-                                        IConfigStore              *config_store,
-                                        ILogger                   *log);
-```
-
-Creates the mutex. Does **not** load profiles — loading is a separate
-`dpr_load_from_store(self)` call made by `LifecycleController` during
-Init, after `ConfigStore` is ready.
-
----
-
-## 12. Memory and sizing
-
-| Item | Size |
-|---|---|
-| `profiles[]` (8 × 67 B) | 536 B |
-| `count`, mutex, handles | ~24 B |
-| Serialisation buf (stack, in `persist()`) | 537 B |
-| **Total static RAM** | **~560 B** |
-
-Serialisation buffer is stack-allocated inside `persist()` — no static
-buffer needed.
-
----
-
-## 7. Unit-test plan
-
-### 13.1 Unit tests — `tests/application/test_device_profile_registry.c`
-
-Mocks: `IConfigStore`, `ILogger`.
-
-| Suite | Coverage |
-|---|---|
-| Init | Null-arg rejection; mutex created; count = 0 |
-| `load_from_store` — empty | ConfigStore returns 0 bytes; count remains 0 |
-| `load_from_store` — 2 profiles | Deserialises correctly; count = 2 |
-| `load_from_store` — corrupt blob | Logged warning; count = 0 |
-| `add_or_update` — new | Profile added; count++; ConfigStore.write called |
-| `add_or_update` — update existing | Profile overwritten; count unchanged; ConfigStore.write called |
-| `add_or_update` — full (8 profiles) | Returns DPR_ERR_FULL; count unchanged |
-| `add_or_update` — invalid slave_addr (0) | Returns DPR_ERR_INVALID; no write |
-| `add_or_update` — invalid slave_addr (248) | Returns DPR_ERR_INVALID; no write |
-| `add_or_update` — map_version 0 | Returns DPR_ERR_INVALID; no write |
-| `remove` — existing | Profile removed; count--; array compacted; ConfigStore.write called |
-| `remove` — not found | Returns DPR_ERR_NOT_FOUND; no write |
-| `get_by_addr` — found | Returns correct profile |
-| `get_by_addr` — not found | Returns DPR_ERR_NOT_FOUND |
-| `get_allowlist` — 3 profiles | Returns 3 addresses |
-| `get_allowlist` — max_count < count | Returns max_count entries only |
-| Persist failure | ConfigStore.write returns error; DPR_ERR_PERSIST returned; in-memory state unchanged |
-
-### 13.2 Integration tests — on target
-
-| Test | Setup |
-|---|---|
-| Profile survives reboot | Add profile via CLI; reboot; verify profile present and FD polled |
-| Remove profile stops polling | Remove profile via CLI; verify slave not polled |
-| Remote profile update | Push profile update via MQTT; verify re-probe triggered; verify FD polled on new slave address |
-| Allowlist enforced | Add two profiles with different slave addresses; verify only those addresses polled |
-
----
-
-## 8. Open items
-
-| ID | Item | Resolution path | Status |
-|--------|------|-----------------|--------|
-| **DPR-O1** | `expected_map_version` → polling descriptor binding: the static descriptor table lives in `ModbusPoller`. Confirm the exact field name and lookup API when `ModbusPoller` LLD is finalised. |
-| **DPR-O2** | Deserialisation schema versioning: if `device_profile_t` layout changes in a future firmware version, the stored blob will be incompatible. Add a schema version prefix to the blob (single byte) at first implementation. Cross-reference CS-O1. |
-
----
-
-## 15. References
-
-- `docs/components.md` (GW DeviceProfileRegistry entry).
-- `docs/hld.md` §14 (D14, D17, D18 — profile binding and allowlist design decisions).
-- `docs/sequence-diagrams.md` SD-00b (boot load), SD-07 (remote profile update and re-probe).
-- `docs/modbus-register-map.md` §8 (MAP_VERSION versioning and compatibility policy).
-- `docs/architecture-principles.md` P1 (P1 — DPR does not call ModbusPoller), P3 (ISP split).
-
----
-
-*Companion produced during the LLD Application Phase. Authored by Luca
-Agrippino; reviewed against the V-Model gate criteria for LLD.*
+- `docs/hld/components.md` (DeviceProfileRegistry entry); `docs/hld/sequence-diagrams.md` SD-00b, SD-07, SD-10, Q8.
+- `docs/SRS.md` REQ-MB-100/110/111/120/130, REQ-DM-090/100/101.
+- `docs/lld/gate-review/wp8-device-profile-registry-analysis.md` (mismatches M-1..M-17, decisions D-1..D-8).
+- `docs/lld/application/modbus-poller-lld.md` (MBP-O4), `config-service-lld.md` (CFG-O7).
+- `docs/architecture-principles.md` P1, P3.
