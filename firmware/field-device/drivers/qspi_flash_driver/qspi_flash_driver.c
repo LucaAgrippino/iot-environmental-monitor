@@ -12,6 +12,7 @@
 #include "qspi_flash_driver.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef STM32F469xx
@@ -358,7 +359,11 @@ qspi_flash_err_t qspi_flash_read(uint32_t addr, uint8_t *buf, uint32_t len)
 
     if (!s_initialised)
     {
-        return QSPI_FLASH_ERR_NOT_INIT;
+        return QSPI_FLASH_ERR_NOT_INITIALISED;
+    }
+    if (buf == NULL)
+    {
+        return QSPI_FLASH_ERR_NULL_POINTER;
     }
     if ((QUADSPI->SR & QUADSPI_SR_BUSY) != 0U)
     {
@@ -406,7 +411,11 @@ qspi_flash_err_t qspi_flash_write_page(uint32_t addr, const uint8_t *data, uint1
 
     if (!s_initialised)
     {
-        return QSPI_FLASH_ERR_NOT_INIT;
+        return QSPI_FLASH_ERR_NOT_INITIALISED;
+    }
+    if (data == NULL)
+    {
+        return QSPI_FLASH_ERR_NULL_POINTER;
     }
     if ((QUADSPI->SR & QUADSPI_SR_BUSY) != 0U)
     {
@@ -472,7 +481,7 @@ qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr)
 
     if (!s_initialised)
     {
-        return QSPI_FLASH_ERR_NOT_INIT;
+        return QSPI_FLASH_ERR_NOT_INITIALISED;
     }
     if ((QUADSPI->SR & QUADSPI_SR_BUSY) != 0U)
     {

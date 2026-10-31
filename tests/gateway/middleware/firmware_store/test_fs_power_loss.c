@@ -407,7 +407,7 @@ static void check_confirm(bool fired)
     pre.crc32 = config_store_crc32((const uint8_t *) &pre, FIRMWARE_META_CRC_SPAN);
 
     expect_pre_or_post(&pre, FIRMWARE_BANK_B, FIRMWARE_META_STATE_CONFIRMED, FIRMWARE_BANK_A,
-                       ROLLBACKS_BEFORE);
+                       0U); /* confirming ends the run of rollbacks (BL-O2) */
 }
 
 static void check_rollback(bool fired)
@@ -447,7 +447,7 @@ static void check_acknowledge(bool fired)
     pre.crc32 = config_store_crc32((const uint8_t *) &pre, FIRMWARE_META_CRC_SPAN);
 
     expect_pre_or_post(&pre, FIRMWARE_BANK_A, FIRMWARE_META_STATE_CONFIRMED, FIRMWARE_BANK_B,
-                       ROLLBACKS_BEFORE);
+                       0U); /* confirming ends the run of rollbacks (BL-O2) */
 }
 
 void test_TC_FS_088a_a_power_cut_at_any_point_of_confirm_converges(void)
