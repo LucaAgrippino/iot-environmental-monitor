@@ -152,7 +152,7 @@ All 39 companions pass all checks including the Pass C Doxygen completeness chec
 | `docs/lld/middleware/time-provider.md` | Added threading to 1 function |
 | `docs/lld/application/config-service.md` | Added `@return` + threading to 4 functions |
 | `docs/lld/application/health-monitor.md` | Added `@return` to 2 functions |
-| `docs/lld/application/lifecycle-controller.md` | Added `@return` to 2 functions; threading to 1 |
+| `docs/lld/application/lifecycle-controller-lld.md` | Added `@return` to 2 functions; threading to 1 |
 | `docs/lld/application/sensor-alarm-service.md` | Added `@return` + threading to multiple functions |
 
 **Total insertions:** ~300 lines across 30 companion files.

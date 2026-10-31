@@ -7,7 +7,7 @@
  * full lifecycle_controller.h, avoiding include-graph cycles.
  *
  * @see lifecycle_controller.h for the full API (init, task body, start-gate).
- * @see docs/lld/application/lifecycle-controller.md
+ * @see docs/lld/application/lifecycle-controller-lld.md
  */
 
 #ifndef ILIFECYCLE_H
