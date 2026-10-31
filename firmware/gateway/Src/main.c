@@ -20,8 +20,8 @@
  * Task stacks follow decision D-1 option F (1.5x the measured use). Every task's lowest free stack
  * is logged by the stack reporter, with a warning when it runs low.
  *
- * This file is excluded from the CubeIDE build (`excluding="main.c"` in .cproject, standing rule: not
- * edited by Claude); scripts/build-gateway-app.sh builds the image without CubeIDE.
+ * This file is excluded from the CubeIDE build (`excluding="main.c"` in .cproject, standing rule:
+ * not edited by Claude); scripts/build-gateway-app.sh builds the image without CubeIDE.
  */
 
 #include <stdint.h>
@@ -71,7 +71,8 @@
 #include "stm32l475xx.h"
 
 #if !__has_include("bringup_secrets.h") || !__has_include("bringup_certs.h")
-#error "firmware/gateway/certs/bringup_secrets.h and bringup_certs.h are required (see scripts/bringup_secrets.h.example)"
+#error                                                                                             \
+    "firmware/gateway/certs/bringup_secrets.h and bringup_certs.h are required (see scripts/bringup_secrets.h.example)"
 #endif
 #include "bringup_certs.h"
 #include "bringup_secrets.h"
@@ -104,6 +105,13 @@
 #define WIFI_BOOT0_PORT GPIO_PORT_B
 #define WIFI_BOOT0_PIN (12U)
 
+/* The console owns the debug UART (460800 baud, a full-screen terminal UI) and shows the log inside
+ * itself. GATEWAY_WITH_CONSOLE=0 leaves it out for a plain 115200 baud log while debugging; it also
+ * frees the console's SRAM2 buffers and its task stack. */
+#ifndef GATEWAY_WITH_CONSOLE
+#define GATEWAY_WITH_CONSOLE (1)
+#endif
+
 #define UART4_IRQ_PRIORITY (6U)
 #define USART1_IRQ_PRIORITY (6U)
 #define MODBUS_RESPONSE_TIMEOUT_MS (200U)
@@ -117,7 +125,7 @@
 #define BOOT_PRIORITY (1U)
 #define POLLER_STACK_WORDS (768U) /* measured 507 of 512 words (99 %), no Field Device attached */
 #define POLLER_PRIORITY (4U)
-#define REPORT_STACK_WORDS (448U)
+#define REPORT_STACK_WORDS (320U) /* measured 169 words used */
 #define REPORT_PRIORITY (1U)
 #define REPORT_PERIOD_MS (60000U)
 #define REPORT_MAX_TASKS (20U)
@@ -128,7 +136,8 @@
 /* ---------------------------------------------------------------------- */
 
 #define JOIN_ATTEMPTS (3U)    /* D-3: the first join after a module reset usually fails */
-#define RESOLVE_ATTEMPTS (3U) /* D-7: a name the resolver cannot answer takes about 10 s to fail */
+#define RESOLVE_ATTEMPTS (3U) /* D-7: a name the resolver cannot answer takes about 10 s to fail   \
+                               */
 #define RETRY_DELAY_MS (2000U)
 #define MQTT_CLIENT_ID "gw-bringup-001" /* placeholder until the device serial exists */
 #define MQTT_KEEP_ALIVE_S (60U)
@@ -179,6 +188,7 @@ static const led_pin_t k_gw_led_pins[LED_COUNT] = {
     [LED_RED] = {.port = (uint8_t) GPIO_PORT_A, .pin = 5U, .active_high = true, .fitted = false},
 };
 
+#if GATEWAY_WITH_CONSOLE
 /* Read side of DeviceProfileRegistry for the console's `profiles list`. */
 static bool profile_next(const device_profile_t **p, uint8_t *index)
 {
@@ -186,8 +196,10 @@ static bool profile_next(const device_profile_t **p, uint8_t *index)
 }
 
 static const idevice_profile_provider_t k_profiles = {.get_next = profile_next};
+#endif
 
-/* UpdateService's self-check probes (GM-O4: there is no provider module yet; this adapter is it). */
+/* UpdateService's self-check probes (GM-O4: there is no provider module yet; this adapter is it).
+ */
 static bool probe_sensors(void *ctx)
 {
     (void) ctx;
@@ -212,8 +224,8 @@ static config_store_handle_t s_cs;
 static wifi_handle_t s_wifi;
 static lifecycle_reset_cause_t s_reset_cause;
 
-/* MqttClient keeps pointers into its connect configuration for the whole session (REQ-NF-302), so the
- * resolved address lives in static storage. */
+/* MqttClient keeps pointers into its connect configuration for the whole session (REQ-NF-302), so
+ * the resolved address lives in static storage. */
 static char s_broker_ip[WIFI_IPV4_STR_LEN];
 
 static StaticTask_t s_boot_tcb;
@@ -222,8 +234,10 @@ static StaticTask_t s_poller_tcb;
 static StackType_t s_poller_stack[POLLER_STACK_WORDS];
 static StaticTask_t s_report_tcb;
 static StackType_t s_report_stack[REPORT_STACK_WORDS];
+#if GATEWAY_WITH_CONSOLE
 static StaticTask_t s_console_tcb;
 static StackType_t s_console_stack[CONSOLE_TASK_STACK_WORDS];
+#endif
 
 /* ---------------------------------------------------------------------- */
 /* Stack reporter (gateway-main.md section 10, step 2)                     */
@@ -233,8 +247,9 @@ static TaskStatus_t s_status[REPORT_MAX_TASKS];
 static uint32_t s_min_free[REPORT_MAX_TASKS];
 static char s_min_name[REPORT_MAX_TASKS][configMAX_TASK_NAME_LEN];
 
-/* The lowest free stack seen for a task name across all reports (the kernel's own mark is already an
- * all-time minimum, this only survives a task being recreated). Returns the slot or REPORT_MAX_TASKS. */
+/* The lowest free stack seen for a task name across all reports (the kernel's own mark is already
+ * an all-time minimum, this only survives a task being recreated). Returns the slot or
+ * REPORT_MAX_TASKS. */
 static uint32_t report_slot(const char *name)
 {
     uint32_t empty = REPORT_MAX_TASKS;
@@ -319,10 +334,11 @@ static bool join_access_point(wifitask_handle_t wifitask)
     return join == WIFITASK_ERR_OK;
 }
 
-/* D-7: the module's socket command takes an address, so BootTask resolves the broker name once after
- * the join. It calls the driver directly, not through WifiTask: WifiTask polls only sockets that are
- * open, none is yet, and BootTask is its only user at this point. A failing lookup holds the module
- * for about 10 s before it answers ERROR (WIFI-O18), hence the long driver timeout and few attempts. */
+/* D-7: the module's socket command takes an address, so BootTask resolves the broker name once
+ * after the join. It calls the driver directly, not through WifiTask: WifiTask polls only sockets
+ * that are open, none is yet, and BootTask is its only user at this point. A failing lookup holds
+ * the module for about 10 s before it answers ERROR (WIFI-O18), hence the long driver timeout and
+ * few attempts. */
 static bool resolve_broker(void)
 {
     for (unsigned attempt = 1U; attempt <= RESOLVE_ATTEMPTS; attempt++)
@@ -331,7 +347,8 @@ static bool resolve_broker(void)
             wifi_resolve(s_wifi, BRINGUP_CERTS_BROKER_ENDPOINT, s_broker_ip, sizeof(s_broker_ip));
 
         LOG_INFO("Main", "resolve %s attempt %u of %u -> %d (%s)", BRINGUP_CERTS_BROKER_ENDPOINT,
-                 attempt, (unsigned) RESOLVE_ATTEMPTS, (int) r, (r == WIFI_ERR_OK) ? s_broker_ip : "");
+                 attempt, (unsigned) RESOLVE_ATTEMPTS, (int) r,
+                 (r == WIFI_ERR_OK) ? s_broker_ip : "");
         if (r == WIFI_ERR_OK)
         {
             return true;
@@ -567,12 +584,14 @@ int main(void)
 
     NVIC_SetPriority(UART4_IRQn, UART4_IRQ_PRIORITY);
     if ((modbus_uart_init() != MODBUS_UART_OK) ||
-        (modbus_master_init(MODBUS_RESPONSE_TIMEOUT_MS, MODBUS_MAX_RETRIES) != MODBUS_MASTER_ERR_OK))
+        (modbus_master_init(MODBUS_RESPONSE_TIMEOUT_MS, MODBUS_MAX_RETRIES) !=
+         MODBUS_MASTER_ERR_OK))
     {
         spin_forever();
     }
     modbus_uart_set_tick_source(tick_ms);
 
+#if GATEWAY_WITH_CONSOLE
     NVIC_SetPriority(USART1_IRQn, USART1_IRQ_PRIORITY);
     const console_deps_t console_deps = {.uart = debug_uart,
                                          .sensors = sensor_service,
@@ -586,6 +605,7 @@ int main(void)
     {
         spin_forever();
     }
+#endif
 
     /* The ISM43362 and its SPI lines: the driver only, WifiTask comes in Phase B. */
     gpio_pin_config_t spi_pins[3] = {
@@ -676,11 +696,13 @@ int main(void)
         spin_forever();
     }
 
-    /* Tasks main() creates. ModbusPollerTask is NOT here: it waits on the start gate, and the gate is
-     * created by lifecycle_controller_init(), which runs in BootTask after the scheduler has started
-     * (finding F-9: created here it dereferences a NULL event group at scheduler start). */
+    /* Tasks main() creates. ModbusPollerTask is NOT here: it waits on the start gate, and the gate
+     * is created by lifecycle_controller_init(), which runs in BootTask after the scheduler has
+     * started (finding F-9: created here it dereferences a NULL event group at scheduler start). */
+#if GATEWAY_WITH_CONSOLE
     (void) xTaskCreateStatic(console_task_body, "console", CONSOLE_TASK_STACK_WORDS, NULL,
                              CONSOLE_TASK_PRIORITY, s_console_stack, &s_console_tcb);
+#endif
     (void) xTaskCreateStatic(report_task, "stack_report", REPORT_STACK_WORDS, NULL, REPORT_PRIORITY,
                              s_report_stack, &s_report_tcb);
     (void) xTaskCreateStatic(boot_task, "lifecycle", BOOT_STACK_WORDS, NULL, BOOT_PRIORITY,
