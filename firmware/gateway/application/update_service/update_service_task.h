@@ -27,7 +27,7 @@
 /**@}*/
 
 #define US_TASK_PRIORITY (1U)
-#define US_TASK_STACK_WORDS (1024U)
+#define US_TASK_STACK_WORDS (704U) /* D-1 F: 438 of 1024 words used (verify path) */
 #define US_LOG_MODULE "UpdateService"
 
 /** @brief Machine 3 state mapping (§5, §9.1). */

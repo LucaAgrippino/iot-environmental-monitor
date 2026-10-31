@@ -54,6 +54,21 @@ update_service_err_t update_service_create(const update_service_config_t *cfg,
                                            update_service_t **out);
 
 /**
+ * @brief The UpdateService instance handle, valid before update_service_create() (US-D15).
+ *
+ * UpdateService is a singleton, so its handle is a fixed address. This accessor returns it before
+ * the instance exists, which breaks the creation cycle with CloudPublisher: CloudPublisher needs
+ * the instance (cloud_publisher_config_t::update) and update_service_create() needs the transport
+ * that CloudPublisher hands out. Until update_service_create() has succeeded every operation on the
+ * handle returns UPDATE_SERVICE_ERR_NOT_INITIALISED and update_control_ops.is_created() is false,
+ * so a message that reaches CloudPublisher in between is refused, not acted on.
+ *
+ * @return The handle; never NULL, and the same pointer update_service_create() returns.
+ * @note Threading: any task, any time.
+ */
+update_service_t *update_service_get_instance(void);
+
+/**
  * @brief Words of UpdateServiceTask's stack that have never been used (its high-water mark).
  *
  * `verify` runs the software ECDSA in this task, so this is the figure that shows whether the

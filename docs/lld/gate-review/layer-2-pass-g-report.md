@@ -54,7 +54,7 @@ Most companions had §6 bodies of exactly one line: `"Error codes and propagatio
 | `cloud-publisher-lld.md` | `CP_ERR_NOT_INIT`, `CP_ERR_NULL_ARG` |
 | `config-service.md` | All 4 non-OK values |
 | `health-monitor.md` | `HEALTH_MONITOR_ERR_NOT_INIT`, `HEALTH_MONITOR_ERR_NULL_ARG`, `HEALTH_ADMIN_ERR_NOT_INIT` |
-| `lifecycle-controller.md` | `LIFECYCLE_ERR_NULL_ARG`, `LIFECYCLE_ERR_NOT_INIT` |
+| `lifecycle-controller-lld.md` | `LIFECYCLE_ERR_NULL_ARG`, `LIFECYCLE_ERR_NOT_INIT` |
 | `sensor-alarm-service.md` | All 6 non-OK values (two enums) |
 
 Companions with partial existing §6 content that still had missing values:

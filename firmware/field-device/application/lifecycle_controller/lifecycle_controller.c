@@ -2,12 +2,12 @@
  * @file lifecycle_controller.c
  * @brief LifecycleController implementation.
  *
- * Boot orchestrator and event router for both Field Device and Gateway.
+ * Boot orchestrator and event router for the Field Device. The Gateway has its own
+ * LifecycleController (firmware/gateway/application/lifecycle_controller); the combined-build
+ * BOARD_GATEWAY branches that used to live here were removed (LC-O10).
  * All state is file-scope static; no heap allocation after init (P5).
  *
- * Board-conditional code is guarded with BOARD_FIELD_DEVICE / BOARD_GATEWAY.
- *
- * @see docs/lld/application/lifecycle-controller.md
+ * @see docs/lld/application/lifecycle-controller-lld.md
  */
 
 #include "lifecycle_controller/lifecycle_controller.h"
@@ -98,17 +98,7 @@ static const ihealth_report_t *s_health_report;
 static const igraphics_library_t *s_graphics;
 static const ilcd_ui_t *s_lcd_ui;
 #endif
-#ifdef BOARD_FIELD_DEVICE
 static const imodbus_slave_t *s_modbus_slave;
-#else  /* BOARD_GATEWAY */
-static const icloud_publisher_t *s_cloud;
-static const imodbus_poller_t *s_modbus_poller;
-static const iupdate_service_t *s_update_service;
-static const itime_service_t *s_time_service;
-static const ifirmware_store_t *s_firmware_store;
-static const ireset_driver_t *s_reset_driver;
-static const ihealth_admin_t *s_health_admin;
-#endif /* BOARD_FIELD_DEVICE */
 
 /* State machine */
 static volatile lifecycle_state_t s_state;
@@ -116,11 +106,6 @@ static lifecycle_reset_cause_t s_reset_cause;
 static bool s_initialised;
 
 /* GW-only runtime flags */
-#ifdef BOARD_GATEWAY
-static bool s_restart_pending;
-static bool s_pending_self_check;
-static bool s_pending_rollback;
-#endif /* BOARD_GATEWAY */
 
 /* Event queue */
 static StaticQueue_t s_queue_struct;
@@ -136,10 +121,6 @@ static StaticTimer_t s_init_timer_struct;
 static TimerHandle_t s_init_timer;
 
 /* Restart confirmation timer (GW only, LC-O4) */
-#ifdef BOARD_GATEWAY
-static StaticTimer_t s_restart_timer_struct;
-static TimerHandle_t s_restart_timer;
-#endif /* BOARD_GATEWAY */
 
 /* Start-gate event group */
 static StaticEventGroup_t s_start_gate_struct;
@@ -173,15 +154,6 @@ static void init_timer_cb(TimerHandle_t timer)
     lifecycle_event_t ev = {.type = LC_EVENT_UNRECOVERABLE_FAULT, .param = LC_FAULT_INIT_TIMEOUT};
     (void) xQueueSend(s_event_queue, &ev, 0U);
 }
-
-#ifdef BOARD_GATEWAY
-static void restart_timer_cb(TimerHandle_t timer)
-{
-    (void) timer;
-    lifecycle_event_t ev = {.type = LC_EVENT_RESTART_TIMEOUT, .param = 0U};
-    (void) xQueueSend(s_event_queue, &ev, 0U);
-}
-#endif /* BOARD_GATEWAY */
 
 /* ======================================================================= */
 /* Reset-cause detection (§13)                                             */
@@ -238,8 +210,6 @@ static bool poll_for_abort(void)
 /* ======================================================================= */
 /* FD Init sub-state sequence (Machine 5)                                  */
 /* ======================================================================= */
-
-#ifdef BOARD_FIELD_DEVICE
 
 static void fd_run_init_sequence(void)
 {
@@ -339,172 +309,6 @@ static void fd_run_init_sequence(void)
     (void) xEventGroupSetBits(s_start_gate, LIFECYCLE_START_GATE_BIT);
 }
 
-#else /* BOARD_GATEWAY */
-
-/* ======================================================================= */
-/* GW Init sub-state sequence (Machine 1)                                  */
-/* ======================================================================= */
-
-static bool gw_await_self_check_result(void)
-{
-    lifecycle_event_t ev;
-    /* Block until a self-check result event arrives */
-    while (xQueueReceive(s_event_queue, &ev, portMAX_DELAY) == pdTRUE)
-    {
-        if (ev.type == LC_EVENT_SELF_CHECK_PASS)
-        {
-            (void) s_firmware_store->confirm_self_check();
-            return true; /* → Operational */
-        }
-        if (ev.type == LC_EVENT_SELF_CHECK_FAIL)
-        {
-            (void) s_update_service->resume_rollback();
-            (void) s_firmware_store->rollback();
-            s_reset_driver->soft_reset(); /* will not return */
-            return false;
-        }
-        if (ev.type == LC_EVENT_UNRECOVERABLE_FAULT)
-        {
-            enter_faulted(ev.param);
-            return false;
-        }
-        /* ignore other events during self-check wait */
-    }
-    return false;
-}
-
-static void gw_run_init_sequence(void)
-{
-    /* Start init watchdog (LC-O2) */
-    (void) xTimerStart(s_init_timer, 0U);
-
-    /* Sub-state 1: CheckingIntegrity */
-    if (s_config_store->check_integrity() != CONFIG_STORE_OK)
-    {
-        LOG_ERROR("LC: GW CheckingIntegrity failed");
-        enter_faulted(1U);
-        return;
-    }
-    {
-        bool self_check = false;
-        bool rollback = false;
-        (void) s_firmware_store->get_pending_flags(&self_check, &rollback);
-        s_pending_self_check = self_check;
-        s_pending_rollback = rollback;
-    }
-    if (poll_for_abort())
-    {
-        return;
-    }
-
-    /* Sub-state 2: LoadingConfig */
-    if (s_config_store->load(s_cfg_snapshot, &s_cfg_snapshot_len, sizeof(s_cfg_snapshot)) !=
-        CONFIG_STORE_OK)
-    {
-        LOG_ERROR("LC: GW LoadingConfig load failed");
-        enter_faulted(2U);
-        return;
-    }
-    if (s_cfg_write->apply_loaded(s_cfg_snapshot, s_cfg_snapshot_len) != CONFIG_SERVICE_OK)
-    {
-        LOG_ERROR("LC: GW LoadingConfig apply_loaded failed");
-        enter_faulted(3U);
-        return;
-    }
-    if (poll_for_abort())
-    {
-        return;
-    }
-
-    /* Sub-state 3: BringingUpSensors */
-    if (s_sensors->init() != SENSOR_SERVICE_ERR_OK)
-    {
-        LOG_ERROR("LC: GW BringingUpSensors sensors init failed");
-        enter_faulted(4U);
-        return;
-    }
-    if (s_alarms->init() != ALARM_SERVICE_ERR_OK)
-    {
-        LOG_ERROR("LC: GW BringingUpSensors alarms init failed");
-        enter_faulted(5U);
-        return;
-    }
-    if (poll_for_abort())
-    {
-        return;
-    }
-
-    /* Sub-state 4: StartingMiddleware */
-    if (s_modbus_poller->init() != GW_SVC_ERR_OK)
-    {
-        LOG_ERROR("LC: GW StartingMiddleware modbus_poller init failed");
-        enter_faulted(8U);
-        return;
-    }
-    if (s_cloud->init() != GW_SVC_ERR_OK)
-    {
-        LOG_ERROR("LC: GW StartingMiddleware cloud init failed");
-        enter_faulted(9U);
-        return;
-    }
-    if (s_time_service->init() != GW_SVC_ERR_OK)
-    {
-        LOG_ERROR("LC: GW StartingMiddleware time_service init failed");
-        enter_faulted(10U);
-        return;
-    }
-    if (s_update_service->init() != GW_SVC_ERR_OK)
-    {
-        LOG_ERROR("LC: GW StartingMiddleware update_service init failed");
-        enter_faulted(11U);
-        return;
-    }
-    (void) s_console->init_finalise();
-    (void) s_health_report->init();
-    if (poll_for_abort())
-    {
-        return;
-    }
-
-    /* Sub-state 5: SelfChecking */
-    if (s_pending_self_check)
-    {
-        (void) s_update_service->resume_self_checking();
-        if (!gw_await_self_check_result())
-        {
-            return; /* faulted or rollback triggered inside */
-        }
-        /* → Operational on pass */
-    }
-    else if (s_pending_rollback)
-    {
-        (void) s_update_service->resume_after_rollback();
-        (void) s_cloud->report_rollback_result();
-        /* → Operational */
-    }
-    else
-    {
-        /* Normal probe */
-        bool sensors_ok = s_sensors->is_ready();
-        bool modbus_ok = s_modbus_poller->is_ready();
-        bool cloud_ok = s_cloud->is_ready();
-        if (!sensors_ok || !modbus_ok || !cloud_ok)
-        {
-            LOG_ERROR("LC: GW SelfChecking probes failed");
-            enter_faulted(12U);
-            return;
-        }
-    }
-
-    /* Enter Operational */
-    (void) xTimerStop(s_init_timer, 0U);
-    s_state = LIFECYCLE_STATE_OPERATIONAL;
-    LOG_INFO("LC: GW Operational");
-    (void) xEventGroupSetBits(s_start_gate, LIFECYCLE_START_GATE_BIT);
-}
-
-#endif /* BOARD_FIELD_DEVICE / BOARD_GATEWAY */
-
 /* ======================================================================= */
 /* Event loop — shared FD/GW                                               */
 /* ======================================================================= */
@@ -516,7 +320,6 @@ static void handle_editing_config(const lifecycle_event_t *ev)
     case LC_EVENT_CONFIG_EDIT_APPLY:
         (void) xTimerStop(s_edit_timer, 0U);
         (void) s_cfg_write->flush(); /* commit = flush to flash */
-#ifdef BOARD_FIELD_DEVICE
         {
             const config_params_t *cfg = s_cfg_read->get_params();
             if (cfg != NULL)
@@ -525,7 +328,6 @@ static void handle_editing_config(const lifecycle_event_t *ev)
             }
         }
         (void) s_sensors->reconfigure();
-#endif
         s_state = LIFECYCLE_STATE_OPERATIONAL;
         LOG_INFO("LC: EditingConfig APPLY → Operational");
         break;
@@ -549,60 +351,6 @@ static void handle_editing_config(const lifecycle_event_t *ev)
     }
 }
 
-#ifdef BOARD_GATEWAY
-static void handle_restarting(const lifecycle_event_t *ev)
-{
-    switch (ev->type)
-    {
-    case LC_EVENT_RESTART_CONFIRMED:
-    case LC_EVENT_RESTART_REQUESTED: /* second request treated as confirmation */
-        (void) xTimerStop(s_restart_timer, 0U);
-        LOG_INFO("LC: Restarting CONFIRMED → soft_reset");
-        s_reset_driver->soft_reset(); /* will not return */
-        break;
-
-    case LC_EVENT_RESTART_TIMEOUT:
-        s_restart_pending = false;
-        s_state = LIFECYCLE_STATE_OPERATIONAL;
-        LOG_INFO("LC: Restarting TIMEOUT → Operational");
-        break;
-
-    case LC_EVENT_UNRECOVERABLE_FAULT:
-        (void) xTimerStop(s_restart_timer, 0U);
-        enter_faulted(ev->param);
-        break;
-
-    default:
-        break;
-    }
-}
-
-static void handle_updating_fw(const lifecycle_event_t *ev)
-{
-    switch (ev->type)
-    {
-    case LC_EVENT_SELF_CHECK_PASS:
-        (void) s_firmware_store->confirm_self_check();
-        s_state = LIFECYCLE_STATE_OPERATIONAL;
-        LOG_INFO("LC: UpdatingFW self-check PASS → Operational");
-        break;
-
-    case LC_EVENT_SELF_CHECK_FAIL:
-        (void) s_update_service->resume_rollback();
-        (void) s_firmware_store->rollback();
-        s_reset_driver->soft_reset(); /* will not return */
-        break;
-
-    case LC_EVENT_UNRECOVERABLE_FAULT:
-        enter_faulted(ev->param);
-        break;
-
-    default:
-        break;
-    }
-}
-#endif /* BOARD_GATEWAY */
-
 static void handle_operational(const lifecycle_event_t *ev)
 {
     switch (ev->type)
@@ -613,22 +361,6 @@ static void handle_operational(const lifecycle_event_t *ev)
         s_state = LIFECYCLE_STATE_EDITING_CONFIG;
         LOG_INFO("LC: → EditingConfig");
         break;
-
-#ifdef BOARD_GATEWAY
-    case LC_EVENT_RESTART_REQUESTED:
-        s_restart_pending = true;
-        (void) s_cloud->flush();
-        (void) xTimerStart(s_restart_timer, 0U);
-        s_state = LIFECYCLE_STATE_RESTARTING;
-        LOG_INFO("LC: → Restarting");
-        break;
-
-    case LC_EVENT_OTA_REQUESTED:
-        (void) s_update_service->start(ev->param);
-        s_state = LIFECYCLE_STATE_UPDATING_FW;
-        LOG_INFO("LC: → UpdatingFirmware");
-        break;
-#endif /* BOARD_GATEWAY */
 
     case LC_EVENT_UNRECOVERABLE_FAULT:
         enter_faulted(ev->param);
@@ -660,16 +392,6 @@ static void run_event_loop_once(void)
     case LIFECYCLE_STATE_EDITING_CONFIG:
         handle_editing_config(&ev);
         break;
-
-#ifdef BOARD_GATEWAY
-    case LIFECYCLE_STATE_RESTARTING:
-        handle_restarting(&ev);
-        break;
-
-    case LIFECYCLE_STATE_UPDATING_FW:
-        handle_updating_fw(&ev);
-        break;
-#endif /* BOARD_GATEWAY */
 
     case LIFECYCLE_STATE_FAULTED:
         /* In Faulted: only kick watchdog; no event causes exit */
@@ -716,9 +438,6 @@ static lifecycle_err_t vtbl_handle_remote_command(lifecycle_remote_cmd_t cmd)
     switch (cmd)
     {
     case LC_REMOTE_CMD_RESET_METRICS:
-#ifdef BOARD_GATEWAY
-        (void) s_health_admin->reset_metrics();
-#endif
         /* On FD: uniform dispatch route; no health_admin on FD — no-op */
         return LIFECYCLE_ERR_OK;
 
@@ -761,16 +480,7 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
                           const igraphics_library_t *graphics, const ilcd_ui_t *lcd_ui,
 #endif /* USE_GUI */
 
-#ifdef BOARD_FIELD_DEVICE
-                          const imodbus_slave_t *modbus_slave
-#else  /* BOARD_GATEWAY */
-                          const icloud_publisher_t *cloud, const imodbus_poller_t *modbus_poller,
-                          const iupdate_service_t *update_service,
-                          const itime_service_t *time_service,
-                          const ifirmware_store_t *firmware_store,
-                          const ireset_driver_t *reset_driver, const ihealth_admin_t *health_admin
-#endif /* BOARD_FIELD_DEVICE */
-)
+                          const imodbus_slave_t *modbus_slave)
 {
     /* Null checks — all pointers must be non-NULL */
     if ((config_store == NULL) || (cfg_read == NULL) || (cfg_write == NULL) || (sensors == NULL) ||
@@ -786,19 +496,10 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     }
 #endif /* USE_GUI */
 
-#ifdef BOARD_FIELD_DEVICE
     if (modbus_slave == NULL)
     {
         return LIFECYCLE_ERR_NULL_ARG;
     }
-#else  /* BOARD_GATEWAY */
-    if ((cloud == NULL) || (modbus_poller == NULL) || (update_service == NULL) ||
-        (time_service == NULL) || (firmware_store == NULL) || (reset_driver == NULL) ||
-        (health_admin == NULL))
-    {
-        return LIFECYCLE_ERR_NULL_ARG;
-    }
-#endif /* BOARD_FIELD_DEVICE */
 
     /* Store injected pointers */
     s_config_store = config_store;
@@ -814,17 +515,7 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     s_lcd_ui = lcd_ui;
 #endif
 
-#ifdef BOARD_FIELD_DEVICE
     s_modbus_slave = modbus_slave;
-#else  /* BOARD_GATEWAY */
-    s_cloud = cloud;
-    s_modbus_poller = modbus_poller;
-    s_update_service = update_service;
-    s_time_service = time_service;
-    s_firmware_store = firmware_store;
-    s_reset_driver = reset_driver;
-    s_health_admin = health_admin;
-#endif /* BOARD_FIELD_DEVICE */
 
     s_reset_cause = reset_cause;
     s_state = LIFECYCLE_STATE_INIT;
@@ -840,12 +531,6 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     /* Create init-watchdog timer */
     s_init_timer = xTimerCreateStatic("lc_init", pdMS_TO_TICKS(LC_INIT_TIMEOUT_MS), pdFALSE, NULL,
                                       init_timer_cb, &s_init_timer_struct);
-
-#ifdef BOARD_GATEWAY
-    /* Create restart-confirmation timer */
-    s_restart_timer = xTimerCreateStatic("lc_restart", pdMS_TO_TICKS(LC_RESTART_TIMEOUT_MS),
-                                         pdFALSE, NULL, restart_timer_cb, &s_restart_timer_struct);
-#endif /* BOARD_GATEWAY */
 
     /* Create start-gate event group */
     s_start_gate = xEventGroupCreateStatic(&s_start_gate_struct);
@@ -865,11 +550,7 @@ void lifecycle_task_body(void *arg)
     /* Run boot sequence once (only if still in INIT state) */
     if (s_state == LIFECYCLE_STATE_INIT)
     {
-#ifdef BOARD_FIELD_DEVICE
         fd_run_init_sequence();
-#else
-        gw_run_init_sequence();
-#endif
     }
 
 #ifdef TEST
@@ -913,27 +594,11 @@ void lifecycle_controller_reset_for_test(void)
     s_lcd_ui = NULL;
 #endif
 
-#ifdef BOARD_FIELD_DEVICE
     s_modbus_slave = NULL;
-#else  /* BOARD_GATEWAY */
-    s_cloud = NULL;
-    s_modbus_poller = NULL;
-    s_update_service = NULL;
-    s_time_service = NULL;
-    s_firmware_store = NULL;
-    s_reset_driver = NULL;
-    s_health_admin = NULL;
-#endif /* BOARD_FIELD_DEVICE */
 
     s_state = LIFECYCLE_STATE_INIT;
     s_reset_cause = LIFECYCLE_RESET_UNKNOWN;
     s_initialised = false;
-
-#ifdef BOARD_GATEWAY
-    s_restart_pending = false;
-    s_pending_self_check = false;
-    s_pending_rollback = false;
-#endif
 
     (void) memset(s_cfg_snapshot, 0, sizeof(s_cfg_snapshot));
     s_cfg_snapshot_len = 0U;
@@ -942,9 +607,5 @@ void lifecycle_controller_reset_for_test(void)
     s_edit_timer = NULL;
     s_init_timer = NULL;
     s_start_gate = NULL;
-
-#ifdef BOARD_GATEWAY
-    s_restart_timer = NULL;
-#endif
 }
 #endif /* TEST */
