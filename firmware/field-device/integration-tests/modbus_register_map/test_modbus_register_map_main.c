@@ -34,6 +34,14 @@
  *   Phase 5 — poll_stats:
  *   [ ] "[MRM-IT] Phase 5: poll_stats OK, valid_frames=42 [PASS]"
  *
+ *   Phase 5b — CMD_SET_TIME (TS-O5; the REAL TimeProvider and RTC are used, not a stub):
+ *   [ ] "[MRM-IT] Phase 5b: FC16 0x0210 x2 set the clock to 1793440168 (2026-10-31 09:49:28 UTC),
+ * synchronised [PASS]" [ ] "[MRM-IT] Phase 5b: RTC reads 2026-10-31 09:49:2x [PASS]" [ ] "[MRM-IT]
+ * Phase 5b: FC06 to 0x0210, FC16 of one register, a span of three: exception 0x03, clock unchanged
+ * [PASS]" [ ] "[MRM-IT] Phase 5b: epoch below 2000 and above 2099: exception 0x03, clock unchanged
+ * [PASS]" [ ] "[MRM-IT] Phase 5b: +60 s accepted, +2 days refused by TimeProvider (0x03) [PASS]" [
+ * ] "[MRM-IT] Phase 5b: FC03 0x0210 x2 returns the last block written [PASS]"
+ *
  *   Phase 6 — periodic tick:
  *   [ ] periodic "[MRM-IT] tick N" at 1 Hz
  *   [ ] No UART freeze or watchdog reset
@@ -276,34 +284,6 @@ static ihealth_report_t s_health_report_vtable = {
     .set_led_fault = it_health_set_led_fault,
 };
 
-/* ITimeProvider */
-static time_provider_err_t it_time_get(time_provider_ts_t *ts)
-{
-    ts->epoch = 0;
-    ts->sync_state = TIME_SYNC_UNSYNCHRONISED;
-    return TIME_PROVIDER_ERR_OK;
-}
-static time_provider_err_t it_time_set(uint32_t e)
-{
-    (void) e;
-    return TIME_PROVIDER_ERR_OK;
-}
-static time_provider_err_t it_time_mark_unsync(void)
-{
-    return TIME_PROVIDER_ERR_OK;
-}
-static time_sync_state_t it_time_get_sync(void)
-{
-    return TIME_SYNC_UNSYNCHRONISED;
-}
-
-static const itime_provider_t s_time_vtable = {
-    .get = it_time_get,
-    .set_time = it_time_set,
-    .mark_unsynchronised = it_time_mark_unsync,
-    .get_sync_state = it_time_get_sync,
-};
-
 /* IModbusSlaveStats */
 static modbus_slave_stats_t s_mb_stats_live;
 static void it_mb_stats_snapshot(modbus_slave_stats_t *out)
@@ -316,24 +296,26 @@ static const imodbus_slave_stats_t s_mb_stats_vtable = {
 };
 
 /* IModbusSlave */
-static void it_set_slave_address(uint8_t new_addr)
+static modbus_slave_err_t it_set_slave_address(uint8_t new_addr)
 {
     s_slave_addr_set = new_addr;
     s_slave_addr_set_called = true;
+    return MODBUS_SLAVE_ERR_OK;
 }
 
 static imodbus_slave_t s_mb_slave_vtable = {
-    .set_slave_address = it_set_slave_address,
+    .set_address = it_set_slave_address,
 };
 
 /* ILifecycleController */
-static void it_handle_remote_command(lc_remote_cmd_t cmd)
+static lifecycle_err_t it_handle_remote_command(lifecycle_remote_cmd_t cmd)
 {
     (void) cmd;
     s_lc_cmd_called = true;
+    return LIFECYCLE_ERR_OK;
 }
 
-static ilifecycle_controller_t s_lifecycle_vtable = {
+static ilifecycle_t s_lifecycle_vtable = {
     .handle_remote_command = it_handle_remote_command,
 };
 
@@ -459,6 +441,131 @@ static void test_task(void *arg)
     }
 
     /* ------------------------------------------------------------------ */
+    /* Phase 5b — CMD_SET_TIME through the register map (TS-O5)            */
+    /* ------------------------------------------------------------------ */
+    {
+        const uint32_t epoch = 1793440168UL; /* 2026-10-31 09:49:28 UTC */
+        const uint16_t block[2] = {(uint16_t) (epoch >> 16), (uint16_t) (epoch & 0xFFFFU)};
+        bool ok = true;
+
+        /* A known starting point: forget any synchronisation left by an earlier run. */
+        (void) time_provider->mark_unsynchronised();
+
+        modbus_exception_t exc = s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 2u, block);
+        time_provider_ts_t ts = {0};
+        (void) time_provider->get(&ts);
+        if (exc == MB_EXC_NONE && ts.sync_state == TIME_SYNC_SYNCHRONISED && ts.epoch >= epoch &&
+            ts.epoch <= (epoch + 3UL))
+        {
+            LOG_INFO(LOG_MODULE,
+                     "Phase 5b: FC16 0x0210 x2 set the clock to %lu, synchronised [PASS]",
+                     (unsigned long) ts.epoch);
+        }
+        else
+        {
+            ok = false;
+            LOG_ERROR(LOG_MODULE, "Phase 5b: set FAILED exc=%02X sync=%d epoch=%lu", (unsigned) exc,
+                      (int) ts.sync_state, (unsigned long) ts.epoch);
+        }
+
+        rtc_datetime_t dt;
+        if (rtc_driver->get_time(&dt) == RTC_OK && dt.year == 2026u && dt.month == 10u &&
+            dt.day == 31u && dt.hour == 9u && dt.minute == 49u)
+        {
+            LOG_INFO(LOG_MODULE, "Phase 5b: RTC reads %04u-%02u-%02u %02u:%02u:%02u [PASS]",
+                     (unsigned) dt.year, (unsigned) dt.month, (unsigned) dt.day, (unsigned) dt.hour,
+                     (unsigned) dt.minute, (unsigned) dt.second);
+        }
+        else
+        {
+            ok = false;
+            LOG_ERROR(LOG_MODULE, "Phase 5b: RTC FAILED %04u-%02u-%02u %02u:%02u",
+                      (unsigned) dt.year, (unsigned) dt.month, (unsigned) dt.day,
+                      (unsigned) dt.hour, (unsigned) dt.minute);
+        }
+
+        /* Refusals leave the clock where it is. */
+        time_provider_ts_t before = {0};
+        time_provider_ts_t after = {0};
+        const uint16_t half = 0x1234u;
+        const uint16_t three[3] = {block[0], block[1], 0u};
+        const uint16_t low[2] = {0u, 0u};            /* epoch 0 */
+        const uint16_t high[2] = {0xFFFFu, 0xFFFFu}; /* epoch 0xFFFFFFFF */
+
+        (void) time_provider->get(&before);
+        const modbus_exception_t e1 = s_iface.write_single_reg(s_iface.ctx, 0x0210u, half);
+        const modbus_exception_t e2 = s_iface.write_multiple_regs(s_iface.ctx, 0x0211u, 1u, &half);
+        const modbus_exception_t e3 = s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 3u, three);
+        (void) time_provider->get(&after);
+        if (e1 == MB_EXC_ILLEGAL_DATA_VALUE && e2 == MB_EXC_ILLEGAL_DATA_VALUE &&
+            e3 == MB_EXC_ILLEGAL_DATA_VALUE && after.epoch >= before.epoch &&
+            after.epoch <= (before.epoch + 2UL))
+        {
+            LOG_INFO(LOG_MODULE, "Phase 5b: FC06 to 0x0210, FC16 of one register, a span of three: "
+                                 "exception 0x03, clock unchanged [PASS]");
+        }
+        else
+        {
+            ok = false;
+            LOG_ERROR(LOG_MODULE, "Phase 5b: partial writes FAILED %02X %02X %02X", (unsigned) e1,
+                      (unsigned) e2, (unsigned) e3);
+        }
+
+        const modbus_exception_t e4 = s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 2u, low);
+        const modbus_exception_t e5 = s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 2u, high);
+        (void) time_provider->get(&after);
+        if (e4 == MB_EXC_ILLEGAL_DATA_VALUE && e5 == MB_EXC_ILLEGAL_DATA_VALUE &&
+            after.epoch >= epoch && after.epoch < (epoch + 600UL))
+        {
+            LOG_INFO(LOG_MODULE, "Phase 5b: epoch below 2000 and above 2099: exception 0x03, "
+                                 "clock unchanged [PASS]");
+        }
+        else
+        {
+            ok = false;
+            LOG_ERROR(LOG_MODULE, "Phase 5b: range FAILED %02X %02X epoch=%lu", (unsigned) e4,
+                      (unsigned) e5, (unsigned long) after.epoch);
+        }
+
+        /* TimeProvider's own delta check once synchronised (TP-O3, one day). */
+        const uint32_t near_epoch = after.epoch + 60UL;
+        const uint32_t far_epoch = after.epoch + 172800UL;
+        const uint16_t near_block[2] = {(uint16_t) (near_epoch >> 16),
+                                        (uint16_t) (near_epoch & 0xFFFFU)};
+        const uint16_t far_block[2] = {(uint16_t) (far_epoch >> 16),
+                                       (uint16_t) (far_epoch & 0xFFFFU)};
+        const modbus_exception_t e6 =
+            s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 2u, near_block);
+        const modbus_exception_t e7 =
+            s_iface.write_multiple_regs(s_iface.ctx, 0x0210u, 2u, far_block);
+        if (e6 == MB_EXC_NONE && e7 == MB_EXC_ILLEGAL_DATA_VALUE)
+        {
+            LOG_INFO(LOG_MODULE,
+                     "Phase 5b: +60 s accepted, +2 days refused by TimeProvider (0x03) [PASS]");
+        }
+        else
+        {
+            ok = false;
+            LOG_ERROR(LOG_MODULE, "Phase 5b: delta check FAILED near=%02X far=%02X", (unsigned) e6,
+                      (unsigned) e7);
+        }
+
+        uint16_t back[2] = {0u, 0u};
+        const modbus_exception_t e8 = s_iface.read_holding_regs(s_iface.ctx, 0x0210u, 2u, back);
+        if (e8 == MB_EXC_NONE && back[0] == far_block[0] && back[1] == far_block[1])
+        {
+            LOG_INFO(LOG_MODULE, "Phase 5b: FC03 0x0210 x2 returns the last block written [PASS]");
+        }
+        else
+        {
+            ok = false;
+            LOG_ERROR(LOG_MODULE, "Phase 5b: read-back FAILED %02X %04X %04X", (unsigned) e8,
+                      (unsigned) back[0], (unsigned) back[1]);
+        }
+        LOG_INFO(LOG_MODULE, "Phase 5b: %s", ok ? "ALL PASS" : "FAILED");
+    }
+
+    /* ------------------------------------------------------------------ */
     /* Phase 6 — periodic tick                                             */
     /* ------------------------------------------------------------------ */
     for (;;)
@@ -507,11 +614,20 @@ int main(void)
     s_health_snap.lifecycle_state = LIFECYCLE_STATE_OPERATIONAL;
     memset(&s_mb_stats_live, 0, sizeof s_mb_stats_live);
 
+    /* The real TimeProvider on the real RTC, so the Phase 5b time push is observable. */
+    if (time_provider_init(&s_health_report_vtable) != TIME_PROVIDER_ERR_OK)
+    {
+        LOG_ERROR(LOG_MODULE, "time_provider_init FAILED");
+        for (;;)
+        {
+        }
+    }
+
     s_mrm = modbus_register_map_instance();
 
     modbus_register_map_err_t rc = modbus_register_map_init(
         s_mrm, &s_sensor_vtable, &s_alarm_vtable, &s_cfg_read_vtable, &s_cfg_write_vtable,
-        &s_health_read_vtable, &s_health_report_vtable, &s_time_vtable, &s_mb_stats_vtable,
+        &s_health_read_vtable, &s_health_report_vtable, time_provider, &s_mb_stats_vtable,
         &s_mb_slave_vtable, &s_lifecycle_vtable);
     if (rc != MRM_ERR_OK)
     {
