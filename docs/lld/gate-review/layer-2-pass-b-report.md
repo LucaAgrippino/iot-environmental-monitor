@@ -111,7 +111,7 @@ companion. Each subsection:
 | `device-profile-registry-lld.md` | P1, P2, P3, P4, P5, P6, P8, P9, P10 |
 | `health-monitor.md` | P1, P2, P3, P4, P5, P6, P8, P9, P10 |
 | `lcd-ui-lld.md` | P1, P2, P4, P5, P6, P7, P8, P9, P10 |
-| `lifecycle-controller.md` | P1, P2, P4, P5, P6, P8, P9, P10 |
+| `lifecycle-controller-lld.md` | P1, P2, P4, P5, P6, P8, P9, P10 |
 | `modbus-register-map-lld.md` | P1, P2, P4, P5, P6, P8, P9, P10 |
 | `sensor-alarm-service.md` | P1, P2, P4, P5, P6, P7, P8, P9, P10 |
 | `store-and-forward-lld.md` | P1, P2, P4, P5, P6, P7, P8, P9, P10 |

@@ -88,7 +88,7 @@ dispatches directly to AlarmService because it has no lifecycle-state dependency
 
 **Files modified:**
 - `docs/lld/application/health-monitor.md` — added `health_monitor_reset_metrics()`, `ihealth_admin_t` vtable (IHealthAdmin), three-way ISP split documented.
-- `docs/lld/application/lifecycle-controller.md` — added `lifecycle_remote_cmd_t`, `lifecycle_handle_remote_command()`, `ilifecycle_t` vtable; §3 dispatch rationale; updated USES headers (IHealthAdmin on GW).
+- `docs/lld/application/lifecycle-controller-lld.md` — added `lifecycle_remote_cmd_t`, `lifecycle_handle_remote_command()`, `ilifecycle_t` vtable; §3 dispatch rationale; updated USES headers (IHealthAdmin on GW).
 - `docs/lld/application/modbus-register-map-lld.md` — CMD_RESET_METRICS and CMD_SOFT_RESTART updated to use `lifecycle_controller->handle_remote_command(…)`.
 - `docs/hld/components.md` — added IHealthAdmin to HealthMonitor PROVIDES (FD + GW), added HealthMonitor to LifecycleController USES (FD + GW).
 - `docs/hld/modbus-register-map.md` — CMD_RESET_METRICS Sink column changed from `HealthMonitor` to `LifecycleController`.
@@ -156,7 +156,7 @@ per LLD-D10.
 |----|-------------|-----------|
 | LLD-D13 | NtpClient uses UDP via `wifi_driver->open_socket(WIFI_SOCKET_UDP, …)` | `wifi-driver.md` WIFI-D7; `ntp-client.md` §6 |
 | LLD-D14 | AlarmService non-latched-with-manual-clear `ack_all()` | `sensor-alarm-service.md` §6; `modbus-register-map-lld.md` §8.1 |
-| LLD-D15 | LifecycleController single dispatch for remote state-changing commands | `lifecycle-controller.md` §2, §3; `lld.md` §6 |
+| LLD-D15 | LifecycleController single dispatch for remote state-changing commands | `lifecycle-controller-lld.md` §2, §3; `lld.md` §6 |
 | LLD-D16 | TimeProvider sync-flag via BKP0R; asymmetric magic; vtable access | `time-provider.md` §5; `rtc-driver.md` §2.4; `lld.md` §6.2 |
 | LLD-D17 | DeviceProfileRegistry static-embedded default profiles; interface seam | `device-profile-registry-lld.md` §6.0 |
 
@@ -174,7 +174,7 @@ All five decisions are recorded in `lld.md` §6 decisions log.
 | `docs/lld/application/sensor-alarm-service.md` | Modified | D14 |
 | `docs/lld/application/modbus-register-map-lld.md` | Modified | D14, D15 |
 | `docs/lld/application/health-monitor.md` | Modified | D15 |
-| `docs/lld/application/lifecycle-controller.md` | Modified | D15 |
+| `docs/lld/application/lifecycle-controller-lld.md` | Modified | D15 |
 | `docs/hld/modbus-register-map.md` | Modified | D15 |
 | `docs/lld/middleware/time-provider.md` | Modified | D16 |
 | `docs/lld/drivers/rtc-driver.md` | Modified | D16 |

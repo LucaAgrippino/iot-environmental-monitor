@@ -15,9 +15,10 @@
 #include "task.h"
 
 #define WIFITASK_MAX_INSTANCES 1u
-#define WIFITASK_TASK_STACK_WORDS 256u /**< D29; matches memory-budget.md §1.1 (1 KB). */
-#define WIFITASK_TASK_PRIORITY 3u      /**< D29. */
-#define WIFITASK_QUEUE_DEPTH 3u /**< Sized by producer count (companion §2), not throughput. */
+#define WIFITASK_TASK_STACK_WORDS                                                                  \
+    320u /**< D-1 F (WP4): 175 of 256 words used; was 256 (D29, memory-budget.md §1.1). */
+#define WIFITASK_TASK_PRIORITY 3u /**< D29. */
+#define WIFITASK_QUEUE_DEPTH 3u   /**< Sized by producer count (companion §2), not throughput. */
 
 /** WIFI_LIVENESS_CHECK_PERIOD_MS: provisional, not yet validated against
  *  field data (WIFITASK-O4, companion §10). Doubles as the queue-receive
@@ -54,6 +55,8 @@
 #define WIFITASK_WIFI_RESP_TIMEOUT_MS 5000u
 #define WIFITASK_WIFI_JOIN_TIMEOUT_MS 20000u
 #define WIFITASK_WIFI_SOCKET_CONNECT_TIMEOUT_MS 15000u
+#define WIFITASK_WIFI_RESET_TIMEOUT_MS 10000u /**< Boot sequence of wifi_reset_module(). */
+#define WIFITASK_WIFI_DNS_TIMEOUT_MS 60000u   /**< WifiDriver WIFI_DNS_TIMEOUT_MS (WIFI-O18). */
 
 /** WIFITASK-O5 resolution: reply-wait bound is this request's own
  *  worst-case dispatch time plus queueing margin for up to 2 other
@@ -69,7 +72,7 @@
  *  docs/lld/middleware/wifi-task.md §4/§5.2/§10). wifi_recv()'s own
  *  WIFI_MAX_PACKET_SIZE (private to wifi_driver.c) mirrored the same way
  *  the timing constants above already are. */
-#define WIFITASK_WIFI_MAX_PACKET_SIZE 1460u
+#define WIFITASK_WIFI_MAX_PACKET_SIZE WIFITASK_MAX_SEND_BYTES
 #define WIFITASK_RECV_ARM_QUEUE_DEPTH 2u
 /** How often prv_wifitask_step() re-checks the arm queue / main queue
  *  while a recv slot is active (ARMED/IN_FLIGHT/DONE) instead of sleeping
@@ -142,6 +145,14 @@ struct wifitask_inst
     bool in_use;
 };
 
+/* The two enums share one type on the wire; their values must not meet (wifi_task.h). */
+_Static_assert(WIFI_ERR_NO_RESOURCE < WIFITASK_ERR_NULL_PTR,
+               "WifiTask's own error codes must stay above every wifi_err_t value");
+_Static_assert((WIFITASK_ERR_NULL_PTR != WIFITASK_ERR_TIMEOUT) &&
+                   (WIFITASK_ERR_NULL_PTR != WIFITASK_ERR_NO_RESOURCE) &&
+                   (WIFITASK_ERR_NO_RESOURCE != WIFITASK_ERR_TIMEOUT),
+               "WifiTask's own error codes must be distinct");
+
 static struct wifitask_inst g_pool[WIFITASK_MAX_INSTANCES];
 static uint32_t g_count;
 
@@ -197,6 +208,14 @@ static wifi_err_t prv_dispatch(struct wifitask_inst *inst, wifitask_request_t *r
     case WIFITASK_OP_CLOSE_SOCKET:
         prv_recv_slot_reset(inst);
         return wifi_close_socket(inst->wifi, req->socket);
+    case WIFITASK_OP_RESOLVE:
+        return wifi_resolve(inst->wifi, req->hostname, req->ip_out, req->ip_out_len);
+    case WIFITASK_OP_PING:
+        return wifi_ping(inst->wifi);
+    case WIFITASK_OP_RESET_MODULE:
+        prv_recv_slot_reset(inst); /* the module's sockets are gone */
+        inst->last_known_link_state = WIFI_LINK_DOWN;
+        return wifi_reset_module(inst->wifi);
     default:
         return WIFI_ERR_INVALID_ARG;
     }
@@ -517,6 +536,38 @@ wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, con
     };
     return prv_submit_and_wait(handle, &req,
                                WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+}
+
+wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, char *ip_out,
+                                size_t ip_out_len)
+{
+    if ((hostname == NULL) || (ip_out == NULL))
+    {
+        return WIFITASK_ERR_NULL_PTR;
+    }
+
+    wifitask_request_t req = {
+        .op = WIFITASK_OP_RESOLVE,
+        .hostname = hostname,
+        .ip_out = ip_out,
+        .ip_out_len = ip_out_len,
+    };
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_DNS_TIMEOUT_MS));
+}
+
+wifitask_err_t wifitask_ping(wifitask_handle_t handle)
+{
+    wifitask_request_t req = {.op = WIFITASK_OP_PING};
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESP_TIMEOUT_MS));
+}
+
+wifitask_err_t wifitask_reset_module(wifitask_handle_t handle)
+{
+    wifitask_request_t req = {.op = WIFITASK_OP_RESET_MODULE};
+    return prv_submit_and_wait(handle, &req,
+                               WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_RESET_TIMEOUT_MS));
 }
 
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
