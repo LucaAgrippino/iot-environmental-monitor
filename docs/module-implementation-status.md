@@ -54,7 +54,7 @@ Hardware columns come from the bench results recorded during the project; where 
 |---|---|---|
 | Logger | harness exists | |
 | WifiTask | ✅ validated | Alarm-latency decision CP-O6 largely resolved |
-| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (provisional 44 KB, mutex-guarded; `tls_arena_init()` must run before the scheduler). **Arena peak with a TLS session open measured 2026-10-29 (TC-HW-MQTT-014): 46 280 bytes** (ECDSA verify added 0, heap grew 0), so the provisional 44 KB arena is 1 224 bytes too small and the TLS handshake fails on the board (`-0x2700`, broker sees `unknown ca`); the size is fixed by WP4 decision D-1 (MQTT-O1) |
+| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (28 KB since WP4 D-1 (MQTT-D19), mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open (TC-HW-MQTT-014): **46 280 bytes** with the default 16 KB record buffers (2026-10-29; the old 44 KB arena was 1 224 bytes too small), **20 920 bytes** with the 5 120 / 2 048 buffers against AWS IoT Core (2026-10-30). `tls_server_name` (MQTT-D18) separates the certificate name from the connect address |
 | NtpClient | ✅ validated | IPv4 servers only |
 | TimeProvider | ✅ TC-HW-TP-001..011 | |
 | ConfigStore | ✅ validated | Diverges from the FD copy (CS-O5) |
