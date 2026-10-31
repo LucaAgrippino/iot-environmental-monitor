@@ -333,25 +333,10 @@ static void link_task(void *arg)
     }
 }
 
-/* DeviceProfileRegistry for `profiles list`: nothing is stored on this bench, so the default
- * profile is seeded; saving is not supported here. */
-static bool profiles_load(device_profile_t *out, uint8_t max, uint8_t *count_out)
-{
-    (void) out;
-    (void) max;
-    (void) count_out;
-    return false;
-}
-
-static bool profiles_save(const device_profile_t *in, uint8_t count)
-{
-    (void) in;
-    (void) count;
-    return false;
-}
-
-static const device_profile_storage_t k_profile_storage = {.load = profiles_load,
-                                                           .save = profiles_save};
+/* DeviceProfileRegistry for `profiles list / add / remove`: stored in ConfigService's blob, as in
+ * the product (device-profile-registry-lld.md §5.1). */
+static const device_profile_storage_t k_profile_storage = {.load = config_service_get_profiles,
+                                                           .save = config_service_set_profiles};
 
 static void bringup_spin(uint32_t n)
 {
@@ -475,7 +460,9 @@ int main(void)
                                  .cfg_read = config_service_get_provider(),
                                  .cfg_write = config_service_get_manager(),
                                  .health = s_hm,
-                                 .prof_read = device_profile_provider};
+                                 .prof_read = device_profile_provider,
+                                 .prof_write = device_profile_manager,
+                                 .on_profile_changed = NULL};
 
     if (console_service_init(&deps) != CONSOLE_SERVICE_ERR_OK)
     {
