@@ -1033,26 +1033,174 @@ static console_service_err_t cmd_profiles_list(int argc, const char *argv[])
     return CONSOLE_SERVICE_ERR_OK;
 }
 
-static console_service_err_t cmd_profiles_add(int argc, const char *argv[])
+#define PROFILE_USAGE "usage: profiles add addr=N map=N vendor=N [desc=text]"
+#define HEX_PREFIX_LEN (2U)
+#define HEX_RADIX (16U)
+#define DEC_RADIX (10U)
+#define DEC_DIGIT_MAX (9U)
+
+/** Decimal or 0x-prefixed hex, 1..65535; false otherwise. */
+static bool prv_parse_u16(const char *text, uint16_t *out)
 {
-    bool have_addr = false;
+    uint32_t radix = DEC_RADIX;
+    uint32_t v = 0U;
+    uint8_t digits = 0U;
 
-    for (int i = 0; i < argc; i++)
+    if ((text[0] == '0') && ((text[1] == 'x') || (text[1] == 'X')))
     {
-        uint32_t n;
+        radix = HEX_RADIX;
+        text += HEX_PREFIX_LEN;
+    }
+    for (; *text != '\0'; text++)
+    {
+        uint32_t d;
 
-        if ((strncmp(argv[i], "addr=", 5U) == 0) && fmt_parse_u32(&argv[i][5], &n) &&
-            (n >= MODBUS_ADDR_MIN) && (n <= MODBUS_ADDR_MAX))
+        if ((*text >= '0') && (*text <= '9'))
         {
-            have_addr = true;
+            d = (uint32_t) (*text - '0');
+        }
+        else if ((radix == HEX_RADIX) && (*text >= 'a') && (*text <= 'f'))
+        {
+            d = (uint32_t) (*text - 'a') + DEC_DIGIT_MAX + 1U;
+        }
+        else if ((radix == HEX_RADIX) && (*text >= 'A') && (*text <= 'F'))
+        {
+            d = (uint32_t) (*text - 'A') + DEC_DIGIT_MAX + 1U;
+        }
+        else
+        {
+            return false;
+        }
+        v = (v * radix) + d;
+        digits++;
+        if ((digits > 5U) || (v > 0xFFFFU))
+        {
+            return false;
         }
     }
-    if (!have_addr)
+    if ((digits == 0U) || (v == 0U))
     {
-        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
-                        "usage: profiles add addr=<1..247> sensors=<list>");
+        return false;
     }
-    return prv_not_available("DeviceProfileRegistry is read-only on the Gateway");
+    *out = (uint16_t) v;
+    return true;
+}
+
+/** Fill @p p from `key=value` arguments; the description is the text after desc= to the end. */
+static bool prv_parse_profile(int argc, const char *argv[], device_profile_t *p)
+{
+    bool have_addr = false;
+    bool have_map = false;
+    bool have_vendor = false;
+    bool in_desc = false;
+    size_t used = 0U;
+    uint32_t n;
+
+    (void) memset(p, 0, sizeof(*p));
+    for (int i = 0; i < argc; i++)
+    {
+        const char *a = argv[i];
+
+        if (in_desc)
+        {
+            const size_t len = strlen(a);
+
+            if ((used + 1U + len) >= DEVICE_PROFILE_DESC_MAX)
+            {
+                return false;
+            }
+            p->description[used] = ' ';
+            (void) memcpy(&p->description[used + 1U], a, len);
+            used += 1U + len;
+        }
+        else if (strncmp(a, "addr=", 5U) == 0)
+        {
+            have_addr =
+                fmt_parse_u32(&a[5], &n) && (n >= MODBUS_ADDR_MIN) && (n <= MODBUS_ADDR_MAX);
+            p->slave_addr = (uint8_t) n;
+            if (!have_addr)
+            {
+                return false;
+            }
+        }
+        else if (strncmp(a, "map=", 4U) == 0)
+        {
+            have_map = prv_parse_u16(&a[4], &p->map_version);
+            if (!have_map)
+            {
+                return false;
+            }
+        }
+        else if (strncmp(a, "vendor=", 7U) == 0)
+        {
+            have_vendor = prv_parse_u16(&a[7], &p->vendor_code);
+            if (!have_vendor)
+            {
+                return false;
+            }
+        }
+        else if (strncmp(a, "desc=", 5U) == 0)
+        {
+            const size_t len = strlen(&a[5]);
+
+            if ((len == 0U) || (len >= DEVICE_PROFILE_DESC_MAX))
+            {
+                return false;
+            }
+            (void) memcpy(p->description, &a[5], len);
+            used = len;
+            in_desc = true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    if (!(have_addr && have_map && have_vendor))
+    {
+        return false;
+    }
+    if (used == 0U)
+    {
+        (void) snprintf(p->description, sizeof(p->description), "Field Device %u",
+                        (unsigned) p->slave_addr);
+    }
+    return true;
+}
+
+static console_service_err_t cmd_profiles_add(int argc, const char *argv[])
+{
+    device_profile_t p;
+
+    if (!prv_parse_profile(argc, argv, &p))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, PROFILE_USAGE);
+    }
+    if (s_deps->prof_write == NULL)
+    {
+        return prv_not_available("DeviceProfileRegistry is read-only here");
+    }
+
+    switch (s_deps->prof_write->add_or_update(&p))
+    {
+    case DEVICE_PROFILE_REGISTRY_OK:
+        SAY(PAL_OK, "[OK] profile for slave %u saved", (unsigned) p.slave_addr);
+        if (s_deps->on_profile_changed != NULL)
+        {
+            s_deps->on_profile_changed(p.slave_addr); /* the poller re-checks its identity */
+        }
+        return CONSOLE_SERVICE_ERR_OK;
+    case DEVICE_PROFILE_REGISTRY_ERR_FULL:
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED, "registry full (8): remove one first");
+    case DEVICE_PROFILE_REGISTRY_ERR_INVALID:
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
+                        "profile refused: check addr, map, vendor, desc");
+    case DEVICE_PROFILE_REGISTRY_ERR_PERSIST:
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "not saved: flash write failed, nothing changed");
+    default:
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED, "profile not saved");
+    }
 }
 
 static console_service_err_t cmd_profiles_remove(int argc, const char *argv[])
@@ -1064,7 +1212,24 @@ static console_service_err_t cmd_profiles_remove(int argc, const char *argv[])
     {
         return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "slave address must be 1..247");
     }
-    return prv_not_available("DeviceProfileRegistry is read-only on the Gateway");
+    if (s_deps->prof_write == NULL)
+    {
+        return prv_not_available("DeviceProfileRegistry is read-only here");
+    }
+
+    switch (s_deps->prof_write->remove((uint8_t) n))
+    {
+    case DEVICE_PROFILE_REGISTRY_OK:
+        SAY(PAL_OK, "[OK] profile for slave %u removed", (unsigned) n);
+        return CONSOLE_SERVICE_ERR_OK;
+    case DEVICE_PROFILE_REGISTRY_ERR_NOT_FOUND:
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "no profile for that slave address");
+    case DEVICE_PROFILE_REGISTRY_ERR_PERSIST:
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "not removed: flash write failed, nothing changed");
+    default:
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED, "profile not removed");
+    }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1092,7 +1257,7 @@ static const cmd_entry_t s_cmd_table[] = {
     {"prov commit", NULL, 0U, 0U, cmd_prov_commit, "apply staged provisioning"},
     {"prov discard", NULL, 0U, 0U, cmd_prov_discard, "drop staged provisioning"},
     {"profiles list", NULL, 0U, 0U, cmd_profiles_list, "device profiles"},
-    {"profiles add", NULL, 1U, 4U, cmd_profiles_add, "profiles add addr=N ..."},
+    {"profiles add", NULL, 3U, 8U, cmd_profiles_add, "profiles add addr=N map=V vendor=V"},
     {"profiles remove", NULL, 1U, 1U, cmd_profiles_remove, "profiles remove <addr>"},
     {"wifi status", NULL, 0U, 0U, cmd_wifi_status, "WiFi link"},
     {"mqtt status", NULL, 0U, 0U, cmd_mqtt_status, "MQTT link"},

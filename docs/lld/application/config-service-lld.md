@@ -567,6 +567,24 @@ A stored profile count above `DEVICE_PROFILE_MAX` drops the profiles and keeps t
 Every persist (a parameter change or a profile change) writes the complete blob, so neither can lose
 the other.
 
+**Stack discipline (CFG-D18, found on the board 2026-10-31).** The first version of schema 2 built the blob on
+the caller's stack and `set_profiles` kept a second copy of the profile list; called from the console task
+(3 KB stack) through the registry's own 300-byte candidate table, `profiles add` overflowed the stack and
+silenced the board (FreeRTOS stack-overflow hook). Fixed by measurement (`-fstack-usage`):
+
+| Function | Before | After |
+|---|---|---|
+| `prv_persist` | 896 bytes (blob on the stack) | 152 bytes: the blob is the static `s_persist_blob`, guarded by `persist_mutex` |
+| `config_service_apply_loaded` | 1800 bytes (whole-blob copy + v1 copy) | 1048 bytes (main had 1040): parameters and profiles are copied piecewise from the caller's buffer |
+| `set_profiles` | a second 308-byte copy for rollback | none: the new list is written from the caller's array and replaces the live one only after a good save |
+
+`persist_mutex` is now taken **before** the data mutex copy (it was after), so a save that starts later always
+holds the newest values; the old order let an older copy overwrite a newer one when two persists raced.
+The static blob costs about 520 bytes, saved on every caller's stack (the console, CloudPublisher and the
+lifecycle task). It sits in **SRAM2** (`.bss.sram2`, like the console's buffers): in the 96 KB main bank it made the
+production image fail to link by 504 bytes (found by CI on the merged tree, 2026-10-31). The registry's table
+is in SRAM2 for the same reason. Slack of the `Release` image after this: 748 bytes in the main bank, 596 bytes in SRAM2.
+
 ### §7.4 Vtable singletons
 
 ```c

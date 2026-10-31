@@ -869,24 +869,116 @@ void test_profiles_list_when_empty(void)
     TEST_ASSERT_TRUE(has_line("No profiles registered"));
 }
 
-/* TC-GCS-182, 183 */
-void test_profiles_add_validates_then_reports_not_available(void)
+/* TC-GCS-182 */
+void test_profiles_add_saves_the_profile_and_asks_for_a_reprobe(void)
 {
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED,
-                      run("profiles add addr=5 sensors=temp,hum"));
-    TEST_ASSERT_TRUE(has_line("DeviceProfileRegistry is read-only"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add sensors=temp"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=0"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=abc"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK,
+                      run("profiles add addr=5 map=1 vendor=0x1A45 desc=Boiler room sensor"));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_add_calls);
+    TEST_ASSERT_EQUAL_UINT8(5U, g_spy_added.slave_addr);
+    TEST_ASSERT_EQUAL_UINT16(1U, g_spy_added.map_version);
+    TEST_ASSERT_EQUAL_UINT16(0x1A45U, g_spy_added.vendor_code);
+    TEST_ASSERT_EQUAL_STRING("Boiler room sensor", g_spy_added.description);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_changed_calls);
+    TEST_ASSERT_EQUAL_UINT8(5U, g_spy_changed_addr);
+    TEST_ASSERT_TRUE(has_line("profile for slave 5 saved"));
 }
 
-/* TC-GCS-184, 185 */
-void test_profiles_remove_validates_then_reports_not_available(void)
+/* TC-GCS-183 */
+void test_profiles_add_without_a_description_names_the_device_after_its_address(void)
 {
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("profiles add addr=7 map=2 vendor=6725"));
+    TEST_ASSERT_EQUAL_STRING("Field Device 7", g_spy_added.description);
+    TEST_ASSERT_EQUAL_UINT16(6725U, g_spy_added.vendor_code); /* decimal 6725 = 0x1A45 */
+}
+
+/* TC-GCS-183b */
+void test_profiles_add_rejects_malformed_arguments_without_calling_the_registry(void)
+{
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=5 map=1"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add map=1 vendor=1 desc=x"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=0 map=1 vendor=1"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=248 map=1 vendor=1"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=abc map=1 vendor=1"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=5 map=0 vendor=1"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=5 map=1 vendor=0x1G"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION,
+                      run("profiles add addr=5 map=1 vendor=70000"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION,
+                      run("profiles add addr=5 map=1 vendor=1 bogus"));
+    TEST_ASSERT_EQUAL(
+        CONSOLE_SERVICE_ERR_VALIDATION,
+        run("profiles add addr=5 map=1 vendor=1 desc=abcdefghijklmnopqrstuvwxyz0123456789"));
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_add_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_changed_calls);
+}
+
+/* TC-GCS-183b2 */
+void test_a_line_with_too_many_words_is_refused_not_truncated(void)
+{
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_LINE_OVERFLOW,
+                      run("profiles add addr=5 map=1 vendor=1 desc=a b c d e f"));
+    TEST_ASSERT_TRUE(has_line("too many words"));
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_add_calls);
+}
+
+/* TC-GCS-183c */
+void test_profiles_add_reports_each_registry_refusal_and_does_not_reprobe(void)
+{
+    g_spy_manager_rc = DEVICE_PROFILE_REGISTRY_ERR_FULL;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("profiles add addr=5 map=1 vendor=1"));
+    TEST_ASSERT_TRUE(has_line("registry full"));
+
+    g_spy_manager_rc = DEVICE_PROFILE_REGISTRY_ERR_PERSIST;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("profiles add addr=5 map=1 vendor=1"));
+    TEST_ASSERT_TRUE(has_line("nothing changed"));
+
+    g_spy_manager_rc = DEVICE_PROFILE_REGISTRY_ERR_INVALID;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles add addr=5 map=1 vendor=1"));
+
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_changed_calls);
+}
+
+/* TC-GCS-183d */
+void test_profiles_add_without_a_registry_writer_is_not_available(void)
+{
+    s_deps.prof_write = NULL;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("profiles add addr=5 map=1 vendor=1"));
+    TEST_ASSERT_TRUE(has_line("read-only"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("profiles remove 5"));
+}
+
+/* TC-GCS-183e */
+void test_profiles_add_works_without_a_reprobe_callback(void)
+{
+    s_deps.on_profile_changed = NULL;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("profiles add addr=5 map=1 vendor=1"));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_add_calls);
+}
+
+/* TC-GCS-184 */
+void test_profiles_remove_calls_the_registry(void)
+{
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("profiles remove 5"));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_remove_calls);
+    TEST_ASSERT_EQUAL_UINT8(5U, g_spy_removed_addr);
+    TEST_ASSERT_TRUE(has_line("profile for slave 5 removed"));
+}
+
+/* TC-GCS-185 */
+void test_profiles_remove_validates_the_address_and_reports_registry_refusals(void)
+{
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles remove 0"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles remove 300"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles remove x"));
+    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_remove_calls);
+
+    g_spy_manager_rc = DEVICE_PROFILE_REGISTRY_ERR_NOT_FOUND;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("profiles remove 9"));
+    TEST_ASSERT_TRUE(has_line("no profile for that slave address"));
+
+    g_spy_manager_rc = DEVICE_PROFILE_REGISTRY_ERR_PERSIST;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("profiles remove 9"));
 }
 
 /* ---------------------------------------------------------------------- */

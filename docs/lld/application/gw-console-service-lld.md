@@ -712,7 +712,7 @@ but output is rendered as scrollback lines in the REPL panel:
 | Token | Args | Handler behaviour | Traces to |
 |---|---|---|---|
 | `profiles list` | 0 | Print all device profiles via `IDeviceProfileProvider` | REQ-MB-110 |
-| `profiles add` | 1+ | Add/update a profile: `profiles add addr=5 sensors=temp,hum` | REQ-MB-111 |
+| `profiles add` | 3 to 6 | Add or update a profile: `profiles add addr=5 map=1 vendor=0x1A45 [desc=Boiler room]`. `vendor` is decimal or `0x` hex; the description is the text after `desc=` to the end of the line (default `Field Device <addr>`) | REQ-MB-111 |
 | `profiles remove` | 1 | Remove a profile by slave address | REQ-MB-111 |
 | `wifi status` | 0 | WiFi link state + RSSI from `IHealthSnapshot` | REQ-LI-010 |
 | `mqtt status` | 0 | MQTT connection state + counters from `IHealthSnapshot` | REQ-LI-010 |
@@ -1337,10 +1337,14 @@ each interface header:
 |---|---|---|
 | TC-GCS-180 | `profiles list` calls `IDeviceProfileProvider.list_profiles`; lines in scrollback | REQ-MB-110 |
 | TC-GCS-181 | `profiles list` empty → `No profiles registered` | — |
-| TC-GCS-182 | `profiles add addr=5 sensors=temp,hum` → calls `IDeviceProfileManager.add_profile` | REQ-MB-111 |
-| TC-GCS-183 | `profiles add` malformed → `[ERR]` | REQ-LI-0E2 |
-| TC-GCS-184 | `profiles remove 5` → calls `remove_profile(5)` | REQ-MB-111 |
-| TC-GCS-185 | `profiles remove 0` → `[ERR]` (invalid addr) | REQ-LI-090 |
+| TC-GCS-182 | `profiles add addr=5 map=1 vendor=0x1A45 desc=...` → `IDeviceProfileManager.add_or_update` with the parsed profile, then `on_profile_changed(5)` (re-probe) | REQ-MB-111, REQ-DM-101 |
+| TC-GCS-183a | No `desc=` → description `Field Device <addr>`; vendor accepted as decimal | REQ-MB-111 |
+| TC-GCS-183 | `profiles add` malformed (missing key, addr 0/248/abc, map 0, bad hex, vendor above 65535, unknown word, description of 32 or more characters) → `[ERR]`, registry not called | REQ-LI-0E2 |
+| TC-GCS-183b | More than 8 words on a line → `[ERR] too many words (max 8)`, `LINE_OVERFLOW`; words are never dropped silently | REQ-LI-0E2 |
+| TC-GCS-183c | Registry answers FULL / PERSIST / INVALID → a specific `[ERR]` line, no re-probe | P8 |
+| TC-GCS-183d | No `prof_write` → `not available: read-only`; no `on_profile_changed` → add still works | — |
+| TC-GCS-184 | `profiles remove 5` → calls `remove(5)` and prints `[OK]` | REQ-MB-111 |
+| TC-GCS-185 | `profiles remove 0` / `300` / `x` → `[ERR]`, registry not called; NOT_FOUND and PERSIST answered with their own lines | REQ-LI-090 |
 | TC-GCS-186 | `wifi status` → WiFi fields from IHealthSnapshot in scrollback | REQ-LI-010 |
 | TC-GCS-187 | `mqtt status` → MQTT fields in scrollback | REQ-LI-010 |
 | TC-GCS-188 | `modbus status` → Modbus master fields in scrollback | REQ-LI-010 |
@@ -1430,7 +1434,13 @@ ST-Link VCP at 115200 8N1.
 | IT-GCS-017 | Console REPL: `prov commit` + 30 s timeout | Times out; pending discarded |
 | IT-GCS-018 | Console REPL: `selftest` | Per-subsystem results; overall pass/fail |
 | IT-GCS-019 | Console REPL: `profiles list` | Shows registered device profiles |
-| IT-GCS-020 | Console REPL: `profiles add addr=5 sensors=temp,hum` + `profiles list` | New profile appears |
+| IT-GCS-020 | Superseded by IT-GCS-030..035 (key=value syntax, WP8) | — |
+| IT-GCS-030 | `profiles list` shows the default profile (slave 1, map 1, vendor 0x1A45) | Listed |
+| IT-GCS-031 | `profiles add addr=5 map=1 vendor=0x1A45 desc=Boiler room` then `profiles list` | `[OK]`; slave 5 listed with its description (flash save, about 0.8 s) |
+| IT-GCS-032 | `profiles add addr=0 ...`; a line with more than 8 words | `[ERR]`; `too many words`, nothing truncated |
+| IT-GCS-033 | `profiles remove 5`, then again | `[OK]`; then `no profile for that slave address` |
+| IT-GCS-034 | Add slave 6, reboot, `profiles list` | Slave 6 and the default survived the reset |
+| IT-GCS-035 | `profiles remove 6` | Removed (restores the bench) |
 | IT-GCS-021 | Console REPL: `wifi status` | WiFi info matches reality |
 | IT-GCS-022 | Console REPL: `mqtt status` | MQTT info matches reality |
 | IT-GCS-023 | Console REPL: `modbus status` | Modbus master info matches reality |
@@ -1453,12 +1463,12 @@ ST-Link VCP at 115200 8N1.
 | **CS-O5** | Self-test depth: driver-level loopback not in interface list | Evaluate at integration | Open |
 | **CS-O6** | Certificate provisioning (REQ-LI-060) multi-line paste mode | Define `prov cert-begin` / `prov cert-end` UX at implementation | Open |
 | **CS-O7** | Confirm-prompt blocking read timeout mechanism | Implemented with the data-tick counter (30 ticks at 1 Hz), TC-GCS-149 / 166. | Closed |
-| **CS-O8** | `profiles add` input format | Recommendation: key=value for CLI simplicity | Open |
+| **CS-O8** | `profiles add` input format | **Closed (WP8):** key=value (`addr=`, `map=`, `vendor=`, `desc=`) | Closed |
 | **CS-O9** | GW `components.md` entry omits `IAlarmService` and lists `DeviceProfileRegistry` instead of ISP-split interfaces | Follow-up PR alongside CS-O4 | Open |
 | **GW-CS-O1** | Cell grid RAM (62 KB for two grids) | Closed by GCS-D5: palette-indexed 3-byte cells, 11.6 KB for both grids, 26 KB static in total. | Closed |
 | **GW-CS-O2** | 256-colour fallback mapping — token table defined but per-column proximity mapping needs manual verification against target terminals | Test with PuTTY and minicom | Open |
 | **GCS-O4** | WiFi credentials (`prov set wifi-ssid / wifi-pass`) have no back-end: no credential store exists on the Gateway. | Needs its own design pass (storage, encryption, WifiTask hand-off). | Open |
-| **GCS-O5** | Modbus line settings (`prov set modbus-baud / modbus-parity`) are not configurable; `DeviceProfileRegistry` is read-only (`profiles add / remove`); certificate provisioning (CS-O6) is not implemented. | Registry and Modbus settings modules first; CS-O6 UX later. | Open |
+| **GCS-O5** | Modbus line settings (`prov set modbus-baud / modbus-parity`) are not configurable; `profiles add / remove` work since WP8 when `prof_write` is wired (the production `main()` must set it and `on_profile_changed` = `modbus_poller_reprobe`); certificate provisioning (CS-O6) is not implemented. | Registry and Modbus settings modules first; CS-O6 UX later. | Open |
 | **GCS-O6** | `selftest` has no flash round-trip and its result is not persisted (CS-O5). | Needs a ConfigService / ConfigStore self-test hook. | Open |
 | **GCS-O7** | The REPL panel showed only the last 8 lines, so a long output (`help`) scrolled out of view. | Closed by GCS-D13 (PgUp / PgDn, bench-verified). | Closed |
 | **GCS-O8** | Connectivity dots and the link status commands show what HealthMonitor holds. In a production image the producers (WifiTask RSSI polling, CloudPublisher connect events, ModbusPoller link events) are not wired because there is no Gateway `main()`; the console harness stands in with a small link-monitor task. (An earlier note here said uptime never advanced: that was wrong. HealthMonitor computes it from the tick counter; the banner shows `HH:MM`, so the first minute reads 00:00.) | Gateway entry point. | Open |

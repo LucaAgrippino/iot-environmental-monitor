@@ -51,6 +51,13 @@ typedef struct
     health_monitor_handle_t health;
     /* cppcheck-suppress unusedStructMember -- consumed by `profiles list` */
     const idevice_profile_provider_t *prof_read;
+    /* cppcheck-suppress unusedStructMember -- consumed by `profiles add` and `profiles remove` */
+    const idevice_profile_manager_t
+        *prof_write; /**< Optional: NULL makes add/remove "not available". */
+    /* cppcheck-suppress unusedStructMember -- consumed by `profiles add` */
+    void (*on_profile_changed)(
+        uint8_t slave_addr); /**< Optional: called after a profile was added or updated, so the
+                                poller re-probes (REQ-DM-101). */
 } console_deps_t;
 
 #endif /* CONSOLE_TYPES_H */
