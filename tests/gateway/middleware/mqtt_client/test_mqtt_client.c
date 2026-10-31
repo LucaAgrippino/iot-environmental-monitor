@@ -530,6 +530,32 @@ void test_MQTT_T06c_tls_server_name_is_checked_instead_of_the_connect_address(vo
     cfg.tls_server_name = "xxxxx.iot.eu-north-1.amazonaws.com";
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_connect(handle, &cfg));
     TEST_ASSERT_EQUAL_STRING("xxxxx.iot.eu-north-1.amazonaws.com", s_tls_server_name_seen);
+/* The TLS record is larger than one module send can carry (WP4 F-12): the BIO send hands over
+ * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The context
+ * is not built by a connect here: only its first fields (the WifiTask handle and the socket) are read,
+ * and the stub ignores both. */
+int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
+
+void test_MQTT_T06d_bio_send_is_capped_at_the_module_ceiling(void)
+{
+    static uint8_t ctx[256];
+    static unsigned char record[3000];
+
+    memset(ctx, 0, sizeof(ctx));
+    TEST_ASSERT_EQUAL_INT((int) WIFITASK_MAX_SEND_BYTES,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+    TEST_ASSERT_EQUAL_UINT32(1u, (uint32_t) s_send_call_count);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFITASK_MAX_SEND_BYTES, (uint32_t) s_send_total_bytes);
+}
+
+void test_MQTT_T06e_bio_send_below_the_ceiling_is_sent_whole(void)
+{
+    static uint8_t ctx[256];
+    static unsigned char record[300];
+
+    memset(ctx, 0, sizeof(ctx));
+    TEST_ASSERT_EQUAL_INT((int) sizeof(record), prv_mbedtls_net_send(ctx, record, sizeof(record)));
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) sizeof(record), (uint32_t) s_send_total_bytes);
 }
 
 /* ========================================================================

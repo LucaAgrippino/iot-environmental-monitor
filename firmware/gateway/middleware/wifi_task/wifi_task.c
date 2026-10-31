@@ -69,7 +69,7 @@
  *  docs/lld/middleware/wifi-task.md §4/§5.2/§10). wifi_recv()'s own
  *  WIFI_MAX_PACKET_SIZE (private to wifi_driver.c) mirrored the same way
  *  the timing constants above already are. */
-#define WIFITASK_WIFI_MAX_PACKET_SIZE 1460u
+#define WIFITASK_WIFI_MAX_PACKET_SIZE WIFITASK_MAX_SEND_BYTES
 #define WIFITASK_RECV_ARM_QUEUE_DEPTH 2u
 /** How often prv_wifitask_step() re-checks the arm queue / main queue
  *  while a recv slot is active (ARMED/IN_FLIGHT/DONE) instead of sleeping
