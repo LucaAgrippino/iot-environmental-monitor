@@ -181,7 +181,16 @@ struct mqtt_client_inst
     MQTTSubAckStatus_t suback_status;
 };
 
-static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
+/* The instance pool (6 312 bytes: TLS contexts, the 4 096-byte packet buffer, coreMQTT state) lives
+ * in SRAM2, zeroed by the startup code with the rest of .bss.sram2 (WP4, gateway-main.md D-1 option
+ * F): the main 96 KB bank overflows by 5 744 bytes without it. Nothing here is touched by DMA or an
+ * ISR. */
+#ifdef TEST
+#define MQTT_CLIENT_POOL_RAM /* host builds: ordinary static storage */
+#else
+#define MQTT_CLIENT_POOL_RAM __attribute__((section(".bss.sram2")))
+#endif
+MQTT_CLIENT_POOL_RAM static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
 static uint8_t g_count;
 
 /* ========================================================================
@@ -291,6 +300,16 @@ MQTT_CLIENT_TEST_VISIBLE int prv_entropy_poll(void *data, unsigned char *output,
 MQTT_CLIENT_TEST_VISIBLE int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len)
 {
     NetworkContext_t *net_ctx = (NetworkContext_t *) ctx;
+
+    /* One module send carries at most WIFITASK_MAX_SEND_BYTES, but an mbedTLS record can be larger
+     * (up to the output buffer plus 29 bytes of framing and tag): a bigger buffer was rejected with
+     * WIFI_ERR_INVALID_ARG, the record stayed pending inside mbedTLS and every later write failed
+     * with it (WP4 finding F-12). mbedTLS accepts a short BIO write and sends the rest on the next
+     * call, so send what fits and report that. */
+    if (len > WIFITASK_MAX_SEND_BYTES)
+    {
+        len = WIFITASK_MAX_SEND_BYTES;
+    }
 
     wifitask_err_t err = wifitask_send(net_ctx->wifi, net_ctx->socket, buf, len);
     if (err == WIFITASK_ERR_OK)
@@ -560,7 +579,9 @@ static mqtt_client_err_t prv_tls_setup(struct mqtt_client_inst *inst, const mqtt
     {
         return MQTT_CLIENT_ERR_TLS_FAIL;
     }
-    if (mbedtls_ssl_set_hostname(&net_ctx->ssl, cfg->broker_endpoint) != 0)
+    const char *server_name =
+        (cfg->tls_server_name != NULL) ? cfg->tls_server_name : cfg->broker_endpoint;
+    if (mbedtls_ssl_set_hostname(&net_ctx->ssl, server_name) != 0)
     {
         return MQTT_CLIENT_ERR_TLS_FAIL;
     }

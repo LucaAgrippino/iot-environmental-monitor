@@ -31,6 +31,7 @@
 #define WIFI_AT_GET_RSSI "CR"
 
 /* Transport / sockets (User Manual §4.13-4.15) */
+#define WIFI_AT_DNS_LOOKUP "D0" /**< D0=<host name>: resolve to a dotted-quad address. */
 #define WIFI_AT_SET_SOCKET "P0"
 #define WIFI_AT_SET_PROTOCOL "P1"
 #define WIFI_AT_SET_REMOTE_HOST "P3"
