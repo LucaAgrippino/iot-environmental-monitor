@@ -21,18 +21,25 @@ that fails when any configuration would compile other than exactly one `main()`.
 | Project | Configuration | What it compiles | `main()` count |
 |---|---|---|---|
 | Gateway | Debug | the `cloud_publisher` harness; `Src/main.c` and four modules excluded | 1 |
+| Gateway | **Gateway-App** (added 2026-10-31) | the production image: `Src/main.c` and every module, no harness | 1 (`Src/main.c`) |
 | Gateway | Release | the `cloud_publisher` harness; source list has no `Inc`, `application`, `drivers`, `middleware`, `shared` or `stm32` | 1, but it cannot link |
 | Field Device | Debug | the `lifecycle_controller` harness | 1 |
 | Field Device | Release | `Src/main.c` excluded, no harness included | **0: no entry point** |
 
 The two Release configurations are stale (see section 7). CI builds `Debug` only.
 
-## 3. The `Gateway-App` configuration (create this in CubeIDE)
+## 3. The `Gateway-App` configuration
+
+**Done 2026-10-31**, at Luca's request, by cloning `Debug` in `.cproject` (fresh ids) and setting the source
+entries below. Verified with the headless CubeIDE build (`gateway/Gateway-App`, 0 errors) on the working tree
+and on a clean checkout without credentials, and with `scripts/check-build-exclusions.sh`. Its output
+directory `firmware/gateway/Gateway-App/` is git-ignored. The recipe stays here as the description of what
+the configuration must contain, for checking it after an IDE edit and for recreating it.
 
 The production image is what `scripts/build-gateway-app.sh` already builds without CubeIDE. The
 configuration must compile the same set of files.
 
-**Steps**
+**Steps, if you ever need to recreate it**
 
 1. Project properties, C/C++ Build, Manage Configurations: create **`Gateway-App`** by copying
    **`Debug`**. Everything else (compiler definitions, include paths including `certs`, the linker
@@ -59,20 +66,24 @@ The bootloader (`firmware/gateway/bootloader`), the boot stub (`boot-stub`) and 
 entries in any configuration and stay that way: the bootloader and the boot stub have their own
 scripts, and `certs` only supplies headers.
 
-**Certificate headers.** `main.c` includes `bringup_certs.h` and `bringup_secrets.h`, found through
-the `firmware/gateway/certs` include path, and stops with an `#error` if they are missing.
-They are git-ignored, so a CI build of `Gateway-App` needs them to exist. The decision is yours:
-placeholder headers generated in the workflow (the image then builds but cannot connect), or the
-build stays local. `scripts/bringup_secrets.h.example` shows the shape.
+**Certificate headers (decided: placeholders in CI).** `main.c` includes `bringup_certs.h` and
+`bringup_secrets.h`, found through the `firmware/gateway/certs` include path, and stops with an `#error` if
+they are missing. They are git-ignored. CI runs `scripts/make-placeholder-bringup-headers.sh` before the
+`Gateway-App` build: the image compiles, links and has the right size, but cannot connect (fake Wi-Fi
+credentials, an endpoint that does not resolve, one-byte certificates). The script never overwrites a file
+that exists, so it is safe on a machine with real credentials. A CI image is smaller than a local one by the
+generated `panic_symbols_data.c` (about 55 KB), which a clean checkout does not have. For a working image
+use `scripts/bringup_secrets.h.example` and `scripts/regenerate-bringup-certs.sh`.
 
-**Done when:** adding a new folder under `integration-tests` leaves `Gateway-App` building, and the CI
-job `Firmware build (l475)` is switched from `gateway/Debug` to `gateway/Gateway-App`
-(`project_target` in `.github/workflows/ci.yml`).
+**Done when:** adding a new folder under `integration-tests` leaves `Gateway-App` building (true by
+construction: it has no `integration-tests` entry), and CI builds it: the job `Firmware build (l475-app)`
+builds `gateway/Gateway-App`, next to `l475`, which still builds the `Debug` harness.
 
 ## 4. Harness builds
 
 The plan asks for one configuration per harness. There are 37 Gateway harnesses; 37 configurations
-in one `.cproject` would be a maintenance burden of its own. Recommendation:
+in one `.cproject` would be a maintenance burden of its own. Decided 2026-10-31 (the recommendation was
+accepted): not 37 configurations.
 
 - Keep **`Debug` as the harness configuration**: it builds the harness named by its exclusion list,
   chosen by hand in the IDE as today.
@@ -111,8 +122,8 @@ if any checked configuration compiles other than exactly one. Verified on 2026-1
 tree passes for `Debug` on both boards, and adding a folder `integration-tests/zz_new_harness` with
 a `main()` makes it report `FAIL gateway / Debug: 2 main()` and name both files.
 
-CI runs it with `--config Debug` (the only configuration CI builds); once `Gateway-App` exists, run
-it with `--config Debug --config Gateway-App`.
+CI runs it with `--config Debug --config Gateway-App`, the configurations it builds. The workflow now
+also runs on pull requests of any base, so stacked pull requests are checked too.
 
 ## 7. Decision for Luca: the stale Release configurations
 
