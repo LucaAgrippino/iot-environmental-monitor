@@ -35,7 +35,7 @@ typedef enum
 #define SENSOR_TASK_PRIORITY (5U)
 
 /** Stack depth in words (LLD section 11.2: about 300 estimated, 384 provisioned). */
-#define SENSOR_TASK_STACK_WORDS (384U)
+#define SENSOR_TASK_STACK_WORDS (256U) /* D-1 F: 170 of 384 words used */
 
 /**
  * @brief Initialise SensorService and AlarmService, then create SensorTask.

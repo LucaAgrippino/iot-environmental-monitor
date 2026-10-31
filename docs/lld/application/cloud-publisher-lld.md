@@ -299,6 +299,9 @@ on_mqtt_connected():
             break   /* stop drain; re-attempt on next connect */
 ```
 
+The drain is bounded and paced (CP-D32): a pass stops at 4 entries, 2048 B or 500 ms,
+the next pass waits 1 s, and a failed publish backs the replay off.
+
 Live publishes during drain go through `enqueue_or_publish` directly —
 they do not jump the drain queue. Chronological order of buffered entries
 preserved (REQ-BF-010).
@@ -628,6 +631,9 @@ TC-HW-CP-014) needs the integrated image (WP4).
 | CP-D29 | `CP_ERR_SAF_FULL` now means "StoreAndForward refused the entry; the message is lost" (LOG_ERROR, no health event) | The real SAF drops its oldest entry and succeeds when full |
 | CP-D30 | One result-topic rule, `dt/iotmonitor/<id>/<command>/result`; `/results` becomes `/config/result` | Consistent naming |
 | CP-D31 | One ConfigService change callback wakes the task (notification bit 9), which retimes the telemetry or health timer | Covers a change from any source; CloudPublisher's part of CFG-O8 |
+| CP-D32 | The store-and-forward replay (section 5.4) is paced: one pass sends at most 4 entries, 2048 B or 500 ms, whichever comes first, and the next pass waits 1 s (`CP_DRAIN_*`, build-time overridable). The link is served (`mqtt_client_process`) after every entry. A failed publish on a live link holds the replay for 5 s, doubling to 60 s; an entry that fails 3 times in a row on a live link is dropped (`HEALTH_EVENT_BUFFER_OVERFLOW`). Nothing is attempted while the link is down. Pacing is by tick timestamp, not by call count, because the stats path also runs on every receive-ready wake | Hardware finding GM-O20: 311 stored 4 KB entries replayed in one burst at connect took the session down (send err=6, subscribes failed, reconnect loop). Measured: 4 x 4 KB per pass failed at the first send after connect; one 4 KB entry per pass ran 72 entries clean. **Open (GM-O21):** with pacing, about one run in three still shows a corrupted stream after a large publish (broker: RESERVED packet / malformed packet), so the cause is below CloudPublisher | CP-T107..T113 |
+| CP-D33 | `mqtt_connect_cfg.client_id` NULL means the device serial (the CPU unique id). Client id, AWS IoT Thing name and topic prefix are one name | GM-O19: the client id was the placeholder `gw-bringup-001` while the topics used the CPU id, so no `${iot:Connection.Thing.ThingName}` policy matched both. Decided 2026-10-31: the CPU id. Each board needs an AWS Thing named by its id | CP-T118 |
+| CP-D34 | `cloud_publisher_config_t.connect_prepare` is called in task context before every fresh connect attempt (not between the steps of one, CP-D10) and returns the address to connect to, or NULL (counted as a failed attempt: CP-D13 backoff). Gateway `main.c` implements it as: resolve the broker name; if that fails, rejoin the access point and resolve again | GM-O17/O18: BootTask halted when the join or the lookup failed, nothing rejoined the access point or re-resolved the address after boot (the cached link state never changes after a drop, WIFI-O15). Decided 2026-10-31: boot offline, restore the link before each attempt. Hardware: wrong Wi-Fi password: 3 join attempts, `continuing offline`, Operational, backoff 2..60 s; two broker restarts: reconnected in about 10 s each | CP-T114..T117, WIFITASK-T27/T28 |
 
 ---
 

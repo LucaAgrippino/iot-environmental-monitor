@@ -30,7 +30,7 @@
 #define TS_NOTIFY_BIT_RETRY (1UL << 1)
 
 /* Task sizing per task-breakdown.md §TimeServiceTask. */
-#define TS_TASK_STACK_WORDS (768U)
+#define TS_TASK_STACK_WORDS (512U) /* D-1 F: 337 of 768 words used */
 #define TS_TASK_PRIORITY (2U)
 
 #define TS_MS_PER_S (1000UL)

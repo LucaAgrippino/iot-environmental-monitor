@@ -64,13 +64,13 @@ An edge marked `NEW` was introduced by the ambiguity-resolution pass and is not 
 | 28 | GraphicsLibrary | Logger | fd | middleware/graphics-library.md | middleware/logger.md | PASS |
 | 29 | SensorService | BarometerDriver | fd | application/sensor-alarm-service.md | drivers/humidity-temp-barometer-drivers.md | PASS |
 | 30 | SensorService | HumidityTempDriver | fd | application/sensor-alarm-service.md | drivers/humidity-temp-barometer-drivers.md | PASS |
-| 31 | LifecycleController | SensorService | fd | application/lifecycle-controller.md | application/sensor-alarm-service.md | PASS |
-| 32 | LifecycleController | GraphicsLibrary | fd | application/lifecycle-controller.md | middleware/graphics-library.md | PASS |
-| 33 | LifecycleController | AlarmService | fd | application/lifecycle-controller.md | application/sensor-alarm-service.md | PASS |
-| 34 | LifecycleController | ConsoleService | fd | application/lifecycle-controller.md | application/console-service-lld.md | PASS |
-| 35 | LifecycleController | ConfigService | fd | application/lifecycle-controller.md | application/config-service.md | PASS |
-| 36 | LifecycleController | ConfigStore | fd | application/lifecycle-controller.md | middleware/config-store.md | PASS |
-| 37 | LifecycleController | Logger | fd | application/lifecycle-controller.md | middleware/logger.md | PASS |
+| 31 | LifecycleController | SensorService | fd | application/lifecycle-controller-lld.md | application/sensor-alarm-service.md | PASS |
+| 32 | LifecycleController | GraphicsLibrary | fd | application/lifecycle-controller-lld.md | middleware/graphics-library.md | PASS |
+| 33 | LifecycleController | AlarmService | fd | application/lifecycle-controller-lld.md | application/sensor-alarm-service.md | PASS |
+| 34 | LifecycleController | ConsoleService | fd | application/lifecycle-controller-lld.md | application/console-service-lld.md | PASS |
+| 35 | LifecycleController | ConfigService | fd | application/lifecycle-controller-lld.md | application/config-service.md | PASS |
+| 36 | LifecycleController | ConfigStore | fd | application/lifecycle-controller-lld.md | middleware/config-store.md | PASS |
+| 37 | LifecycleController | Logger | fd | application/lifecycle-controller-lld.md | middleware/logger.md | PASS |
 | 38 | LcdUi | GraphicsLibrary | fd | application/lcd-ui-lld.md | middleware/graphics-library.md | PASS |
 | 39 | LcdUi | SensorService | fd | application/lcd-ui-lld.md | application/sensor-alarm-service.md | PASS |
 | 40 | LcdUi | AlarmService | fd | application/lcd-ui-lld.md | application/sensor-alarm-service.md | PASS |
@@ -122,17 +122,17 @@ An edge marked `NEW` was introduced by the ambiguity-resolution pass and is not 
 | 79 | SensorService | HumidityTempDriver | gw | application/sensor-alarm-service.md | drivers/humidity-temp-barometer-drivers.md | PASS |
 | 80 | SensorService | MagnetometerDriver | gw | application/sensor-alarm-service.md | drivers/magnetometer-imu-drivers.md | PASS |
 | 81 | SensorService | ImuDriver | gw | application/sensor-alarm-service.md | drivers/magnetometer-imu-drivers.md | PASS |
-| 82 | LifecycleController | SensorService | gw | application/lifecycle-controller.md | application/sensor-alarm-service.md | PASS |
-| 83 | LifecycleController | AlarmService | gw | application/lifecycle-controller.md | application/sensor-alarm-service.md | PASS |
-| 84 | LifecycleController | CloudPublisher | gw | application/lifecycle-controller.md | application/cloud-publisher-lld.md | PASS |
-| 85 | LifecycleController | ModbusPoller | gw | application/lifecycle-controller.md | middleware/modbus-master-poller.md | PASS |
-| 86 | LifecycleController | UpdateService | gw | application/lifecycle-controller.md | application/update-service-lld.md | PASS |
-| 87 | LifecycleController | TimeService | gw | application/lifecycle-controller.md | application/time-service-lld.md | PASS |
-| 88 | LifecycleController | ConsoleService | gw | application/lifecycle-controller.md | application/console-service-lld.md | PASS |
-| 89 | LifecycleController | ConfigService | gw | application/lifecycle-controller.md | application/config-service.md | PASS |
-| 90 | LifecycleController | ConfigStore | gw | application/lifecycle-controller.md | middleware/config-store.md | PASS |
-| 91 | LifecycleController | ResetDriver | gw | application/lifecycle-controller.md | drivers/reset-driver.md | PASS |
-| 92 | LifecycleController | Logger | gw | application/lifecycle-controller.md | middleware/logger.md | PASS |
+| 82 | LifecycleController | SensorService | gw | application/lifecycle-controller-lld.md | application/sensor-alarm-service.md | PASS |
+| 83 | LifecycleController | AlarmService | gw | application/lifecycle-controller-lld.md | application/sensor-alarm-service.md | PASS |
+| 84 | LifecycleController | CloudPublisher | gw | application/lifecycle-controller-lld.md | application/cloud-publisher-lld.md | PASS |
+| 85 | LifecycleController | ModbusPoller | gw | application/lifecycle-controller-lld.md | middleware/modbus-master-poller.md | PASS |
+| 86 | LifecycleController | UpdateService | gw | application/lifecycle-controller-lld.md | application/update-service-lld.md | PASS |
+| 87 | LifecycleController | TimeService | gw | application/lifecycle-controller-lld.md | application/time-service-lld.md | PASS |
+| 88 | LifecycleController | ConsoleService | gw | application/lifecycle-controller-lld.md | application/console-service-lld.md | PASS |
+| 89 | LifecycleController | ConfigService | gw | application/lifecycle-controller-lld.md | application/config-service.md | PASS |
+| 90 | LifecycleController | ConfigStore | gw | application/lifecycle-controller-lld.md | middleware/config-store.md | PASS |
+| 91 | LifecycleController | ResetDriver | gw | application/lifecycle-controller-lld.md | drivers/reset-driver.md | PASS |
+| 92 | LifecycleController | Logger | gw | application/lifecycle-controller-lld.md | middleware/logger.md | PASS |
 | 93 | CloudPublisher | MqttClient | gw | application/cloud-publisher-lld.md | middleware/mqtt-client.md | PASS |
 | 94 | CloudPublisher | SensorService | gw | application/cloud-publisher-lld.md | application/sensor-alarm-service.md | PASS |
 | 95 | CloudPublisher | AlarmService | gw | application/cloud-publisher-lld.md | application/sensor-alarm-service.md | PASS |
@@ -172,7 +172,7 @@ The following edge was not present in the original 122-edge contract graph. It i
 
 | # | Consumer | Provider | Board | Consumer LLD | Provider LLD | Status |
 |---|----------|----------|-------|--------------|--------------|--------|
-| 123 | LifecycleController | HealthMonitor | both | application/lifecycle-controller.md | application/health-monitor.md | NEW (D15) |
+| 123 | LifecycleController | HealthMonitor | both | application/lifecycle-controller-lld.md | application/health-monitor.md | NEW (D15) |
 
 **Rationale:** LLD-D15 routes CMD_RESET_METRICS via `lifecycle_controller->handle_remote_command()` → `health_admin->reset_metrics()`. This creates a direct LifecycleController→HealthMonitor (IHealthAdmin) dependency on both boards that was absent from the contract graph. The HLD has been updated (components.md) and the LLD companion USES headers have been updated; the JSON graph update is deferred to a follow-up commit.
 

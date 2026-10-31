@@ -7,8 +7,8 @@
  * Mock limitation: the host mock models SPI3->DR as a single plain
  * register (no separate TX shift register / RX FIFO), so a read
  * immediately reflects whatever was most recently written — the same
- * documented limitation as the F469 I2C v1 mock (see dev-tools bug-log
- * for I2cDriver). Multi-word tests therefore verify that DR's final
+ * limitation as the F469 I2C v1 mock used by the Field Device tests.
+ * Multi-word tests therefore verify that DR's final
  * state reflects the last word processed and that rx_buf mirrors each
  * word's DR value at the time it was captured, rather than an
  * independently-supplied "received" sequence.
