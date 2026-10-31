@@ -146,7 +146,8 @@ static struct
     StaticSemaphore_t mutex_buf;
     SemaphoreHandle_t persist_mutex; /* serialises flash writes; held for the whole save */
     StaticSemaphore_t persist_mutex_buf;
-    volatile bool dirty; /* a change is live in RAM but not yet in flash */
+    volatile bool dirty;        /* a change is live in RAM but not yet in flash */
+    config_profiles_t profiles; /* stored device profiles, guarded by mutex */
     config_change_cb_t change_cbs[CONFIG_MAX_CHANGE_CALLBACKS];
     uint8_t change_cb_count;
 } s_cs;
@@ -393,6 +394,7 @@ static config_service_err_t prv_persist(void)
 
     (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
     (void) memcpy(&blob.params, &s_cs.params, sizeof(blob.params));
+    (void) memcpy(&blob.profiles, &s_cs.profiles, sizeof(blob.profiles));
     s_cs.dirty = false; /* everything live at this instant is in the blob */
     (void) xSemaphoreGive(s_cs.mutex);
 
@@ -507,18 +509,40 @@ config_service_err_t config_service_apply_loaded(const void *blob, uint32_t len)
     config_params_t defaults;
     prv_apply_defaults(&defaults);
 
+    /* Schema 2 is the current blob; schema 1 (parameters only) is migrated with no profiles. */
     config_blob_t loaded;
-    bool usable = (len == (uint32_t) sizeof(loaded));
-    if (usable)
+    (void) memset(&loaded, 0, sizeof(loaded));
+    bool usable = false;
+
+    if (len == (uint32_t) sizeof(config_blob_t))
     {
         (void) memcpy(&loaded, blob, sizeof(loaded));
         usable = (loaded.schema_version == CONFIG_SCHEMA_VERSION);
+        if (usable && (loaded.profiles.count > DEVICE_PROFILE_MAX))
+        {
+            (void) memset(&loaded.profiles, 0, sizeof(loaded.profiles));
+            LOG_WARN(MODULE_TAG, "stored profile count out of range, profiles dropped");
+        }
+    }
+    else if (len == (uint32_t) sizeof(config_blob_v1_t))
+    {
+        config_blob_v1_t old;
+
+        (void) memcpy(&old, blob, sizeof(old));
+        usable = (old.schema_version == CONFIG_SCHEMA_VERSION_V1);
+        loaded.schema_version = CONFIG_SCHEMA_VERSION;
+        loaded.params = old.params;
+        if (usable)
+        {
+            LOG_INFO(MODULE_TAG, "schema 1 configuration migrated, no profiles stored");
+        }
     }
 
     (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
     if (!usable)
     {
         s_cs.params = defaults;
+        (void) memset(&s_cs.profiles, 0, sizeof(s_cs.profiles));
         (void) xSemaphoreGive(s_cs.mutex);
         LOG_WARN(MODULE_TAG, "stored configuration discarded, defaults applied");
         return CONFIG_SERVICE_ERR_INVALID;
@@ -526,9 +550,58 @@ config_service_err_t config_service_apply_loaded(const void *blob, uint32_t len)
 
     prv_repair(&loaded.params, &defaults);
     s_cs.params = prv_channels_valid(&loaded.params) ? loaded.params : defaults;
+    s_cs.profiles = loaded.profiles;
     (void) xSemaphoreGive(s_cs.mutex);
     LOG_INFO(MODULE_TAG, "stored configuration applied");
     return CONFIG_SERVICE_OK;
+}
+
+bool config_service_get_profiles(device_profile_t *out, uint8_t max, uint8_t *count_out)
+{
+    if (!s_cs.initialised || (out == NULL) || (count_out == NULL))
+    {
+        return false;
+    }
+
+    (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
+    const uint8_t n = (s_cs.profiles.count < max) ? s_cs.profiles.count : max;
+
+    (void) memcpy(out, s_cs.profiles.entries, (size_t) n * sizeof(out[0]));
+    (void) xSemaphoreGive(s_cs.mutex);
+
+    *count_out = n;
+    return n > 0U;
+}
+
+bool config_service_set_profiles(const device_profile_t *in, uint8_t count)
+{
+    if (!s_cs.initialised || (count > DEVICE_PROFILE_MAX) || ((in == NULL) && (count > 0U)))
+    {
+        return false;
+    }
+
+    config_profiles_t previous;
+
+    (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
+    previous = s_cs.profiles;
+    (void) memset(&s_cs.profiles, 0, sizeof(s_cs.profiles));
+    s_cs.profiles.count = count;
+    if (count > 0U)
+    {
+        (void) memcpy(s_cs.profiles.entries, in, (size_t) count * sizeof(in[0]));
+    }
+    (void) xSemaphoreGive(s_cs.mutex);
+
+    if (prv_persist() == CONFIG_SERVICE_OK)
+    {
+        return true;
+    }
+
+    /* Not on flash: keep memory and flash in agreement. */
+    (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
+    s_cs.profiles = previous;
+    (void) xSemaphoreGive(s_cs.mutex);
+    return false;
 }
 
 const config_params_t *config_service_get_params(void)
