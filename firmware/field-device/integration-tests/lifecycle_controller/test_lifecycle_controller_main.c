@@ -14,7 +14,7 @@
  * Build: include in the field-device firmware project, compile with
  *   -DBOARD_FIELD_DEVICE -DINTEGRATION_TEST
  *
- * @see docs/lld/application/lifecycle-controller.md §22
+ * @see docs/lld/application/lifecycle-controller-lld.md §22
  */
 
 #include <stdint.h>
