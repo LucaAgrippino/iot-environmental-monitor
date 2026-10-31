@@ -41,6 +41,15 @@
 #define FC16_HEADER_BYTES (5U)       /* reg(2) + count(2) + byte count(1) */
 #define POLL_REQUEST_DATA_BYTES (4U) /* start(2) + count(2) */
 
+/* Identity block read before a slave is polled for data (device-profile-registry-lld.md §7.1):
+ * FC04 0x0000..0x0007 = map version, device ID (2), hardware revision, firmware version (3),
+ * vendor. */
+#define IDENTITY_REG_START (0x0000U)
+#define IDENTITY_REG_COUNT (8U)
+#define IDENTITY_MAP_VERSION_REG (0x0000U)
+#define IDENTITY_VENDOR_CODE_REG (0x0007U)
+#define REJECTED_RECHECK_CYCLES (10U) /* a rejected slave is checked again every 10th cycle */
+
 /* Field Device sensor registers (docs/hld/modbus-register-map.md 6.2) and their invalid sentinels.
  */
 #define FD_REG_TEMPERATURE (0x0010U)
@@ -149,6 +158,7 @@ static void record_poll_outcome(modbus_slave_state_t *slave, modbus_master_err_t
         if ((slave->consecutive_failures == HYSTERESIS_THRESHOLD) && slave->link_online)
         {
             slave->link_online = false;
+            slave->identity = MODBUS_SLAVE_UNVERIFIED; /* the device may have been replaced */
             emit_node_offline(slave->slave_addr);
         }
     }
@@ -178,6 +188,104 @@ static const map_entry_t *map_for(const device_profile_t *profile)
         }
     }
     return NULL;
+}
+
+/** Move a slave to REJECTED; the first time only, log why (REQ-MB-130) and take the link down. */
+static void reject_slave(modbus_slave_state_t *slave, const char *why, unsigned expected,
+                         unsigned got)
+{
+    if (slave->identity != MODBUS_SLAVE_REJECTED)
+    {
+        LOG_WARN(MODULE_TAG, "slave %u rejected: %s (expected 0x%04X, got 0x%04X)",
+                 (unsigned) slave->slave_addr, why, expected, got);
+        if (slave->link_online)
+        {
+            slave->link_online = false;
+            emit_node_offline(slave->slave_addr);
+        }
+        slave->consecutive_successes = 0U;
+    }
+    slave->identity = MODBUS_SLAVE_REJECTED;
+    slave->recheck_cycles = REJECTED_RECHECK_CYCLES;
+}
+
+/** Big-endian word at register index @p index of an FC04 response. */
+static uint16_t response_word(const modbus_frame_t *response, uint8_t index)
+{
+    const uint16_t at = (uint16_t) (FC04_BYTE_COUNT_BYTES + ((uint16_t) index * BYTES_PER_REG));
+
+    return (uint16_t) (((uint16_t) response->data[at] << BITS_PER_BYTE) | response->data[at + 1U]);
+}
+
+/**
+ * Make sure @p slave has proved its identity (REQ-MB-120). Returns true if it is verified and may
+ * be polled for data this cycle.  Reads the identity block when the slave is unverified, or every
+ * REJECTED_RECHECK_CYCLES cycles when it is rejected.
+ */
+static bool ensure_identity(modbus_slave_state_t *slave, const device_profile_t *profile)
+{
+    if (slave->identity == MODBUS_SLAVE_VERIFIED)
+    {
+        return true;
+    }
+    if ((slave->identity == MODBUS_SLAVE_REJECTED) && (slave->recheck_cycles > 1U))
+    {
+        slave->recheck_cycles--;
+        return false;
+    }
+
+    modbus_frame_t request = {0};
+    modbus_frame_t response = {0};
+
+    request.slave_addr = profile->slave_addr;
+    request.function_code = FC_READ_INPUT_REGS;
+    request.data[0] = (uint8_t) (IDENTITY_REG_START >> BITS_PER_BYTE);
+    request.data[1] = (uint8_t) (IDENTITY_REG_START & BYTE_MASK);
+    request.data[2] = (uint8_t) (IDENTITY_REG_COUNT >> BITS_PER_BYTE);
+    request.data[3] = (uint8_t) (IDENTITY_REG_COUNT & BYTE_MASK);
+    request.data_len = POLL_REQUEST_DATA_BYTES;
+
+    const modbus_master_err_t result = modbus_master_transact(&request, &response);
+
+    if (result != MODBUS_MASTER_ERR_OK)
+    {
+        record_poll_outcome(slave, result); /* an unanswered check is a link failure */
+        if (slave->identity == MODBUS_SLAVE_REJECTED)
+        {
+            slave->recheck_cycles = REJECTED_RECHECK_CYCLES;
+        }
+        return false;
+    }
+
+    const uint16_t expected_len =
+        (uint16_t) (FC04_BYTE_COUNT_BYTES + (IDENTITY_REG_COUNT * BYTES_PER_REG));
+
+    if (response.data_len != expected_len)
+    {
+        reject_slave(slave, "identity response length", expected_len, response.data_len);
+        return false;
+    }
+
+    const uint16_t map_got = response_word(&response, IDENTITY_MAP_VERSION_REG);
+    const uint16_t vendor_got = response_word(&response, IDENTITY_VENDOR_CODE_REG);
+
+    if (map_got != profile->map_version)
+    {
+        reject_slave(slave, "map version", profile->map_version, map_got);
+        return false;
+    }
+    if (vendor_got != profile->vendor_code)
+    {
+        reject_slave(slave, "vendor code", profile->vendor_code, vendor_got);
+        return false;
+    }
+
+    if (slave->identity == MODBUS_SLAVE_REJECTED)
+    {
+        LOG_INFO(MODULE_TAG, "slave %u identity now matches", (unsigned) slave->slave_addr);
+    }
+    slave->identity = MODBUS_SLAVE_VERIFIED;
+    return true;
 }
 
 /** Build an FC04 request from the map entry's register span (§5.7). */
@@ -424,8 +532,12 @@ static void poll_slaves(void)
 
         if (map == NULL)
         {
-            /* A map version this build does not know: not polled (the identity check that
-             * reports it as rejected comes with the link-establishment change, LLD §7.1). */
+            /* A map version this build does not know cannot be polled: rejected, not silent. */
+            reject_slave(slave, "map version not supported", profile->map_version, 0U);
+            continue;
+        }
+        if (!ensure_identity(slave, profile))
+        {
             continue;
         }
 
@@ -554,6 +666,27 @@ modbus_poller_err_t modbus_poller_send_command(const modbus_command_t *cmd)
     return MODBUS_POLLER_ERR_OK;
 }
 
+modbus_poller_err_t modbus_poller_reprobe(uint8_t slave_addr)
+{
+    if (!s_poller.initialised)
+    {
+        return MODBUS_POLLER_ERR_NOT_INIT;
+    }
+    if (!device_profile_is_registered(slave_addr))
+    {
+        return MODBUS_POLLER_ERR_REJECTED;
+    }
+
+    const uint8_t slot = find_slot_index(slave_addr);
+
+    if (slot < MODBUS_MAX_SLAVES)
+    {
+        s_slave_states[slot].recheck_cycles = 0U;
+        s_slave_states[slot].identity = MODBUS_SLAVE_UNVERIFIED;
+    }
+    return MODBUS_POLLER_ERR_OK; /* a slave with no slot yet starts unverified anyway */
+}
+
 void modbus_poller_run(void)
 {
     /* Phase 2 of ModbusMaster's init: the task handle must be ours (MBP-D3). */
@@ -595,5 +728,15 @@ void modbus_poller_cycle_for_test(void)
 const modbus_slave_state_t *modbus_poller_slave_state_for_test(uint8_t slot)
 {
     return (slot < MODBUS_MAX_SLAVES) ? &s_slave_states[slot] : NULL;
+}
+
+void modbus_poller_trust_slave_for_test(uint8_t slave_addr)
+{
+    modbus_slave_state_t *slave = find_or_claim_slot(slave_addr);
+
+    if (slave != NULL)
+    {
+        slave->identity = MODBUS_SLAVE_VERIFIED;
+    }
 }
 #endif /* TEST */
