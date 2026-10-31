@@ -48,7 +48,7 @@ The following companions were missing SD references in their `## 5. Sequence int
 | `console-service-lld.md` | SD-10 |
 | `device-profile-registry-lld.md` | SD-00, SD-07, SD-10 |
 | `health-monitor.md` | SD-03 |
-| `lifecycle-controller.md` | SD-00, SD-06, SD-08 |
+| `lifecycle-controller-lld.md` | SD-00, SD-06, SD-08 |
 | `modbus-register-map-lld.md` | SD-02, SD-05, SD-09 |
 | `sensor-alarm-service.md` | SD-00, SD-03, SD-05, SD-06 |
 | `store-and-forward-lld.md` | SD-04, SD-05 |

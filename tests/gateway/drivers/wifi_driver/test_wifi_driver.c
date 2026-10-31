@@ -41,7 +41,7 @@
 /* ====================================================================== */
 
 /* Generous headroom: WIFI-T17 alone opens 4 sockets x 5 IWIN commands each. */
-#define MAX_SCRIPTED_LEVELS 512u
+#define MAX_SCRIPTED_LEVELS 4096u
 #define MAX_SCRIPTED_WORDS 256u
 #define MAX_CAPTURED_BYTES 512u
 #define MAX_CAPTURED_WRITES 256u
@@ -563,6 +563,62 @@ void test_WIFI_T15_drdy_timeout(void)
     TEST_ASSERT_EQUAL(GPIO_LEVEL_HIGH, last_write_level(NSS_PORT, NSS_PIN));
 }
 
+static wifi_handle_t helper_create_connected(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+
+    helper_script_at_command("\r\nOK\r\n"); /* C1 */
+    helper_script_at_command("\r\nOK\r\n"); /* C2 */
+    helper_script_at_command("\r\nOK\r\n"); /* C3 */
+    helper_script_at_command("\r\nOK\r\n"); /* C4 */
+    helper_script_at_command("\r\nOK\r\n"); /* C0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_connect_ap(handle, "myssid", "mypassword"));
+    return handle;
+}
+
+/* WIFI-O19 / GM-O22: a module that takes longer than the old 100 ms to accept the next command
+ * (seen right after a send on the board) is waited for, not reported as a failure. 1500 polls of
+ * 100 us are 150 ms. */
+void test_WIFI_T15b_a_slow_module_still_gets_the_command(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_LOW, 1500u);
+    helper_script_at_command("\r\n-67\r\nOK\r\n");
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
+    TEST_ASSERT_EQUAL_INT8(-67, rssi);
+}
+
+/* WIFI-O19: a module that does not accept the command at all is still given up on (1 s). */
+void test_WIFI_T15c_a_module_that_never_gets_ready_times_out(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_LOW, 3000u); /* 300 ms, then the stub falls back to LOW for ever */
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_get_rssi(handle, &rssi));
+}
+
+/* GM-O22: wifi_send() reports a timeout as a timeout and a refusal as a socket error. */
+void test_WIFI_T15d_send_reports_a_timeout_as_a_timeout(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    helper_script_at_command("\r\nOK\r\n"); /* P0= */
+    helper_script_at_command("\r\nOK\r\n"); /* P1= */
+    helper_script_at_command("\r\nOK\r\n"); /* P3= */
+    helper_script_at_command("\r\nOK\r\n"); /* P4= */
+    helper_script_at_command("\r\nOK\r\n"); /* P6=1 */
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+
+    /* Nothing scripted: the P0 that selects the socket never gets a Command Phase. */
+    const uint8_t payload[] = {0x01u, 0x02u};
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_send(handle, sock, payload, sizeof(payload)));
+}
+
 void test_WIFI_T16_nss_deasserted_on_spi_error(void)
 {
     wifi_handle_t handle = helper_create_ready();
@@ -651,8 +707,8 @@ void test_WIFI_T23_close_socket_frees_slot_even_when_stop_client_fails(void)
      * command errors. wifi_close_socket() must still free the local slot so
      * a reconnect can reopen it — the previous code leaked it, wedging every
      * subsequent open with WIFI_ERR_SOCKET. */
-    helper_script_at_command("\r\nOK\r\n");            /* P0= (select) */
-    helper_script_at_command("\r\nERROR: dead\r\n");   /* P6=0 fails */
+    helper_script_at_command("\r\nOK\r\n");          /* P0= (select) */
+    helper_script_at_command("\r\nERROR: dead\r\n"); /* P6=0 fails */
     TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET, wifi_close_socket(handle, sock));
 
     /* Slot must be reusable despite the failed stop-client. */

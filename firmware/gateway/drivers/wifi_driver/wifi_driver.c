@@ -35,7 +35,13 @@
  *  MqttClient bring-up; never caught by this driver's own bring-up test
  *  (a ~24-byte "hello" message, well under the old 512-byte cap). */
 #define WIFI_AT_BUF_SIZE 1536u
-#define WIFI_DRDY_TIMEOUT_MS 100u  /**< DRDY assert wait (WIFI-O5). */
+#define WIFI_DRDY_TIMEOUT_MS 100u /**< DRDY assert wait (WIFI-O5). */
+/** Wait for the module to accept the next command (DRDY high at the start of a command phase).
+ *  After a send the module's TCP stack can hold the next command for a little over 100 ms; with
+ *  the 100 ms bound above, 5 of 8 boots on the board saw a P0 time out right after a send and the
+ *  session was lost (WIFI-O19, GM-O22). The module was ready within one poll step after the
+ *  bound. The wait is a busy-poll, so a longer bound only costs time when the module is busy. */
+#define WIFI_CMD_READY_TIMEOUT_MS 1000u
 #define WIFI_RESP_TIMEOUT_MS 5000u /**< AT response wait (WIFI-O5). */
 #define WIFI_RESET_PULSE_MS 10u
 #define WIFI_BOOT_WAIT_MS 500u
@@ -402,13 +408,15 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
         *out_resp_len = 0u;
     }
 
-    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
-
-    if (!prv_wait_drdy(inst, true, WIFI_DRDY_TIMEOUT_MS))
+    /* Wait for the Command Phase with NSS still HIGH and select the module only once DRDY is up,
+     * as ST's reference driver does. Holding NSS low while the module was still busy left DRDY
+     * down for the whole wait on the board and it came up within 100 us of NSS being released
+     * (GM-O22). */
+    if (!prv_wait_drdy(inst, true, WIFI_CMD_READY_TIMEOUT_MS))
     {
-        gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
         return WIFI_ERR_TIMEOUT;
     }
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
 
     const wifi_err_t send_err = prv_send_words(inst, cmd, cmd_len);
 
@@ -824,7 +832,9 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
         prv_send_kv(handle, WIFI_AT_SET_SOCKET, socket_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        /* A timeout is reported as one (as wifi_recv() does), not folded into SOCKET: the caller
+         * and the log can tell "the module did not answer" from "the module refused" (GM-O22). */
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
     /* S3=<len> — set packet size and send in one command; payload follows
@@ -843,7 +853,7 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
                          WIFI_AT_BUF_SIZE, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return (err == WIFI_ERR_TIMEOUT) ? WIFI_ERR_TIMEOUT : WIFI_ERR_SOCKET;
     }
 
     return WIFI_ERR_OK;

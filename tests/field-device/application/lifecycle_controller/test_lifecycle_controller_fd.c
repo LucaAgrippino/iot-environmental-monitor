@@ -4,7 +4,7 @@
  *
  * Covers TC-LC-001..035, TC-LC-039, TC-LC-041..042, TC-LC-070..078,
  * TC-LC-105..108, TC-LC-115..120, TC-LC-137 as defined in
- * docs/lld/application/lifecycle-controller.md §21.
+ * docs/lld/application/lifecycle-controller-lld.md §21.
  *
  * Build defines (project.yml): BOARD_FIELD_DEVICE, TEST.
  *

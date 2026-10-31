@@ -27,6 +27,12 @@
 #define INTERNAL_FLASH_BASE_ADDR (0x08000000UL)
 #define INTERNAL_FLASH_SIZE_BYTES (0x100000UL)
 
+/**
+ * First address erase and program accept: the bootloader (pages 0 to 7, 16 KB) is below it and
+ * can only be changed with a debug probe (WP11 D-3, BL-O4). Reads are not restricted.
+ */
+#define INTERNAL_FLASH_WRITABLE_FROM_ADDR (0x08004000UL)
+
 /** First address of bank 2. */
 #define INTERNAL_FLASH_BANK2_ADDR (0x08080000UL)
 
