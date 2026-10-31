@@ -135,11 +135,8 @@
 /* Boot policy                                                             */
 /* ---------------------------------------------------------------------- */
 
-#define JOIN_ATTEMPTS (3U)    /* D-3: the first join after a module reset usually fails */
-#define RESOLVE_ATTEMPTS (3U) /* D-7: a name the resolver cannot answer takes about 10 s to fail   \
-                               */
+#define JOIN_ATTEMPTS (3U) /* D-3: the first join after a module reset usually fails */
 #define RETRY_DELAY_MS (2000U)
-#define MQTT_CLIENT_ID "gw-bringup-001" /* placeholder until the device serial exists */
 #define MQTT_KEEP_ALIVE_S (60U)
 #define SAF_CAPACITY (254U)
 #define FW_VERSION_FALLBACK (0x01000000UL)
@@ -227,6 +224,7 @@ static lifecycle_reset_cause_t s_reset_cause;
 /* MqttClient keeps pointers into its connect configuration for the whole session (REQ-NF-302), so
  * the resolved address lives in static storage. */
 static char s_broker_ip[WIFI_IPV4_STR_LEN];
+static wifitask_handle_t s_wifitask; /* GM-O17/O18: the connect hook runs after BootTask */
 
 static StaticTask_t s_boot_tcb;
 static StackType_t s_boot_stack[BOOT_STACK_WORDS];
@@ -334,28 +332,49 @@ static bool join_access_point(wifitask_handle_t wifitask)
     return join == WIFITASK_ERR_OK;
 }
 
-/* D-7: the module's socket command takes an address, so BootTask resolves the broker name once
- * after the join. It calls the driver directly, not through WifiTask: WifiTask polls only sockets
- * that are open, none is yet, and BootTask is its only user at this point. A failing lookup holds
- * the module for about 10 s before it answers ERROR (WIFI-O18), hence the long driver timeout and
- * few attempts. */
-static bool resolve_broker(void)
+/* D-7: the module's socket command takes an address, so the broker name is resolved before each
+ * connect attempt. It goes through WifiTask, which is the only user of the module's command
+ * channel. A failing lookup holds the module for about 10 s before it answers ERROR (WIFI-O18). */
+static bool resolve_once(void)
 {
-    for (unsigned attempt = 1U; attempt <= RESOLVE_ATTEMPTS; attempt++)
-    {
-        const wifi_err_t r =
-            wifi_resolve(s_wifi, BRINGUP_CERTS_BROKER_ENDPOINT, s_broker_ip, sizeof(s_broker_ip));
+    char ip[WIFI_IPV4_STR_LEN];
+    const wifitask_err_t r =
+        wifitask_resolve(s_wifitask, BRINGUP_CERTS_BROKER_ENDPOINT, ip, sizeof(ip));
 
-        LOG_INFO("Main", "resolve %s attempt %u of %u -> %d (%s)", BRINGUP_CERTS_BROKER_ENDPOINT,
-                 attempt, (unsigned) RESOLVE_ATTEMPTS, (int) r,
-                 (r == WIFI_ERR_OK) ? s_broker_ip : "");
-        if (r == WIFI_ERR_OK)
-        {
-            return true;
-        }
-        vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_MS));
+    LOG_INFO("Main", "resolve %s -> %d (%s)", BRINGUP_CERTS_BROKER_ENDPOINT, (int) r,
+             (r == WIFITASK_ERR_OK) ? ip : "");
+    if (r != WIFITASK_ERR_OK)
+    {
+        return false;
     }
-    return false;
+    (void) memcpy(s_broker_ip, ip,
+                  sizeof(s_broker_ip)); /* keeps the last good address on failure */
+    return true;
+}
+
+/* GM-O17/O18: CloudPublisher calls this before every fresh connect attempt. The device boots and
+ * runs without a network (sensors, Modbus, the log in flash); this is what brings the network
+ * back later. The link state WifiTask reports is cached and never changes after a drop (WIFI-O15),
+ * so it is not consulted: if the broker name does not resolve, the access point is joined again
+ * and the lookup repeated. The address is looked up every time, because a cloud endpoint's
+ * address changes over a long run. NULL means not ready: CloudPublisher backs off and asks again.
+ */
+static const char *prepare_connect(void)
+{
+    if (resolve_once())
+    {
+        return s_broker_ip;
+    }
+    LOG_WARN("Main", "broker name did not resolve, joining the access point again");
+    const wifitask_err_t join =
+        wifitask_connect_ap(s_wifitask, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+
+    LOG_INFO("Main", "rejoin -> %d", (int) join);
+    if ((join == WIFITASK_ERR_OK) && resolve_once())
+    {
+        return s_broker_ip;
+    }
+    return NULL;
 }
 
 static void boot_task(void *arg)
@@ -372,13 +391,13 @@ static void boot_task(void *arg)
     {
         halt_with("wifitask_create");
     }
+    s_wifitask = wifitask;
+    /* GM-O17: a missing network does not stop the boot. The device runs offline and
+     * prepare_connect() brings the link back before each connect attempt. */
     if (!join_access_point(wifitask))
     {
-        halt_with("wifi join"); /* GM-O17: what the device does once the retries are exhausted */
-    }
-    if (!resolve_broker())
-    {
-        halt_with("broker name resolution");
+        LOG_WARN("Main", "no access point after %u attempts, continuing offline",
+                 (unsigned) JOIN_ATTEMPTS);
     }
 
     const ntp_client_config_t ntp_cfg = {.wifi = wifitask, .health = s_hm};
@@ -440,7 +459,7 @@ static void boot_task(void *arg)
         .broker_endpoint = s_broker_ip,
         .tls_server_name = BRINGUP_CERTS_BROKER_ENDPOINT,
         .broker_port = 8883U,
-        .client_id = MQTT_CLIENT_ID,
+        .client_id = NULL, /* GM-O19: CloudPublisher uses the CPU unique id */
         .client_cert_der = s_bringup_client_cert_der,
         .client_cert_len = sizeof(s_bringup_client_cert_der),
         .client_key_der = s_bringup_client_key_der,
@@ -466,6 +485,7 @@ static void boot_task(void *arg)
         .update_ops = &update_service_ops,
         .update = update_service_get_instance(),
         .mqtt_connect_cfg = connect_cfg,
+        .connect_prepare = prepare_connect,
     };
     cloud_publisher_handle_t cp = NULL;
 

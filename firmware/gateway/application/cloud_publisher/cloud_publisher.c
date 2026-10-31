@@ -131,9 +131,11 @@ struct cloud_publisher_inst
     uint32_t health_ms;    /**< Period the health timer runs at (CP-D31).    */
     bool was_connected;    /**< Task only: the link state last reported (CP-D19). */
     char device_serial[CP_DEVICE_SERIAL_LEN];
-    mqtt_connect_cfg_t mqtt_connect_cfg; /**< CP-D9: owned here for connect()/reconnect(). */
-    uint32_t reconnect_countdown_s;      /**< CP-D9: stats ticks left before next retry. */
-    uint32_t reconnect_backoff_s;        /**< CP-D13: current backoff, doubles per failure. */
+    mqtt_connect_cfg_t mqtt_connect_cfg;  /**< CP-D9: owned here for connect()/reconnect(). */
+    const char *(*connect_prepare)(void); /**< CP-D34: gets the link ready before an attempt. */
+    bool connect_in_progress;             /**< CP-D34: a connect sequence is mid-way (CP-D10). */
+    uint32_t reconnect_countdown_s;       /**< CP-D9: stats ticks left before next retry. */
+    uint32_t reconnect_backoff_s;         /**< CP-D13: current backoff, doubles per failure. */
 
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
@@ -208,6 +210,7 @@ static void prv_publish_telemetry(struct cloud_publisher_inst *inst);
 static void prv_publish_health(struct cloud_publisher_inst *inst);
 static void prv_poll_stats(struct cloud_publisher_inst *inst);
 static void prv_maybe_reconnect(struct cloud_publisher_inst *inst);
+static void prv_note_connect_failure(struct cloud_publisher_inst *inst, mqtt_client_err_t rc);
 static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
@@ -292,6 +295,8 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->update_ops = config->update_ops;
     inst->update = config->update;
     inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
+    inst->connect_prepare = config->connect_prepare;
+    inst->connect_in_progress = false;
     inst->sub_config = false;
     inst->sub_control = false;
     inst->sub_ota_cmd = false;
@@ -303,6 +308,12 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
 
     prv_read_device_serial(inst->device_serial, (uint32_t) sizeof(inst->device_serial));
     prv_build_topics(inst);
+    if (inst->mqtt_connect_cfg.client_id == NULL)
+    {
+        /* CP-D33 (GM-O19): the client id, the AWS IoT Thing name and the topic prefix are one
+         * name, so a ${iot:Connection.Thing.ThingName} policy matches all three. */
+        inst->mqtt_connect_cfg.client_id = inst->device_serial;
+    }
 
     inst->alarm_queue =
         xQueueCreateStatic(CP_ALARM_QUEUE_LEN, (UBaseType_t) sizeof(cp_alarm_event_t),
@@ -652,7 +663,23 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
         return;
     }
 
+    /* CP-D34: a fresh attempt starts with the link made ready (rejoin, resolve the broker name
+     * again: the address of a cloud endpoint changes over a long run). Not between the steps of
+     * one attempt, whose socket and handshake are already under way. */
+    if (!inst->connect_in_progress && (inst->connect_prepare != NULL))
+    {
+        const char *endpoint = inst->connect_prepare();
+
+        if (endpoint == NULL)
+        {
+            prv_note_connect_failure(inst, MQTT_CLIENT_ERR_NOT_CONNECTED);
+            return;
+        }
+        inst->mqtt_connect_cfg.broker_endpoint = endpoint;
+    }
+
     mqtt_client_err_t rc = mqtt_client_connect_step(inst->mqtt, &inst->mqtt_connect_cfg);
+    inst->connect_in_progress = (rc == MQTT_CLIENT_ERR_IN_PROGRESS);
     if (rc == MQTT_CLIENT_ERR_OK)
     {
         LOG_INFO(CP_LOG_MODULE, "MQTT (re)connected");
@@ -664,14 +691,19 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
     }
     else
     {
-        LOG_WARN(CP_LOG_MODULE, "MQTT connect attempt failed (rc=%d), retry in %u s", (int) rc,
-                 (unsigned) inst->reconnect_backoff_s);
-        inst->reconnect_countdown_s = inst->reconnect_backoff_s;
-        /* CP-D13: double for the next consecutive failure, capped at MAX. */
-        uint32_t next = inst->reconnect_backoff_s * 2u;
-        inst->reconnect_backoff_s =
-            (next > CP_RECONNECT_BACKOFF_MAX_S) ? CP_RECONNECT_BACKOFF_MAX_S : next;
+        prv_note_connect_failure(inst, rc);
     }
+}
+
+/* CP-D13: a connect attempt failed (or could not start): wait, doubling per consecutive failure. */
+static void prv_note_connect_failure(struct cloud_publisher_inst *inst, mqtt_client_err_t rc)
+{
+    LOG_WARN(CP_LOG_MODULE, "MQTT connect attempt failed (rc=%d), retry in %u s", (int) rc,
+             (unsigned) inst->reconnect_backoff_s);
+    inst->reconnect_countdown_s = inst->reconnect_backoff_s;
+    uint32_t next = inst->reconnect_backoff_s * 2u;
+    inst->reconnect_backoff_s =
+        (next > CP_RECONNECT_BACKOFF_MAX_S) ? CP_RECONNECT_BACKOFF_MAX_S : next;
 }
 
 static void prv_drain_saf(struct cloud_publisher_inst *inst)

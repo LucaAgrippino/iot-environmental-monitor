@@ -448,12 +448,15 @@ bool mqtt_client_is_connected(mqtt_client_handle_t handle)
 
 static mqtt_client_err_t g_spy_mqtt_connect_return;
 static uint32_t g_spy_mqtt_connect_calls;
+static const char *g_spy_mqtt_connect_last_endpoint;
+static const char *g_spy_mqtt_connect_last_client_id;
 mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
                                            const mqtt_connect_cfg_t *cfg)
 {
     (void) handle;
-    (void) cfg;
     g_spy_mqtt_connect_calls++;
+    g_spy_mqtt_connect_last_endpoint = cfg->broker_endpoint;
+    g_spy_mqtt_connect_last_client_id = cfg->client_id;
     return g_spy_mqtt_connect_return;
 }
 
@@ -542,6 +545,8 @@ void setUp(void)
     g_spy_mqtt_is_connected_return = true; /* most tests assume an already-connected broker */
     g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_connect_calls = 0u;
+    g_spy_mqtt_connect_last_endpoint = NULL;
+    g_spy_mqtt_connect_last_client_id = NULL;
 
     (void) memset(&g_cfg, 0, sizeof(g_cfg));
     g_cfg.mqtt = (mqtt_client_handle_t) 0x1000;
@@ -2408,4 +2413,99 @@ void test_CP_T106_the_placeholder_symbols_are_not_part_of_the_build(void)
      * line is the proof; the done-when check on the ELF repeats it with nm (WP1 section 12). */
     prv_create_and_connect();
     TEST_ASSERT_TRUE(cloud_publisher_is_ready(g_handle));
+}
+
+/* ======================================================================= */
+/* CP-T114..T118 - the link is made ready before a connect attempt         */
+/* (CP-D33, CP-D34, GM-O17/O18/O19)                                         */
+/* ======================================================================= */
+
+static uint32_t g_spy_prepare_calls;
+static const char *g_spy_prepare_result;
+static const char *prv_spy_prepare(void)
+{
+    g_spy_prepare_calls++;
+    return g_spy_prepare_result;
+}
+
+static void prv_create_disconnected_with_prepare(void)
+{
+    g_cfg.connect_prepare = prv_spy_prepare;
+    g_spy_prepare_calls = 0u;
+    g_spy_prepare_result = "13.60.114.42";
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+}
+
+void test_CP_T114_the_address_from_the_hook_is_the_one_connected_to(void)
+{
+    prv_create_disconnected_with_prepare();
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+    TEST_ASSERT_EQUAL_STRING("13.60.114.42", g_spy_mqtt_connect_last_endpoint);
+}
+
+void test_CP_T115_a_hook_that_is_not_ready_counts_as_a_failed_attempt(void)
+{
+    prv_create_disconnected_with_prepare();
+    g_spy_prepare_result = NULL;
+
+    prv_stats_tick(); /* hook says no: no connect, back off */
+    prv_stats_tick(); /* still backing off: the hook is not asked again */
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_connect_calls);
+}
+
+void test_CP_T116_the_hook_is_asked_again_once_the_backoff_has_run_out(void)
+{
+    prv_create_disconnected_with_prepare();
+    g_spy_prepare_result = NULL;
+
+    prv_stats_tick();
+    prv_stats_tick();
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls); /* backoff 2 s: two ticks waiting */
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_prepare_calls);
+
+    g_spy_prepare_result = "13.60.114.43"; /* the network is back */
+    for (uint32_t i = 0u; (i < 10u) && (g_spy_mqtt_connect_calls == 0u); i++)
+    {
+        prv_stats_tick();
+    }
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+    TEST_ASSERT_EQUAL_STRING("13.60.114.43", g_spy_mqtt_connect_last_endpoint);
+}
+
+void test_CP_T117_the_hook_is_not_asked_between_the_steps_of_one_attempt(void)
+{
+    prv_create_disconnected_with_prepare();
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_IN_PROGRESS;
+
+    prv_stats_tick();
+    prv_stats_tick();
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls);
+}
+
+void test_CP_T118_the_cpu_serial_is_the_client_id_unless_one_is_given(void)
+{
+    g_cfg.mqtt_connect_cfg.client_id = NULL;
+    prv_create_disconnected_with_prepare();
+    prv_stats_tick();
+    TEST_ASSERT_NOT_NULL(g_spy_mqtt_connect_last_client_id);
+    TEST_ASSERT_EQUAL_UINT32(24u, (uint32_t) strlen(g_spy_mqtt_connect_last_client_id));
+
+    cloud_publisher_reset_for_test();
+    g_cfg.mqtt_connect_cfg.client_id = "given-id";
+    prv_create_disconnected_with_prepare();
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_STRING("given-id", g_spy_mqtt_connect_last_client_id);
 }
