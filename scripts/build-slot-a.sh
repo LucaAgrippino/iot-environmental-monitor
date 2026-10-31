@@ -5,10 +5,10 @@
 # address (docs/hld/flash-partition-layout.md 5.1). This re-links the objects of the last
 # CubeIDE build with STM32L475VGTX_SLOT_A.ld, so no second build configuration has to be kept in
 # .cproject, and builds the 16 KB boot stub that jumps to it. The configuration is Debug unless
-# CONFIG says otherwise; the production image comes from the Gateway-App configuration
+# CONFIG says otherwise; the production image comes from the Release configuration
 # (docs/dev-tools/build-configurations.md).
 #
-# Usage:   [CONFIG=Gateway-App] scripts/build-slot-a.sh   (after a headless or IDE build of it)
+# Usage:   [CONFIG=Release] scripts/build-slot-a.sh   (after a headless or IDE build of it)
 # Output:  firmware/gateway/<CONFIG>/gateway_slot_a.elf   linked at 0x0800_6000
 #          firmware/gateway/<CONFIG>/boot_stub.elf        linked at 0x0800_0000
 # Flash:   openocd ... -c "program boot_stub.elf verify" -c "program gateway_slot_a.elf verify reset exit"
