@@ -122,7 +122,9 @@ typedef struct
     uint8_t fd_slave_addr;                /**< 0: no Field Device in the telemetry.          */
     uint32_t fw_version;                  /**< major<<24 | minor<<16 | patch, in the health. */
     const iupdate_service_t *update_ops;  /**< NULL: no OTA; the OTA topics are not subscribed. */
-    update_service_t *update;             /**< UpdateService instance (both or neither).     */
+    update_service_t *update;             /**< UpdateService instance (both or neither); may be
+                                               update_service_get_instance(), valid before
+                                               update_service_create() (US-D15).               */
     mqtt_connect_cfg_t mqtt_connect_cfg;  /**< Broker and certificates; stored by value, the
                                                pointers inside stay caller-owned (CP-D7/D9).  */
 } cloud_publisher_config_t;

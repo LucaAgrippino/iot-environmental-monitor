@@ -27,8 +27,17 @@
  * A session needs about 33 KB for its two 16 KB record buffers alone, so measure before trusting
  * it. To be fixed with a 25 % margin once the peak is measured with a TLS session open and a verify
  * running (tls_arena_peak_bytes()).
+ *
+ * MEASURED 2026-10-29 (TC-HW-MQTT-014, board, 60 KB arena): the peak with a TLS 1.2 mutual-auth
+ * session open against the bring-up broker (RSA-2048 chain) is 46 280 bytes, and the ECDSA verify
+ * added 0. 44 KB (45 056) is therefore 1 224 bytes too small: the handshake cannot allocate,
+ * mbedTLS reports it as -0x2700 and the board sends an "unknown ca" alert. The value stays here
+ * until WP4 decision D-1.
  */
+#ifndef TLS_ARENA_SIZE_BYTES /* a bench build may override it (scripts/build-mqtt-client-bench.sh) \
+                              */
 #define TLS_ARENA_SIZE_BYTES (44U * 1024U)
+#endif
 
 /**
  * @brief Install the mutex layer and hand the static arena to mbedTLS.
