@@ -429,6 +429,28 @@ Also in this session: boot offline and the connect hook (GM-O17/18/19, #128) and
   and a session drop (it looks like a firmware failure); two branches that append tests at the same place conflict,
   and git moves the closing brace of the first test to the wrong side.
 
+## 10d. Session 4 results (2026-10-31, PRs #138 and #142 to #146)
+
+`main()` now wires the DeviceProfileRegistry (WP8):
+
+- The console receives `device_profile_provider`, `device_profile_manager` and a hook,
+  `reprobe_after_profile_change()`, that calls `modbus_poller_reprobe()`. `profiles add` and `profiles remove` work.
+- The registry itself is initialised and loaded by the lifecycle wiring (`poller_init`), with ConfigService's
+  `config_service_get_profiles` / `config_service_set_profiles` as its storage, after the stored configuration was
+  applied. Until then (a few seconds after reset) `profiles list` shows nothing and `profiles add` is refused.
+- The production image is the CubeIDE `Release` configuration (#138); CI builds it with placeholder credential headers.
+
+Found when the stack of PRs met on `main`: `Src/main.c` still carried the old pointer-style profile adapter
+(compile error), and the image failed to link by 504 bytes because a 520-byte persist buffer had been added to the
+main RAM bank, which had 16 bytes of slack. The buffer and the registry table now live in SRAM2.
+
+- Image with the console after this: main bank 97 556 / 98 304 bytes (**748 spare**), SRAM2 32 172 / 32 768
+  (**596 spare**). Nothing more fits without a new decision (GM-O13).
+- Board, production image from `main`: console `profiles list / add / remove` work through the real registry and
+  ConfigService; the stack report shows no `LOW` task (ModbusPoller 153 free words of 768, was 289 before the
+  identity check, lifecycle 302, CloudPublisher 217); `modbus status` reports the expected retries exhausted with no
+  Field Device attached.
+
 ---
 
 ## 11. Open items opened by this document
@@ -459,3 +481,4 @@ Also in this session: boot offline and the connect hook (GM-O17/18/19, #128) and
 | GM-O22 | The Wi-Fi module did not raise DRDY for the next command after a send (the `P0` timed out; 8 of 10 boots on the board). **Fixed, PR #127:** the driver waits with NSS high and selects the module once DRDY is up (WIFI-D14), 0 of 10 boots after. Cause inferred from timing (DRDY returned within 100 us of NSS being released). **Follow-up, PR #129:** a module that stops answering altogether (seen after the unpaced burst) is reset by `wifi_reset_module()` when a ping gets no answer (WIFI-D15); a real stall recovered in about 15 s |
 | GM-O23 | `wifitask_err_t` codes 1, 2, 3 were also `WIFI_ERR_NOT_INIT`, `_SPI`, `_MODULE`, and MqttClient retries on two of them. Latent. **Fixed, PR #130:** WifiTask's own codes start at 0x100 (WIFITASK-D8) |
 | GM-O24 | End-to-end publishing and the OTA path are not validated on the production image with a real AWS IoT Thing; the NTP sync is not retried after an offline boot (TimeService behaviour); recovery after a real access-point loss is untested |
+| GM-O25 | RAM: after WP8 the production image has 748 bytes spare in the 96 KB bank and 596 in SRAM2. A task, a buffer or a larger table needs a new RAM decision (D-1 option F is used up). | Decide before adding anything to the image | Open |
