@@ -35,7 +35,9 @@ typedef enum
     QSPI_FLASH_ERR_ADDR = 3,    /**< Address exceeds device capacity. */
     QSPI_FLASH_ERR_LEN = 4,     /**< len == 0, or write crosses a page boundary. */
     QSPI_FLASH_ERR_DEVICE = 5,  /**< RDID response does not match expected ID. */
-    QSPI_FLASH_ERR_NOT_INIT = 6 /**< Driver not initialised — call qspi_flash_init() first. */
+    QSPI_FLASH_ERR_NOT_INITIALISED =
+        6,                          /**< Driver not initialised — call qspi_flash_init() first. */
+    QSPI_FLASH_ERR_NULL_POINTER = 7 /**< A required pointer argument was NULL. */
 } qspi_flash_err_t;
 
 /* ------------------------------------------------------------------ */

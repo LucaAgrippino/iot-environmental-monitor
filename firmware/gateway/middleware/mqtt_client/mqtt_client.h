@@ -318,6 +318,9 @@ mqtt_client_err_t mqtt_client_reset_stats(mqtt_client_handle_t handle);
 #ifdef TEST
 /** @brief Reset all internal static state for unit testing. */
 void mqtt_client_reset_for_test(void);
+
+/** @brief The network context of an instance, the argument the mbedTLS BIO callbacks receive. */
+void *mqtt_client_net_ctx_for_test(mqtt_client_handle_t handle);
 #endif
 
 #endif /* MQTT_CLIENT_H */

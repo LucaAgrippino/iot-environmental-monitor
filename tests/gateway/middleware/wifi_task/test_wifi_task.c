@@ -72,6 +72,13 @@ static size_t s_recv_call_count;
 static wifi_err_t s_close_socket_result;
 static size_t s_close_socket_call_count;
 static wifi_socket_t s_close_socket_last_socket;
+static wifi_err_t s_resolve_result;
+static uint32_t s_resolve_call_count;
+static char s_resolve_last_host[64];
+static wifi_err_t s_ping_result;
+static uint32_t s_ping_call_count;
+static wifi_err_t s_reset_module_result;
+static uint32_t s_reset_module_call_count;
 
 static size_t s_attach_datardy_callback_call_count;
 
@@ -108,6 +115,37 @@ static void prv_reset_wifi_stub(void)
     s_close_socket_last_socket = WIFI_INVALID_SOCKET;
 
     s_attach_datardy_callback_call_count = 0u;
+
+    s_resolve_result = WIFI_ERR_OK;
+    s_resolve_call_count = 0u;
+    s_resolve_last_host[0] = '\0';
+    s_ping_result = WIFI_ERR_OK;
+    s_ping_call_count = 0u;
+    s_reset_module_result = WIFI_ERR_OK;
+    s_reset_module_call_count = 0u;
+}
+
+wifi_err_t wifi_ping(wifi_handle_t handle)
+{
+    (void) handle;
+    s_ping_call_count++;
+    return s_ping_result;
+}
+
+wifi_err_t wifi_reset_module(wifi_handle_t handle)
+{
+    (void) handle;
+    s_reset_module_call_count++;
+    return s_reset_module_result;
+}
+
+wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip, size_t out_len)
+{
+    (void) handle;
+    s_resolve_call_count++;
+    (void) strncpy(s_resolve_last_host, hostname, sizeof(s_resolve_last_host) - 1u);
+    (void) strncpy(out_ip, "13.60.114.42", out_len);
+    return s_resolve_result;
 }
 
 wifi_err_t wifi_connect_ap(wifi_handle_t handle, const char *ssid, const char *password)
@@ -142,9 +180,8 @@ wifi_err_t wifi_get_rssi(wifi_handle_t handle, int8_t *rssi_dbm)
     return s_get_rssi_result;
 }
 
-wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type,
-                            const char *remote_addr, uint16_t remote_port,
-                            wifi_socket_t *out_socket)
+wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const char *remote_addr,
+                            uint16_t remote_port, wifi_socket_t *out_socket)
 {
     (void) handle;
     (void) type;
@@ -253,7 +290,9 @@ void setUp(void)
     prv_reset_wifi_stub();
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 /* ========================================================================
  * WIFITASK-T01..T03 — wifitask_create()
@@ -348,8 +387,10 @@ void test_WIFITASK_T07_null_arg_checks(void)
     TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_send(handle, 0u, NULL, 4u));
     uint8_t buf[4];
     size_t out_len;
-    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_recv(handle, 0u, NULL, sizeof(buf), &out_len, 1000u));
-    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_recv(handle, 0u, buf, sizeof(buf), NULL, 1000u));
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR,
+                      wifitask_recv(handle, 0u, NULL, sizeof(buf), &out_len, 1000u));
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR,
+                      wifitask_recv(handle, 0u, buf, sizeof(buf), NULL, 1000u));
     (void) state;
     (void) rssi;
 }
@@ -593,9 +634,11 @@ void test_WIFITASK_T19_pickup_of_timeout_reports_none_not_error(void)
     wifitask_handle_t handle = prv_create_default();
 
     wifitask_recv_arm_t arm = {
-        .socket = 2u, .caller = (TaskHandle_t) 0x1111, .ready_notify_bit = 0u,
+        .socket = 2u,
+        .caller = (TaskHandle_t) 0x1111,
+        .ready_notify_bit = 0u,
     };
-    s_recv_result = WIFI_ERR_TIMEOUT; /* "no data yet", not a real failure */
+    s_recv_result = WIFI_ERR_TIMEOUT;      /* "no data yet", not a real failure */
     g_mock_xQueueReceive_return = pdFALSE; /* main request_queue empty — see T18 */
 
     prv_arm_next_recv_arm(&arm);
@@ -627,7 +670,9 @@ void test_WIFITASK_T20_armed_slot_does_not_starve_a_real_request(void)
     prv_arm_next_request(&req);
 
     wifitask_recv_arm_t arm = {
-        .socket = 1u, .caller = (TaskHandle_t) 0x2222, .ready_notify_bit = 0u,
+        .socket = 1u,
+        .caller = (TaskHandle_t) 0x2222,
+        .ready_notify_bit = 0u,
     };
     prv_arm_next_recv_arm(&arm);
 
@@ -760,7 +805,9 @@ void test_WIFITASK_T25_empty_attempt_is_short_and_does_not_wake_owner(void)
 {
     wifitask_handle_t handle = prv_create_default();
     wifitask_recv_arm_t arm = {
-        .socket = 5u, .caller = (TaskHandle_t) 0x9999, .ready_notify_bit = 0x20u,
+        .socket = 5u,
+        .caller = (TaskHandle_t) 0x9999,
+        .ready_notify_bit = 0x20u,
     };
     s_recv_result = WIFI_ERR_TIMEOUT;
     s_recv_out_len = 0u;
@@ -806,4 +853,113 @@ void test_WIFITASK_T26_close_socket_resets_recv_slot(void)
     TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
                       wifitask_try_recv(handle, 0u, buf, sizeof(buf), &out_len, 0u, &poll));
     TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_PENDING, poll);
+}
+
+/* GM-O18: the host name goes to the driver on WifiTask's context and the address comes back. */
+void test_WIFITASK_T27_step_dispatches_resolve(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+
+    wifitask_request_t req = {0};
+    req.op = WIFITASK_OP_RESOLVE;
+    req.hostname = "broker.example.test";
+    req.ip_out = ip;
+    req.ip_out_len = sizeof(ip);
+    req.caller = (TaskHandle_t) 0x1234;
+    s_resolve_result = WIFI_ERR_OK;
+
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_resolve_call_count);
+    TEST_ASSERT_EQUAL_STRING("broker.example.test", s_resolve_last_host);
+    TEST_ASSERT_EQUAL_STRING("13.60.114.42", ip);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFI_ERR_OK, g_mock_xTaskNotify_last_value);
+}
+
+void test_WIFITASK_T28_resolve_passes_the_driver_error_through_and_checks_its_arguments(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+    char ip[WIFI_IPV4_STR_LEN] = {0};
+
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_resolve(handle, NULL, ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_NULL_PTR, wifitask_resolve(handle, "h", NULL, sizeof(ip)));
+
+    wifitask_request_t req = {0};
+    req.op = WIFITASK_OP_RESOLVE;
+    req.hostname = "unknown.example.test";
+    req.ip_out = ip;
+    req.ip_out_len = sizeof(ip);
+    req.caller = (TaskHandle_t) 0x1234;
+    s_resolve_result = WIFI_ERR_MODULE;
+
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFI_ERR_MODULE, g_mock_xTaskNotify_last_value);
+}
+
+/* GM-O22: the ping goes to the driver on WifiTask's context and its verdict comes back as is. */
+void test_WIFITASK_T29_step_dispatches_ping(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    wifitask_request_t req = {0};
+    req.op = WIFITASK_OP_PING;
+    req.caller = (TaskHandle_t) 0x1234;
+    s_ping_result = WIFI_ERR_TIMEOUT;
+
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, s_ping_call_count);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFI_ERR_TIMEOUT, g_mock_xTaskNotify_last_value);
+}
+
+/* GM-O22: a module reset drops the sockets, so WifiTask forgets what it had armed on them. */
+void test_WIFITASK_T30_reset_module_clears_the_receive_state_like_a_socket_close(void)
+{
+    wifitask_handle_t handle = prv_create_default();
+
+    wifitask_recv_arm_t arm = {.socket = 0u, .caller = (TaskHandle_t) 0x1234};
+    s_recv_result = WIFI_ERR_SOCKET;
+    g_mock_xQueueReceive_return = pdFALSE;
+    prv_arm_next_recv_arm(&arm);
+    wifitask_step_for_test(handle);
+
+    uint8_t buf[16];
+    size_t out_len = 0u;
+    wifitask_recv_poll_t poll = WIFITASK_RECV_POLL_PENDING;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 0u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_ERROR, poll);
+
+    wifitask_request_t req = {.op = WIFITASK_OP_RESET_MODULE, .caller = (TaskHandle_t) 0x1234};
+    prv_arm_next_request(&req);
+    wifitask_step_for_test(handle);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_reset_module_call_count);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) WIFI_ERR_OK, g_mock_xTaskNotify_last_value);
+
+    poll = WIFITASK_RECV_POLL_ERROR;
+    TEST_ASSERT_EQUAL(WIFITASK_ERR_OK,
+                      wifitask_try_recv(handle, 0u, buf, sizeof(buf), &out_len, 0u, &poll));
+    TEST_ASSERT_EQUAL(WIFITASK_RECV_POLL_PENDING, poll);
+}
+
+/* The driver's errors pass through WifiTask in the same type as its own codes, so the two ranges
+ * must not meet: before the renumbering NULL_PTR, NO_RESOURCE and TIMEOUT were 1, 2 and 3, the
+ * numbers of WIFI_ERR_NOT_INIT, _SPI and _MODULE. */
+void test_WIFITASK_T31_own_error_codes_never_equal_a_driver_error_code(void)
+{
+    const wifitask_err_t own[] = {WIFITASK_ERR_NULL_PTR, WIFITASK_ERR_NO_RESOURCE,
+                                  WIFITASK_ERR_TIMEOUT};
+
+    for (int driver = (int) WIFI_ERR_OK; driver <= (int) WIFI_ERR_NO_RESOURCE; driver++)
+    {
+        for (size_t i = 0u; i < (sizeof(own) / sizeof(own[0])); i++)
+        {
+            TEST_ASSERT_NOT_EQUAL_INT(driver, (int) own[i]);
+        }
+    }
+    TEST_ASSERT_EQUAL_INT((int) WIFI_ERR_OK, (int) WIFITASK_ERR_OK);
 }

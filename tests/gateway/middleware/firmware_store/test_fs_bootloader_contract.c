@@ -190,6 +190,25 @@ void test_BL028c_a_crash_during_the_trial_rolls_back_at_the_second_boot(void)
     TEST_ASSERT_EQUAL_INT(FIRMWARE_BOOT_CONFIRMED, boot_info().state);
 }
 
+void test_BL028f_a_confirmed_image_ends_the_run_of_rollbacks(void)
+{
+    /* One rollback, acknowledged: the count is back to zero, on flash as well as in memory. */
+    arrange_installed();
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->activate(fsu_fs));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_SLOT_B, real_boot());
+    (void) fsu_create(FIRMWARE_SLOT_B_BASE);
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, BOOT->rollback(fsu_fs));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_SLOT_A, real_boot());
+    (void) fsu_create(FIRMWARE_SLOT_A_BASE);
+    TEST_ASSERT_EQUAL_UINT32(1U, boot_info().rollback_count);
+
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, BOOT->acknowledge_rollback(fsu_fs));
+    TEST_ASSERT_EQUAL_UINT32(0U, boot_info().rollback_count);
+
+    (void) fsu_create(FIRMWARE_SLOT_A_BASE); /* a restart reads the record back */
+    TEST_ASSERT_EQUAL_UINT32(0U, boot_info().rollback_count);
+}
+
 void test_BL028d_a_bit_rotted_new_image_is_never_run(void)
 {
     arrange_installed();
