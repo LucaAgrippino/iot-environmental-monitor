@@ -39,7 +39,7 @@ production provider (F-6); the HLD task table disagrees with the code on five ta
 | F-9 | **ModbusPollerTask must be created after `lifecycle_controller_init()`.** The start gate it waits on is created inside that call, which now runs in BootTask after the scheduler starts. Created in Phase A it calls `xEventGroupWaitBits(NULL, ...)` at scheduler start and hard-faults | Hard fault on the board; the PC decodes to `vTaskPlaceOnUnorderedEventList` from `xEventGroupWaitBits`. The firmware's own panic dump names the wrong function (its symbol table belongs to another image): decode with `addr2line` |
 | F-10 | **Correction of F-3's premise: SRAM2 is not empty, and there is no 128 KB alias.** The console places 24.6 KB of buffers in SRAM2 (`console_mem.h`: two cell grids and the scrollback), leaving 8.1 KB; and `0x20018000` is not accessible on the STM32L475 (a read fails on the board) | Link of the full image; board test |
 | F-11 | **The arena needs more than its peak.** At 48 128 bytes the TLS handshake fails (`RSA private key operation failed: BIGNUM memory allocation failed`, -0x4310) although the peak counter reads 45 364; at 52 992 it works with a peak of 46 280. The RSA private-key operation needs one contiguous block. The working size is in (48 128, 52 992], not bisected | Board |
-| F-12 | **Cloud chain and NTP together are not stable** (cause not isolated): after connecting, `wifitask_send(34 B) failed, err=6` coincides with an NTP sync; the three subscribes fail (`failed (8)`); later `wifitask_send(4039 B) failed, err=7` (a send larger than the WiFi driver's 1536-byte AT buffer reached it) and `Connection lost` | Board, `Debug/bench/logs/stack-A3.log` |
+| F-12 | **Corrected 2026-10-31.** A TLS record larger than the module's 1 460-byte send ceiling is rejected (`wifitask_send(N B) failed, err=7`: 2 077 B with a 2 048-byte output buffer, 4 067 B with the default 16 KB one); the record stays pending inside mbedTLS and every later write fails with it, subscribes included. Fixed in PR #123 (the BIO send hands over at most 1 460 bytes and returns the short count). This was NOT caused by NTP running together with the cloud chain, as first written. A different failure remains: `wifitask_send(N B) failed, err=6` (module socket error), see GM-O20 | Board, production image |
 | F-13 | **The WiFi module cannot open a socket to a host name.** `wifitask_open_socket()` with `a29hfe9n68rs9a-ats.iot.eu-north-1.amazonaws.com` returns `WIFI_ERR_SOCKET` (6) in under a second, before any TLS traffic; the same call with the resolved address `13.60.114.42` works. Nothing in the firmware resolves names, and AWS addresses change | Board, MqttClient harness against AWS IoT (measurement 3). Cause found: `P3` does not resolve names, but the module has a resolver, `D0=<host name>` (70-110 ms on the board). `wifi_resolve()` is in PR #120; a failing name must be given a 60 s wait, or the module stays silent for good |
 | F-14 | **A TLS handshake message must fit the input record buffer, with or without maximum fragment length.** Mosquitto honours RFC 6066 max_fragment_length (the ServerHello echoes it and the 5.6 KB Certificate message arrives in 2048-byte records), but mbedTLS 3.6.7 reassembles a fragmented handshake message inside the input buffer, so the handshake still failed at an input size of 2048. Also `mbedtls_ssl_conf_max_frag_len()` fails (BAD_INPUT_DATA) for a size above the smaller of the input and output buffers; the bench call ignored the result at first | Board against Mosquitto with a 5.2 KB server certificate; the AWS chain is 3 847 B (measurement 3) |
 
@@ -394,6 +394,22 @@ for WP4 is not read as covering it.
 
 ---
 
+## 10b. Session 2 results (2026-10-31, PR #124)
+
+`firmware/gateway/Src/main.c` implements section 4 with D-1 option F and D-2, D-3, D-4, D-6, D-7.
+`scripts/build-gateway-app.sh` links the whole image and fails if it does not fit. Measured on the board:
+
+- Image: main bank 97 224 / 98 304 bytes (1 080 spare), SRAM2 30 928 / 32 768 (1 840 spare), flash 323 288. The
+  main bank overflowed by 5 744 bytes until MqttClient's pool (6 312 bytes) moved to SRAM2.
+- Boot: join on the first attempt, the broker resolved, every module started, Lifecycle Operational about 8 s
+  after reset. The first run of the production code found the F-12 cause (PR #123).
+- Lowest free stack words: stack_report 279 of 448, IDLE 104/128, ModbusPoller 301/768, lifecycle 337/896,
+  WifiTask 154/320, Tmr Svc 84/128, CloudPublisher 287/768, console 373/704, log_drain 167/384, SensorTask 88/256,
+  TS 176/512, UpdateService 668/704. None below the warning line of 48 words.
+- Not validated: end-to-end publishing (GM-O20), the Lifecycle states that were not driven, the Field Device.
+
+---
+
 ## 11. Open items opened by this document
 
 | ID | Item |
@@ -414,3 +430,7 @@ for WP4 is not read as covering it.
 | GM-O14 | Name resolution (F-13): **decided, D-7**. Driver half `wifi_resolve` in PR #120, MqttClient `tls_server_name` in PR #121; the BootTask call is part of session 2. A failing lookup takes about 10 s and the call may wait up to 60 s |
 | GM-O15 | AWS IoT and max fragment length / the largest record it sends: **not needed.** `MQTT_PKT_BUF_SIZE` is 4 096 and the OTA chunk is 1 024, so no inbound record needs more than the 5 120 input buffer unless two large packets share a record. Reopen if a measured record exceeds it |
 | GM-O16 | The bench-only hooks used for measurement 3 (`MQTT_BENCH_MAX_FRAG_LEN`, `MQTT_BENCH_TLS_HOSTNAME`, `MQTT_BENCH_VERIFY_OPTIONAL`) are not committed. The hostname one is superseded by `tls_server_name` (PR #121); the other two are bench-only |
+| GM-O17 | BootTask halts when the join or the name resolution fails after their retries (it calls `halt_with`): the device then runs no Lifecycle at all. Decide the policy (retry forever with a back-off, or continue offline: the Lifecycle and the StoreAndForward work without a link) |
+| GM-O18 | The broker address is resolved once, at boot. AWS IoT addresses change, so a long-running device reconnects to a stale address. Needs a re-resolve on a failed reconnect (CloudPublisher cooperation) |
+| GM-O19 | The MQTT client id is the placeholder `gw-bringup-001`; CloudPublisher builds its topics from the CPU unique id (`002d004f...`). An AWS IoT policy on `${iot:Connection.Thing.ThingName}` would not match both. Decide the device identity (and where the TLS material and the Wi-Fi credentials are provisioned: they still come from the gitignored bring-up headers) |
+| GM-O20 | Unstable cloud session on the production image after the connect: `wifitask_send(N B) failed, err=6` (module socket error), subscribes `failed (8)`, `Connection lost`, reconnect, repeat. It follows NTP syncs (a UDP socket next to the TCP one, every ~60 s) and the replay of stale StoreAndForward entries (310 old entries from harness runs in the QSPI log, each a 4 010-byte publish). Not isolated. Test with NTP off and with the CircularFlashLog region erased |
