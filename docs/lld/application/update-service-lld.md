@@ -9,7 +9,7 @@ through CloudPublisher, the use of FirmwareStore to stage, verify, install
 and activate the image, the post-update self-check, and the reporting of
 every outcome to the cloud.
 
-**Version:** 1.0
+**Version:** 1.1 (system test procedure and dry-run results, 2026-10-31)
 **Date:** October 2026
 **Status:** Released — implemented, host-tested (70 cases) and hardware-validated on the
 bench with the real FirmwareStore and bootloader, including the 480 KB maximum image and
@@ -897,6 +897,7 @@ FreeRTOS tick mock.
 | TC-US-001 | NULL `cfg`, any NULL member or used function pointer, NULL `out` → `NULL_POINTER` | §7.1 |
 | TC-US-002 | Second `create` → `NO_INSTANCE` | — |
 | TC-US-003 | Ops on a handle not from `create` → `NOT_INITIALISED` | — |
+| TC-US-003b | `update_service_get_instance()` is non-NULL and stable before `create`; every op on it → `NOT_INITIALISED`, `is_created` false, stack words 0; after `create` it is the same pointer and works | US-D15 |
 | TC-US-004 | `create` caches `get_boot_info`, makes no other FS call | §9.1 |
 | TC-US-005 | `handle_command` copies and notifies; makes no FS, transport or lifecycle call | §7.2 |
 | TC-US-006 | Second `handle_command` before the task runs → `BUSY`, first kept | §7.2 |
@@ -1001,6 +1002,87 @@ harness fakes that print the posted events.
 | TC-SYS-OTA-004 | Command published by a non-operator identity | Refused by the broker ACL; device never sees it (REQ-DM-056) |
 | TC-SYS-OTA-005 | Image signed with another key | `failed/sig_invalid` (REQ-NF-304) |
 
+### 23.3 Procedure for TC-SYS-OTA-001..005 (bench)
+
+Everything below was run on the board on 2026-10-31 (results in §26.5); the commands are the ones
+that worked. Scripts that are not executable in git are run with `bash`.
+
+**Prerequisites**
+
+- The ARM toolchain, openocd (the CubeIDE one, as in the other bench scripts) and Docker.
+- A Python environment with the two packages the tools need:
+  `python3 -m venv ~/ota-venv && ~/ota-venv/bin/pip install paho-mqtt cryptography`
+- The git-ignored `firmware/gateway/certs/bringup_certs.h` and `bringup_secrets.h`
+  (`scripts/bringup_secrets.h.example`), a 2.4 GHz access point, and a broker address that matches the
+  server certificate (`scripts/regenerate-bringup-certs.sh <laptop-ip>`, then rebuild).
+- Release key pair **outside the repository**: `tools/ota/make_image.py genkey --private ~/keys/rel.pem`
+  (this rewrites the tracked `ota_public_key.c`; run `git checkout` on it afterwards). For TC-SYS-OTA-005 a
+  second pair: `make_image.py genkey --private ~/keys/other.pem --public-c /tmp/other_pub.c`.
+- An empty store-and-forward log if you want a clean download rate: a backlog replays at about one 4 KB
+  entry per second (CP-D32) and shares the link.
+
+**Build and provision**
+
+1. `scripts/build-bootloader.sh /tmp/bl` (produces `/tmp/bl/bootloader.elf`).
+2. The releases. `EXTRA_CFLAGS="-DGATEWAY_WITH_CONSOLE=0"` keeps the UART a plain log:
+   - `scripts/build-release.sh --version 1.0.0 --private ~/keys/rel.pem --out ~/rel/1.0.0`
+   - `scripts/build-release.sh --version 1.0.1 --private ~/keys/rel.pem --out ~/rel/1.0.1`
+   - `scripts/build-release.sh --version 1.0.2 --fail-selfcheck --private ~/keys/rel.pem --out ~/rel/1.0.2`
+
+   Each run links the image for both slots, signs both and writes the Slot-A descriptor. The script refuses
+   to build when `ota_public_key.c` is not the public half of the signing key. The bodies of 1.0.0 and 1.0.1
+   are identical: the version lives in the signed header and the descriptor.
+3. `scripts/build-release.sh --flash-only --out ~/rel/1.0.0 --bootloader /tmp/bl/bootloader.elf`
+   programs the bootloader, erases the boot metadata and the two descriptors, programs Slot A and its
+   descriptor, and resets. Expect on the UART (115200): `BL in=0 out=1 bank=A gen=1 ... ver=0x01000000`,
+   `BL run 0x08006000`, then `Operational` and `MQTT (re)connected`, and **no** `not running from a slot:
+   OTA disabled`.
+4. The broker with the access list: `bash scripts/make-operator-cert.sh` once, then
+   `DETACH=1 bash scripts/start-mosquitto-ota.sh` (stop with `docker stop ota-mosquitto`). The device
+   certificate's common name is its user name; only `ota-operator` may publish the OTA commands
+   (`tools/ota/mosquitto/acl.conf`).
+
+**Common command** (the operator; `<id>` is the CPU id the device logs as its client id; `C` is
+`local-test/mosquitto-broker`)
+
+```
+~/ota-venv/bin/python scripts/ota_server.py --host <broker-ip> --device-id <id> \
+    --cafile $C/ca.crt --cert $C/operator.crt --key $C/operator.key \
+    --image-a <A.ota> --image-b <B.ota> --job <n> --expect <result> --timeout 600
+```
+
+The device downloads **into the slot it is not running from**, so the tool serves both images and the
+device asks for the right one. Use a new `--job` for every update. Wait for the terminal report of one case
+before starting the next: the previous trial must be confirmed or acknowledged first.
+
+| TC | Do | Expect |
+|---|---|---|
+| 001 | `--image-a ~/rel/1.0.1/gateway_slot_a.ota --image-b ~/rel/1.0.1/gateway_slot_b.ota --job 1 --expect success` | `accepted`, 278 chunks, `OTA activated: flush, 2000 ms grace, reset`, `BL ... bank=B gen=3 ... ver=0x01000001`, `SelfChecking`, `success` with version 1.0.1. The tool prints the download rate (US-O1) |
+| 002 | the 1.0.2 (`--fail-selfcheck`) images, `--job 2 --expect rolled_back` | after the download and the swap the trial image never passes its self-check; `BL ... rb=1 ... ver=` of the previous image; `rolled_back` with `"rollbacks":1` |
+| 003 | start a valid update (images signed as 1.0.3, see below), and when the log reaches `offset 131072` run `docker stop ota-mosquitto`, wait 2 minutes, then `DETACH=1 bash scripts/start-mosquitto-ota.sh` | the tool reconnects and sends the same job again; the offsets continue from where they stopped (no restart at 0); `success` |
+| 004 | with the broker up, publish a command with the **device** certificate: `mosquitto_pub --cafile ca.crt --cert client.crt --key client.key -i attacker -t cmd/iotmonitor/<id>/ota -m '{"job":6,"size_a":1,"size_b":1}' -q 1` (Mosquitto's own client, e.g. through `docker run --network host -v $C:/c:ro eclipse-mosquitto:2`) | the broker logs `Denied PUBLISH ... rc135`; no `accepted` or any other report appears on `dt/iotmonitor/<id>/ota/#`; the device log shows nothing |
+| 005 | sign the 1.0.1 bodies with the other key: `make_image.py sign --body ~/rel/1.0.1/gateway_slot_a.bin --slot A --version 1.0.3 --private ~/keys/other.pem --out other_a.ota` (and `B`), `--job 5 --expect failed` | the whole image is downloaded, then `failed` with `"reason":"sig_invalid"`; the running version is unchanged |
+
+For TC-SYS-OTA-003 and a clean 1.0.3, sign the 1.0.1 bodies with the release key:
+`make_image.py sign --body ~/rel/1.0.1/gateway_slot_a.bin --slot A --version 1.0.3 --private ~/keys/rel.pem --out v103_a.ota`
+(and `B`).
+
+**What to record** (the open items the plan names)
+
+- US-O1: the tool's last line (`served N chunks ... KiB/s, ms per chunk`). If the rate is too low, try
+  `US_CHUNK_SIZE` 2048 and repeat TC-SYS-OTA-001.
+- FS-O4: the 1 Hz `Stack` report prints `TLS arena peak N of 28672 bytes`; read it before and after the
+  verify step (it follows the last chunk by about 10 s).
+- US-O2: the time from the first log line of a boot (`===== Gateway =====`) to `MQTT (re)connected`, against
+  the 60 s self-check timeout.
+- US-O6: the `UpdateServiceTa ... free N words` line of the `Stack` report after the update.
+- REQ-NF-204: see US-O14 below; the log alone does not show the 10 s.
+- US-O11: no case produced a command that was accepted and never started; confirm by reading LCC-2.
+
+**Traps seen**: the UART log is cut mid-line by the reset (the failure line of TC-SYS-OTA-002); the console
+image repaints the terminal, so build with `-DGATEWAY_WITH_CONSOLE=0` for a readable log; the first Wi-Fi join
+after a reset may need a retry; restarting the broker between runs drops the device's session.
+
 ---
 
 ## 24. Open items and decisions
@@ -1009,8 +1091,8 @@ harness fakes that print the posted events.
 
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
-| US-O1 | Chunk size and throughput: 1024 B chosen; real round trip over ISM43362 + TLS unknown | Measure in TC-HW-US-001 / TC-SYS-OTA-001; 2048 B is the next step (still inside `MQTT_PKT_BUF_SIZE`) | Open |
-| US-O2 | Self-check cloud timeout of 60 s is provisional | Measure the reconnect time after boot (~12 s broker-drop recovery, ~4 s TLS measured for CloudPublisher) | Open |
+| US-O1 | Chunk size and throughput: 1024 B chosen; real round trip over ISM43362 + TLS unknown | Measure in TC-HW-US-001 / TC-SYS-OTA-001; 2048 B is the next step (still inside `MQTT_PKT_BUF_SIZE`). **Measured 2026-10-31: 2.8 KiB/s at 1024 B (§26.5)**; 2048 B not tried | Open |
+| US-O2 | Self-check cloud timeout of 60 s is provisional | Measure the reconnect time after boot (~12 s broker-drop recovery, ~4 s TLS measured for CloudPublisher). **Measured 2026-10-31: 40 to 41 s from the first log line of a boot to the connection (§26.5, US-O13)** | Open |
 | US-O3 | Stall limit of 10 min is a design value, not an SRS figure | Review at system test | Open |
 | US-O4 | Self-check cannot prove the Field Device link (poller gated by the start gate); "no internet" rolls a good image back | Accepted per HLD; revisit if a field case appears | Open |
 | US-O5 | Broker policy for `/ota` and `/ota/data` (AWS IoT policy, Mosquitto ACL) | **Done 2026-10-27:** `tools/ota/README.md` (Mosquitto ACL and AWS IoT policy), with `scripts/ota_server.py` | Closed |
@@ -1042,6 +1124,7 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 | US-D12 | CloudPublisher hands chunks over in `msg_cb` without its command queue | The 128 B command queue cannot hold 1 KB; the copy is microseconds and keeps the MQTT payload pointer valid |
 | US-D13 | UpdateService confirms before reporting success; LifecycleController's confirm is an idempotent re-assert | The success report is never sent for an uncommitted image; the existing LifecycleController code is kept |
 | US-D14 | Same `job` sent again = resume; a new `job` = fresh download | Resume across a reboot with no device-side memory (REQ-DM-051) |
+| US-D15 | `update_service_get_instance()` returns the singleton handle before `update_service_create()`; every operation refuses it with `NOT_INITIALISED` until create has succeeded | Breaks the creation cycle with CloudPublisher (CloudPublisher needs the instance, `update_service_create` needs the transport CloudPublisher provides). Found in WP4 session 1, decided D-2 in `docs/lld/application/gateway-main.md`. A message that reaches CloudPublisher in between is refused and logged, not acted on |
 
 ---
 
@@ -1099,7 +1182,10 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 |---|---|---|---|
 | US-O9 | The bench harness has not been run on the board (TC-HW-US-001..007, 009, 010) | **Done 2026-10-27** (§26.4), including TC-HW-US-008 (gap meter, stack), the 480 KB maximum image and TC-HW-US-011 (power cuts). Still open: MQTT on the board (needs `main()`) | Closed |
 | US-O10 | `LC_EVENT_OTA_RESET_REQUESTED` / `_FINISHED` exist but LifecycleController does not act on them yet (LCC-2) | **Done 2026-10-27** on `feature/phase-4-gw-lifecycle_ota_events` (LCC-2..4; lifecycle-controller-lld.md LC-D19..D22). Binding in `main()` is LC-O15 | Closed |
-| US-O11 | A rejected command is reported but nothing tells LifecycleController when `start_timeout` fires after it accepted `OTA_REQUESTED` and never called `start()` | Check with LCC-2: LifecycleController never takes the event without calling `start()`, so this should not occur | Open |
+| US-O11 | A rejected command is reported but nothing tells LifecycleController when `start_timeout` fires after it accepted `OTA_REQUESTED` and never called `start()` | Check with LCC-2: LifecycleController never takes the event without calling `start()`, so this should not occur. No such case occurred in the five system runs (§26.5); the reading of LCC-2 is still to be done | Open |
+| US-O13 | The image takes about 24 s between the Wi-Fi join and the first store-and-forward log line when it runs from a slot, with an empty backlog; the same step took about 4 s without the bootloader. The cloud connection is up about 40 s after a reset (US-O2 leaves 20 s of the 60 s timeout) | Find the step: `firmware_store_create` under a slot is the suspect (not isolated); time the steps of `BootTask` | Open |
+| US-O14 | REQ-NF-204 (rollback within 10 s of the FAIL decision) cannot be read from the UART log: the failure line is cut off by the reset, and the decision itself comes 60 s after the self-check starts (the failing probe is polled until the timeout). The rollback boot follows the cut line within about a second | Flush the failure line before the reset, or toggle a pin at the decision and watch it with the reset line | Open |
+| US-O12 | CloudPublisher and UpdateService creation is circular: `cloud_publisher_config_t::update` needs the instance, `update_service_config_t::transport` needs `cloud_publisher_get_ota_transport()` | `update_service_get_instance()` (US-D15), TC-US-003b. Binding in `main()` is WP4 session 2 | Closed |
 
 ### 26.4 Hardware results (B-L475E-IOT01A, 2026-10-27)
 
@@ -1171,6 +1257,32 @@ The torn copy stays in flash until the next record write.
 **Not covered:** the MQTT transport (CloudPublisher on the board; needs the Gateway `main()`), and
 the heap use of `verify` while a TLS session is open (FS-O4).
 
+### 26.5 System results over MQTT (B-L475E-IOT01A, 2026-10-31)
+
+A dry run of §23.3 by the author of the procedure, on the board, with the Gateway image of PR #124 plus
+the fixes of #125 to #130, the bootloader of §26.4 and the broker with the access list. It validates the
+procedure and the tools; the run that closes the plan's WP5 is yours. The store-and-forward log was empty.
+
+| TC | Result | Figures |
+|---|---|---|
+| TC-SYS-OTA-001 | **PASS** | 1.0.0 to 1.0.1: 278 chunks in 99.0 s, **2.8 KiB/s, 356 ms per chunk**; success reported 154 s after the command; bootloader check 126 ms |
+| TC-SYS-OTA-002 | **PASS** | 1.0.2 (self-check forced to fail): download 120.4 s (2.3 KiB/s), rolled back to 1.0.1, `rollbacks:1`; the failure decision came 60 s after the self-check started (US-O14) |
+| TC-SYS-OTA-003 | **PASS** | broker down 15:43:06 to 15:45:07; the same job was sent again and the download continued at offset 131072; success with 1.0.3 |
+| TC-SYS-OTA-004 | **PASS** | `Denied PUBLISH ... rc135` for the device identity; no report and no device log |
+| TC-SYS-OTA-005 | **PASS** | full download, then `failed / sig_invalid`, version unchanged (1.0.1) |
+
+Measurements for the open items (the closing decisions are left to the owner of each item):
+
+- **US-O1:** 2.8 KiB/s with 1024-byte chunks, so a maximum image of 480 KB takes about 170 s. 2048-byte chunks
+  were not tried.
+- **FS-O4:** `TLS arena peak 20680 of 28672 bytes` in the 1 Hz report before, during and after the verify of a
+  284 KB image with the TLS session open: verify did not raise the peak (8 KB headroom).
+- **US-O2:** the cloud connection is up 40 to 41 s after the first log line of a boot, in all five boots; the
+  self-check timeout is 60 s (US-O13 for why it is not shorter).
+- **US-O6:** UpdateService stack, lowest free in the 1 Hz report: 266 of 1024 words after a complete update
+  (495 during the download).
+- **Bootloader:** `ms=126` for the descriptor, body CRC and vector check of a 284 188-byte image; `ms=103` after a
+  rollback.
 ---
 
 ## References

@@ -50,6 +50,18 @@ void tls_arena_uninit_free(void *ptr);
 #define MBEDTLS_THREADING_C
 #define MBEDTLS_THREADING_ALT
 
+/* --- TLS record buffers (WP4 D-1 option F) -------------------------
+ * The defaults are 16 384 bytes each, about 33 KB of the 46 KB arena peak. The input buffer must
+ * hold the largest single handshake message the server sends, because mbedTLS reassembles a
+ * fragmented handshake message inside it: AWS IoT Core's Certificate message is 3 847 bytes
+ * (three RSA certificates), so 5 120 leaves 1 273 bytes for a longer chain after a rotation. It
+ * also bounds the largest record a peer may send; MQTT_PKT_BUF_SIZE (4 096) bounds the packets, so
+ * a record above 5 120 would need two large packets in one record. A record larger than the
+ * buffer ends the connection. The output buffer only splits our own writes (coreMQTT retries a
+ * short write), so 2 048 is enough. Measured peak against AWS IoT: 20 920 bytes (46 280 before). */
+#define MBEDTLS_SSL_IN_CONTENT_LEN 5120
+#define MBEDTLS_SSL_OUT_CONTENT_LEN 2048
+
 /* --- TLS protocol -------------------------------------------------- */
 #define MBEDTLS_SSL_TLS_C
 #define MBEDTLS_SSL_CLI_C
