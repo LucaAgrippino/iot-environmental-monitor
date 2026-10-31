@@ -24,7 +24,7 @@
 #include "core/termout.h"
 
 /** Words of stack ConsoleTask needs (task-breakdown.md: 768 words / 3 KB). */
-#define CONSOLE_TASK_STACK_WORDS (768U)
+#define CONSOLE_TASK_STACK_WORDS (704U) /* D-1 F: 438 of 768 words used */
 /** ConsoleTask priority (lowest application priority). */
 #define CONSOLE_TASK_PRIORITY (1U)
 

@@ -181,7 +181,15 @@ struct mqtt_client_inst
     MQTTSubAckStatus_t suback_status;
 };
 
-static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
+/* The instance pool (6 312 bytes: TLS contexts, the 4 096-byte packet buffer, coreMQTT state) lives in
+ * SRAM2, zeroed by the startup code with the rest of .bss.sram2 (WP4, gateway-main.md D-1 option F):
+ * the main 96 KB bank overflows by 5 744 bytes without it. Nothing here is touched by DMA or an ISR. */
+#ifdef TEST
+#define MQTT_CLIENT_POOL_RAM /* host builds: ordinary static storage */
+#else
+#define MQTT_CLIENT_POOL_RAM __attribute__((section(".bss.sram2")))
+#endif
+MQTT_CLIENT_POOL_RAM static struct mqtt_client_inst g_pool[MQTT_CLIENT_MAX_INSTANCES];
 static uint8_t g_count;
 
 /* ========================================================================
