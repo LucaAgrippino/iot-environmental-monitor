@@ -815,16 +815,18 @@ static firmware_store_err_t do_activate(struct firmware_store *fs)
  */
 static firmware_store_err_t settle_confirmed(struct firmware_store *fs)
 {
-    firmware_store_err_t err = fs_meta_write(fs->cfg.iflash, &fs->meta, fs->meta.active_bank,
-                                             FIRMWARE_META_STATE_CONFIRMED, fs->meta.previous_bank,
-                                             fs->meta.rollback_count);
+    firmware_store_err_t err =
+        fs_meta_write(fs->cfg.iflash, &fs->meta, fs->meta.active_bank,
+                      FIRMWARE_META_STATE_CONFIRMED, fs->meta.previous_bank, 0U);
 
     if (err != FIRMWARE_STORE_ERR_OK)
     {
         return err;
     }
 
+    /* A confirmed image ends the run of failures: the count is of consecutive rollbacks (BL-O2). */
     fs->boot.state = FIRMWARE_BOOT_CONFIRMED;
+    fs->boot.rollback_count = 0U;
 
     return fs_desc_erase(fs->cfg.iflash, fs_slot_from_bank(fs->meta.previous_bank));
 }

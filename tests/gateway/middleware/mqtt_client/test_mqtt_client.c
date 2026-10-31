@@ -533,9 +533,9 @@ void test_MQTT_T06c_tls_server_name_is_checked_instead_of_the_connect_address(vo
 }
 
 /* The TLS record is larger than one module send can carry (WP4 F-12): the BIO send hands over
- * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The context
- * is not built by a connect here: only its first fields (the WifiTask handle and the socket) are read,
- * and the stub ignores both. */
+ * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The
+ * context is not built by a connect here: only its first fields (the WifiTask handle and the
+ * socket) are read, and the stub ignores both. */
 int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
 
 void test_MQTT_T06d_bio_send_is_capped_at_the_module_ceiling(void)
@@ -611,6 +611,8 @@ void test_MQTT_T09_publish_qos1_transmit_failure(void)
      * blocking. The send BIO maps a non-timeout WifiTask error to a fatal
      * mbedTLS error, so MQTT_Publish() fails immediately. */
     s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
+    /* GM-O21: the failed send also drops the session, so the TLS teardown runs. */
+    prv_mock_tls_teardown();
 
     const uint8_t payload[] = "ALARM";
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_PUBLISH_FAIL,
@@ -621,6 +623,43 @@ void test_MQTT_T09_publish_qos1_transmit_failure(void)
     TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
     TEST_ASSERT_EQUAL_UINT32(1u, stats.publish_failures);
     TEST_ASSERT_EQUAL_UINT32(0u, stats.publishes_sent);
+}
+
+void test_MQTT_T09c_a_failed_send_drops_the_session_and_tells_the_owner(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+
+    /* GM-O21: coreMQTT writes a packet in pieces. A failure after the first piece leaves a
+     * truncated packet in the TLS stream, so the session must not be reused: it is torn down (TLS
+     * session and socket released) and the owner is told, exactly as for a keep-alive timeout. */
+    s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
+    prv_mock_tls_teardown();
+
+    const uint8_t payload[] = "T";
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_PUBLISH_FAIL,
+                      mqtt_client_publish(handle, "dt/iotmonitor/gw-001/telemetry", payload,
+                                          sizeof(payload) - 1u, MQTT_QOS_0));
+
+    TEST_ASSERT_TRUE(s_disconnect_cb_called);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_close_socket_call_count);
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_NOT_CONNECTED,
+                      mqtt_client_publish(handle, "dt/iotmonitor/gw-001/telemetry", payload,
+                                          sizeof(payload) - 1u, MQTT_QOS_0));
+}
+
+void test_MQTT_T09d_a_failed_subscribe_send_drops_the_session(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+
+    s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
+    prv_mock_tls_teardown();
+
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_SUBSCRIBE_FAIL,
+                      mqtt_client_subscribe(handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+
+    TEST_ASSERT_TRUE(s_disconnect_cb_called);
+    TEST_ASSERT_FALSE(mqtt_client_is_connected(handle));
 }
 
 void test_MQTT_T09b_publish_qos1_missing_puback_is_not_a_failure(void)
