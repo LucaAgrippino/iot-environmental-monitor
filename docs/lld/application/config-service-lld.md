@@ -523,20 +523,49 @@ static void prv_apply_defaults(void)
 
 ### §7.3 Serialisation blob
 
-```c
-#define CONFIG_SCHEMA_VERSION  1U
+**Schema 2 (CFG-D17, WP8).** The blob also carries the DeviceProfileRegistry's profiles, so they persist
+through the one ConfigStore region ConfigService already owns (device-profile-registry-lld.md D-2).
 
-typedef struct __attribute__((packed)) {
+```c
+#define CONFIG_SCHEMA_VERSION     2U
+#define CONFIG_SCHEMA_VERSION_V1  1U
+
+typedef struct {
+    uint8_t          count;                   /* 0..DEVICE_PROFILE_MAX */
+    uint8_t          reserved[3];
+    device_profile_t entries[DEVICE_PROFILE_MAX];
+} config_profiles_t;                          /* 308 bytes */
+
+typedef struct {
+    uint32_t          schema_version;
+    config_params_t   params;
+    config_profiles_t profiles;
+} config_blob_t;
+
+typedef struct {                              /* schema 1, read only to migrate */
     uint32_t        schema_version;
     config_params_t params;
-} config_blob_t;
+} config_blob_v1_t;
 
 _Static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
                "config blob exceeds ConfigStore capacity");
 ```
 
-On `config_service_apply_loaded()`: if `schema_version != CONFIG_SCHEMA_VERSION`,
-discard the stored blob and apply defaults (CFG-D5, CFG-O1).
+On `config_service_apply_loaded()`: a blob of exactly `sizeof(config_blob_t)` with `schema_version` 2 is
+applied. A blob of exactly `sizeof(config_blob_v1_t)` with `schema_version` 1 is **migrated**: the
+parameters are applied and the profile list is empty, so the registry seeds its default (CFG-D17). Any
+other length or version discards the blob and applies defaults (CFG-D5, CFG-O1), including the profiles.
+A stored profile count above `DEVICE_PROFILE_MAX` drops the profiles and keeps the parameters.
+
+**Profile accessors** (they are the registry's storage callbacks):
+
+| Function | Behaviour |
+|---|---|
+| `config_service_get_profiles(out, max, &count)` | Copies up to `max` stored profiles under the data mutex; false if none |
+| `config_service_set_profiles(in, count)` | Replaces the stored profiles and persists the whole blob (about 0.8 s, CFG-O7); on a failed save the previous profiles are restored and false is returned, so memory and flash agree. Profile content is validated by the registry, not here |
+
+Every persist (a parameter change or a profile change) writes the complete blob, so neither can lose
+the other.
 
 ### §7.4 Vtable singletons
 
@@ -722,6 +751,17 @@ additional parameters.
 | TC-CFG-022 | Manager vtable set_param | `get_manager()->set_param(ctx, id, &val)` | Same result as free function |
 | TC-CFG-023 | String field set — mqtt_broker | `set_param(MQTT_BROKER, "test.broker.io")` | Stored correctly; callback fires |
 | TC-CFG-024 | String field boundary — broker too long | `set_param(MQTT_BROKER, <128-char string>)` | ERR_INVALID |
+| TC-CFG-060 | Profiles empty after init | Fresh init | `get_profiles` false, count 0 |
+| TC-CFG-061 | `set_profiles` stores into the blob and reads back | Two profiles | One save of `sizeof(config_blob_t)`, schema 2, profiles present |
+| TC-CFG-062 | Failed profile save keeps the previous profiles | Save returns an error | `set_profiles` false; the earlier list is still read |
+| TC-CFG-063 | Profile arguments are checked | NULL, count above max, before init | false, no save |
+| TC-CFG-064 | Zero profiles persists an empty list | `set_profiles(NULL, 0)` | Saved count 0 |
+| TC-CFG-065 | A parameter change keeps the stored profiles | `set_param` after `set_profiles` | Blob still holds the profiles |
+| TC-CFG-066 | `apply_loaded` restores a schema 2 blob's profiles | Blob with one profile | Read back |
+| TC-CFG-067 | `apply_loaded` migrates a schema 1 blob | v1-length blob | Parameters applied, no profiles |
+| TC-CFG-068 | A v1-length blob with a wrong version is discarded | Version 9 | `ERR_INVALID` |
+| TC-CFG-069 | Out-of-range profile count drops the profiles only | Count 9 | Parameters kept, no profiles |
+| TC-CFG-070 | `get_profiles` copies at most `max` | 3 stored, max 2 | 2 copied |
 
 Additions in v1.1 (all PASS): TC-CFG-041 flash save holds only the persist mutex · 042 deferred set applies and notifies without flash · 043 persist_pending writes once · 044 several deferred changes share one write · 045 failed write stays pending · 046 deferred set rejects what set_param rejects · 047 durable set flushes earlier deferred changes · 048 deferred guards and vtable · 049 natural alignment · TC-CFG-025 NTP servers and count · 026 a corrupt stored field is repaired, the rest kept · 027 an unprovisioned blob is kept · 028 an inconsistent alarm band is repaired · 030 NULL store / idempotent init · 031 wrong blob length · 032 humidity and pressure band rule · 033 range limits and gap · 034 scalar rules · 035 unterminated NTP entry · 036 one mutex take/give per `set_param` · 037 restore with a store failure · 038 unknown parameter id · 039 lock / unlock · 040 blob size. Host result: 47 tests, 47 pass, 0 ignored (`tests/gateway/application/config_service/test_config_service.c`, `tests/project_gateway.yml`).
 

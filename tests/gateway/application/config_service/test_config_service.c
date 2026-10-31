@@ -30,8 +30,8 @@ config_store_err_t config_store_save(config_store_handle_t self, const void *dat
 {
     TEST_ASSERT_EQUAL_PTR(STORE_HANDLE, self);
     s_save_calls++;
-    s_save_locks_held = (int32_t) g_mock_xSemaphoreTake_call_count -
-                        (int32_t) g_mock_xSemaphoreGive_call_count;
+    s_save_locks_held =
+        (int32_t) g_mock_xSemaphoreTake_call_count - (int32_t) g_mock_xSemaphoreGive_call_count;
     s_save_len = len;
     if (len == sizeof(s_saved))
     {
@@ -129,7 +129,8 @@ void test_init_rejects_a_null_store_and_is_idempotent(void)
 
     init_service();
     const uint32_t polling = 500U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &polling));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &polling));
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_init(STORE_HANDLE));
     TEST_ASSERT_EQUAL_UINT32(500U, params()->polling_interval_ms);
 }
@@ -230,7 +231,8 @@ void test_set_valid_poll_interval_applies_and_persists(void)
     init_service();
     const uint32_t value = 500U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
 
     TEST_ASSERT_EQUAL_UINT32(500U, params()->polling_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(1U, s_save_calls);
@@ -245,7 +247,8 @@ void test_set_poll_interval_below_the_minimum_is_rejected(void)
     init_service();
     const uint32_t value = 50U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
 
     TEST_ASSERT_EQUAL_UINT32(1000U, params()->polling_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(0U, s_save_calls);
@@ -256,11 +259,14 @@ void test_poll_interval_boundaries_are_inclusive(void)
 {
     init_service();
     uint32_t value = 100U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
     value = 60000U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
     value = 60001U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
     TEST_ASSERT_EQUAL_UINT32(60000U, params()->polling_interval_ms);
 }
 
@@ -270,11 +276,13 @@ void test_alarm_high_too_close_to_low_is_rejected(void)
     init_service();
     int16_t value = 150; /* low 0, hysteresis 100: band 150 <= 200 */
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH, &value));
     TEST_ASSERT_EQUAL_INT16(4000, params()->temp_alarm_high);
 
     value = 201;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_TEMP_ALARM_HIGH, &value));
 }
 
 /* TC-CFG-009 */
@@ -283,14 +291,17 @@ void test_hysteresis_that_is_too_large_is_rejected(void)
     init_service();
     int16_t value = 2000; /* band 4000 is not wider than 2 * 2000 */
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TEMP_HYSTERESIS, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TEMP_HYSTERESIS, &value));
     TEST_ASSERT_EQUAL_INT16(100, params()->temp_hysteresis);
 
     value = 1999;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_TEMP_HYSTERESIS, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_TEMP_HYSTERESIS, &value));
 
     value = 0;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TEMP_HYSTERESIS, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TEMP_HYSTERESIS, &value));
 }
 
 /* TC-CFG-032: the humidity and pressure channels follow the same rules */
@@ -299,11 +310,14 @@ void test_humidity_and_pressure_use_the_same_band_rule(void)
     init_service();
     uint16_t value = 2300U; /* humidity: low 2000, hysteresis 200: band 300 <= 400 */
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_HUMIDITY_ALARM_HIGH, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_HUMIDITY_ALARM_HIGH, &value));
     value = 9700U; /* pressure: high 10500, hysteresis 50: band 800 > 100 */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_PRESSURE_ALARM_LOW, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_PRESSURE_ALARM_LOW, &value));
     value = 10450U; /* band 10500 - 10450 = 50 <= 100 */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_PRESSURE_ALARM_LOW, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_PRESSURE_ALARM_LOW, &value));
 }
 
 /* TC-CFG-033: sensor range limits */
@@ -311,13 +325,17 @@ void test_range_limits_and_minimum_gap(void)
 {
     init_service();
     int16_t value = -5500;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MIN, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MIN, &value));
     value = -5600;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MIN, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MIN, &value));
     value = -5500 + 99; /* gap to range_min below 1.00 degC */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MAX, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MAX, &value));
     value = 12501;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MAX, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TEMP_RANGE_MAX, &value));
 }
 
 /* TC-CFG-034: scalar rules */
@@ -325,30 +343,41 @@ void test_scalar_rules(void)
 {
     init_service();
     uint16_t alpha = 0U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha));
     alpha = 1000U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha));
     alpha = 999U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_FILTER_ALPHA, &alpha));
 
     uint8_t addr = 248U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_MODBUS_SLAVE_ADDR, &addr));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_MODBUS_SLAVE_ADDR, &addr));
     addr = 247U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_MODBUS_SLAVE_ADDR, &addr));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_MODBUS_SLAVE_ADDR, &addr));
 
     uint16_t port = 0U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_MQTT_PORT, &port));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_MQTT_PORT, &port));
 
     uint32_t ms = 999U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_TELEMETRY_INTERVAL, &ms));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_TELEMETRY_INTERVAL, &ms));
     ms = 3600000U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_TELEMETRY_INTERVAL, &ms));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_TELEMETRY_INTERVAL, &ms));
     ms = 9999U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_HEALTH_INTERVAL, &ms));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_HEALTH_INTERVAL, &ms));
     ms = 86400001U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_HEALTH_INTERVAL, &ms));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_HEALTH_INTERVAL, &ms));
     ms = 100U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_MODBUS_POLL_PERIOD, &ms));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_MODBUS_POLL_PERIOD, &ms));
 }
 
 /* TC-CFG-012 */
@@ -357,7 +386,8 @@ void test_validate_does_not_change_anything(void)
     init_service();
     const uint32_t value = 500U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, &value));
 
     TEST_ASSERT_EQUAL_UINT32(1000U, params()->polling_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(0U, s_save_calls);
@@ -374,7 +404,8 @@ void test_set_mqtt_broker_stores_the_string_and_notifies(void)
     init_service();
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_register_change_cb(on_change));
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_MQTT_BROKER, "test.broker.io"));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_MQTT_BROKER, "test.broker.io"));
 
     TEST_ASSERT_EQUAL_STRING("test.broker.io", params()->mqtt_broker);
     TEST_ASSERT_EQUAL_UINT32(1U, s_cb_calls);
@@ -389,11 +420,14 @@ void test_mqtt_broker_that_is_empty_or_too_long_is_rejected(void)
     (void) memset(too_long, 'a', sizeof(too_long));
     too_long[CONFIG_MAX_BROKER_LEN] = '\0';
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_MQTT_BROKER, too_long));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_MQTT_BROKER, ""));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_MQTT_BROKER, too_long));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_MQTT_BROKER, ""));
 
     too_long[CONFIG_MAX_BROKER_LEN - 1U] = '\0'; /* 127 characters: the longest that fits */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_MQTT_BROKER, too_long));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_MQTT_BROKER, too_long));
 }
 
 /* TC-CFG-025: NTP servers are set as a block, the count must refer to filled slots */
@@ -401,20 +435,25 @@ void test_ntp_servers_and_count(void)
 {
     init_service();
     uint8_t count = 1U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
 
     char servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];
     (void) memset(servers, 0, sizeof(servers));
     (void) strcpy(servers[0], "162.159.200.1");
     (void) strcpy(servers[1], "216.239.35.0");
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_NTP_SERVERS, servers));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_NTP_SERVERS, servers));
 
     count = 2U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
     count = 3U; /* third slot empty */
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
     count = 5U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_NTP_SERVER_COUNT, &count));
     TEST_ASSERT_EQUAL_STRING("216.239.35.0", params()->ntp_servers[1]);
 }
 
@@ -425,7 +464,8 @@ void test_ntp_block_with_an_unterminated_entry_is_rejected(void)
     char servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];
     (void) memset(servers, 'x', sizeof(servers));
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_NTP_SERVERS, servers));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_NTP_SERVERS, servers));
 }
 
 /* ======================================================================= */
@@ -512,7 +552,8 @@ void test_set_param_with_a_store_failure_keeps_the_value_and_reports_persist(voi
     s_save_result = CONFIG_STORE_ERR_FLASH_WRITE;
     const uint32_t value = 500U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_PERSIST, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_PERSIST,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
 
     TEST_ASSERT_EQUAL_UINT32(500U, params()->polling_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(1U, s_cb_calls);
@@ -549,7 +590,8 @@ void test_deferred_set_applies_and_notifies_without_touching_flash(void)
     (void) config_service_register_change_cb(on_change);
     const uint32_t value = 500U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value));
 
     TEST_ASSERT_EQUAL_UINT32(500U, params()->polling_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(1U, s_cb_calls);
@@ -612,8 +654,10 @@ void test_deferred_set_rejects_what_set_param_rejects(void)
     init_service();
     const uint32_t bad = 50U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &bad));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, NULL));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &bad));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG,
+                      config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, NULL));
     TEST_ASSERT_FALSE(config_service_has_pending());
 }
 
@@ -635,13 +679,15 @@ void test_durable_set_param_flushes_earlier_deferred_changes(void)
 void test_deferred_api_guards_and_vtable(void)
 {
     const uint32_t value = 500U;
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT,
+                      config_service_set_param_deferred(CONFIG_PARAM_POLL_INTERVAL, &value));
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_persist_pending());
     TEST_ASSERT_FALSE(config_service_has_pending());
 
     init_service();
     const iconfig_manager_t *manager = config_service_get_manager();
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->set_param_deferred(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->set_param_deferred(
+                                             manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
     TEST_ASSERT_TRUE(config_service_has_pending());
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->persist_pending(manager->ctx));
     TEST_ASSERT_FALSE(config_service_has_pending());
@@ -705,9 +751,12 @@ void test_every_call_before_init_reports_not_init(void)
     config_blob_t blob;
     (void) memset(&blob, 0, sizeof(blob));
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, &value));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_apply_loaded(&blob, sizeof(blob)));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT,
+                      config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT,
+                      config_service_apply_loaded(&blob, sizeof(blob)));
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_snapshot());
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_restore_snapshot());
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NOT_INIT, config_service_flush());
@@ -722,8 +771,10 @@ void test_null_arguments_are_rejected(void)
 {
     init_service();
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG, config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, NULL));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG, config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, NULL));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, NULL));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG,
+                      config_service_validate_param(CONFIG_PARAM_POLL_INTERVAL, NULL));
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_NULL_ARG, config_service_register_change_cb(NULL));
 }
 
@@ -733,8 +784,10 @@ void test_an_unknown_parameter_id_is_rejected(void)
     init_service();
     const uint32_t value = 500U;
 
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_set_param(CONFIG_PARAM_COUNT, &value));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_validate_param((config_param_id_t) -1, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_COUNT, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_validate_param((config_param_id_t) -1, &value));
 }
 
 /* TC-CFG-021 */
@@ -755,8 +808,10 @@ void test_manager_vtable_forwards_set_and_validate(void)
     const uint32_t value = 500U;
 
     TEST_ASSERT_NOT_NULL(manager);
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->validate_param(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
-    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, manager->set_param(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      manager->validate_param(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      manager->set_param(manager->ctx, CONFIG_PARAM_POLL_INTERVAL, &value));
     TEST_ASSERT_EQUAL_UINT32(500U, params()->polling_interval_ms);
 }
 
@@ -790,5 +845,217 @@ void test_every_integer_field_is_naturally_aligned(void)
     TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, filter_alpha) % 2U);
     TEST_ASSERT_EQUAL_UINT32(0U, offsetof(config_params_t, temp_alarm_high) % 2U);
     TEST_ASSERT_EQUAL_UINT32(0U, sizeof(config_params_t) % 4U);
-    TEST_ASSERT_EQUAL_UINT32(sizeof(uint32_t) + sizeof(config_params_t), sizeof(config_blob_t));
+    TEST_ASSERT_EQUAL_UINT32(sizeof(uint32_t) + sizeof(config_params_t) + sizeof(config_profiles_t),
+                             sizeof(config_blob_t));
+    TEST_ASSERT_EQUAL_UINT32(sizeof(uint32_t) + sizeof(config_params_t), sizeof(config_blob_v1_t));
+}
+
+/* ======================================================================= */
+/* Device profiles in the blob (schema 2, device-profile-registry-lld.md D-2) */
+/* ======================================================================= */
+
+static device_profile_t profile_of(uint8_t addr, const char *desc)
+{
+    device_profile_t p;
+
+    (void) memset(&p, 0, sizeof(p));
+    p.slave_addr = addr;
+    p.map_version = 1U;
+    p.vendor_code = 0x1A45U;
+    (void) strncpy(p.description, desc, DEVICE_PROFILE_DESC_MAX - 1U);
+    return p;
+}
+
+/* TC-CFG-060 */
+void test_profiles_are_empty_after_init(void)
+{
+    init_service();
+
+    device_profile_t out[DEVICE_PROFILE_MAX];
+    uint8_t n = 99U;
+
+    TEST_ASSERT_FALSE(config_service_get_profiles(out, DEVICE_PROFILE_MAX, &n));
+    TEST_ASSERT_EQUAL_UINT8(0U, n);
+}
+
+/* TC-CFG-061 */
+void test_set_profiles_stores_them_in_the_blob_and_reads_them_back(void)
+{
+    init_service();
+
+    const device_profile_t in[2] = {profile_of(1U, "alpha"), profile_of(7U, "beta")};
+
+    TEST_ASSERT_TRUE(config_service_set_profiles(in, 2U));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_save_calls);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) sizeof(config_blob_t), s_save_len);
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_SCHEMA_VERSION, s_saved.schema_version);
+    TEST_ASSERT_EQUAL_UINT8(2U, s_saved.profiles.count);
+    TEST_ASSERT_EQUAL_STRING("beta", s_saved.profiles.entries[1].description);
+
+    device_profile_t out[DEVICE_PROFILE_MAX];
+    uint8_t n = 0U;
+
+    TEST_ASSERT_TRUE(config_service_get_profiles(out, DEVICE_PROFILE_MAX, &n));
+    TEST_ASSERT_EQUAL_UINT8(2U, n);
+    TEST_ASSERT_EQUAL_UINT8(7U, out[1].slave_addr);
+}
+
+/* TC-CFG-062 */
+void test_a_failed_profile_save_keeps_the_previous_profiles(void)
+{
+    init_service();
+
+    const device_profile_t first[1] = {profile_of(1U, "first")};
+    const device_profile_t second[2] = {profile_of(2U, "x"), profile_of(3U, "y")};
+
+    TEST_ASSERT_TRUE(config_service_set_profiles(first, 1U));
+    s_save_result = CONFIG_STORE_ERR_FLASH_WRITE;
+    TEST_ASSERT_FALSE(config_service_set_profiles(second, 2U));
+
+    device_profile_t out[DEVICE_PROFILE_MAX];
+    uint8_t n = 0U;
+
+    TEST_ASSERT_TRUE(config_service_get_profiles(out, DEVICE_PROFILE_MAX, &n));
+    TEST_ASSERT_EQUAL_UINT8(1U, n);
+    TEST_ASSERT_EQUAL_STRING("first", out[0].description);
+}
+
+/* TC-CFG-063 */
+void test_profile_arguments_are_checked(void)
+{
+    device_profile_t out[2];
+    uint8_t n = 0U;
+    const device_profile_t one[1] = {profile_of(1U, "a")};
+
+    TEST_ASSERT_FALSE(config_service_get_profiles(out, 2U, &n)); /* before init */
+    TEST_ASSERT_FALSE(config_service_set_profiles(one, 1U));
+    init_service();
+    TEST_ASSERT_FALSE(config_service_get_profiles(NULL, 2U, &n));
+    TEST_ASSERT_FALSE(config_service_get_profiles(out, 2U, NULL));
+    TEST_ASSERT_FALSE(config_service_set_profiles(NULL, 1U));
+    TEST_ASSERT_FALSE(config_service_set_profiles(one, DEVICE_PROFILE_MAX + 1U));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_save_calls);
+}
+
+/* TC-CFG-064 */
+void test_setting_zero_profiles_persists_an_empty_list(void)
+{
+    init_service();
+
+    const device_profile_t in[1] = {profile_of(1U, "a")};
+
+    TEST_ASSERT_TRUE(config_service_set_profiles(in, 1U));
+    TEST_ASSERT_TRUE(config_service_set_profiles(NULL, 0U));
+    TEST_ASSERT_EQUAL_UINT8(0U, s_saved.profiles.count);
+
+    device_profile_t out[2];
+    uint8_t n = 9U;
+
+    TEST_ASSERT_FALSE(config_service_get_profiles(out, 2U, &n));
+    TEST_ASSERT_EQUAL_UINT8(0U, n);
+}
+
+/* TC-CFG-065 */
+void test_a_parameter_change_keeps_the_stored_profiles_in_the_blob(void)
+{
+    init_service();
+
+    const device_profile_t in[1] = {profile_of(4U, "kept")};
+    const uint32_t value = 500U;
+
+    TEST_ASSERT_TRUE(config_service_set_profiles(in, 1U));
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
+    TEST_ASSERT_EQUAL_UINT8(1U, s_saved.profiles.count);
+    TEST_ASSERT_EQUAL_STRING("kept", s_saved.profiles.entries[0].description);
+}
+
+/* TC-CFG-066 */
+void test_apply_loaded_restores_the_profiles_of_a_schema_2_blob(void)
+{
+    init_service();
+
+    config_blob_t blob = blob_of_defaults();
+
+    blob.profiles.count = 1U;
+    blob.profiles.entries[0] = profile_of(6U, "from flash");
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_apply_loaded(&blob, sizeof(blob)));
+
+    device_profile_t out[DEVICE_PROFILE_MAX];
+    uint8_t n = 0U;
+
+    TEST_ASSERT_TRUE(config_service_get_profiles(out, DEVICE_PROFILE_MAX, &n));
+    TEST_ASSERT_EQUAL_STRING("from flash", out[0].description);
+}
+
+/* TC-CFG-067 */
+void test_apply_loaded_migrates_a_schema_1_blob_with_no_profiles(void)
+{
+    init_service();
+
+    config_blob_v1_t old;
+
+    (void) memset(&old, 0, sizeof(old));
+    old.schema_version = CONFIG_SCHEMA_VERSION_V1;
+    old.params = *config_service_get_params();
+    old.params.polling_interval_ms = 777U;
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_apply_loaded(&old, sizeof(old)));
+    TEST_ASSERT_EQUAL_UINT32(777U, params()->polling_interval_ms);
+
+    device_profile_t out[2];
+    uint8_t n = 5U;
+
+    TEST_ASSERT_FALSE(config_service_get_profiles(out, 2U, &n));
+    TEST_ASSERT_EQUAL_UINT8(0U, n);
+}
+
+/* TC-CFG-068 */
+void test_a_schema_1_length_with_the_wrong_version_is_discarded(void)
+{
+    init_service();
+
+    config_blob_v1_t old;
+
+    (void) memset(&old, 0, sizeof(old));
+    old.schema_version = 9U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID, config_service_apply_loaded(&old, sizeof(old)));
+}
+
+/* TC-CFG-069 */
+void test_an_out_of_range_stored_profile_count_drops_the_profiles_only(void)
+{
+    init_service();
+
+    config_blob_t blob = blob_of_defaults();
+
+    blob.params.polling_interval_ms = 888U;
+    blob.profiles.count = DEVICE_PROFILE_MAX + 1U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_apply_loaded(&blob, sizeof(blob)));
+    TEST_ASSERT_EQUAL_UINT32(888U, params()->polling_interval_ms);
+
+    device_profile_t out[DEVICE_PROFILE_MAX];
+    uint8_t n = 0U;
+
+    TEST_ASSERT_FALSE(config_service_get_profiles(out, DEVICE_PROFILE_MAX, &n));
+}
+
+/* TC-CFG-070 */
+void test_get_profiles_copies_at_most_max(void)
+{
+    init_service();
+
+    device_profile_t in[3];
+
+    for (uint8_t i = 0U; i < 3U; i++)
+    {
+        in[i] = profile_of((uint8_t) (i + 1U), "n");
+    }
+    TEST_ASSERT_TRUE(config_service_set_profiles(in, 3U));
+
+    device_profile_t out[2];
+    uint8_t n = 0U;
+
+    TEST_ASSERT_TRUE(config_service_get_profiles(out, 2U, &n));
+    TEST_ASSERT_EQUAL_UINT8(2U, n);
 }

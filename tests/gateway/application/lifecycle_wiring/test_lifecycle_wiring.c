@@ -98,6 +98,21 @@ config_service_err_t config_service_persist_pending(void)
     return s_cfg_persist_result;
 }
 
+bool config_service_get_profiles(device_profile_t *out, uint8_t max, uint8_t *count_out)
+{
+    (void) out;
+    (void) max;
+    (void) count_out;
+    return false;
+}
+
+bool config_service_set_profiles(const device_profile_t *in, uint8_t count)
+{
+    (void) in;
+    (void) count;
+    return false;
+}
+
 const config_params_t *config_service_get_params(void)
 {
     return s_params_null ? NULL : &s_params;
