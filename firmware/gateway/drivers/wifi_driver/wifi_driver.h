@@ -57,6 +57,8 @@ typedef enum
     WIFI_ERR_NULL_PTR = 9,      /**< Required pointer argument was NULL. */
     WIFI_ERR_NO_RESOURCE = 10,  /**< Static instance pool or socket table exhausted. */
 } wifi_err_t;
+/* Keep every wifi_err_t value below 0x100: WifiTask passes them through in its own error type,
+ * whose own codes start at 0x100 (wifi_task.h). */
 
 typedef enum
 {
