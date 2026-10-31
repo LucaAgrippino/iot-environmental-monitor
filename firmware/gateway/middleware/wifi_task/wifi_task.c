@@ -145,6 +145,14 @@ struct wifitask_inst
     bool in_use;
 };
 
+/* The two enums share one type on the wire; their values must not meet (wifi_task.h). */
+_Static_assert(WIFI_ERR_NO_RESOURCE < WIFITASK_ERR_NULL_PTR,
+               "WifiTask's own error codes must stay above every wifi_err_t value");
+_Static_assert((WIFITASK_ERR_NULL_PTR != WIFITASK_ERR_TIMEOUT) &&
+                   (WIFITASK_ERR_NULL_PTR != WIFITASK_ERR_NO_RESOURCE) &&
+                   (WIFITASK_ERR_NO_RESOURCE != WIFITASK_ERR_TIMEOUT),
+               "WifiTask's own error codes must be distinct");
+
 static struct wifitask_inst g_pool[WIFITASK_MAX_INSTANCES];
 static uint32_t g_count;
 

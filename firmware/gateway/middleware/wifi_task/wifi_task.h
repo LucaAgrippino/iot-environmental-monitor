@@ -38,15 +38,21 @@
 /** @brief Opaque handle to a WifiTask instance. */
 typedef struct wifitask_inst *wifitask_handle_t;
 
+/**
+ * WifiTask's own outcomes start at 0x100. Every other outcome passes the underlying wifi_err_t
+ * through unchanged, in this same type (WifiTask does not reinterpret WifiDriver's error codes,
+ * companion §7), and wifi_err_t uses the values below 0x100: a caller comparing against a
+ * WIFITASK_ERR_* constant must never match a driver error by accident. Before this, NULL_PTR,
+ * NO_RESOURCE and TIMEOUT were 1, 2 and 3, the same as WIFI_ERR_NOT_INIT, _SPI and _MODULE (GM-O22
+ * follow-up). WIFITASK_ERR_OK stays 0 in both.
+ */
 typedef enum
 {
     WIFITASK_ERR_OK = 0,
-    WIFITASK_ERR_NULL_PTR = 1,    /**< Required pointer argument was NULL.     */
-    WIFITASK_ERR_NO_RESOURCE = 2, /**< Static pool or request queue exhausted. */
-    WIFITASK_ERR_TIMEOUT = 3,     /**< Request queue full, or no reply from
-                                        WifiTask within a bounded wait.        */
-    /* All other outcomes pass the underlying wifi_err_t through unchanged —
-     * WifiTask does not reinterpret WifiDriver's error codes (companion §7). */
+    WIFITASK_ERR_NULL_PTR = 0x101,    /**< Required pointer argument was NULL.     */
+    WIFITASK_ERR_NO_RESOURCE = 0x102, /**< Static pool or request queue exhausted. */
+    WIFITASK_ERR_TIMEOUT = 0x103,     /**< Request queue full, or no reply from
+                                            WifiTask within a bounded wait.        */
 } wifitask_err_t;
 
 typedef enum

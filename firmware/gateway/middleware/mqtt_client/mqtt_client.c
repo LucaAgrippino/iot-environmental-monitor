@@ -431,7 +431,7 @@ static int32_t prv_transport_recv(NetworkContext_t *net_ctx, void *buf, size_t l
         return (int32_t) out_len;
     }
     /* This must stay the raw WifiDriver WIFI_ERR_TIMEOUT (4), not
-     * WIFITASK_ERR_TIMEOUT (3, a different condition) — see wifi-task.md
+     * WIFITASK_ERR_TIMEOUT (0x103, a different condition) — see wifi-task.md
      * §10 WIFITASK-O3. TEST-only: this path still uses the blocking
      * wifitask_recv(); the production recv (prv_mbedtls_net_recv() above)
      * moved to wifitask_try_recv()'s poll-enum contract under
@@ -1085,5 +1085,10 @@ void mqtt_client_reset_for_test(void)
 {
     (void) memset(g_pool, 0, sizeof(g_pool));
     g_count = 0u;
+}
+
+void *mqtt_client_net_ctx_for_test(mqtt_client_handle_t handle)
+{
+    return &handle->net_ctx;
 }
 #endif

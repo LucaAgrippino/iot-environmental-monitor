@@ -560,6 +560,28 @@ void test_MQTT_T06e_bio_send_below_the_ceiling_is_sent_whole(void)
     TEST_ASSERT_EQUAL_UINT32((uint32_t) sizeof(record), (uint32_t) s_send_total_bytes);
 }
 
+/* A WifiDriver error that shares its number with a WifiTask code was read as that code: a module
+ * ERROR (3) as WifiTask's retryable timeout. The two ranges are apart now; this pins the decision
+ * for an established connection. */
+void test_MQTT_T06f_only_wifitasks_own_timeout_is_retried_on_an_established_connection(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    void *ctx = mqtt_client_net_ctx_for_test(handle);
+    unsigned char record[16] = {0};
+
+    s_send_result = WIFITASK_ERR_TIMEOUT;
+    TEST_ASSERT_EQUAL_INT(MBEDTLS_ERR_SSL_WANT_WRITE,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+
+    s_send_result = (wifitask_err_t) WIFI_ERR_MODULE; /* 3, was WifiTask's TIMEOUT */
+    TEST_ASSERT_EQUAL_INT(MBEDTLS_ERR_SSL_INTERNAL_ERROR,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+
+    s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
+    TEST_ASSERT_EQUAL_INT(MBEDTLS_ERR_SSL_INTERNAL_ERROR,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+}
+
 /* ========================================================================
  * MQTT-T07..T10 — mqtt_client_publish()
  * ==================================================================== */
