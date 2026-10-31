@@ -15,9 +15,10 @@
 #include "task.h"
 
 #define WIFITASK_MAX_INSTANCES 1u
-#define WIFITASK_TASK_STACK_WORDS 256u /**< D29; matches memory-budget.md §1.1 (1 KB). */
-#define WIFITASK_TASK_PRIORITY 3u      /**< D29. */
-#define WIFITASK_QUEUE_DEPTH 3u /**< Sized by producer count (companion §2), not throughput. */
+#define WIFITASK_TASK_STACK_WORDS                                                                  \
+    320u /**< D-1 F (WP4): 175 of 256 words used; was 256 (D29, memory-budget.md §1.1). */
+#define WIFITASK_TASK_PRIORITY 3u /**< D29. */
+#define WIFITASK_QUEUE_DEPTH 3u   /**< Sized by producer count (companion §2), not throughput. */
 
 /** WIFI_LIVENESS_CHECK_PERIOD_MS: provisional, not yet validated against
  *  field data (WIFITASK-O4, companion §10). Doubles as the queue-receive
@@ -69,7 +70,7 @@
  *  docs/lld/middleware/wifi-task.md §4/§5.2/§10). wifi_recv()'s own
  *  WIFI_MAX_PACKET_SIZE (private to wifi_driver.c) mirrored the same way
  *  the timing constants above already are. */
-#define WIFITASK_WIFI_MAX_PACKET_SIZE 1460u
+#define WIFITASK_WIFI_MAX_PACKET_SIZE WIFITASK_MAX_SEND_BYTES
 #define WIFITASK_RECV_ARM_QUEUE_DEPTH 2u
 /** How often prv_wifitask_step() re-checks the arm queue / main queue
  *  while a recv slot is active (ARMED/IN_FLIGHT/DONE) instead of sleeping

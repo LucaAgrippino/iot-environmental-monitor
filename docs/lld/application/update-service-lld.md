@@ -897,6 +897,7 @@ FreeRTOS tick mock.
 | TC-US-001 | NULL `cfg`, any NULL member or used function pointer, NULL `out` → `NULL_POINTER` | §7.1 |
 | TC-US-002 | Second `create` → `NO_INSTANCE` | — |
 | TC-US-003 | Ops on a handle not from `create` → `NOT_INITIALISED` | — |
+| TC-US-003b | `update_service_get_instance()` is non-NULL and stable before `create`; every op on it → `NOT_INITIALISED`, `is_created` false, stack words 0; after `create` it is the same pointer and works | US-D15 |
 | TC-US-004 | `create` caches `get_boot_info`, makes no other FS call | §9.1 |
 | TC-US-005 | `handle_command` copies and notifies; makes no FS, transport or lifecycle call | §7.2 |
 | TC-US-006 | Second `handle_command` before the task runs → `BUSY`, first kept | §7.2 |
@@ -1042,6 +1043,7 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 | US-D12 | CloudPublisher hands chunks over in `msg_cb` without its command queue | The 128 B command queue cannot hold 1 KB; the copy is microseconds and keeps the MQTT payload pointer valid |
 | US-D13 | UpdateService confirms before reporting success; LifecycleController's confirm is an idempotent re-assert | The success report is never sent for an uncommitted image; the existing LifecycleController code is kept |
 | US-D14 | Same `job` sent again = resume; a new `job` = fresh download | Resume across a reboot with no device-side memory (REQ-DM-051) |
+| US-D15 | `update_service_get_instance()` returns the singleton handle before `update_service_create()`; every operation refuses it with `NOT_INITIALISED` until create has succeeded | Breaks the creation cycle with CloudPublisher (CloudPublisher needs the instance, `update_service_create` needs the transport CloudPublisher provides). Found in WP4 session 1, decided D-2 in `docs/lld/application/gateway-main.md`. A message that reaches CloudPublisher in between is refused and logged, not acted on |
 
 ---
 
@@ -1100,6 +1102,7 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 | US-O9 | The bench harness has not been run on the board (TC-HW-US-001..007, 009, 010) | **Done 2026-10-27** (§26.4), including TC-HW-US-008 (gap meter, stack), the 480 KB maximum image and TC-HW-US-011 (power cuts). Still open: MQTT on the board (needs `main()`) | Closed |
 | US-O10 | `LC_EVENT_OTA_RESET_REQUESTED` / `_FINISHED` exist but LifecycleController does not act on them yet (LCC-2) | **Done 2026-10-27** on `feature/phase-4-gw-lifecycle_ota_events` (LCC-2..4; lifecycle-controller-lld.md LC-D19..D22). Binding in `main()` is LC-O15 | Closed |
 | US-O11 | A rejected command is reported but nothing tells LifecycleController when `start_timeout` fires after it accepted `OTA_REQUESTED` and never called `start()` | Check with LCC-2: LifecycleController never takes the event without calling `start()`, so this should not occur | Open |
+| US-O12 | CloudPublisher and UpdateService creation is circular: `cloud_publisher_config_t::update` needs the instance, `update_service_config_t::transport` needs `cloud_publisher_get_ota_transport()` | `update_service_get_instance()` (US-D15), TC-US-003b. Binding in `main()` is WP4 session 2 | Closed |
 
 ### 26.4 Hardware results (B-L475E-IOT01A, 2026-10-27)
 

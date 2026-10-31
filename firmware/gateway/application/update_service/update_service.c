@@ -133,6 +133,11 @@ update_service_err_t update_service_create(const update_service_config_t *cfg,
     return UPDATE_SERVICE_ERR_OK;
 }
 
+update_service_t *update_service_get_instance(void)
+{
+    return &g_us;
+}
+
 /* ---------------------------------------------------------------------- */
 /* IUpdateService (CloudPublisherTask)                                      */
 /* ---------------------------------------------------------------------- */
