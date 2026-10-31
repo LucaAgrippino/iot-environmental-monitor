@@ -374,7 +374,33 @@ static const char *prepare_connect(void)
     {
         return s_broker_ip;
     }
-    return NULL;
+    if (join == WIFITASK_ERR_OK)
+    {
+        return NULL; /* joined, but the name does not resolve: the network's problem, not the
+                        module's */
+    }
+
+    /* The join failed. A wrong password or an access point that is away fails the same way, and
+     * resetting the module cures neither, so the module is asked first: only one that does not
+     * answer at all is reset (GM-O22: after a burst of large sends it stopped accepting every
+     * command, the rejoin included, until it was reset). */
+    if (wifitask_ping(s_wifitask) == WIFITASK_ERR_OK)
+    {
+        return NULL;
+    }
+    LOG_WARN("Main", "the Wi-Fi module does not answer, resetting it");
+    const wifitask_err_t reset = wifitask_reset_module(s_wifitask);
+
+    LOG_INFO("Main", "module reset -> %d", (int) reset);
+    if (reset != WIFITASK_ERR_OK)
+    {
+        return NULL;
+    }
+    const wifitask_err_t again =
+        wifitask_connect_ap(s_wifitask, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+
+    LOG_INFO("Main", "join after reset -> %d", (int) again);
+    return ((again == WIFITASK_ERR_OK) && resolve_once()) ? s_broker_ip : NULL;
 }
 
 static void boot_task(void *arg)
