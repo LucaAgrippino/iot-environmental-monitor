@@ -408,13 +408,15 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
         *out_resp_len = 0u;
     }
 
-    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
-
+    /* Wait for the Command Phase with NSS still HIGH and select the module only once DRDY is up,
+     * as ST's reference driver does. Holding NSS low while the module was still busy left DRDY
+     * down for the whole wait on the board and it came up within 100 us of NSS being released
+     * (GM-O22). */
     if (!prv_wait_drdy(inst, true, WIFI_CMD_READY_TIMEOUT_MS))
     {
-        gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_HIGH);
         return WIFI_ERR_TIMEOUT;
     }
+    gpio_write_pin(inst->nss_port, inst->nss_pin, GPIO_LEVEL_LOW);
 
     const wifi_err_t send_err = prv_send_words(inst, cmd, cmd_len);
 
