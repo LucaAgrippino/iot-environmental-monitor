@@ -55,6 +55,36 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #define CP_RECONNECT_BACKOFF_MIN_S 2u
 #define CP_RECONNECT_BACKOFF_MAX_S 60u
 
+/* CP-D32: one store-and-forward replay pass is bounded, so a large backlog is sent over many
+ * stats ticks instead of one burst. A pass stops at the first of the three limits; the next pass
+ * runs on the next tick. A 4 KB entry is three Wi-Fi module sends (the 1460 B ceiling), and a
+ * burst of them took the session down on the board (GM-O20). Measured 2026-10-31: 4 entries of
+ * 4 KB per pass failed at the first send after connect; 1 entry per pass ran 72 entries without an
+ * error. The 2 KB byte limit ends a pass after any large entry and still lets small ones go four at
+ * a time. All four values can be overridden at build time. */
+#ifndef CP_DRAIN_MAX_ENTRIES
+#define CP_DRAIN_MAX_ENTRIES 4u
+#endif
+#ifndef CP_DRAIN_MAX_BYTES
+#define CP_DRAIN_MAX_BYTES 2048u
+#endif
+#ifndef CP_DRAIN_MAX_MS
+#define CP_DRAIN_MAX_MS 500u
+#endif
+/* CP-D32: at least this long between two passes. The pass limits above are per pass, and
+ * prv_poll_stats() also runs on every receive-ready wake, so without this interval they would not
+ * be a rate (hardware, 2026-10-31: 2-5 entries per second reached the broker). */
+#ifndef CP_DRAIN_PASS_INTERVAL_MS
+#define CP_DRAIN_PASS_INTERVAL_MS 1000u
+#endif
+/* CP-D32: after a failed replay publish on a live link the drain waits, doubling per consecutive
+ * failure like the reconnect curve (CP-D13), instead of retrying every tick. */
+#define CP_DRAIN_BACKOFF_MIN_S 5u
+#define CP_DRAIN_BACKOFF_MAX_S 60u
+/* CP-D32: an entry whose publish fails this many times in a row on a live link is dropped, so one
+ * entry the module cannot send cannot hold back everything behind it. */
+#define CP_DRAIN_POISON_FAILS 3u
+
 #define CP_NOTIFY_TELEMETRY_TICK (1u << 0)
 #define CP_NOTIFY_HEALTH_TICK (1u << 1)
 #define CP_NOTIFY_STATS_TICK (1u << 2)
@@ -134,6 +164,10 @@ struct cloud_publisher_inst
     mqtt_connect_cfg_t mqtt_connect_cfg; /**< CP-D9: owned here for connect()/reconnect(). */
     uint32_t reconnect_countdown_s;      /**< CP-D9: stats ticks left before next retry. */
     uint32_t reconnect_backoff_s;        /**< CP-D13: current backoff, doubles per failure. */
+    bool drain_hold;                     /**< CP-D32: no replay before drain_hold_until.       */
+    TickType_t drain_hold_until;         /**< CP-D32: tick at which the hold ends.             */
+    uint32_t drain_backoff_s;            /**< CP-D32: replay backoff, doubles per failure.     */
+    uint32_t drain_entry_fails;          /**< CP-D32: consecutive failures of the head entry.  */
 
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
@@ -209,6 +243,7 @@ static void prv_publish_health(struct cloud_publisher_inst *inst);
 static void prv_poll_stats(struct cloud_publisher_inst *inst);
 static void prv_maybe_reconnect(struct cloud_publisher_inst *inst);
 static void prv_drain_saf(struct cloud_publisher_inst *inst);
+static void prv_drain_publish_failed(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
 static void prv_flush(struct cloud_publisher_inst *inst);
@@ -300,6 +335,7 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->was_connected = false;
     inst->reconnect_countdown_s = 0u; /* CP-D9: attempt connect on the first stats tick */
     inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13 */
+    inst->drain_backoff_s = CP_DRAIN_BACKOFF_MIN_S;         /* CP-D32 */
 
     prv_read_device_serial(inst->device_serial, (uint32_t) sizeof(inst->device_serial));
     prv_build_topics(inst);
@@ -562,7 +598,15 @@ static void prv_poll_stats(struct cloud_publisher_inst *inst)
      * followed by a drain attempt within the same cycle. Any in-flight
      * live publish still goes through prv_enqueue_or_publish directly and
      * does not jump this drain (REQ-BF-010 ordering). */
-    prv_drain_saf(inst);
+    if (inst->drain_hold &&
+        ((TickType_t) (xTaskGetTickCount() - inst->drain_hold_until) < (TickType_t) 0x80000000u))
+    {
+        inst->drain_hold = false; /* CP-D32: the interval or the backoff has run out */
+    }
+    if (!inst->drain_hold)
+    {
+        prv_drain_saf(inst);
+    }
 }
 
 /**
@@ -677,23 +721,80 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
 static void prv_drain_saf(struct cloud_publisher_inst *inst)
 {
     const saf_entry_t *entry = NULL;
+    uint32_t sent = 0u;
+    uint32_t bytes = 0u;
+    const TickType_t start = xTaskGetTickCount();
+    bool failed = false;
+
+    /* Replay is attempted on a live link only: a publish refused because the link is down says
+     * nothing about the entry and must not start the backoff or count against it (CP-D32). */
+    if (!mqtt_client_is_connected(inst->mqtt))
+    {
+        return;
+    }
 
     /* The entry points into SAF's own buffer and is valid only until the next SAF call, so it is
      * published before anything else touches SAF. A repeated dequeue without a confirm returns
-     * the same entry, which is how a failed publish is retried. */
-    while (saf_dequeue(inst->saf, &entry) == SAF_ERR_OK)
+     * the same entry, which is how a failed publish is retried. One pass sends at most
+     * CP_DRAIN_MAX_ENTRIES / _BYTES / _MS (CP-D32). */
+    while ((sent < CP_DRAIN_MAX_ENTRIES) && (bytes < CP_DRAIN_MAX_BYTES) &&
+           ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(CP_DRAIN_MAX_MS)) &&
+           (saf_dequeue(inst->saf, &entry) == SAF_ERR_OK))
     {
         mqtt_client_err_t rc = mqtt_client_publish(inst->mqtt, entry->topic, entry->payload,
                                                    entry->payload_len, (mqtt_qos_t) entry->qos);
         if (rc != MQTT_CLIENT_ERR_OK)
         {
-            break; /* stop drain; re-attempt on next stats tick */
+            prv_drain_publish_failed(inst);
+            failed = true;
+            break; /* stop drain; re-attempt after the backoff */
         }
+        inst->drain_entry_fails = 0u;
+        inst->drain_backoff_s = CP_DRAIN_BACKOFF_MIN_S;
+        sent++;
+        bytes += entry->payload_len;
         if (saf_confirm(inst->saf) != SAF_ERR_OK)
         {
             /* The entry stays pending and is sent again: a duplicate, acceptable at QoS 1. */
             LOG_WARN(CP_LOG_MODULE, "SAF confirm failed, drain stops for this tick");
             break;
+        }
+        /* Serve the link between entries (CP-D32): keep-alive, acknowledgements and inbound
+         * packets must not wait for the end of a replay pass. */
+        (void) mqtt_client_process(inst->mqtt);
+        if (!mqtt_client_is_connected(inst->mqtt))
+        {
+            break;
+        }
+    }
+
+    if (!failed && (sent > 0u))
+    {
+        /* CP-D32: the next pass waits out the interval, which makes the limits a rate. */
+        inst->drain_hold = true;
+        inst->drain_hold_until = xTaskGetTickCount() + pdMS_TO_TICKS(CP_DRAIN_PASS_INTERVAL_MS);
+    }
+}
+
+/* CP-D32: a replay publish failed on a live link. Back off, and drop the entry when it has now
+ * failed CP_DRAIN_POISON_FAILS times in a row. The entry is still the head of the log (nothing
+ * was confirmed), so the drop is a confirm without a publish. */
+static void prv_drain_publish_failed(struct cloud_publisher_inst *inst)
+{
+    inst->drain_hold = true;
+    inst->drain_hold_until = xTaskGetTickCount() + pdMS_TO_TICKS(inst->drain_backoff_s * 1000u);
+    const uint32_t next = inst->drain_backoff_s * 2u;
+    inst->drain_backoff_s = (next > CP_DRAIN_BACKOFF_MAX_S) ? CP_DRAIN_BACKOFF_MAX_S : next;
+
+    inst->drain_entry_fails++;
+    if (inst->drain_entry_fails >= CP_DRAIN_POISON_FAILS)
+    {
+        LOG_WARN(CP_LOG_MODULE, "SAF entry failed %u times, dropped",
+                 (unsigned) inst->drain_entry_fails);
+        inst->drain_entry_fails = 0u;
+        if (saf_confirm(inst->saf) == SAF_ERR_OK)
+        {
+            (void) health_monitor_push_event(inst->health, HEALTH_EVENT_BUFFER_OVERFLOW, 0u);
         }
     }
 }
