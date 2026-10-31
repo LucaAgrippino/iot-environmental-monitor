@@ -533,9 +533,9 @@ void test_MQTT_T06c_tls_server_name_is_checked_instead_of_the_connect_address(vo
 }
 
 /* The TLS record is larger than one module send can carry (WP4 F-12): the BIO send hands over
- * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The context
- * is not built by a connect here: only its first fields (the WifiTask handle and the socket) are read,
- * and the stub ignores both. */
+ * WIFITASK_MAX_SEND_BYTES and reports that many, mbedTLS sends the rest on its next call. The
+ * context is not built by a connect here: only its first fields (the WifiTask handle and the
+ * socket) are read, and the stub ignores both. */
 int prv_mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len);
 
 void test_MQTT_T06d_bio_send_is_capped_at_the_module_ceiling(void)
@@ -558,6 +558,28 @@ void test_MQTT_T06e_bio_send_below_the_ceiling_is_sent_whole(void)
     memset(ctx, 0, sizeof(ctx));
     TEST_ASSERT_EQUAL_INT((int) sizeof(record), prv_mbedtls_net_send(ctx, record, sizeof(record)));
     TEST_ASSERT_EQUAL_UINT32((uint32_t) sizeof(record), (uint32_t) s_send_total_bytes);
+}
+
+/* A WifiDriver error that shares its number with a WifiTask code was read as that code: a module
+ * ERROR (3) as WifiTask's retryable timeout. The two ranges are apart now; this pins the decision
+ * for an established connection. */
+void test_MQTT_T06f_only_wifitasks_own_timeout_is_retried_on_an_established_connection(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    void *ctx = mqtt_client_net_ctx_for_test(handle);
+    unsigned char record[16] = {0};
+
+    s_send_result = WIFITASK_ERR_TIMEOUT;
+    TEST_ASSERT_EQUAL_INT(MBEDTLS_ERR_SSL_WANT_WRITE,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+
+    s_send_result = (wifitask_err_t) WIFI_ERR_MODULE; /* 3, was WifiTask's TIMEOUT */
+    TEST_ASSERT_EQUAL_INT(MBEDTLS_ERR_SSL_INTERNAL_ERROR,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
+
+    s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
+    TEST_ASSERT_EQUAL_INT(MBEDTLS_ERR_SSL_INTERNAL_ERROR,
+                          prv_mbedtls_net_send(ctx, record, sizeof(record)));
 }
 
 /* ========================================================================
