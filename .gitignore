@@ -59,6 +59,7 @@ firmware/gateway/certs/
 # CubeIDE build outputs
 firmware/**/Debug/
 firmware/**/Release/
+firmware/**/Gateway-App/
 firmware/**/.settings/
 firmware/**/*.launch
 
