@@ -313,7 +313,7 @@ void firmware_store_reset_for_test(void);
 | Function | Purpose | Allowed boot state | Result |
 |---|---|---|---|
 | `get_boot_info(const self, firmware_boot_info_t *info_out)` | Report cached boot state; no flash access | any | — |
-| `confirm(self)` | Self-check passed | TRIAL_RUNNING (CONFIRMED → OK, no-op) | CONFIRMED; previous slot's descriptor erased |
+| `confirm(self)` | Self-check passed | TRIAL_RUNNING (CONFIRMED → OK, no-op) | CONFIRMED; rollback count reset to 0 (BL-D5); previous slot's descriptor erased |
 | `rollback(self)` | Self-check failed | TRIAL_RUNNING | `active = previous`, ROLLED_BACK, `rollback_count + 1` |
 | `acknowledge_rollback(self)` | Result reported to the cloud | ROLLED_BACK (CONFIRMED → OK, no-op) | CONFIRMED; failed slot's descriptor erased |
 
@@ -545,7 +545,7 @@ not advance the state; this is treated as inconsistent.
 |---|---|---|---|
 | App | `activate` | CONFIRMED | `active` = inactive, `previous` = running, TRIAL_PENDING |
 | Bootloader | Boot | TRIAL_PENDING | TRIAL_RUNNING, then jump to `active` |
-| App | `confirm` | TRIAL_RUNNING | CONFIRMED; erase descriptor of `previous` |
+| App | `confirm` | TRIAL_RUNNING | CONFIRMED; count = 0; erase descriptor of `previous` |
 | App | `rollback` | TRIAL_RUNNING | `active` = `previous`, `previous` = failed slot, ROLLED_BACK, count + 1 |
 | Bootloader | Boot | TRIAL_RUNNING (app never confirmed: crash, watchdog, power loss) | Same as `rollback` |
 | App | `acknowledge_rollback` | ROLLED_BACK | CONFIRMED; erase descriptor of `previous` (the failed image) |
@@ -951,7 +951,7 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 | FS-O1 | Install time: estimated ~43 ms per page, ~10.3 s for 240 pages, from datasheet figures | **Measured on the board 2026-10-26 (TC-HW-FS-005):** 240 steps in 11.96 s, worst step 50.2 ms (22.1 ms erase + 22.3 ms program + read-back), i.e. ~15% above the estimate. Step-wise API and the watchdog budget are unaffected | Closed |
 | FS-O2 | OTA public-key location | Compiled into the image (FS-D5) | **Closed** |
 | FS-O3 | Streaming hash buffer | Static 2 KB `s_work`; QSPI reads split by FirmwareStore | **Closed** |
-| FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | **`MBEDTLS_ECDSA_C` is now enabled in `mbedtls_config_gateway.h`** (ECP, secp256r1, SHA-256, BIGNUM and the ASN.1 modules were already on; no ECDSA cipher suite is enabled, so the TLS handshake is unchanged) and the module links into a 116 KB image. **Still open:** the Gateway build has no `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena, so `verify` allocates from the heap, and verify has not been run while a TLS session is open. **Measured 2026-10-28** (UpdateService harness, update-service-lld.md 26.4): the heap high-water mark after a 132 KB download, verify and install is 3 584 bytes, no TLS session open. **Implemented 2026-10-28 (WP2, mqtt-client.md MQTT-D14..D16):** the Gateway build now has `MBEDTLS_MEMORY_BUFFER_ALLOC_C`; mbedTLS, including `verify`, allocates only from the static `tls_arena` (provisional 44 KB, mutex-guarded because two tasks use it) and `tls_arena_init()` runs at the start of `main()`. **Still open:** the on-target arena peak with a TLS session open (TC-HW-MQTT-014, Luca) and the final size | Open until measured |
+| FS-O4 | mbedTLS memory: confirm the project build uses the static `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena (REQ-NF-408), that `MBEDTLS_ECDSA_C` and `MBEDTLS_ECP_DP_SECP256R1_ENABLED` are on, and that one ECDSA verify fits in the arena **while a TLS session is open** | **`MBEDTLS_ECDSA_C` is now enabled in `mbedtls_config_gateway.h`** (ECP, secp256r1, SHA-256, BIGNUM and the ASN.1 modules were already on; no ECDSA cipher suite is enabled, so the TLS handshake is unchanged) and the module links into a 116 KB image. **Still open:** the Gateway build has no `MBEDTLS_MEMORY_BUFFER_ALLOC_C` arena, so `verify` allocates from the heap, and verify has not been run while a TLS session is open. **Measured 2026-10-28** (UpdateService harness, update-service-lld.md 26.4): the heap high-water mark after a 132 KB download, verify and install is 3 584 bytes, no TLS session open. **Implemented 2026-10-28 (WP2, mqtt-client.md MQTT-D14..D16):** the Gateway build now has `MBEDTLS_MEMORY_BUFFER_ALLOC_C`; mbedTLS, including `verify`, allocates only from the static `tls_arena` (provisional 44 KB, mutex-guarded because two tasks use it) and `tls_arena_init()` runs at the start of `main()`. **Still open:** the on-target arena peak with a TLS session open (TC-HW-MQTT-014, Luca) and the final size. **Measured 2026-10-31 during an OTA update over MQTT:** peak 20 680 of 28 672 bytes before, during and after the verify of a 284 KB image, so verify did not raise it (update-service-lld.md §26.5) | Open until Luca confirms |
 | FS-O5 | `verify` duration (target < 2 s) | **Measured on the board (TC-HW-FS-004):** 1.32 s for the 480 KB maximum image (SHA-256 of the body plus one ECDSA-P256 verify, software mbedTLS); 0.32 s for a 6 KB image | Closed |
 | FS-O6 | Source of `running_image_base`: CpuDriver accessor for VTOR, or the linker symbol of the vector table | **`cpu_get_vector_table_base()` added to CpuDriver** (returns `SCB->VTOR`; 0 for a development image started from the flash alias). The wiring must pass its result as `running_image_base`; the bring-up harness already does | Closed |
 | FS-O7 | Bootloader not built: on-target swap, trial and rollback deferred | **Built 2026-10-27:** `docs/lld/drivers/bootloader.md`, `firmware/gateway/bootloader/` (D36); reuses `firmware_image_format.h` and the §13.2 table. 12/12 hardware cases pass. Left over: the real-FirmwareStore on-target run (bootloader.md BL-O9) and the application-side ECC NMI handler (BL-O8) | Closed |
@@ -1018,7 +1018,7 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 - `docs/state-machines.md` Machine 1 (UpdatingFirmware, I18), Machine 3
 - `docs/sequence-diagrams.md` SD-00c, SD-06a–d
 - `docs/task-breakdown.md` (`UpdateServiceTask`, D23, D26)
-- `docs/lld/application/lifecycle-controller.md` (`get_pending_flags` consumer)
+- `docs/lld/application/lifecycle-controller-lld.md` (`get_pending_flags` consumer)
 - `docs/lld/application/update-service-lld.md` (Draft — to be aligned, §15)
 - `docs/lld/drivers/qspi-flash-driver.md` (QSPID-O1)
 - `docs/architecture-principles.md` P1, P3, P4, P6, P7, P8, P10

@@ -9,7 +9,11 @@
 # Output: firmware/gateway/Debug/app/ (gitignored). Needs firmware/gateway/certs/{bringup_certs.h,
 # bringup_secrets.h}; nothing from there is committed.
 #
-# usage: [ARENA_BYTES=28672] [EXTRA_CFLAGS="..."] scripts/build-gateway-app.sh [--flash]
+# usage: [SLOT=A|B] [ARENA_BYTES=28672] [EXTRA_CFLAGS="..."] scripts/build-gateway-app.sh [--flash]
+#   SLOT          link for firmware slot A (0x0800_6000) or B (0x0808_0000) instead of the whole flash
+#                 (STM32L475VGTX_SLOT_<A|B>.ld), into Debug/app_slot_<a|b>/, and also write
+#                 gateway_app.bin. These are the images behind the bootloader and the OTA bodies;
+#                 scripts/build-release.sh uses it. Not combined with --flash.
 #   ARENA_BYTES   override the mbedTLS arena (default: tls_arena.h)
 #   EXTRA_CFLAGS  extra compiler flags for every file
 #   RAM_KB / SRAM2_KB  override the region sizes (hardware: 96 and 32); bigger values only LINK an image
@@ -21,7 +25,12 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gw="$root/firmware/gateway"
 v="$root/vendor"
-out="$gw/Debug/app"
+slot="${SLOT:-}"
+[[ -z "$slot" || "$slot" == A || "$slot" == B ]] || { echo "SLOT must be A or B" >&2; exit 1; }
+[[ -z "$slot" || "${1:-}" != "--flash" ]] || { echo "--flash is for the whole-flash image; use scripts/build-release.sh --flash for slots" >&2; exit 1; }
+out="$gw/Debug/app${slot:+_slot_${slot,,}}"
+ld_script="$gw/STM32L475VGTX_FLASH.ld"
+[[ -z "$slot" ]] || ld_script="$gw/STM32L475VGTX_SLOT_${slot}.ld"
 certs="${CERTS_DIR:-$gw/certs}"
 ram_kb="${RAM_KB:-96}"
 sram2_kb="${SRAM2_KB:-32}"
@@ -87,7 +96,7 @@ for p in "${pids[@]}"; do wait "$p" || fail=1; done
 # The product linker script, with the two RAM region sizes replaced only when overridden.
 sed -E "s/(RAM +\(xrw\) +: ORIGIN = 0x20000000, +LENGTH = )96K/\1${ram_kb}K/; \
         s/(SRAM2 +\(xrw\) +: ORIGIN = 0x10000000, +LENGTH = )32K/\1${sram2_kb}K/" \
-    "$gw/STM32L475VGTX_FLASH.ld" > "$out/app.ld"
+    "$ld_script" > "$out/app.ld"
 
 arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -x assembler-with-cpp \
   -c "$gw/Startup/startup_stm32l475vgtx.s" -o "$out/startup.o"
@@ -95,6 +104,7 @@ arm-none-eabi-gcc -o "$out/gateway_app.elf" "$out"/*.c.o "$out/startup.o" -mcpu=
   -T"$out/app.ld" -Wl,--print-memory-usage --specs=nosys.specs --specs=nano.specs -mfpu=fpv4-sp-d16 \
   -mfloat-abi=hard -mthumb -Wl,-Map="$out/gateway_app.map" -Wl,--gc-sections -static \
   -Wl,--start-group -lc -lm -Wl,--end-group
+[[ -z "$slot" ]] || arm-none-eabi-objcopy -O binary "$out/gateway_app.elf" "$out/gateway_app.bin"
 arm-none-eabi-size -A "$out/gateway_app.elf" | grep -E "^\.(text|data|bss|sram2|sram2_bss|user_heap_stack)|^Total"
 
 if [[ "${1:-}" == "--flash" ]]; then

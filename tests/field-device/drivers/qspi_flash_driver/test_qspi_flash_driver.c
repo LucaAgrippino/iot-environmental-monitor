@@ -1,6 +1,6 @@
 /**
  * @file test_qspi_flash_driver.c
- * @brief Unity unit tests for QspiFlashDriver — T-QSPI-01 through T-QSPI-13.
+ * @brief Unity unit tests for QspiFlashDriver — T-QSPI-01 through T-QSPI-15.
  *
  * Tests use the QUADSPI register mock from stm32_cmsis_mock.h. TCF is
  * pre-set in SR for all happy-path tests so poll_tcf() returns immediately.
@@ -45,7 +45,9 @@ void setUp(void)
     gpio_configure_pin_IgnoreAndReturn(GPIO_OK);
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 /* ====================================================================== */
 /* T-QSPI-01: qspi_flash_init happy path                                 */
@@ -99,7 +101,7 @@ void test_T_QSPI_03_read_256_bytes_at_addr_0(void)
     /* Pre-load fifo with a known pattern */
     for (uint32_t i = 0U; i < 256U; i++)
     {
-        g_mock_quadspi_rx_fifo[i] = (uint8_t)i;
+        g_mock_quadspi_rx_fifo[i] = (uint8_t) i;
     }
     g_mock_quadspi.SR = QUADSPI_SR_TCF | QUADSPI_SR_FTF;
 
@@ -162,12 +164,12 @@ void test_T_QSPI_06_write_page_128_bytes_aligned(void)
     uint8_t data[128];
     for (uint16_t i = 0U; i < 128U; i++)
     {
-        data[i] = (uint8_t)(i + 1U);
+        data[i] = (uint8_t) (i + 1U);
     }
 
     helper_init_driver();
 
-    g_mock_quadspi.SR         = QUADSPI_SR_TCF;
+    g_mock_quadspi.SR = QUADSPI_SR_TCF;
     g_mock_quadspi_rx_fifo[0] = 0x00U; /* RDSR: WIP = 0 */
 
     qspi_flash_err_t err = qspi_flash_write_page(0x0000U, data, 128U);
@@ -227,7 +229,7 @@ void test_T_QSPI_09_erase_sector_aligned_addr(void)
 {
     helper_init_driver();
 
-    g_mock_quadspi.SR         = QUADSPI_SR_TCF;
+    g_mock_quadspi.SR = QUADSPI_SR_TCF;
     g_mock_quadspi_rx_fifo[0] = 0x00U; /* RDSR: WIP = 0 */
 
     qspi_flash_err_t err = qspi_flash_erase_sector(0x1000U);
@@ -246,7 +248,7 @@ void test_T_QSPI_10_erase_sector_auto_aligns(void)
 {
     helper_init_driver();
 
-    g_mock_quadspi.SR         = QUADSPI_SR_TCF;
+    g_mock_quadspi.SR = QUADSPI_SR_TCF;
     g_mock_quadspi_rx_fifo[0] = 0x00U;
 
     /* addr=0x1234 → sector base = 0x1000 */
@@ -305,5 +307,33 @@ void test_T_QSPI_13_busy_blocks_all_operations(void)
     TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_BUSY, qspi_flash_erase_sector(0U));
 
     /* No commands issued — CCR unchanged since mock_reset in helper */
+    TEST_ASSERT_EQUAL_UINT32(0U, QUADSPI->CCR);
+}
+
+/* ====================================================================== */
+/* T-QSPI-14: operations before init → ERR_NOT_INITIALISED               */
+/* ====================================================================== */
+
+void test_T_QSPI_14_not_initialised(void)
+{
+    uint8_t buf[4] = {0};
+
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED, qspi_flash_read(0U, buf, 4U));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED, qspi_flash_write_page(0U, buf, 4U));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NOT_INITIALISED, qspi_flash_erase_sector(0U));
+}
+
+/* ====================================================================== */
+/* T-QSPI-15: NULL buffer → ERR_NULL_POINTER, before any bus access      */
+/* ====================================================================== */
+
+void test_T_QSPI_15_null_pointer(void)
+{
+    helper_init_driver();
+
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NULL_POINTER, qspi_flash_read(0U, NULL, 4U));
+    TEST_ASSERT_EQUAL(QSPI_FLASH_ERR_NULL_POINTER, qspi_flash_write_page(0U, NULL, 4U));
+
+    /* No command was issued — CCR unchanged since the mock reset in the helper. */
     TEST_ASSERT_EQUAL_UINT32(0U, QUADSPI->CCR);
 }
