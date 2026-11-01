@@ -563,6 +563,20 @@ static void poll_cycle(void)
 
 /* ========================================================================= */
 /* Public API                                                                */
+modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms)
+{
+    if (!s_poller.initialised)
+    {
+        return MODBUS_POLLER_ERR_NOT_INIT;
+    }
+    if (poll_period_ms == 0U)
+    {
+        return MODBUS_POLLER_ERR_INVALID_ARG;
+    }
+    s_poller.poll_period_ms = poll_period_ms;
+    return MODBUS_POLLER_ERR_OK;
+}
+
 modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out)
 {
     if (!s_poller.initialised)

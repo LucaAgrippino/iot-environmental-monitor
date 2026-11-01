@@ -113,6 +113,35 @@ bool config_service_set_profiles(const device_profile_t *in, uint8_t count)
     return false;
 }
 
+static config_change_cb_t s_change_cb;
+static config_service_err_t s_register_result;
+static uint32_t s_lock_depth;
+static uint32_t s_period_calls;
+static uint32_t s_period_seen;
+
+config_service_err_t config_service_register_change_cb(config_change_cb_t cb)
+{
+    s_change_cb = cb;
+    return s_register_result;
+}
+
+void config_service_lock(void)
+{
+    s_lock_depth++;
+}
+
+void config_service_unlock(void)
+{
+    s_lock_depth--;
+}
+
+modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms)
+{
+    s_period_calls++;
+    s_period_seen = poll_period_ms;
+    return MODBUS_POLLER_ERR_OK;
+}
+
 const config_params_t *config_service_get_params(void)
 {
     return s_params_null ? NULL : &s_params;
@@ -453,6 +482,10 @@ void setUp(void)
     s_alarm_state_result = ALARM_SERVICE_ERR_OK;
     s_alarm_reconfigure_result = ALARM_SERVICE_ERR_OK;
     s_alarm_reconfigure_calls = 0U;
+    s_change_cb = NULL;
+    s_register_result = CONFIG_SERVICE_OK;
+    s_lock_depth = 0U;
+    s_period_calls = 0U;
     s_cloud_ready = true;
     s_cloud_flush_result = CP_ERR_OK;
     s_cloud_flush_calls = 0U;
@@ -496,6 +529,42 @@ static void bind_ok(void)
 /* ===================================================================== */
 /* bind                                                                  */
 /* ===================================================================== */
+
+/* WP12 D-13: later configuration changes reach the services. */
+void test_LW_100_bind_registers_one_change_callback(void)
+{
+    bind_ok();
+    TEST_ASSERT_NOT_NULL(s_change_cb);
+
+    s_register_result = CONFIG_SERVICE_ERR_INVALID;
+    TEST_ASSERT_NOT_EQUAL(LIFECYCLE_ERR_OK, lifecycle_wiring_bind(&s_config, &s_deps));
+}
+
+void test_LW_101_a_change_is_routed_to_the_service_that_owns_it(void)
+{
+    bind_ok();
+    s_params.modbus_poll_period_ms = 250U;
+
+    s_reconf_calls = 0U;
+    s_change_cb(CONFIG_PARAM_FILTER_ALPHA);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_reconf_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_alarm_reconfigure_calls);
+
+    s_change_cb(CONFIG_PARAM_TEMP_ALARM_HIGH);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reconfigure_calls);
+
+    s_change_cb(CONFIG_PARAM_NTP_INTERVAL_MIN);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_time_reconfigure_calls);
+
+    s_change_cb(CONFIG_PARAM_MODBUS_POLL_PERIOD);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_period_calls);
+    TEST_ASSERT_EQUAL_UINT32(250U, s_period_seen);
+
+    s_change_cb(CONFIG_PARAM_MQTT_PORT); /* someone else's */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_reconf_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reconfigure_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_lock_depth); /* the configuration lock is always released */
+}
 
 void test_LW_001_bind_rejects_null_arguments(void)
 {

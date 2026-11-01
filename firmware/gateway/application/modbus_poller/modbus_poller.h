@@ -149,6 +149,13 @@ typedef struct
 } modbus_fd_reading_t;
 
 /**
+ * @brief Change the poll period while running (WP12 D-13); the next cycle uses it.
+ * @return MODBUS_POLLER_ERR_OK; _NOT_INIT; _INVALID_ARG if @p poll_period_ms is 0.
+ * @note Threading: any task; one aligned 32-bit store.
+ */
+modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms);
+
+/**
  * @brief Copy the latest decoded readings of one slave (CP-D18, closes MBP-O3).
  *
  * A poll failure does not clear the values; the consumer decides what "offline" means from
