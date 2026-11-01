@@ -82,6 +82,29 @@ static bool reply_is_sane(const ntp_packet_t *pkt, uint32_t tx_ts_sec)
     return (tx_ts_sec != 0U) && (tx_ts_sec >= NTP_UNIX_OFFSET);
 }
 
+/** True if @p s is a dotted IPv4 literal (digits and dots only); anything else is a host name. */
+static bool is_ipv4_literal(const char *s)
+{
+    bool has_digit = false;
+
+    for (; *s != '\0'; s++)
+    {
+        if ((*s >= '0') && (*s <= '9'))
+        {
+            has_digit = true;
+        }
+        else if (*s != '.')
+        {
+            return false;
+        }
+        else
+        {
+            /* a dot */
+        }
+    }
+    return has_digit;
+}
+
 /**
  * Ask one server.  Returns true and sets *unix_epoch when a valid reply arrived.
  * Pushes NTP_BAD_RESPONSE itself when a reply was received but rejected.
@@ -96,6 +119,19 @@ static bool query_one(const struct ntp_client_inst *inst, const char *server, ui
     if (server == NULL)
     {
         return false;
+    }
+
+    /* A host name (WP12 D-8) is resolved first; the module's socket open takes an address. */
+    char ip[WIFI_IPV4_STR_LEN];
+
+    if (!is_ipv4_literal(server))
+    {
+        if (wifitask_resolve(inst->wifi, server, ip, sizeof(ip)) != WIFITASK_ERR_OK)
+        {
+            LOG_WARN(MODULE_TAG, "cannot resolve %s", server);
+            return false;
+        }
+        server = ip;
     }
 
     if (wifitask_open_socket(inst->wifi, WIFI_SOCKET_UDP, server, NTP_SERVER_PORT, &sock) !=

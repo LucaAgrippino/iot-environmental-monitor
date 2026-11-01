@@ -263,6 +263,7 @@ static void prv_route_ota_command(struct cloud_publisher_inst *inst,
                                   const cp_command_entry_t *entry);
 static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
                                const sensor_reading_t *reading);
+static void prv_fd_alarm_cb(uint8_t slave_addr, uint16_t flags_before, uint16_t flags_now);
 static void prv_enqueue_alarm(struct cloud_publisher_inst *inst, const cp_alarm_event_t *event);
 static void prv_msg_cb(struct cloud_publisher_inst *inst, const char *topic, uint16_t topic_len,
                        const uint8_t *payload, uint32_t payload_len);
@@ -379,6 +380,11 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     /* AlarmService's callback carries no context pointer, so it finds this
      * instance through g_active_inst (set above). */
     (void) alarm_service->subscribe(prv_alarm_event_cb);
+
+    if (inst->fd_slave_addr != 0u)
+    {
+        modbus_poller_set_alarm_callback(prv_fd_alarm_cb); /* Field Device ALARM_FLAGS (B3) */
+    }
 
     (void) xTimerStart(inst->telemetry_timer, 0u);
     (void) xTimerStart(inst->health_timer, 0u);
@@ -1069,6 +1075,55 @@ static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
     }
 
     prv_enqueue_alarm(inst, &ev);
+}
+
+/* ===================================================================== */
+/* Field Device alarm flags (runs in the ModbusPoller task)              */
+/* ===================================================================== */
+
+#define CP_FD_ALARM_BITS (6u) /* TEMP_LOW, TEMP_HIGH, HUM_LOW, HUM_HIGH, PRESS_LOW, PRESS_HIGH */
+
+/** One published alarm per changed ALARM_FLAGS bit; the threshold lives on the Field Device (0). */
+static void prv_fd_alarm_cb(uint8_t slave_addr, uint16_t flags_before, uint16_t flags_now)
+{
+    static const char *const k_names[3] = {"temperature", "humidity", "pressure"};
+    struct cloud_publisher_inst *inst = g_active_inst;
+
+    if ((inst == NULL) || (slave_addr != inst->fd_slave_addr))
+    {
+        return;
+    }
+
+    modbus_fd_reading_t fd;
+    const bool has_fd = (modbus_poller_get_fd_reading(slave_addr, &fd) == MODBUS_POLLER_ERR_OK);
+    const time_provider_ts_t ts = prv_now();
+
+    for (uint8_t bit = 0u; bit < CP_FD_ALARM_BITS; bit++)
+    {
+        const uint16_t mask = (uint16_t) (1u << bit);
+
+        if ((flags_before & mask) == (flags_now & mask))
+        {
+            continue;
+        }
+
+        const uint8_t channel = (uint8_t) (bit / 2u);
+        cp_alarm_event_t ev;
+        (void) memset(&ev, 0, sizeof(ev));
+        (void) strncpy(ev.sensor_name, k_names[channel], sizeof(ev.sensor_name) - 1u);
+        ev.alarm_type = ((flags_now & mask) == 0u) ? CP_ALARM_TYPE_CLEAR
+                        : ((bit % 2u) == 0u)       ? CP_ALARM_TYPE_LOW
+                                                   : CP_ALARM_TYPE_HIGH;
+        ev.source = CP_ALARM_SOURCE_FIELD_DEVICE;
+        ev.timestamp = ts;
+        if (has_fd)
+        {
+            ev.measured_value_raw = (channel == 0u)   ? (int32_t) fd.temperature_centi_c
+                                    : (channel == 1u) ? (int32_t) fd.humidity_centi_pct
+                                                      : (int32_t) fd.pressure_deci_hpa;
+        }
+        prv_enqueue_alarm(inst, &ev);
+    }
 }
 
 /* ===================================================================== */

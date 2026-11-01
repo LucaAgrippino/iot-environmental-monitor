@@ -57,11 +57,19 @@ static lc_dep_status_t cs_check_integrity(void *ctx)
         s_using_defaults = false;
         return LC_DEP_OK;
     }
+    if (rc == CONFIG_STORE_ERR_NEVER_WRITTEN)
+    {
+        /* A fresh device: ConfigService already holds the defaults (LC-D16, LC-O14). */
+        LOG_INFO(MODULE_TAG, "no stored configuration yet: running on the defaults");
+        s_using_defaults = true;
+        return LC_DEP_OK;
+    }
     if ((rc == CONFIG_STORE_ERR_NO_VALID_SLOT) && !s_cfg.fault_on_no_config)
     {
-        /* A never-programmed device and a corrupt one look the same here; the first is far
-         * more common, and ConfigService already holds the defaults (LC-D16). */
-        LOG_WARN(MODULE_TAG, "no valid stored configuration: running on the defaults");
+        /* Something was stored and is damaged. The console is not up yet, so a fault here
+         * cannot be cleared by a factory erase: by default the boot goes on with the defaults
+         * (LC-D16); fault_on_no_config makes it fatal. */
+        LOG_WARN(MODULE_TAG, "stored configuration is damaged: running on the defaults");
         s_using_defaults = true;
         return LC_DEP_OK;
     }
@@ -271,6 +279,7 @@ static const lc_modbus_poller_if_t k_poller = {
 static lc_dep_status_t time_init(void *ctx)
 {
     (void) ctx;
+    time_service_reconfigure(config_service_get_params()); /* servers and interval (TS-O4) */
     return status_of(time_service_init(s_cfg.ntp) == TIME_SERVICE_OK);
 }
 

@@ -149,6 +149,20 @@ typedef struct
 } modbus_fd_reading_t;
 
 /**
+ * @brief Called when a Field Device's ALARM_FLAGS (0x0031) changes between two polls.
+ *
+ * @param slave_addr    The slave whose flags changed.
+ * @param flags_before  Flags at the previous poll (0 before the first one).
+ * @param flags_now     Flags now; bit n set = condition n active (register map 6.3.1).
+ * @note Runs in the poller task: it must not block.
+ */
+typedef void (*modbus_poller_alarm_cb_t)(uint8_t slave_addr, uint16_t flags_before,
+                                         uint16_t flags_now);
+
+/** @brief Register the single ALARM_FLAGS change callback (NULL removes it). */
+void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback);
+
+/**
  * @brief Copy the latest decoded readings of one slave (CP-D18, closes MBP-O3).
  *
  * A poll failure does not clear the values; the consumer decides what "offline" means from
