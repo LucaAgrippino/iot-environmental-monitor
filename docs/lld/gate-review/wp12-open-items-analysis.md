@@ -1,7 +1,7 @@
 # WP12 open items: analysis for Pass H
 
 **Date:** 2026-10-31 · **Work package:** WP12 (open-item and documentation clean-up) · **Gate:** GATE-DESIGN
-**Status:** Analysis only. Nothing here changes code; each item ends in a decision for Luca.
+**Status:** Decided 2026-11-01: Luca accepted every recommendation D-1 to D-13 (section 7). Nothing here changes code; the implementation is a separate step, one PR per group, not yet started.
 
 The items of WP12 that the plan marks "analysis, then stop for design" are examined below. Every
 statement about the code was checked in the repository on `main` (7328305); where an answer depends
@@ -155,20 +155,20 @@ the Gateway already (data-tick counter); it remains to confirm for the Field Dev
 
 ## 7. Decisions, in one place
 
-| ID | Question | Recommendation |
+| ID | Question | Decision (Luca, 2026-11-01) |
 |---|---|---|
-| D-1 | ConfigStore: how to tell "never written"? | Option A, a new error code |
-| D-2 | Is a first write interrupted by power loss a fault? | Yes, with a factory-erase recovery |
-| D-3 | AlarmService API shape | `alarm_service_reconfigure(const config_params_t *)`, like SS-D20 |
-| D-4 | Which alarm defaults are canonical | The `config_params_t` set, if the SRS agrees |
-| D-5 | Threshold change while an alarm is active | Keep the state, apply from the next sample |
-| D-6 | Where the hysteresis rule lives | In ConfigService (CFG-D7) only |
-| D-7 | CFG-O9 ConfigStore format change | Not now |
-| D-8 | Add `ntp_interval_s` to the schema; host names in `ntp_servers` | Yes, one schema bump |
-| D-9 | Self-test depth | Accept the current depth for now |
-| D-10 | `profiles add` format | key=value |
-| D-11 | SSID / IP in the console network panel | Add them to the health snapshot |
-| D-12 | Logger and console sharing USART1 | Route log lines into the console scrollback |
-| D-13 | Should SensorService and ModbusPoller follow *later* configuration changes (change callback), or only the boot values? | Follow changes: one `register_change_cb` user in `lifecycle_wiring` for both |
+| D-1 | ConfigStore: how to tell "never written"? | Option A, a new error code (accepted) |
+| D-2 | Is a first write interrupted by power loss a fault? | Yes, with a factory-erase recovery (accepted) |
+| D-3 | AlarmService API shape | `alarm_service_reconfigure(const config_params_t *)`, like SS-D20 (accepted) |
+| D-4 | Which alarm defaults are canonical | The `config_params_t` set; check the SRS defaults against it first (accepted) |
+| D-5 | Threshold change while an alarm is active | Keep the state, apply from the next sample (accepted) |
+| D-6 | Where the hysteresis rule lives | In ConfigService (CFG-D7) only (accepted) |
+| D-7 | CFG-O9 ConfigStore format change | Not now (accepted) |
+| D-8 | Add `ntp_interval_s` to the schema; host names in `ntp_servers` | Yes, one schema bump (accepted) |
+| D-9 | Self-test depth | Accept the current depth for now (accepted) |
+| D-10 | `profiles add` format | key=value (accepted) |
+| D-11 | SSID / IP in the console network panel | Add them to the health snapshot (accepted) |
+| D-12 | Logger and console sharing USART1 | Route log lines into the console scrollback (accepted) |
+| D-13 | Should SensorService and ModbusPoller follow *later* configuration changes (change callback), or only the boot values? | Follow changes: one `register_change_cb` user in `lifecycle_wiring` for both (accepted) |
 
-No code was changed for any of D-1 to D-12.
+No code was changed for any of D-1 to D-13. Suggested implementation groups: ConfigStore (D-1, D-2); ConfigService schema (D-8; D-7 deferred); AlarmService (D-3 to D-6); wiring (D-13); console and health snapshot (D-10 to D-12). D-9 needs no work.
