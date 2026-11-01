@@ -57,7 +57,8 @@
 #define FD_REG_PRESSURE (0x0012U)
 #define FD_SENTINEL_INT16 (0x8000U)
 #define FD_SENTINEL_UINT16 (0xFFFFU)
-#define FC04_BYTE_COUNT_BYTES (1U) /* the byte count that precedes the register words */
+#define FD_REG_ALARM_FLAGS (0x0031U) /* ALARM_FLAGS, input register (register map 6.3.1) */
+#define FC04_BYTE_COUNT_BYTES (1U)   /* the byte count that precedes the register words */
 
 /* ========================================================================= */
 /* Module state                                                              */
@@ -71,6 +72,11 @@ static struct
 } s_poller;
 
 static modbus_slave_state_t s_slave_states[MODBUS_MAX_SLAVES];
+
+/** ALARM_FLAGS seen on the previous poll, per slave slot; a first non-zero value is a transition.
+ */
+static uint16_t s_alarm_flags[MODBUS_MAX_SLAVES];
+static modbus_poller_alarm_cb_t s_alarm_cb;
 
 /** Decoded readings, one per slave slot (same index as s_slave_states); no heap (CP-D18). */
 typedef struct
@@ -380,6 +386,43 @@ static void forward_response_to_consumers(const device_profile_t *profile, const
     taskEXIT_CRITICAL();
 }
 
+/** Read ALARM_FLAGS (one FC04 register) and report the bits that changed since the last poll. */
+static void poll_alarm_flags(const device_profile_t *profile)
+{
+    const uint8_t slot = find_slot_index(profile->slave_addr);
+    modbus_frame_t request = {0};
+    modbus_frame_t response = {0};
+
+    if (slot >= MODBUS_MAX_SLAVES)
+    {
+        return;
+    }
+
+    request.slave_addr = profile->slave_addr;
+    request.function_code = FC_READ_INPUT_REGS;
+    request.data[0] = (uint8_t) (FD_REG_ALARM_FLAGS >> BITS_PER_BYTE);
+    request.data[1] = (uint8_t) (FD_REG_ALARM_FLAGS & BYTE_MASK);
+    request.data[2] = 0U;
+    request.data[3] = 1U;
+    request.data_len = POLL_REQUEST_DATA_BYTES;
+
+    if ((modbus_master_transact(&request, &response) != MODBUS_MASTER_ERR_OK) ||
+        (response.data_len != (FC04_BYTE_COUNT_BYTES + BYTES_PER_REG)))
+    {
+        return; /* the next cycle reads it again; the link state follows the telemetry read */
+    }
+
+    const uint16_t now =
+        (uint16_t) (((uint16_t) response.data[1] << BITS_PER_BYTE) | response.data[2]);
+    const uint16_t before = s_alarm_flags[slot];
+
+    s_alarm_flags[slot] = now;
+    if ((now != before) && (s_alarm_cb != NULL))
+    {
+        s_alarm_cb(profile->slave_addr, before, now);
+    }
+}
+
 /** Build the wire request of a command (§5.5). */
 static void build_command_request(const modbus_command_t *cmd, modbus_frame_t *request)
 {
@@ -549,6 +592,7 @@ static void poll_slaves(void)
         if (result == MODBUS_MASTER_ERR_OK)
         {
             forward_response_to_consumers(profile, map, &response);
+            poll_alarm_flags(profile);
         }
     }
 }
@@ -563,6 +607,11 @@ static void poll_cycle(void)
 
 /* ========================================================================= */
 /* Public API                                                                */
+void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback)
+{
+    s_alarm_cb = callback;
+}
+
 modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out)
 {
     if (!s_poller.initialised)
@@ -621,6 +670,7 @@ modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_h
     configASSERT(s_cmd_queue != NULL);
 
     (void) memset(s_slave_states, 0, sizeof(s_slave_states));
+    (void) memset(s_alarm_flags, 0, sizeof(s_alarm_flags));
     (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     s_poller.poll_period_ms = poll_period_ms;
     s_poller.health = health;
@@ -716,6 +766,8 @@ void modbus_poller_reset_for_test(void)
         s_cmd_queue = NULL;
     }
     (void) memset(s_slave_states, 0, sizeof(s_slave_states));
+    s_alarm_cb = NULL;
+    (void) memset(s_alarm_flags, 0, sizeof(s_alarm_flags));
     (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     (void) memset(&s_poller, 0, sizeof(s_poller));
 }

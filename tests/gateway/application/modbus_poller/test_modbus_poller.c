@@ -61,8 +61,41 @@ modbus_master_err_t modbus_master_start(void)
     return s_start_result;
 }
 
+/* ALARM_FLAGS reads (FC04, register 0x0031) are answered by the spy on their own: they are not
+ * scripted steps and not counted in s_transact_calls, so the telemetry scripts stay as they were.
+ */
+static uint16_t s_alarm_word;
+static modbus_master_err_t s_alarm_result;
+static uint32_t s_alarm_reads;
+static uint16_t s_alarm_cb_before;
+static uint16_t s_alarm_cb_now;
+static uint8_t s_alarm_cb_slave;
+static uint32_t s_alarm_cb_calls;
+
+static void alarm_cb_spy(uint8_t slave_addr, uint16_t flags_before, uint16_t flags_now)
+{
+    s_alarm_cb_slave = slave_addr;
+    s_alarm_cb_before = flags_before;
+    s_alarm_cb_now = flags_now;
+    s_alarm_cb_calls++;
+}
+
 modbus_master_err_t modbus_master_transact(const modbus_frame_t *request, modbus_frame_t *response)
 {
+    if ((request->function_code == 4U) && (request->data[0] == 0x00U) &&
+        (request->data[1] == 0x31U) && (request->data[3] == 1U))
+    {
+        s_alarm_reads++;
+        (void) memset(response, 0, sizeof(*response));
+        response->slave_addr = request->slave_addr;
+        response->function_code = request->function_code;
+        response->data[0] = 2U;
+        response->data[1] = (uint8_t) (s_alarm_word >> 8U);
+        response->data[2] = (uint8_t) (s_alarm_word & 0xFFU);
+        response->data_len = 3U;
+        return s_alarm_result;
+    }
+
     if (s_transact_calls < MAX_STEPS)
     {
         s_requests[s_transact_calls] = *request;
@@ -184,6 +217,10 @@ void setUp(void)
     (void) memset(s_profiles, 0, sizeof(s_profiles));
     s_step_count = 0U;
     s_transact_calls = 0U;
+    s_alarm_word = 0U;
+    s_alarm_result = MODBUS_MASTER_ERR_OK;
+    s_alarm_reads = 0U;
+    s_alarm_cb_calls = 0U;
     s_default_result = MODBUS_MASTER_ERR_OK;
     s_start_calls = 0U;
     s_start_result = MODBUS_MASTER_ERR_OK;
@@ -857,6 +894,55 @@ void test_TC_MP_035_run_starts_master_polls_and_delays_by_the_period(void)
     TEST_ASSERT_EQUAL_UINT32(1U, g_mock_vTaskDelayUntil_call_count);
     TEST_ASSERT_EQUAL_UINT32(POLL_PERIOD_MS, g_mock_vTaskDelayUntil_last_increment);
     TEST_ASSERT_EQUAL_UINT32(1U, s_update_calls);
+}
+
+/* ===================================================================== */
+/* ALARM_FLAGS (0x0031): transitions reach the callback (B3, SD-05)      */
+/* ===================================================================== */
+
+void test_TC_MP_050_alarm_flag_change_calls_back_once_per_change(void)
+{
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
+    s_profile_count = 1U;
+    init_ok();
+    modbus_poller_set_alarm_callback(alarm_cb_spy);
+
+    modbus_poller_cycle_for_test(); /* flags 0: nothing changed */
+    TEST_ASSERT_EQUAL_UINT32(0U, s_alarm_cb_calls);
+
+    s_alarm_word = 0x0008U; /* HUMIDITY_HIGH */
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_cb_calls);
+    TEST_ASSERT_EQUAL_UINT8(SLAVE_A, s_alarm_cb_slave);
+    TEST_ASSERT_EQUAL_HEX16(0x0000U, s_alarm_cb_before);
+    TEST_ASSERT_EQUAL_HEX16(0x0008U, s_alarm_cb_now);
+
+    modbus_poller_cycle_for_test(); /* unchanged: no repeat */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_cb_calls);
+
+    s_alarm_word = 0x0000U; /* cleared */
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(2U, s_alarm_cb_calls);
+    TEST_ASSERT_EQUAL_HEX16(0x0008U, s_alarm_cb_before);
+    TEST_ASSERT_EQUAL_HEX16(0x0000U, s_alarm_cb_now);
+    TEST_ASSERT_EQUAL_UINT32(4U, s_alarm_reads);
+}
+
+void test_TC_MP_051_alarm_read_failure_is_not_a_transition(void)
+{
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
+    s_profile_count = 1U;
+    init_ok();
+    modbus_poller_set_alarm_callback(alarm_cb_spy);
+    s_alarm_word = 0x0001U;
+    s_alarm_result = MODBUS_MASTER_ERR_TIMEOUT;
+
+    modbus_poller_cycle_for_test();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reads);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_alarm_cb_calls);
 }
 
 void test_TC_MP_036_slave_state_accessor_rejects_out_of_range_slot(void)

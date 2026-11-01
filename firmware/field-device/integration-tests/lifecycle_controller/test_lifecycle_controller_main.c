@@ -183,16 +183,37 @@ static modbus_slave_err_t bridge_read_holding(uint16_t addr, uint16_t *val)
     return (exc == MB_EXC_NONE) ? MODBUS_SLAVE_ERR_OK : MODBUS_SLAVE_ERR_INVALID_ADDR;
 }
 
+static modbus_slave_err_t bridge_exc_to_err(modbus_exception_t exc)
+{
+    modbus_slave_err_t err = MODBUS_SLAVE_ERR_OK;
+
+    if (exc == MB_EXC_ILLEGAL_DATA_VALUE)
+    {
+        err = MODBUS_SLAVE_ERR_INVALID_VALUE;
+    }
+    else if (exc != MB_EXC_NONE)
+    {
+        err = MODBUS_SLAVE_ERR_INVALID_ADDR;
+    }
+    return err;
+}
+
 static modbus_slave_err_t bridge_write_holding(uint16_t addr, uint16_t val)
 {
-    modbus_exception_t exc = s_mrm_iface.write_single_reg(s_mrm_iface.ctx, addr, val);
-    return (exc == MB_EXC_NONE) ? MODBUS_SLAVE_ERR_OK : MODBUS_SLAVE_ERR_INVALID_ADDR;
+    return bridge_exc_to_err(s_mrm_iface.write_single_reg(s_mrm_iface.ctx, addr, val));
+}
+
+/* FC16 reaches the map as one block, so the CMD_SET_TIME pair is seen whole (B2). */
+static modbus_slave_err_t bridge_write_block(uint16_t addr, const uint16_t *vals, uint16_t count)
+{
+    return bridge_exc_to_err(s_mrm_iface.write_multiple_regs(s_mrm_iface.ctx, addr, count, vals));
 }
 
 static const IModbusRegisterMap s_legacy_map = {
     .read_input = bridge_read_input,
     .read_holding = bridge_read_holding,
     .write_holding = bridge_write_holding,
+    .write_block = bridge_write_block,
 };
 
 /* ======================================================================= */

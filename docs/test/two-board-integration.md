@@ -15,26 +15,18 @@ decision from you, and one is a feature that no work package covers. None of the
 
 | # | Problem | Effect on the test | Needs |
 |---|---|---|---|
-| **B1** | **The Field Device never drives its RS-485 direction line.** The Gateway driver routes PA15 as `UART4_RTS_DE` and enables hardware DE. The Field Device driver configures only TX (PG14) and RX (PG9). The LLD says "both F469 and L475 UARTs support hardware DE", but the F469's legacy USART has no such mode, and the driver comment "hardware DE de-assertion occurs automatically" does not hold. Recorded as MBUART-O6, which says only "set `CR3.DEM`": that bit does not exist on this chip | If the transceiver has `DE/RE` pins (the hardware guide wires a GPIO to them), the Field Device **cannot transmit its replies**: the bus carries the Gateway's requests and nothing back. If the module turns the bus around by itself, it works | Your decision (section 2.1) |
-| **B2** | **A two-register write cannot reach the time handler.** `ModbusSlave` handles FC16 by calling `write_holding(addr + i, value)` once per register through the old per-register interface (`modbus_slave.c`, as its LLD specifies, TC-MBS-014). The Field Device harness bridges that to the register map one register at a time. The register map's `CMD_SET_TIME` handler (PR #131) needs the two registers as **one** block, so a FC16 to 0x0210 arrives as a single-register write and is refused with exception 0x03 | **The Gateway's time push (SD-09) fails on every NTP sync**, although the handler is correct against the register-map contract. The two LLDs (ModbusSlave v1.0, ModbusRegisterMap v1.1) disagree | Your decision (section 2.2) |
-| **B3** | **Nothing on the Gateway reads or acts on the Field Device's `ALARM_FLAGS`.** The placeholder device profile polls input registers 0x0010 to 0x0012 (temperature, humidity, pressure) only; `ALARM_FLAGS` is 0x0031. `modbus_poller.c` has no alarm handling, and the Gateway's `AlarmService` evaluates the Gateway's own sensors. SD-05 messages 5 to 7 ("alarm flag transition detected") do not exist in code. No work package of the plan covers it | **SD-05 cannot pass.** The Field Device raises its flag; nothing carries it to the cloud. WP7's "done when" asks for a measured alarm latency that therefore cannot be produced yet | A work package (section 2.3) |
-| **B4** | **The poll period alone can exceed the 500 ms budget.** REQ-NF-113 is bracketed from the Field Device setting the flag to the PUBACK (SD-05, message 3 to 11). The default poll period is 1000 ms (REQ-NF-110), so the flag waits up to 1 s for the first read | Even with B3 solved, at 1 s polling roughly half of the alarms cannot meet 500 ms | Your decision (section 2.4) |
+| **B1** | ~~The Field Device never drives its RS-485 direction line.~~ **Closed by Luca 2026-11-01: the RS-485 modules turn the bus around automatically (no DE/RE wiring). No code change on either board; the F469 has no hardware DE mode, and the Gateway's PA15 `RTS_DE` output is simply left unconnected.** The wiring diagram in the hardware guide wrongly showed a GPIO on DE/RE and is corrected | None | Nothing |
+| **B2** | ~~A two-register write cannot reach the time handler.~~ **Fixed 2026-11-01 (Luca: follow the register-map LLD, least change).** `IModbusRegisterMap` gained an optional `write_block` entry; `ModbusSlave` FC16 calls it once with every value when it is set (per-register fallback otherwise). The Field Device harness bridge now maps `write_multiple_regs` and returns exception 0x03 for a bad value (it returned 0x02). TC-MBS-024/025 | `CMD_SET_TIME` reaches its handler on the real bus | Nothing |
+| **B3** | ~~Nothing reads `ALARM_FLAGS`.~~ **Implemented 2026-11-01 (Luca: the poller had to read it per the register map).** `ModbusPoller` reads input register 0x0031 right after the telemetry read of each cycle and calls `modbus_poller_set_alarm_callback` with (slave, before, after) when it changes; `CloudPublisher` publishes one `FIELD_DEVICE` alarm per changed bit (TEMP/HUMIDITY/PRESSURE x LOW/HIGH, CLEAR when the bit falls) with the measured value from the last telemetry read. `threshold_value_raw` is 0: the limit lives on the Field Device. TC-MP-050/051, CP-T27. Not proven on hardware | SD-05 can run | Hardware run (WP7) |
+| **B4** | ~~The poll period alone can exceed 500 ms.~~ **Changed 2026-11-01 (Luca: poll faster).** The default `modbus_poll_period_ms` is now 200 ms (was 1000; range 100..60000 unchanged). Worst case from flag to callback = 200 ms + two transactions (~40 ms at 9600 baud), leaving ~250 ms for publish and PUBACK. REQ-NF-110 still says 1 s: the SRS needs the same edit | REQ-NF-113 is reachable; measure it in 2B-007 | SRS REQ-NF-110 wording |
 | **B5** | The device-ID check at link establishment (REQ-MB-120/130) is WP8; the profile is a placeholder | SD-00b's "check the device id" step cannot be observed | WP8 |
 
 ## 2. The decisions behind B1 to B4
 
-### 2.1 B1: who turns the RS-485 bus around on the Field Device?
+### 2.1 B1: closed
 
-First find out what the module does: with the Field Device alone and the dongle as master (case 2B-001), if the
-dongle receives no reply but the Field Device log shows the request was served, the module needs a direction signal.
-
-| Option | What it means | Cost |
-|---|---|---|
-| A. A module with automatic direction control | No `DE/RE` wiring and no code change | Depends on the purchased modules; the hardware guide shows `DE/RE` pins, so probably not these |
-| B. A GPIO driven by the Field Device driver | Assert before the first byte, release after TC; the driver gains a GPIO dependency and a pin (a free pin on the Arduino header) | A change to a validated driver and its LLD (MBUART-O6); fits the F4 |
-| C. A different UART | None of the F469's UARTs has a hardware DE mode either | Not an option |
-
-Recommendation: B, unless case 2B-001 shows the module is automatic.
+The modules have automatic direction control (option A). Case 2B-001 is kept as a check: if the dongle sees no reply
+from the Field Device alone, the module is not automatic and the wiring needs revisiting.
 
 ### 2.2 B2: how does a block reach `CMD_SET_TIME`?
 
