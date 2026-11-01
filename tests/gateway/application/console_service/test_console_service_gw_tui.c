@@ -15,20 +15,19 @@
 #include "commands.h"
 #include "console_service.h"
 #include "console_spies.h"
+#include "editor.h"
+#include "header.h"
 #include "freertos_mock.h"
 #include "fmt.h"
 #include "input.h"
 #include "model.h"
-#include "render.h"
 #include "repl.h"
-#include "termout.h"
 #include "theme.h"
-#include "ui_state.h"
+#include "screen.h"
 #include "unity.h"
 
 #define NOTIFY_RX (1UL << 0)
 #define NOTIFY_DATA_TICK (1UL << 1)
-#define NOTIFY_BLINK (1UL << 2)
 
 static console_deps_t s_deps;
 
@@ -118,12 +117,12 @@ void test_init_rejects_a_null_argument_or_member(void)
 }
 
 /* TC-GCS-010, 011 */
-void test_valid_init_clears_state_attaches_rx_and_creates_the_timers(void)
+void test_valid_init_clears_state_attaches_rx_and_creates_the_tick_timer(void)
 {
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, console_service_init(&s_deps));
 
     TEST_ASSERT_NOT_NULL(g_spy_rx_cb);
-    TEST_ASSERT_EQUAL_UINT32(2U, g_mock_xTimerCreateStatic_call_count);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xTimerCreateStatic_call_count);
     TEST_ASSERT_FALSE(commands_prov_dirty());
     TEST_ASSERT_FALSE(commands_cfg_dirty());
     TEST_ASSERT_EQUAL_size_t(0U, g_spy_tx_len); /* nothing drawn until the task runs */
@@ -145,17 +144,18 @@ void test_run_once_before_init_reports_not_init(void)
 }
 
 /* TC-GCS-013 */
-void test_first_cycle_sends_the_screen_setup_and_a_size_query_then_the_frame(void)
+void test_first_cycle_draws_the_layout_the_header_the_prompt_and_the_greeting(void)
 {
     (void) console_service_init(&s_deps);
     (void) console_service_cycle_for_test(NOTIFY_DATA_TICK);
     g_spy_tx[g_spy_tx_len] = 0U;
 
     TEST_ASSERT_EQUAL_UINT8(0x1B, g_spy_tx[0]);
-    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H"));
-    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[18t"));
-    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "MAIN MENU"));
-    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "ENVIRONMENTAL GATEWAY"));
+    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[2J"));
+    TEST_ASSERT_NULL(strstr((char *) g_spy_tx, "\x1b[?1049h")); /* no alternate screen */
+    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "ENVMON GATEWAY"));
+    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "envmon> "));
+    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "diagnostic shell"));
 }
 
 /* ---------------------------------------------------------------------- */
@@ -195,23 +195,6 @@ void test_wrong_argument_count_is_a_validation_error(void)
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("set t.hi"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("uptime now"));
     TEST_ASSERT_TRUE(has_line("[ERR]"));
-}
-
-/* TC-GCS-120 */
-void test_scrollback_evicts_the_oldest_line_at_200(void)
-{
-    repl_clear();
-    for (uint16_t i = 0U; i < 205U; i++)
-    {
-        char t[16];
-
-        (void) snprintf(t, sizeof(t), "line %u", (unsigned) i);
-        repl_puts(PAL_INK, t);
-    }
-    TEST_ASSERT_EQUAL_UINT16(REPL_SCROLLBACK_MAX, repl_count());
-    TEST_ASSERT_EQUAL_STRING("line 5", repl_line(0U)->text);
-    TEST_ASSERT_EQUAL_STRING("line 204", repl_line(199U)->text);
-    TEST_ASSERT_NULL(repl_line(200U));
 }
 
 void test_long_lines_are_cut_on_a_character_boundary(void)
@@ -1027,137 +1010,103 @@ static void start(void)
     (void) console_service_cycle_for_test(NOTIFY_DATA_TICK);
 }
 
-static bool screen_has(uint8_t row, const char *needle)
+/* Everything sent to the terminal since the last forget(). */
+static const char *sent(void)
 {
-    char buf[512];
-    size_t n = 0U;
-    const cell_grid_t *g = console_service_grid_for_test();
-
-    for (uint32_t c = 0U; c < GRID_COLS; c++)
-    {
-        const char *s = glyph_utf8(g->cells[row][c].glyph);
-
-        while ((s != NULL) && (*s != '\0') && ((n + 1U) < sizeof(buf)))
-        {
-            buf[n++] = *s++;
-        }
-    }
-    buf[n] = '\0';
-    return strstr(buf, needle) != NULL;
+    g_spy_tx[g_spy_tx_len] = 0U;
+    return (const char *) g_spy_tx;
 }
 
-void test_keystrokes_drive_the_menu_and_the_console(void)
+static void forget(void)
+{
+    g_spy_tx_len = 0U;
+}
+
+void test_a_typed_command_is_echoed_run_and_answered_in_the_south_panel(void)
 {
     start();
-    TEST_ASSERT_TRUE(screen_has(20U, "↑↓ select"));
-
-    type("6"); /* jump to Console */
-    TEST_ASSERT_TRUE(screen_has(9U, "CONSOLE"));
-    type("\r"); /* into the panel */
-    TEST_ASSERT_TRUE(screen_has(20U, "type a command"));
+    forget();
     type("uptime\r");
 
-    TEST_ASSERT_TRUE(screen_has(17U, "uptime 3d 14:22:05"));
-    TEST_ASSERT_TRUE(screen_has(17U, "envmon> uptime") || screen_has(16U, "envmon> uptime"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[26;35r")); /* south region */
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "envmon> uptime"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "uptime 3d 14:22:05"));
+    TEST_ASSERT_TRUE(has_line("uptime 3d 14:22:05"));
 }
 
-void test_arrow_keys_move_the_selection_and_change_the_channel(void)
+void test_each_key_redraws_only_the_prompt_row(void)
 {
     start();
-    type("\x1b[B"); /* down */
-    TEST_ASSERT_TRUE(screen_has(9U, "SYSTEM STATUS"));
-    type("1\t");
-    type("\x1b[B");
-    TEST_ASSERT_TRUE(screen_has(9U, "HUMIDITY"));
+    forget();
+    type("s");
+
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[36;1H\x1b[2K"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "envmon> "));
+    TEST_ASSERT_NULL(strstr(sent(), "\x1b[2J"));
+    TEST_ASSERT_NULL(strstr(sent(), "\x1b[1;1H")); /* header untouched */
+    TEST_ASSERT_LESS_THAN_size_t(80U, g_spy_tx_len);
 }
 
-void test_a_lone_escape_leaves_the_panel_once_its_window_has_passed(void)
+void test_the_typed_line_leaves_the_prompt_before_its_answer_appears(void)
 {
     start();
-    type("\r");
-    TEST_ASSERT_TRUE(screen_has(20U, "↑↓ change channel"));
+    forget();
+    type("uptime\r");
 
-    g_spy_millis = 1000U;
-    type("\x1b");
-    TEST_ASSERT_TRUE(screen_has(20U, "↑↓ change channel")); /* still waiting */
-    g_spy_millis = 1020U;
-    (void) console_service_cycle_for_test(0U);
-    TEST_ASSERT_TRUE(screen_has(20U, "↑↓ select"));
+    const char *clear_prompt = strstr(sent(), "\x1b[36;1H\x1b[2K");
+    const char *answer = strstr(sent(), "uptime 3d");
+
+    TEST_ASSERT_NOT_NULL(clear_prompt);
+    TEST_ASSERT_TRUE(clear_prompt < answer);
 }
 
-void test_set_through_the_keyboard_persists_after_the_frame_is_drawn(void)
+void test_the_up_arrow_recalls_the_previous_command(void)
 {
     start();
-    type("6\r");
+    type("uptime\r");
+    forget();
+    type("\x1b[A");
+
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[0muptime")); /* the label, then the recalled text */
+}
+
+void test_digits_are_typed_into_the_line(void)
+{
+    start();
     type("set t.hi 24\r");
 
     TEST_ASSERT_EQUAL_UINT32(1U, g_spy_set_calls);
-    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_persist_calls); /* flushed once, after the frame */
-    TEST_ASSERT_TRUE(screen_has(17U, "applied") || screen_has(16U, "applied"));
 }
 
-void test_page_up_reveals_scrolled_out_output_and_a_new_command_snaps_back(void)
+void test_set_through_the_keyboard_persists_after_the_screen_is_current(void)
 {
     start();
-    type("6\r");
-    type("help\r");
-    TEST_ASSERT_FALSE(screen_has(10U, "Available commands"));
+    type("set t.hi 24\r");
 
-    for (uint32_t i = 0U; i < 8U; i++) /* help prints 30 lines: 8 pages of 4 back to its header */
-    {
-        type("\x1b[5~");
-    }
-    bool header_visible = false;
-
-    for (uint8_t row = 10U; row <= 17U; row++)
-    {
-        header_visible = header_visible || screen_has(row, "Available commands");
-    }
-    TEST_ASSERT_TRUE(header_visible);
-    TEST_ASSERT_TRUE(screen_has(18U, "more"));
-    TEST_ASSERT_TRUE(screen_has(20U, "PgUp/PgDn scroll"));
-
-    for (uint32_t i = 0U; i < 8U; i++)
-    {
-        type("\x1b[6~");
-    }
-    TEST_ASSERT_FALSE(screen_has(18U, "more"));
-
-    type("\x1b[5~");
-    type("uptime\r");
-    TEST_ASSERT_FALSE(screen_has(18U, "more")); /* new output: back to the live view */
-}
-
-void test_scrolling_stops_at_the_oldest_line(void)
-{
-    start();
-    type("6\r");
-    for (uint32_t i = 0U; i < 40U; i++)
-    {
-        type("\x1b[5~");
-    }
-    type("\x1b[6~");
-    TEST_ASSERT_TRUE(screen_has(9U, "CONSOLE")); /* still sane after over-scrolling */
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_set_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_persist_calls);
+    TEST_ASSERT_TRUE(has_line("applied"));
 }
 
 void test_the_confirm_prompt_is_answered_from_the_keyboard(void)
 {
     start();
-    type("6\r");
     type("prov set modbus-addr 50\r");
+    forget();
     type("prov commit\r");
-    TEST_ASSERT_TRUE(screen_has(18U, "Apply? [y/N]:"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "[y/N] "));
+    TEST_ASSERT_TRUE(commands_confirm_active());
 
+    forget();
     type("y");
     TEST_ASSERT_EQUAL_UINT32(1U, g_spy_set_calls);
     TEST_ASSERT_EQUAL_UINT32(1U, g_spy_persist_calls);
-    TEST_ASSERT_TRUE(screen_has(18U, "envmon>"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "envmon> "));
 }
 
 void test_any_other_key_declines_the_prompt(void)
 {
     start();
-    type("6\r");
     type("prov set modbus-addr 50\r");
     type("prov commit\r");
     type("n");
@@ -1169,16 +1118,16 @@ void test_any_other_key_declines_the_prompt(void)
 void test_the_prompt_times_out_on_the_data_tick(void)
 {
     start();
-    type("6\r");
     type("prov set modbus-addr 50\r");
     type("prov commit\r");
+    forget();
     for (uint32_t i = 0U; i < CONFIRM_TIMEOUT_TICKS; i++)
     {
         (void) console_service_cycle_for_test(NOTIFY_DATA_TICK);
     }
 
     TEST_ASSERT_FALSE(commands_confirm_active());
-    TEST_ASSERT_TRUE(screen_has(18U, "envmon>"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "envmon> "));
     TEST_ASSERT_EQUAL_UINT32(0U, g_spy_set_calls);
 }
 
@@ -1186,7 +1135,6 @@ void test_the_prompt_times_out_on_the_data_tick(void)
 void test_an_overlong_line_is_cleared_with_an_error(void)
 {
     start();
-    type("6\r");
     for (uint32_t i = 0U; i < 125U; i++)
     {
         type("a");
@@ -1195,197 +1143,95 @@ void test_an_overlong_line_is_cleared_with_an_error(void)
 }
 
 /* TC-GCS-194 */
-void test_a_receive_ring_overflow_is_shown_in_the_footer_once(void)
+void test_a_receive_ring_overflow_is_reported_once(void)
 {
-    start();
     uint8_t flood[300];
 
+    start();
     memset(flood, 'x', sizeof(flood));
     console_service_rx_for_test(flood, sizeof(flood));
     (void) console_service_cycle_for_test(NOTIFY_RX);
-    TEST_ASSERT_TRUE(screen_has(20U, "[WARN] RX overflow"));
+    TEST_ASSERT_TRUE(has_line("input too fast"));
+
+    const uint16_t before = repl_count();
 
     (void) console_service_cycle_for_test(0U);
-    TEST_ASSERT_FALSE(screen_has(20U, "[WARN] RX overflow"));
+    TEST_ASSERT_EQUAL_UINT16(before, repl_count());
 }
 
-void test_a_small_terminal_report_shows_the_resize_notice_and_recovers(void)
+void test_the_data_tick_refreshes_the_header_without_touching_the_rest(void)
 {
     start();
-    type("\x1b[8;24;80t");
-    TEST_ASSERT_TRUE(screen_has(10U, "Resize the terminal"));
-
-    type("\x1b[8;40;120t");
-    TEST_ASSERT_FALSE(screen_has(10U, "Resize the terminal"));
-    TEST_ASSERT_TRUE(screen_has(9U, "MAIN MENU"));
-}
-
-void test_ctrl_l_wipes_the_terminal_and_sends_the_whole_frame_again(void)
-{
-    start();
-    const size_t before = g_spy_tx_len;
-
-    type("\x0c");
-    g_spy_tx[g_spy_tx_len] = 0U;
-
-    TEST_ASSERT_GREATER_THAN_size_t(before + 2000U, g_spy_tx_len); /* a full frame, not a diff */
-    TEST_ASSERT_NOT_NULL(strstr((char *) &g_spy_tx[before], "\x1b[2J\x1b[H"));
-    TEST_ASSERT_NOT_NULL(strstr((char *) &g_spy_tx[before], "ENVIRONMENTAL GATEWAY"));
-    TEST_ASSERT_TRUE(screen_has(9U, "MAIN MENU"));
-}
-
-void test_the_first_size_report_repaints_once_and_a_repeat_does_not(void)
-{
-    start();
-    const size_t t0 = g_spy_tx_len;
-
-    type("\x1b[8;40;120t");
-    const size_t first = g_spy_tx_len - t0;
-
-    type("\x1b[8;40;120t");
-    const size_t repeat = g_spy_tx_len - t0 - first;
-
-    TEST_ASSERT_GREATER_THAN_size_t(2000U, first);
-    TEST_ASSERT_LESS_THAN_size_t(100U, repeat);
-
-    type("\x1b[8;50;140t"); /* the window changed size: repaint again */
-    TEST_ASSERT_GREATER_THAN_size_t(2000U, g_spy_tx_len - t0 - first - repeat);
-}
-
-static uint32_t s_inject_calls;
-
-static void inject_arrow_down_once(void)
-{
-    if (s_inject_calls == 0U)
-    {
-        s_inject_calls++;
-        console_service_rx_for_test((const uint8_t *) "\x1b[B", 3U);
-    }
-}
-
-static bool sent_since(size_t mark, const char *needle)
-{
-    g_spy_tx[g_spy_tx_len] = 0U;
-    return strstr((char *) &g_spy_tx[mark], needle) != NULL;
-}
-
-void test_menu_goes_out_first_and_the_panel_is_skipped_when_another_key_is_already_waiting(void)
-{
-    start();
-    const size_t mark = g_spy_tx_len;
-
-    s_inject_calls = 0U;
-    g_spy_send_hook =
-        inject_arrow_down_once; /* a second arrow arrives while the menu is being sent */
-    type("\x1b[B");
-    g_spy_send_hook = NULL;
-
-    TEST_ASSERT_FALSE(
-        sent_since(mark, "SYSTEM STATUS"));              /* the intermediate panel was never sent */
-    TEST_ASSERT_TRUE(sent_since(mark, "System status")); /* but the menu highlight moved */
-
-    (void) console_service_cycle_for_test(
-        0U); /* the waiting key is handled, nothing is waiting now */
-    TEST_ASSERT_TRUE(sent_since(mark, "ACTIVE ALARMS"));
-    TEST_ASSERT_FALSE(sent_since(mark, "SYSTEM STATUS"));
-}
-
-void test_a_single_key_sends_menu_and_panel_in_the_same_cycle(void)
-{
-    start();
-    const size_t mark = g_spy_tx_len;
-
-    type("\x1b[B");
-
-    TEST_ASSERT_TRUE(sent_since(mark, "SYSTEM STATUS"));
-}
-
-void test_an_unchanged_screen_costs_no_bytes(void)
-{
-    start();
-    const size_t before = g_spy_tx_len;
-
-    (void) console_service_cycle_for_test(0U);
-    TEST_ASSERT_EQUAL_size_t(before, g_spy_tx_len);
-}
-
-void test_the_data_tick_repaints_only_what_changed(void)
-{
-    start();
-    const size_t full_frame = g_spy_tx_len;
-    const size_t before = g_spy_tx_len;
-
-    spy_set_reading(SENSOR_ID_TEMPERATURE, 2310, true);
+    forget();
     (void) console_service_cycle_for_test(NOTIFY_DATA_TICK);
 
-    TEST_ASSERT_GREATER_THAN_size_t(0U, g_spy_tx_len - before);
-    TEST_ASSERT_LESS_THAN_size_t(full_frame / 4U, g_spy_tx_len - before);
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[1;1H\x1b[2K"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[2;1H\x1b[2K"));
+    TEST_ASSERT_NULL(strstr(sent(), "\x1b[2J"));
+    TEST_ASSERT_NULL(strstr(sent(), "\x1b[4;24r")); /* no log or result region touched */
+    TEST_ASSERT_NULL(strstr(sent(), "\x1b[26;35r"));
 }
 
-void test_reboot_tears_the_screen_down_then_resets(void)
+void test_an_idle_cycle_sends_nothing(void)
 {
     start();
-    type("6\r");
+    forget();
+    (void) console_service_cycle_for_test(0U);
+
+    TEST_ASSERT_EQUAL_size_t(0U, g_spy_tx_len);
+}
+
+void test_ctrl_l_clears_the_terminal_and_draws_the_layout_again(void)
+{
+    start();
+    forget();
+    type("\x0c");
+
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[2J"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "ENVMON GATEWAY"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "envmon> "));
+}
+
+void test_terminal_size_reports_are_ignored(void)
+{
+    start();
+    forget();
+    type("\x1b[8;24;80t");
+
+    TEST_ASSERT_EQUAL_size_t(0U, g_spy_tx_len);
+}
+
+void test_the_term_command_resizes_the_layout_and_repaints(void)
+{
+    start();
+    forget();
+    type("term 50 120\r");
+
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[2J"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[50;1H")); /* prompt on the new last row */
+
+    forget();
+    type("term 5 5\r");
+    TEST_ASSERT_TRUE(has_line("[ERR] size out of range"));
+    TEST_ASSERT_NULL(strstr(sent(), "\x1b[2J"));
+}
+
+void test_term_without_arguments_reports_the_current_size(void)
+{
+    start();
+    type("term\r");
+
+    TEST_ASSERT_TRUE(has_line("layout 36 rows x 100 cols"));
+}
+
+void test_reboot_gives_the_terminal_back_then_resets(void)
+{
+    start();
+    forget();
     type("reboot\r");
 
-    g_spy_tx[g_spy_tx_len] = 0U;
     TEST_ASSERT_EQUAL_UINT32(1U, g_spy_reset_calls);
-    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[?25h\x1b[?1049l\x1b[0m"));
-}
-
-void test_firmware_panel_reboots_only_after_the_user_confirms(void)
-{
-    start();
-    type("7\r");    /* firmware panel, cursor on "Check for update" */
-    type("\x1b[B"); /* cursor on "Reboot gateway" */
-    const size_t mark = g_spy_tx_len;
-
-    type("\r");
-    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
-    TEST_ASSERT_TRUE(sent_since(mark, "Reboot the gateway now? [y/N]"));
-
-    type("y");
-    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_reset_calls);
-    g_spy_tx[g_spy_tx_len] = 0U;
-    TEST_ASSERT_NOT_NULL(strstr((char *) g_spy_tx, "\x1b[?1049l"));
-}
-
-void test_firmware_panel_reboot_is_cancelled_by_any_other_key(void)
-{
-    start();
-    type("7\r\x1b[B\r");
-    type("n");
-
-    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
-    TEST_ASSERT_FALSE(commands_confirm_active());
-    TEST_ASSERT_FALSE(commands_take_reboot_request());
-}
-
-void test_firmware_panel_reboot_question_times_out_without_rebooting(void)
-{
-    start();
-    type("7\r\x1b[B\r");
-
-    for (uint32_t i = 0U; i < 40U; i++)
-    {
-        (void) commands_tick();
-    }
-    TEST_ASSERT_FALSE(commands_confirm_active());
-    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
-    TEST_ASSERT_FALSE(commands_take_reboot_request());
-}
-
-void test_firmware_panel_update_check_reports_not_available(void)
-{
-    start();
-    const size_t mark = g_spy_tx_len;
-
-    type("7\r"); /* cursor on "Check for update" */
-    type("\r");
-
-    TEST_ASSERT_TRUE(sent_since(mark, "no update source"));
-    TEST_ASSERT_NOT_NULL(commands_fw_check_result());
-    TEST_ASSERT_EQUAL_UINT32(0U, g_spy_reset_calls);
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "\x1b[r"));
 }
 
 /* TC-GCS-192 / 191 : a failing sink must never crash the loop */
@@ -1393,20 +1239,28 @@ void test_a_failing_uart_does_not_stop_the_loop(void)
 {
     g_spy_send_rc = DEBUG_UART_ERR_TX_TIMEOUT;
     start();
-    type("6\r");
     type("uptime\r");
 
     TEST_ASSERT_TRUE(has_line("uptime 3d 14:22:05"));
 }
 
-void test_failed_service_pulls_render_as_empty_not_garbage(void)
+void test_failed_service_pulls_show_question_marks_not_garbage(void)
 {
     g_spy_snapshot_rc = SENSOR_SERVICE_ERR_NOT_INIT;
     g_spy_health_rc = HEALTH_MONITOR_ERR_NOT_INIT;
     g_spy_alarm_rc = ALARM_SERVICE_ERR_NOT_INIT;
     start();
 
-    TEST_ASSERT_TRUE(screen_has(18U, "▲ stale"));
-    TEST_ASSERT_TRUE(screen_has(5U, "0 alarms"));
-    TEST_ASSERT_TRUE(screen_has(6U, "0 / 4 sensors online"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "WiFi ?"));
+    TEST_ASSERT_NOT_NULL(strstr(sent(), "alarms ?"));
+}
+
+void test_the_output_lock_is_taken_and_released_in_pairs(void)
+{
+    start();
+    type("uptime\r");
+    type("status\r");
+
+    TEST_ASSERT_GREATER_THAN_UINT32(0U, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(g_mock_xSemaphoreTake_call_count, g_mock_xSemaphoreGive_call_count);
 }

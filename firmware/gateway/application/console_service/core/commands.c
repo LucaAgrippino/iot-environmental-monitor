@@ -13,6 +13,7 @@
 #include "firmware_version.h"
 #include "model.h"
 #include "repl.h"
+#include "screen.h"
 #include "theme.h"
 
 #ifdef TEST
@@ -112,7 +113,7 @@ static confirm_kind_t s_confirm;
 static uint32_t s_confirm_ticks;
 static bool s_persist_due;
 static bool s_reboot_requested;
-static const char *s_fw_check_result; /* NULL until a check ran */
+static bool s_redraw_requested;
 
 /* ---------------------------------------------------------------------- */
 /* Helpers                                                                 */
@@ -506,6 +507,37 @@ static console_service_err_t cmd_clear(int argc, const char *argv[])
     (void) argc;
     (void) argv;
     repl_clear();
+    return CONSOLE_SERVICE_ERR_OK;
+}
+
+static console_service_err_t cmd_term(int argc, const char *argv[])
+{
+    uint32_t rows;
+    uint32_t cols;
+    uint16_t cur_rows;
+    uint16_t cur_cols;
+
+    if (argc == 0)
+    {
+        screen_size(&cur_rows, &cur_cols);
+        SAY(PAL_INK, "  layout %u rows x %u cols", (unsigned) cur_rows, (unsigned) cur_cols);
+        SAY(PAL_MUTED, "  term <rows> <cols> to fit your window (%u-%u x %u-%u)",
+            (unsigned) SCREEN_ROWS_MIN, (unsigned) SCREEN_ROWS_MAX, (unsigned) SCREEN_COLS_MIN,
+            (unsigned) SCREEN_COLS_MAX);
+        return CONSOLE_SERVICE_ERR_OK;
+    }
+    if (argc != 2)
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "usage: term <rows> <cols>");
+    }
+    if (!fmt_parse_u32(argv[0], &rows) || !fmt_parse_u32(argv[1], &cols) ||
+        (rows < SCREEN_ROWS_MIN) || (rows > SCREEN_ROWS_MAX) || (cols < SCREEN_COLS_MIN) ||
+        (cols > SCREEN_COLS_MAX))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "size out of range");
+    }
+    screen_set_size((uint16_t) rows, (uint16_t) cols);
+    s_redraw_requested = true;
     return CONSOLE_SERVICE_ERR_OK;
 }
 
@@ -1267,6 +1299,7 @@ static const cmd_entry_t s_cmd_table[] = {
     {"modbus status", NULL, 0U, 0U, cmd_modbus_status, "Modbus master"},
     {"net", "network", 0U, 0U, cmd_net, "WiFi + MQTT + Modbus"},
     {"clear", "cls", 0U, 0U, cmd_clear, "empty the console"},
+    {"term", NULL, 0U, 2U, cmd_term, "term <rows> <cols>: fit the layout"},
     {"reboot", NULL, 0U, 0U, cmd_reboot, "restart the gateway"},
 };
 #define CMD_COUNT ((uint32_t) (sizeof(s_cmd_table) / sizeof(s_cmd_table[0])))
@@ -1405,23 +1438,6 @@ bool commands_confirm_is_reboot(void)
     return s_confirm == CONFIRM_REBOOT;
 }
 
-void commands_request_reboot_confirm(void)
-{
-    s_confirm = CONFIRM_REBOOT;
-    s_confirm_ticks = CONFIRM_TIMEOUT_TICKS;
-}
-
-console_service_err_t commands_fw_check(void)
-{
-    s_fw_check_result = "not available: no update source yet";
-    return prv_not_available("firmware update check (no update source on this Gateway yet)");
-}
-
-const char *commands_fw_check_result(void)
-{
-    return s_fw_check_result;
-}
-
 console_service_err_t commands_confirm_answer(bool yes)
 {
     const confirm_kind_t kind = s_confirm;
@@ -1491,6 +1507,14 @@ bool commands_take_persist_due(void)
     return v;
 }
 
+bool commands_take_redraw_request(void)
+{
+    const bool v = s_redraw_requested;
+
+    s_redraw_requested = false;
+    return v;
+}
+
 bool commands_take_reboot_request(void)
 {
     const bool v = s_reboot_requested;
@@ -1524,5 +1548,5 @@ void commands_init(const console_deps_t *deps)
     s_confirm_ticks = 0U;
     s_persist_due = false;
     s_reboot_requested = false;
-    s_fw_check_result = NULL;
+    s_redraw_requested = false;
 }

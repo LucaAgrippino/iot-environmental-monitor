@@ -431,6 +431,77 @@ void test_TC_LOG_018_drain_once_dequeues_formats_and_sends(void)
 }
 
 /* ===================================================================== */
+/* §F2. Output sink (the console's log panel)                            */
+/* ===================================================================== */
+
+static char g_sink_buf[LOGGER_OUT_BUF_MAX];
+static uint16_t g_sink_len;
+static uint32_t g_sink_calls;
+static bool g_sink_result;
+
+static bool capture_sink(const uint8_t *data, uint16_t len)
+{
+    g_sink_calls++;
+    g_sink_len = len;
+    (void) memcpy(g_sink_buf, data, len);
+    g_sink_buf[len] = '\0';
+    return g_sink_result;
+}
+
+static void drain_one_info_line(void)
+{
+    log_entry_t e = {0};
+
+    e.level = LOG_LEVEL_INFO;
+    e.use_uptime = false;
+    (void) strcpy(e.module, "Sink");
+    (void) strcpy(e.message, "to the panel");
+    prime_xQueueReceive_with(&e);
+    logger_drain_once_for_test();
+}
+
+void test_LOG_sink_receives_the_finished_line_instead_of_the_uart(void)
+{
+    init_logger_at_debug();
+    g_sink_calls = 0U;
+    g_sink_result = true;
+    logger_set_sink(capture_sink);
+
+    drain_one_info_line();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_sink_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_stub_uart_call_count);
+    TEST_ASSERT_NOT_NULL(strstr(g_sink_buf, "to the panel"));
+    TEST_ASSERT_EQUAL_UINT8('\n', (uint8_t) g_sink_buf[g_sink_len - 1U]);
+}
+
+void test_LOG_a_failed_sink_counts_as_a_dropped_line(void)
+{
+    init_logger_at_debug();
+    g_sink_calls = 0U;
+    g_sink_result = false;
+    logger_set_sink(capture_sink);
+
+    drain_one_info_line();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, logger_get_dropped_count());
+}
+
+void test_LOG_clearing_the_sink_sends_to_the_uart_again(void)
+{
+    init_logger_at_debug();
+    g_sink_calls = 0U;
+    g_sink_result = true;
+    logger_set_sink(capture_sink);
+    logger_set_sink(NULL);
+
+    drain_one_info_line();
+
+    TEST_ASSERT_EQUAL_UINT32(0U, g_sink_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, g_stub_uart_call_count);
+}
+
+/* ===================================================================== */
 /* §G. ANSI colours                                                      */
 /* ===================================================================== */
 

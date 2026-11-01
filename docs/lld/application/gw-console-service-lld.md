@@ -4,19 +4,59 @@
 **Layer:** Application.
 
 This artefact specifies the software design of the Gateway
-`ConsoleService` component — a full-screen ANSI/VT100 TUI ("B1
-Cockpit") with block-element area chart, 7-screen navigation,
-interactive REPL, provisioning workflows, self-test, and device
-profile management. It supersedes the Gateway sections of the shared
+`ConsoleService` component. Since v2.0 it is a three-panel ANSI/VT100
+console (header, log, command panel with prompt; see §0a). Versions up to
+1.1 were a full-screen "B1 Cockpit" TUI with a block-element area chart and
+7-screen navigation; that part is superseded. The REPL, provisioning
+workflows, self-test and device profile management are unchanged. It supersedes the Gateway sections of the shared
 FD+GW CLI companion; the FD ConsoleService retains its own separate
 companion with the line-oriented CLI design.
 
-**Version:** 1.1
-**Date:** October 2026
+**Version:** 2.0 (three-panel console; 1.1 below for the unchanged parts)
+**Date:** November 2026
 **Status:** Pass H — Implementation ready · Gateway implemented (host-tested, 188 console tests, bench-validated 2026-10-24, 56 of 56 hardware checks)
 
 **HLD anchor:** ConsoleService in `components.md` (GW application layer)
 **Design source:** B1 Cockpit design bundle (`design_handoff_envmon_console/`)
+
+---
+
+## 0a. Three-panel redesign (v2.0, 2026-11-01)
+
+The cockpit TUI (cell grids, block chart, menu rail, 7 screens) was dropped. The console now splits
+the terminal into three panels and keeps **no screen copy**: the terminal's own scroll region does
+the scrolling.
+
+```text
+row 1-2      NORTH   header: product, firmware, uptime, alarms / WiFi, MQTT, Modbus, sensors, RSSI
+row 3        rule
+row 4..24    CENTRE  log lines (the Logger writes here through logger_set_sink())
+row 25       divider
+row 26..35   SOUTH   what the typed commands answer (echo + output), scrolls on its own
+row 36       prompt  "envmon> " + the line being typed, or "[y/N] " while a question waits
+```
+
+Size is a run-time value (default 36 x 100, `term <rows> <cols>` to fit the window, clamped to
+20..80 x 60..160). The terminal cannot be asked for its size reliably, so it is not queried.
+
+| Decision | Choice | Why |
+|---|---|---|
+| **GCS-D20** Scroll regions, no frame buffer | A write is "set region, go to its last row, newline (the terminal scrolls), print, put the cursor back on the prompt", sent in one `send()` | RAM: the cell grids and scrollback took about 26 KB of SRAM2; the new code needs one 704-byte scratch buffer and a 240-byte line editor (both in SRAM2) |
+| **GCS-D21** One output lock | A mutex (FreeRTOS static) around every screen operation, taken by ConsoleTask and by the Logger drain task | Two writers must not interleave their escape sequences (closes D-12, GCS-O11) |
+| **GCS-D22** Logger sink | `logger_set_sink()` in the Logger; the console registers it when its task starts; a failed sink counts as a dropped line; `NULL` restores the UART | The log lines reach the centre panel without a second UART user |
+| **GCS-D23** Lines are clipped, not wrapped | Visible columns are counted (a UTF-8 character is one, SGR sequences are free); control bytes and foreign escapes are dropped | A wrapped line would push the layout down by one row |
+| **GCS-D24** Plain 16-colour ANSI | `theme_sgr()` maps seven tokens to SGR 0/32/33/90/91/36/1;32 | Works in every terminal; no truecolor, no glyph table |
+| **GCS-D25** Keys | Printable keys edit the line, Enter runs it, Backspace, Esc clears, Up recalls the last line, Ctrl-L redraws everything; while a y/N question waits `y` answers yes and any other key no | Smaller than the menu/focus state machine; no mode to be stuck in |
+| **GCS-D26** Dropped | Chart, menu, screens, Firmware panel (check / reboot confirm), PgUp / PgDn paging, size query, blink timer | Paging is the terminal's job for the log; `reboot` and the update check stay as commands |
+
+Superseded: §7 (layout), §8 (chart; only the proximity maths remain in `chart.c`, used by `sensors`
+and `alarms`), §10 (rendering engine), §11 (navigation), §18 (memory) and the matching §21 / §22
+entries. Source files: `core/screen.c` (writer), `core/editor.c` (line editor), `core/header.c`
+(header text); `render`, `termout`, `ui_state` and `console_mem.h` are gone. The `scripts/console_bench.py`
+checks are now PN-001..PN-074.
+
+Not yet run on hardware (2026-11-01): the bench, the stack size of ConsoleTask (704 words was sized
+for the old renderer), and the Logger sink under real log traffic.
 
 ---
 

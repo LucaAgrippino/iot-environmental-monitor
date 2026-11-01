@@ -1,6 +1,6 @@
 /**
  * @file repl.c
- * @brief Scrollback ring and command dispatch.
+ * @brief Command output (south panel) and command dispatch.
  */
 
 #include "repl.h"
@@ -9,27 +9,40 @@
 #include <string.h>
 
 #include "commands.h"
-#include "console_service/port/console_mem.h"
+#include "screen.h"
 #include "theme.h"
 
 #define MAX_ARGS (8U)
 #define LINE_COPY_MAX (121U)
 
-CONSOLE_BIG_BUFFER static scrollback_line_t s_lines[REPL_SCROLLBACK_MAX];
-static uint16_t s_head; /* next write position */
+#ifdef TEST
+static scrollback_line_t s_lines[REPL_SCROLLBACK_MAX];
 static uint16_t s_count;
+
+uint16_t repl_count(void)
+{
+    return s_count;
+}
+
+const scrollback_line_t *repl_line(uint16_t i)
+{
+    return (i < s_count) ? &s_lines[i] : NULL;
+}
+#endif /* TEST */
 
 void repl_clear(void)
 {
+#ifdef TEST
     (void) memset(s_lines, 0, sizeof(s_lines));
-    s_head = 0U;
     s_count = 0U;
+#endif
+    screen_results_clear();
 }
 
 void repl_init(void)
 {
     repl_clear();
-    repl_puts(PAL_MUTED, "ENVMON gateway diagnostic shell · type \"help\" or \"?\"");
+    repl_puts(PAL_MUTED, "ENVMON gateway diagnostic shell - type \"help\" or \"?\"");
 }
 
 static size_t prv_utf8_cut(const char *text, size_t max_bytes)
@@ -50,34 +63,20 @@ static size_t prv_utf8_cut(const char *text, size_t max_bytes)
 
 void repl_puts(uint8_t fg, const char *text)
 {
-    scrollback_line_t *l = &s_lines[s_head];
+    char line[REPL_TEXT_MAX];
     const size_t n = prv_utf8_cut(text, REPL_TEXT_MAX);
 
-    (void) memcpy(l->text, text, n);
-    l->text[n] = '\0';
-    l->fg = fg;
-    s_head = (uint16_t) ((s_head + 1U) % REPL_SCROLLBACK_MAX);
+    (void) memcpy(line, text, n);
+    line[n] = '\0';
+#ifdef TEST
     if (s_count < REPL_SCROLLBACK_MAX)
     {
+        (void) memcpy(s_lines[s_count].text, line, n + 1U);
+        s_lines[s_count].fg = fg;
         s_count++;
     }
-}
-
-uint16_t repl_count(void)
-{
-    return s_count;
-}
-
-const scrollback_line_t *repl_line(uint16_t i)
-{
-    if (i >= s_count)
-    {
-        return NULL;
-    }
-    const uint16_t oldest =
-        (uint16_t) ((s_head + REPL_SCROLLBACK_MAX - s_count) % REPL_SCROLLBACK_MAX);
-
-    return &s_lines[(oldest + i) % REPL_SCROLLBACK_MAX];
+#endif
+    screen_result(fg, line);
 }
 
 static void prv_echo(const char *cmd)

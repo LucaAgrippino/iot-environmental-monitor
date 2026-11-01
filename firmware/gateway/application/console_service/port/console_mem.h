@@ -1,11 +1,10 @@
 /**
  * @file console_mem.h
- * @brief Placement of the console's large buffers.
+ * @brief Placement of the console's larger buffers.
  *
- * The two cell grids and the REPL scrollback take about 25 KB. They live in the Gateway's SRAM2
- * bank (zero-initialised, cleared by the startup code) so the 96 KB main bank keeps its room for
- * the heap that mbedTLS allocates from: with the console resident in the main bank only about
- * 33 KB were left and the TLS handshake could not allocate its record buffers.
+ * The screen scratch buffer, the line editor and the model snapshot (about 1.3 KB) live in the
+ * Gateway's SRAM2 bank (zero-initialised, cleared by the startup code). The 96 KB main bank is
+ * nearly full (the mbedTLS arena and task stacks), and SRAM2 has room since the cell grids went.
  */
 
 #ifndef CONSOLE_MEM_H

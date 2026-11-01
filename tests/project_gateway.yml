@@ -223,15 +223,19 @@
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
-  :test_ui_state:
-    - STM32L475xx
-    - BOARD_GATEWAY
-    - TEST
-  :test_render:
-    - STM32L475xx
-    - BOARD_GATEWAY
-    - TEST
   :test_console_service_gw_tui:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_editor:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_screen:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - TEST
+  :test_header:
     - STM32L475xx
     - BOARD_GATEWAY
     - TEST
