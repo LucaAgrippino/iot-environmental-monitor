@@ -25,7 +25,6 @@ STM32F469          TTL-RS485 Module #1       TTL-RS485 Module #2       B-L475E-I
 -----------        ----------------          ----------------          ----------------
 UART TX  --------> DI                                                  
 UART RX  <-------- RO                                                  
-GPIO     --------> DE/RE                                               
 3.3V     --------> VCC                                                 
 GND      --------> GND                                                 
 
@@ -35,9 +34,11 @@ GND      --------> GND
 
                                               RO  --------> UART RX
                                               DI  <-------- UART TX
-                                              DE/RE <------ GPIO
                                               VCC  <------- 3.3V
                                               GND  <------- GND
+
+Direction: the modules switch between transmit and receive by themselves
+             (automatic flow control). No DE/RE wire and no GPIO is needed.
 
 Termination: Bridge R16 on both Module #1 and Module #2 to enable
              the onboard 120 Ω termination resistors.
@@ -70,7 +71,7 @@ The logic analyser is used for debugging UART timing, RS-485 DE/RE pin control, 
 **Typical probe connections for Modbus debugging:**
 - CH0: UART TX (from STM32 to RS-485 module DI pin)
 - CH1: UART RX (from RS-485 module RO pin to STM32)
-- CH2: DE/RE control GPIO
+- CH2: spare (the modules control direction automatically; no DE/RE pin to probe)
 - CH3: RS-485 A line (differential, for timing reference)
 - GND: Common ground
 
