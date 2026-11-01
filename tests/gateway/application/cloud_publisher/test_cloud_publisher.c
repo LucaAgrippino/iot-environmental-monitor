@@ -110,6 +110,12 @@ modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_r
     return g_spy_fd_return;
 }
 
+static modbus_poller_alarm_cb_t g_spy_fd_alarm_cb;
+void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback)
+{
+    g_spy_fd_alarm_cb = callback;
+}
+
 static void (*g_spy_alarm_cb)(sensor_id_t, alarm_event_t, const sensor_reading_t *);
 static uint32_t g_spy_alarm_subscribe_calls;
 static int32_t g_spy_alarm_limit;
@@ -482,6 +488,7 @@ void setUp(void)
 
     g_spy_alarm_limit = 0;
     g_spy_alarm_cb = NULL;
+    g_spy_fd_alarm_cb = NULL;
     g_spy_alarm_subscribe_calls = 0u;
 
     (void) memset(&g_spy_fd_reading, 0, sizeof(g_spy_fd_reading));
@@ -1163,6 +1170,37 @@ void test_CP_T25_cleared_alarm_reports_the_limit_that_was_raised(void)
     TEST_ASSERT_EQUAL_STRING("pressure", ev.sensor_name);
     TEST_ASSERT_EQUAL(CP_ALARM_TYPE_CLEAR, ev.alarm_type);
     TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_LOW, g_spy_alarm_limit_event);
+}
+
+void test_CP_T27_fd_alarm_flags_become_field_device_alarms(void)
+{
+    g_cfg.fd_slave_addr = 1u;
+    g_spy_fd_return = MODBUS_POLLER_ERR_OK;
+    g_spy_fd_reading.humidity_centi_pct = 8123u;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_NOT_NULL(g_spy_fd_alarm_cb);
+
+    /* HUMIDITY_HIGH (bit 3) rises. */
+    g_mock_xQueueSend_last_item_size = sizeof(cp_alarm_event_t);
+    g_spy_fd_alarm_cb(1u, 0x0000u, 0x0008u);
+    cp_alarm_event_t ev;
+    (void) memcpy(&ev, g_mock_xQueueSend_last_item, sizeof(ev));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xQueueSend_call_count);
+    TEST_ASSERT_EQUAL_STRING("humidity", ev.sensor_name);
+    TEST_ASSERT_EQUAL(CP_ALARM_TYPE_HIGH, ev.alarm_type);
+    TEST_ASSERT_EQUAL(CP_ALARM_SOURCE_FIELD_DEVICE, ev.source);
+    TEST_ASSERT_EQUAL_INT32(8123, ev.measured_value_raw);
+
+    /* The same bit falls, TEMP_LOW (bit 0) rises: two events, the clear first by bit order. */
+    g_mock_xQueueSend_call_count = 0u;
+    g_spy_fd_alarm_cb(1u, 0x0008u, 0x0001u);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_mock_xQueueSend_call_count);
+
+    /* Another slave's flags are not ours. */
+    g_mock_xQueueSend_call_count = 0u;
+    g_spy_fd_alarm_cb(7u, 0x0000u, 0x0001u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xQueueSend_call_count);
 }
 
 void test_CP_T26_alarm_for_unthresholded_sensor_is_ignored(void)
