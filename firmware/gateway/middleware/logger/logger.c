@@ -119,6 +119,26 @@ static bool level_in_range(log_level_t level);
 static void fill_module(char *dst, const char *src);
 static void fill_message(char *dst, const char *src);
 static void capture_timestamp(log_entry_t *e);
+static logger_sink_t s_sink;
+
+void logger_set_sink(logger_sink_t sink)
+{
+    s_sink = sink;
+}
+
+/* One place that decides where a finished line goes: the registered sink (the console's log
+ * panel) or, with none, the debug UART directly. */
+static bool prv_write(const uint8_t *data, uint16_t len)
+{
+    const logger_sink_t sink = s_sink;
+
+    if (sink != NULL)
+    {
+        return sink(data, len);
+    }
+    return DEBUG_UART_OK == debug_uart_send(data, len, portMAX_DELAY);
+}
+
 static void drain_task_body(void *arg);
 
 LOGGER_TEST_VISIBLE uint16_t format_line(const log_entry_t *e, char *out, size_t out_size);
@@ -258,7 +278,7 @@ static void drain_task_body(void *arg)
         if (xQueueReceive(s_queue, &entry, portMAX_DELAY) == pdTRUE)
         {
             uint16_t len = format_line(&entry, out, sizeof(out));
-            if (DEBUG_UART_OK != debug_uart_send((const uint8_t *) out, len, portMAX_DELAY))
+            if (!prv_write((const uint8_t *) out, len))
             {
                 taskENTER_CRITICAL();
                 s_dropped++;
@@ -341,7 +361,7 @@ void logger_log(log_level_t level, const char *module, const char *msg)
          * format via format_line() — same line shape as the drain task. */
         char out[LOGGER_OUT_BUF_MAX];
         uint16_t len = format_line(&e, out, sizeof(out));
-        if (DEBUG_UART_OK != debug_uart_send((const uint8_t *) out, len, portMAX_DELAY))
+        if (!prv_write((const uint8_t *) out, len))
         {
             taskENTER_CRITICAL();
             s_dropped++;
@@ -407,6 +427,7 @@ void logger_reset_for_test(void)
     s_log.initialised = false;
     s_log.level = LOG_LEVEL_ERROR;
     s_dropped = 0U;
+    s_sink = NULL;
     s_queue = NULL;
     s_drain_task = NULL;
     (void) memset(&s_queue_ctrl, 0, sizeof(s_queue_ctrl));
@@ -429,7 +450,7 @@ void logger_drain_once_for_test(void)
     {
         char out[LOGGER_OUT_BUF_MAX];
         uint16_t len = format_line(&entry, out, sizeof(out));
-        if (DEBUG_UART_OK != debug_uart_send((const uint8_t *) out, len, portMAX_DELAY))
+        if (!prv_write((const uint8_t *) out, len))
         {
             taskENTER_CRITICAL();
             s_dropped++;

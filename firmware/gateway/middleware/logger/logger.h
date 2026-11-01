@@ -65,6 +65,20 @@ typedef enum
 /* Public API                                                             */
 /* ====================================================================== */
 
+/**
+ * @brief Where finished log lines go. Return false if the line could not be written.
+ *
+ * The line is complete ("[LEVEL][time][module] message\r\n"). Called from the drain task, or from
+ * the caller before the scheduler runs.
+ */
+typedef bool (*logger_sink_t)(const uint8_t *data, uint16_t len);
+
+/**
+ * @brief Route finished log lines to @p sink instead of the debug UART; NULL restores the UART.
+ * @note The console uses this to draw the lines in its log panel.
+ */
+void logger_set_sink(logger_sink_t sink);
+
 /** @see logger.md §2.1 */
 logger_err_t logger_init(log_level_t initial_level);
 

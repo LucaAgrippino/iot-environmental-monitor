@@ -106,9 +106,9 @@
 #define WIFI_BOOT0_PORT GPIO_PORT_B
 #define WIFI_BOOT0_PIN (12U)
 
-/* The console owns the debug UART (460800 baud, a full-screen terminal UI) and shows the log inside
- * itself. GATEWAY_WITH_CONSOLE=0 leaves it out for a plain 115200 baud log while debugging; it also
- * frees the console's SRAM2 buffers and its task stack. */
+/* The console owns the debug UART (460800 baud, a three-panel terminal console) and shows the log
+ * in its centre panel. GATEWAY_WITH_CONSOLE=0 leaves it out for a plain 115200 baud log while
+ * debugging; it also frees the console's task stack. */
 #ifndef GATEWAY_WITH_CONSOLE
 #define GATEWAY_WITH_CONSOLE (1)
 #endif
@@ -129,6 +129,9 @@
 #define REPORT_STACK_WORDS (320U) /* measured 169 words used */
 #define REPORT_PRIORITY (1U)
 #define REPORT_PERIOD_MS (60000U)
+/* The same task keeps HealthMonitor's WiFi signal strength current: the console header and
+ * `wifi status` read it, and nothing else feeds it. */
+#define RSSI_PERIOD_MS (5000U)
 #define REPORT_MAX_TASKS (20U)
 #define REPORT_LOW_WORDS (48U) /* below this many free words a task gets a warning */
 
@@ -273,13 +276,34 @@ static uint32_t report_slot(const char *name)
     return empty;
 }
 
+/* A failed read (not joined, module busy) reports 0, which every reader takes as "no signal". */
+static void feed_wifi_rssi(void)
+{
+    int8_t rssi = 0;
+
+    if ((s_wifitask == NULL) || (wifitask_get_rssi(s_wifitask, &rssi) != WIFITASK_ERR_OK))
+    {
+        rssi = 0;
+    }
+    (void) health_monitor_update_wifi_rssi(s_hm, rssi);
+}
+
 static void report_task(void *arg)
 {
     (void) arg;
 
+    uint32_t since_report_ms = 0U;
+
     for (;;)
     {
-        vTaskDelay(pdMS_TO_TICKS(REPORT_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(RSSI_PERIOD_MS));
+        feed_wifi_rssi();
+        since_report_ms += RSSI_PERIOD_MS;
+        if (since_report_ms < REPORT_PERIOD_MS)
+        {
+            continue;
+        }
+        since_report_ms = 0U;
 
         const UBaseType_t n = uxTaskGetSystemState(s_status, REPORT_MAX_TASKS, NULL);
 

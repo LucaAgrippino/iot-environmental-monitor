@@ -1,12 +1,12 @@
 /**
  * @file main_host.c
- * @brief Host simulator for the Gateway console TUI.
+ * @brief Host simulator for the Gateway three-panel console.
  *
  * Builds the real console_service.c and core/ against fake services (random-walking sensors, a
  * ConfigService stand-in that really applies thresholds) so the whole interface can be iterated
  * in a terminal, or scripted and captured, without flashing. See build.sh.
  *
- *   ./envmon-console-sim                    interactive: 88x30+ truecolor terminal, Ctrl-C to quit
+ *   ./envmon-console-sim                    interactive: a 100x36+ terminal, Ctrl-C to quit
  *   ./envmon-console-sim 6 '\r' 'help\r'    scripted: each argument is typed, then one 1 Hz tick;
  *                                           the raw escape stream goes to stdout
  *
@@ -19,6 +19,7 @@
 
 #include "console_service.h"
 #include "console_service/port/console_port.h"
+#include "console_service/core/screen.h"
 
 /* ---- fake system -------------------------------------------------------- */
 
@@ -51,6 +52,20 @@ static void walk(void)
         s_snap.readings[i].timestamp.epoch += 1U;
     }
     s_health.uptime_s += 1U;
+}
+
+/* Stands in for the Logger task: one line every third second, as the log sink would deliver it. */
+static void sim_log(uint32_t tick)
+{
+    char line[96];
+
+    if ((tick % 3U) != 0U)
+    {
+        return;
+    }
+    (void) snprintf(line, sizeof(line), "\x1b[32m[INFO ]\x1b[0m[12:%02u:%02u][sim] heartbeat %u\r\n",
+                    (unsigned) ((tick / 60U) % 60U), (unsigned) (tick % 60U), (unsigned) tick);
+    screen_log(line, strlen(line));
 }
 
 static sensor_service_err_t sim_snapshot(sensor_snapshot_t *s)
@@ -255,12 +270,6 @@ int main(int argc, char **argv)
         return 1;
     }
     s_scripted = (argc > 1);
-    for (int i = 0; i < 92; i++) /* fill the chart history with data ticks */
-    {
-        walk();
-        (void) console_service_cycle_for_test(1UL << 1);
-    }
-
     (void) console_service_cycle_for_test(1UL << 1);
     if (s_scripted)
     {
@@ -273,6 +282,7 @@ int main(int argc, char **argv)
             s_ms += 50U;
             (void) console_service_cycle_for_test(1UL << 0);
             walk();
+            sim_log((uint32_t) i);
             (void) console_service_cycle_for_test(1UL << 1);
         }
         return 0;
@@ -294,11 +304,8 @@ int main(int argc, char **argv)
         if ((tick % 10U) == 9U)
         {
             walk();
+            sim_log(tick / 10U);
             bits |= 1UL << 1;
-        }
-        if ((tick % 5U) == 4U)
-        {
-            bits |= 1UL << 2;
         }
         (void) console_service_cycle_for_test(bits);
     }

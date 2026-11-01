@@ -20,24 +20,24 @@
  * broker and certificates from certs/bringup_certs.h, as in the other harnesses) and a small
  * "link monitor" task stands in for the producers a Gateway main() will have: it feeds the WiFi
  * signal strength and the broker connect / disconnect events into HealthMonitor, so the banner
- * dots, the status panels and `wifi status` / `mqtt status` show the real links. The Modbus link
+ * dots, the header and `wifi status` / `mqtt status` show the real links. The Modbus link
  * stays offline: there is no Field Device in this setup, which is the true state. If the secrets
  * are missing or WiFi cannot be reached the console still runs and the dots stay red.
  *
- * The console owns the ST-Link virtual COM port (USART1, 115 200 8N1), so nothing else is
- * printed. Drive it from a terminal that is at least 88 x 30 and supports truecolor, or from
- * scripts/console_bench.py, which sends keystrokes and renders the screen.
+ * The console owns the ST-Link virtual COM port (USART1, 460 800 8N1). Drive it from a
+ * terminal of at least 100 x 36 that supports scroll regions (`term <rows> <cols>` fits other
+ * sizes), or from scripts/console_bench.py, which sends keystrokes and renders the screen. This
+ * harness does not start the Logger, so the centre (log) panel stays empty here.
  *
- * Checks (manual or scripted, see the LLD §23):
- *   IT-GCS-001  the TUI appears within 2 s of reset: banner, menu, chart
- *   IT-GCS-003..007  navigation, focus, channel cycling
- *   IT-GCS-008  the chart cools / warms with the real sensor and `set t.hi <value near it>`
- *   IT-GCS-009..011  status, alarms, network panels filled from the live system
- *   IT-GCS-012..014  help, sensors, set
- *   IT-GCS-018  selftest
- *   IT-GCS-019  profiles list
- *   IT-GCS-024  reboot
- *   persistence: `set t.hi 31`, reset, `thresholds` still shows 31.0
+ * Checks (manual or scripted, see scripts/console_bench.py, PN-001..PN-074):
+ *   PN-001..008  header, rule, divider, prompt, typing, cursor
+ *   PN-010..016  command echo and answer in the south panel, Up recalls
+ *   PN-020..023  log lines in the centre panel, key latency
+ *   PN-030..032  Ctrl-L repaint, `term`
+ *   PN-040..048  set, thresholds, selftest, profiles
+ *   PN-050..053  WiFi, MQTT, Modbus against reality
+ *   PN-060..064  provisioning confirm, timeout, decline
+ *   PN-070..074  reboot and persistence
  */
 
 #include <stdbool.h>

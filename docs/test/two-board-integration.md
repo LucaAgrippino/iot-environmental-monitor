@@ -58,13 +58,13 @@ settle it.
 
 | Item | Notes |
 |---|---|
-| Field Device | STM32F469I-DISCO with the **lifecycle-controller harness**: it is the `Debug` configuration of `firmware/field-device` today, and wires the real drivers, HealthMonitor, Logger, ConfigService, the register map with the real sensor, alarm and time providers, and `ModbusSlave` behind a bridge. There is no production `main()` on the Field Device. Build it with the CubeIDE `Debug` configuration. Include PR #131 for the time handler |
+| Field Device | STM32F469I-DISCO with the application image of `firmware/field-device/Src/main.c` (2026-11-01, `docs/lld/application/field-device-main.md`): the real drivers, HealthMonitor, Logger, ConfigService, the register map with the real sensor, alarm and time providers, `ModbusSlave` and a SensorTask. Build and flash with `scripts/build-fd-app.sh --flash` (the CubeIDE `Debug` configuration still links the old harness). Never run on the board yet: bring it up alone first |
 | Gateway | B-L475E-IOT01A with the production image (PR #124 and the stack, section 6 of the merge plan) and the real credential headers; the bootloader is not required for this test (`scripts/build-gateway-app.sh --flash`) |
 | RS-485 | Two TTL-to-RS-485 modules (3.3 V), a twisted pair, Dupont wires |
 | Dongle | The CH340 USB-to-RS-485 dongle: used **listen only** during the Gateway tests, as a master only in 2B-001 |
 | Analyser | The 8-channel logic analyser (24 MHz): TX, RX and DE/RE of the Gateway side |
 | Laptop | The Mosquitto broker with the operator certificate (`scripts/start-mosquitto-ota.sh` and `scripts/make-operator-cert.sh`, or the plain `scripts/start-mosquitto-tls.sh`), Python with `pyserial`, `paho-mqtt`, `minimalmodbus` |
-| UART logs | Gateway: its ST-LINK port, 115200 8N1 (build with `-DGATEWAY_WITH_CONSOLE=0` for a plain log). Field Device: its ST-LINK port, 115200 8N1 |
+| UART logs | Gateway: its ST-LINK port at 460800 8N1: the logs are in the console's centre panel (`picocom -b 460800`). Field Device: its ST-LINK port, 115200 8N1, plain log |
 
 ## 4. Wiring
 

@@ -70,19 +70,6 @@ bool commands_confirm_active(void);
 /** @brief True when the pending y/N prompt asks whether to reboot. */
 bool commands_confirm_is_reboot(void);
 
-/** @brief Ask "Reboot?" (y/N, same timeout as the other prompts). Used by the Firmware panel. */
-void commands_request_reboot_confirm(void);
-
-/**
- * @brief Check for a firmware update. No update source exists on the Gateway yet, so this
- *        records and logs "not available"; the text stays readable through
- *        commands_fw_check_result().
- */
-console_service_err_t commands_fw_check(void);
-
-/** @brief Result line of the last update check, or NULL if none was run. */
-const char *commands_fw_check_result(void);
-
 /**
  * @brief Answer the prompt: apply the staged change (yes) or discard it (no).
  * @return The apply result; CONSOLE_SERVICE_OK for a decline.
@@ -98,7 +85,10 @@ console_service_err_t commands_tick(void);
 /** @brief True once after a command changed the configuration and a flash write is due. */
 bool commands_take_persist_due(void);
 
-/** @brief True once after `reboot`; the service tears the screen down and resets. */
+/** @brief True once after `term` changed the layout size: the screen must be redrawn. */
+bool commands_take_redraw_request(void);
+
+/** @brief True once after `reboot`; the service gives the terminal back and resets. */
 bool commands_take_reboot_request(void);
 
 /** @brief Whether provisioning changes are staged. */
