@@ -9,6 +9,8 @@
 #
 # usage: scripts/build-fd-app.sh [--flash]
 #   --flash   program the STM32F469I-DISCO with openocd (ST-LINK on the board) and reset it
+#   MAIN      source file to use instead of Src/main.c, e.g. an integration-tests/<module>/*main.c bring-up
+#             harness (it is built with all product sources; output stays in Debug/app)
 #   ST_SERIAL ST-LINK serial number to use when several boards are attached (ls /dev/serial/by-id)
 set -euo pipefail
 
@@ -36,7 +38,7 @@ common=(-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -std=gnu11 -g
 
 mapfile -t layer_srcs < <(find "$fd/application" "$fd/drivers" "$fd/middleware" -name '*.c' | sort)
 project_srcs=(
-  "$fd/Src/main.c" "${layer_srcs[@]}"
+  "${MAIN:-$fd/Src/main.c}" "${layer_srcs[@]}"
   "$fd/Src/freertos_hooks.c" "$fd/Src/syscalls.c" "$fd/Src/sysmem.c" "$fd/Src/system_clock.c"
   "$cmsis/Device/ST/STM32F4xx/Source/Templates/system_stm32f4xx.c"
   "$v/freertos-kernel/croutine.c" "$v/freertos-kernel/event_groups.c" "$v/freertos-kernel/list.c"
