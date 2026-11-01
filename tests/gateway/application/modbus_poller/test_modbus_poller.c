@@ -896,6 +896,22 @@ void test_TC_MP_035_run_starts_master_polls_and_delays_by_the_period(void)
     TEST_ASSERT_EQUAL_UINT32(1U, s_update_calls);
 }
 
+void test_TC_MP_052_poll_period_can_change_while_running(void)
+{
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_NOT_INIT, modbus_poller_set_poll_period(200U));
+    init_ok();
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_INVALID_ARG, modbus_poller_set_poll_period(0U));
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_set_poll_period(200U));
+
+    s_escape_after = 2U;
+    if (setjmp(s_escape) == 0)
+    {
+        modbus_poller_run();
+        TEST_FAIL_MESSAGE("modbus_poller_run() returned");
+    }
+    TEST_ASSERT_EQUAL_UINT32(200U, g_mock_vTaskDelayUntil_last_increment);
+}
+
 /* ===================================================================== */
 /* ALARM_FLAGS (0x0031): transitions reach the callback (B3, SD-05)      */
 /* ===================================================================== */

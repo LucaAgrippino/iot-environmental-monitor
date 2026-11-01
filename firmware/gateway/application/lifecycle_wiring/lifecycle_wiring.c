@@ -469,6 +469,55 @@ static const lc_health_admin_if_t k_health_admin = {
 /* Public API                                                               */
 /* ======================================================================= */
 
+/* ======================================================================= */
+/* Later configuration changes (WP12 D-13, CFG-O8)                          */
+/* ======================================================================= */
+
+/* Runs in the task that changed the parameter, with the configuration mutex released. The
+ * services copy what they need inside their own reconfigure call, so the mutex is held for that
+ * call to read a consistent set. Boot values are applied by the init steps above. */
+static void prv_config_changed(config_param_id_t id)
+{
+    config_service_lock();
+    const config_params_t *const p = config_service_get_params();
+
+    switch (id)
+    {
+    case CONFIG_PARAM_POLL_INTERVAL:
+    case CONFIG_PARAM_FILTER_ALPHA:
+    case CONFIG_PARAM_TEMP_RANGE_MIN:
+    case CONFIG_PARAM_TEMP_RANGE_MAX:
+    case CONFIG_PARAM_HUMIDITY_RANGE_MIN:
+    case CONFIG_PARAM_HUMIDITY_RANGE_MAX:
+    case CONFIG_PARAM_PRESSURE_RANGE_MIN:
+    case CONFIG_PARAM_PRESSURE_RANGE_MAX:
+        (void) sensor_service_reconfigure(p);
+        break;
+    case CONFIG_PARAM_TEMP_ALARM_HIGH:
+    case CONFIG_PARAM_TEMP_ALARM_LOW:
+    case CONFIG_PARAM_TEMP_HYSTERESIS:
+    case CONFIG_PARAM_HUMIDITY_ALARM_HIGH:
+    case CONFIG_PARAM_HUMIDITY_ALARM_LOW:
+    case CONFIG_PARAM_HUMIDITY_HYSTERESIS:
+    case CONFIG_PARAM_PRESSURE_ALARM_HIGH:
+    case CONFIG_PARAM_PRESSURE_ALARM_LOW:
+    case CONFIG_PARAM_PRESSURE_HYSTERESIS:
+        (void) alarm_service_reconfigure(p);
+        break;
+    case CONFIG_PARAM_NTP_SERVERS:
+    case CONFIG_PARAM_NTP_SERVER_COUNT:
+    case CONFIG_PARAM_NTP_INTERVAL_MIN:
+        time_service_reconfigure(p);
+        break;
+    case CONFIG_PARAM_MODBUS_POLL_PERIOD:
+        (void) modbus_poller_set_poll_period(p->modbus_poll_period_ms);
+        break;
+    default:
+        break; /* broker, intervals of the cloud, slave address: other owners */
+    }
+    config_service_unlock();
+}
+
 lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
                                       lifecycle_deps_t *deps_out)
 {
@@ -498,6 +547,11 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
          (config->firmware_ops->rollback == NULL)))
     {
         return LIFECYCLE_ERR_NULL_ARG;
+    }
+
+    if (config_service_register_change_cb(prv_config_changed) != CONFIG_SERVICE_OK)
+    {
+        return LIFECYCLE_ERR_QUEUE_FULL; /* no callback slot left */
     }
 
     s_cfg = *config;
