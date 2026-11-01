@@ -9,6 +9,7 @@
 #
 # usage: scripts/build-fd-app.sh [--flash]
 #   --flash   program the STM32F469I-DISCO with openocd (ST-LINK on the board) and reset it
+#   ST_SERIAL ST-LINK serial number to use when several boards are attached (ls /dev/serial/by-id)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -69,6 +70,6 @@ if [[ "${1:-}" == "--flash" ]]; then
     p=/opt/st/stm32cubeide_2.2.0/plugins
     "$p"/com.st.stm32cube.ide.mcu.externaltools.openocd.linux64_*/tools/bin/openocd \
         -s "$(echo "$p"/com.st.stm32cube.ide.mcu.debug.openocd_*/resources/openocd/st_scripts)" \
-        -f interface/stlink-dap.cfg -c "transport select dapdirect_swd" -f target/stm32f4x.cfg \
-        -c "program $out/field_device_app.elf verify reset exit"
+        -f interface/stlink-dap.cfg ${ST_SERIAL:+-c "adapter serial $ST_SERIAL"} \
+        -c "transport select dapdirect_swd" -f target/stm32f4x.cfg -c "program $out/field_device_app.elf verify reset exit"
 fi
