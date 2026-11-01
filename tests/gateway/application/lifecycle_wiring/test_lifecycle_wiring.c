@@ -150,6 +150,16 @@ static alarm_service_err_t spy_alarm_get_state(sensor_id_t sensor, alarm_state_t
     return s_alarm_state_result;
 }
 
+static alarm_service_err_t s_alarm_reconfigure_result;
+static uint32_t s_alarm_reconfigure_calls;
+
+alarm_service_err_t alarm_service_reconfigure(const config_params_t *params)
+{
+    (void) params;
+    s_alarm_reconfigure_calls++;
+    return s_alarm_reconfigure_result;
+}
+
 static const ialarm_service_t s_alarm_vtable = {.get_state = spy_alarm_get_state};
 const ialarm_service_t *const alarm_service = &s_alarm_vtable;
 
@@ -441,6 +451,8 @@ void setUp(void)
     s_reconf_params_seen = NULL;
     s_sensor_ready = true;
     s_alarm_state_result = ALARM_SERVICE_ERR_OK;
+    s_alarm_reconfigure_result = ALARM_SERVICE_ERR_OK;
+    s_alarm_reconfigure_calls = 0U;
     s_cloud_ready = true;
     s_cloud_flush_result = CP_ERR_OK;
     s_cloud_flush_calls = 0U;
@@ -746,6 +758,13 @@ void test_LW_035_alarms_init_verifies_the_service_is_up(void)
     TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.alarms->init(NULL));
 
     s_alarm_state_result = ALARM_SERVICE_ERR_NOT_INIT;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.alarms->init(NULL));
+
+    s_alarm_state_result = ALARM_SERVICE_ERR_OK;
+    s_alarm_reconfigure_calls = 0U;
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.alarms->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reconfigure_calls); /* thresholds from the config */
+    s_alarm_reconfigure_result = ALARM_SERVICE_ERR_INVALID_ARG;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.alarms->init(NULL));
 }
 

@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config_service/config_params.h"
 #include "sensor_service/sensor_service.h"
 
 /* ======================================================================= */
@@ -63,6 +64,19 @@ typedef enum
  * @note Threading: call before the scheduler starts.
  */
 alarm_service_err_t alarm_service_init(void);
+
+/**
+ * @brief Take the thresholds and hysteresis from the configuration (SS-O6, WP12 D-3).
+ *
+ * Same shape as sensor_service_reconfigure() (SS-D20). The values are trusted: ConfigService
+ * validates the band and the hysteresis (CFG-D7). An alarm that is active stays active; the new
+ * limits apply from the next sample (WP12 D-5).
+ *
+ * @param[in] params  Live configuration.
+ * @return ALARM_SERVICE_ERR_OK; _NOT_INIT before alarm_service_init(); _NULL_ARG.
+ * @note Threading: any task; the three limit sets change inside one critical section.
+ */
+alarm_service_err_t alarm_service_reconfigure(const config_params_t *params);
 
 /**
  * @brief Get the alarm state of one sensor.
