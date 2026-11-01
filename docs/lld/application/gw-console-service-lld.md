@@ -1459,12 +1459,12 @@ ST-Link VCP at 115200 8N1.
 
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
-| **CS-O4** | GW `components.md` entry omits `IConfigManager` | Follow-up PR to correct `components.md` | Open |
+| **CS-O4** | GW `components.md` entry omits `IConfigManager` | **Closed 2026-10-31 (WP12):** the Gateway `ConsoleService` entry in `components.md` now lists `IConfigManager`. | Closed |
 | **CS-O5** | Self-test depth: driver-level loopback not in interface list | Evaluate at integration | Open |
 | **CS-O6** | Certificate provisioning (REQ-LI-060) multi-line paste mode | Define `prov cert-begin` / `prov cert-end` UX at implementation | Open |
 | **CS-O7** | Confirm-prompt blocking read timeout mechanism | Implemented with the data-tick counter (30 ticks at 1 Hz), TC-GCS-149 / 166. | Closed |
 | **CS-O8** | `profiles add` input format | **Closed (WP8):** key=value (`addr=`, `map=`, `vendor=`, `desc=`) | Closed |
-| **CS-O9** | GW `components.md` entry omits `IAlarmService` and lists `DeviceProfileRegistry` instead of ISP-split interfaces | Follow-up PR alongside CS-O4 | Open |
+| **CS-O9** | GW `components.md` entry omits `IAlarmService` and lists `DeviceProfileRegistry` instead of ISP-split interfaces | **Closed 2026-10-31 (WP12):** the entry lists `IAlarmService`, `IDeviceProfileProvider` and `IDeviceProfileManager`, as the note above prescribes. | Closed |
 | **GW-CS-O1** | Cell grid RAM (62 KB for two grids) | Closed by GCS-D5: palette-indexed 3-byte cells, 11.6 KB for both grids, 26 KB static in total. | Closed |
 | **GW-CS-O2** | 256-colour fallback mapping — token table defined but per-column proximity mapping needs manual verification against target terminals | Test with PuTTY and minicom | Open |
 | **GCS-O4** | WiFi credentials (`prov set wifi-ssid / wifi-pass`) have no back-end: no credential store exists on the Gateway. | Needs its own design pass (storage, encryption, WifiTask hand-off). | Open |
