@@ -78,6 +78,7 @@ static const cfg_key_t s_cfg_keys[] = {
     {"telemetry-interval-ms", CONFIG_PARAM_TELEMETRY_INTERVAL, K_U32, 1, 0U},
     {"health-interval-ms", CONFIG_PARAM_HEALTH_INTERVAL, K_U32, 1, 0U},
     {"mqtt-port", CONFIG_PARAM_MQTT_PORT, K_U16, 1, 0U},
+    {"ntp-interval-min", CONFIG_PARAM_NTP_INTERVAL_MIN, K_U16, 1, 0U},
     {"temp-range-min", CONFIG_PARAM_TEMP_RANGE_MIN, K_I16, 100, 1U},
     {"temp-range-max", CONFIG_PARAM_TEMP_RANGE_MAX, K_I16, 100, 1U},
     {"humidity-range-min", CONFIG_PARAM_HUMIDITY_RANGE_MIN, K_U16, 100, 1U},
@@ -656,6 +657,8 @@ static int32_t prv_cfg_current(const config_params_t *p, config_param_id_t id)
         return (int32_t) p->health_interval_ms;
     case CONFIG_PARAM_MQTT_PORT:
         return (int32_t) p->mqtt_port;
+    case CONFIG_PARAM_NTP_INTERVAL_MIN:
+        return (int32_t) p->ntp_interval_min;
     case CONFIG_PARAM_TEMP_RANGE_MIN:
         return p->temp_range_min;
     case CONFIG_PARAM_TEMP_RANGE_MAX:

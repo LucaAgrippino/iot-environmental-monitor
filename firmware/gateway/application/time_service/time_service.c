@@ -51,6 +51,12 @@
 static const char *const s_ntp_servers[] = {"162.159.200.1", "216.239.35.0"};
 #define TS_NTP_SERVER_COUNT ((uint8_t) (sizeof(s_ntp_servers) / sizeof(s_ntp_servers[0])))
 
+/* Servers from the configuration (TS-O4); count 0 = use s_ntp_servers. Written by
+ * time_service_reconfigure(), copied by the sync task under a critical section. */
+static char s_cfg_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];
+static uint8_t s_cfg_server_count;
+static uint32_t s_cfg_interval_s = TIME_SERVICE_NTP_INTERVAL_S_DEFAULT;
+
 static struct
 {
     bool initialised;
@@ -59,6 +65,7 @@ static struct
     TaskHandle_t task_handle;
     TimerHandle_t ntp_timer;
     uint32_t interval_s;
+    bool timer_armed; /**< The periodic timer was started by prv_arm_timer(). */
 } s_ts;
 
 static StackType_t s_task_stack[TS_TASK_STACK_WORDS];
@@ -95,7 +102,7 @@ time_service_err_t time_service_init(ntp_client_handle_t ntp)
 
     s_ts.ntp = ntp;
     s_ts.sync_state = TIME_SERVICE_SYNC_NEVER;
-    s_ts.interval_s = TIME_SERVICE_NTP_INTERVAL_S_DEFAULT;
+    s_ts.interval_s = s_cfg_interval_s;
 
     s_fd_resp_queue = xQueueCreateStatic(1U, (UBaseType_t) sizeof(modbus_command_response_t),
                                          s_fd_resp_buf, &s_fd_resp_queue_storage);
@@ -114,6 +121,33 @@ time_service_err_t time_service_init(ntp_client_handle_t ntp)
     return TIME_SERVICE_OK;
 }
 
+void time_service_reconfigure(const config_params_t *params)
+{
+    if (params == NULL)
+    {
+        return;
+    }
+
+    const uint32_t interval_s = (uint32_t) params->ntp_interval_min * 60U;
+
+    taskENTER_CRITICAL();
+    s_cfg_server_count = (params->ntp_server_count <= CONFIG_MAX_NTP_SERVERS)
+                             ? params->ntp_server_count
+                             : (uint8_t) CONFIG_MAX_NTP_SERVERS;
+    (void) memcpy(s_cfg_servers, params->ntp_servers, sizeof(s_cfg_servers));
+    s_cfg_interval_s = (interval_s > 0U) ? interval_s : TIME_SERVICE_NTP_INTERVAL_S_DEFAULT;
+    taskEXIT_CRITICAL();
+
+    if (s_ts.initialised)
+    {
+        s_ts.interval_s = s_cfg_interval_s;
+        if (s_ts.timer_armed)
+        {
+            prv_arm_timer(); /* the new period applies from now */
+        }
+    }
+}
+
 const itime_service_t *time_service_get_interface(void)
 {
     return s_ts.initialised ? &s_vtable : NULL;
@@ -127,6 +161,7 @@ static void prv_arm_timer(void)
 {
     const TickType_t period = pdMS_TO_TICKS(s_ts.interval_s * TS_MS_PER_S);
     (void) xTimerChangePeriod(s_ts.ntp_timer, period, portMAX_DELAY);
+    s_ts.timer_armed = true;
 }
 
 /* Boot sequence (TS-D3): attempt a sync at once, then start the periodic timer. */
@@ -200,8 +235,34 @@ static bool prv_rtc_is_reference(uint32_t *epoch_out)
 static time_service_err_t prv_do_ntp_sync(void)
 {
     uint32_t new_utc = 0U;
-    const ntp_client_err_t ntp_rc =
-        ntp_client_query(s_ts.ntp, s_ntp_servers, TS_NTP_SERVER_COUNT, &new_utc);
+    char local[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];
+    const char *list[CONFIG_MAX_NTP_SERVERS];
+    uint8_t count = 0U;
+
+    /* A copy, so a reconfigure during the (seconds-long) query cannot change a name under it. */
+    taskENTER_CRITICAL();
+    count = s_cfg_server_count;
+    (void) memcpy(local, s_cfg_servers, sizeof(local));
+    taskEXIT_CRITICAL();
+
+    if (count > 0U)
+    {
+        for (uint8_t i = 0U; i < count; i++)
+        {
+            local[i][CONFIG_MAX_NTP_HOST_LEN - 1U] = '\0';
+            list[i] = local[i];
+        }
+    }
+    else
+    {
+        count = TS_NTP_SERVER_COUNT;
+        for (uint8_t i = 0U; i < count; i++)
+        {
+            list[i] = s_ntp_servers[i];
+        }
+    }
+
+    const ntp_client_err_t ntp_rc = ntp_client_query(s_ts.ntp, list, count, &new_utc);
     if (ntp_rc != NTP_CLIENT_ERR_OK)
     {
         if (s_ts.sync_state != TIME_SERVICE_SYNC_NEVER)
@@ -301,6 +362,8 @@ static void prv_trigger_retry(void *ctx)
 #ifdef TEST
 void time_service_reset_for_test(void)
 {
+    s_cfg_server_count = 0U;
+    s_cfg_interval_s = TIME_SERVICE_NTP_INTERVAL_S_DEFAULT;
     (void) memset(&s_ts, 0, sizeof(s_ts));
     (void) memset(&s_vtable, 0, sizeof(s_vtable));
     s_fd_resp_queue = NULL;

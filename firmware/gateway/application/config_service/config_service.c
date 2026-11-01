@@ -33,6 +33,7 @@
 #define DEFAULT_MQTT_PORT (8883U)
 #define DEFAULT_TELEMETRY_INTERVAL_MS (60000U)
 #define DEFAULT_HEALTH_INTERVAL_MS (600000U)
+#define DEFAULT_NTP_INTERVAL_MIN (60U)
 
 #define POLL_MS_MIN (100)
 #define POLL_MS_MAX (60000)
@@ -47,6 +48,8 @@
 #define HEALTH_MS_MIN (10000)
 #define HEALTH_MS_MAX (86400000)
 #define NTP_COUNT_MIN (1)
+#define NTP_INTERVAL_MIN_MIN (1)
+#define NTP_INTERVAL_MIN_MAX (1440)
 
 /* Alarm band rule: high - low must exceed twice the hysteresis (CFG-D7). */
 #define HYSTERESIS_BAND_FACTOR (2)
@@ -104,6 +107,7 @@ static const field_desc_t s_fields[CONFIG_PARAM_COUNT] = {
     [CONFIG_PARAM_HEALTH_INTERVAL] = FIELD(health_interval_ms, KIND_U32),
     [CONFIG_PARAM_NTP_SERVERS] = FIELD(ntp_servers, KIND_NTP_BLOCK),
     [CONFIG_PARAM_NTP_SERVER_COUNT] = FIELD(ntp_server_count, KIND_U8),
+    [CONFIG_PARAM_NTP_INTERVAL_MIN] = FIELD(ntp_interval_min, KIND_U16),
 };
 
 /* Sensor channels share one rule set: range, alarm band and hysteresis (CFG-D7, CFG-D10). */
@@ -315,6 +319,8 @@ static bool prv_validate_scalar(config_param_id_t id, int64_t v, const config_pa
         return prv_in_range(v, HEALTH_MS_MIN, HEALTH_MS_MAX);
     case CONFIG_PARAM_NTP_SERVER_COUNT:
         return prv_validate_ntp_count(v, ctx);
+    case CONFIG_PARAM_NTP_INTERVAL_MIN:
+        return prv_in_range(v, NTP_INTERVAL_MIN_MIN, NTP_INTERVAL_MIN_MAX);
     default:
         return false;
     }
@@ -358,6 +364,7 @@ static void prv_apply_defaults(config_params_t *p)
     (void) memset(p, 0, sizeof(*p));
     p->polling_interval_ms = DEFAULT_POLLING_INTERVAL_MS;
     p->filter_alpha = DEFAULT_FILTER_ALPHA;
+    p->ntp_interval_min = DEFAULT_NTP_INTERVAL_MIN;
     p->temp_range_min = -4000;
     p->temp_range_max = 8500;
     p->humidity_range_min = 0U;
