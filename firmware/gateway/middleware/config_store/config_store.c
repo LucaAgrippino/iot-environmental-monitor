@@ -39,12 +39,16 @@
 _Static_assert(CONFIG_STORE_MAX_DATA_BYTES <= CONFIG_STORE_DATA_AREA_SIZE,
                "the largest blob must fit the slot's data area");
 
+/** An erased flash word. */
+#define CS_ERASED_WORD (0xFFFFFFFFU)
+
 /** @brief Result of examining one slot. */
 typedef enum
 {
-    CS_SLOT_VALID = 0,     /**< Magic and CRC both check out.        */
-    CS_SLOT_INVALID = 1,   /**< Erased, torn or corrupt.             */
-    CS_SLOT_READ_ERROR = 2 /**< The flash read itself failed.      */
+    CS_SLOT_VALID = 0,      /**< Magic and CRC both check out.        */
+    CS_SLOT_INVALID = 1,    /**< Erased, torn or corrupt.             */
+    CS_SLOT_READ_ERROR = 2, /**< The flash read itself failed.      */
+    CS_SLOT_ERASED = 3      /**< Header is all 0xFF: never written (LC-O14). */
 } cs_slot_status_t;
 
 /** @brief What was learned about one slot. */
@@ -212,6 +216,10 @@ static cs_slot_info_t cs_eval_slot(const struct config_store_inst *inst, uint8_t
 
     if (cs_get_u32(&hdr[0]) != CONFIG_STORE_MAGIC)
     {
+        if (cs_get_u32(&hdr[0]) == CS_ERASED_WORD)
+        {
+            info.status = CS_SLOT_ERASED;
+        }
         return info;
     }
 
@@ -288,6 +296,13 @@ static config_store_err_t cs_report_none_valid(const struct config_store_inst *i
         cs_push(inst, HEALTH_EVENT_FAULT, FAULT_CONFIG_READ_FAIL);
         LOG_ERROR(CS_LOG_MODULE, "no slot could be read");
         return CONFIG_STORE_ERR_FLASH_READ;
+    }
+
+    if ((info[0].status == CS_SLOT_ERASED) && (info[1].status == CS_SLOT_ERASED))
+    {
+        /* A fresh device: not a fault, no health event (LC-O14). */
+        LOG_INFO(CS_LOG_MODULE, "no configuration stored yet");
+        return CONFIG_STORE_ERR_NEVER_WRITTEN;
     }
 
     cs_push(inst, HEALTH_EVENT_FAULT, FAULT_CONFIG_NO_VALID_SLOT);
