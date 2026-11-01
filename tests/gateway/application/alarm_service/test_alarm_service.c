@@ -9,11 +9,12 @@
 #include <string.h>
 
 #include "alarm_service.h"
+#include "freertos_mock.h"
 #include "unity.h"
 
-#define TEMP_HIGH (3500)
+#define TEMP_HIGH (4000)
 #define TEMP_LOW (0)
-#define TEMP_HYST (200)
+#define TEMP_HYST (100)
 
 static sensor_service_err_t s_subscribe_result;
 static uint32_t s_subscribe_calls;
@@ -340,4 +341,85 @@ void test_ack_all_clears_alarms_and_a_standing_breach_raises_again(void)
     alarm_service_evaluate(&snap);
     TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, state_of(SENSOR_ID_TEMPERATURE));
     TEST_ASSERT_EQUAL_UINT32(2U, s_event_count);
+}
+
+/* ===================================================================== */
+/* alarm_service_reconfigure (SS-O6, WP12 D-3..D-6)                       */
+/* ===================================================================== */
+
+static config_params_t config_with_temp(int16_t high, int16_t low, int16_t hyst)
+{
+    config_params_t c;
+
+    (void) memset(&c, 0, sizeof(c));
+    c.temp_alarm_high = high;
+    c.temp_alarm_low = low;
+    c.temp_hysteresis = hyst;
+    c.humidity_alarm_high = 8000U;
+    c.humidity_alarm_low = 2000U;
+    c.humidity_hysteresis = 200U;
+    c.pressure_alarm_high = 10500U;
+    c.pressure_alarm_low = 9500U;
+    c.pressure_hysteresis = 50U;
+    return c;
+}
+
+void test_reconfigure_before_init_and_with_null(void)
+{
+    const config_params_t c = config_with_temp(3000, 0, 100);
+
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NOT_INIT, alarm_service_reconfigure(&c));
+    init_with_subscriber();
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NULL_ARG, alarm_service_reconfigure(NULL));
+}
+
+void test_reconfigure_moves_the_limits(void)
+{
+    const config_params_t c = config_with_temp(3000, 500, 100);
+    int32_t limit = 0;
+
+    init_with_subscriber();
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK, alarm_service_reconfigure(&c));
+
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH, &limit));
+    TEST_ASSERT_EQUAL_INT32(3000, limit);
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_LOW, &limit));
+    TEST_ASSERT_EQUAL_INT32(500, limit);
+
+    sensor_snapshot_t snap = snapshot_with(SENSOR_ID_TEMPERATURE, 3100, true);
+    alarm_service_evaluate(&snap); /* above the NEW high (30.00), below the default (40.00) */
+    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, state_of(SENSOR_ID_TEMPERATURE));
+}
+
+void test_reconfigure_keeps_an_active_alarm_and_applies_from_the_next_sample(void)
+{
+    init_with_subscriber();
+    sensor_snapshot_t snap = snapshot_with(SENSOR_ID_TEMPERATURE, 4100, true);
+    alarm_service_evaluate(&snap);
+    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, state_of(SENSOR_ID_TEMPERATURE));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_event_count);
+
+    /* Raise the limit above the reading: the state is kept (D-5) ... */
+    const config_params_t c = config_with_temp(6000, 0, 100);
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK, alarm_service_reconfigure(&c));
+    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, state_of(SENSOR_ID_TEMPERATURE));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_event_count);
+
+    /* ... and the next sample clears it by the usual rule. */
+    alarm_service_evaluate(&snap);
+    TEST_ASSERT_EQUAL(ALARM_STATE_CLEAR, state_of(SENSOR_ID_TEMPERATURE));
+    TEST_ASSERT_EQUAL_UINT32(2U, s_event_count);
+    TEST_ASSERT_EQUAL(ALARM_EVENT_CLEARED, s_event_type[1]);
+}
+
+void test_defaults_match_the_config_params_defaults(void)
+{
+    int32_t limit = 0;
+
+    init_with_subscriber(); /* D-4: 40.00 / 0.00 / 1.00 degC */
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK,
+                      alarm_service_get_limit(SENSOR_ID_TEMPERATURE, ALARM_EVENT_RAISED_HIGH, &limit));
+    TEST_ASSERT_EQUAL_INT32(4000, limit);
 }
