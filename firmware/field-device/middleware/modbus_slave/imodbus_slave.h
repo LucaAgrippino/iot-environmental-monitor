@@ -30,6 +30,8 @@ typedef enum
     MODBUS_SLAVE_ERR_NOT_INIT = 1,
     MODBUS_SLAVE_ERR_NULL_ARG = 2,
     MODBUS_SLAVE_ERR_INVALID_ADDR = 3,
+    MODBUS_SLAVE_ERR_INVALID_VALUE = 4, /* same values as modbus_slave.h, which shares the guard */
+    MODBUS_SLAVE_ERR_DEVICE_FAIL = 5,
 } modbus_slave_err_t;
 #endif /* MODBUS_SLAVE_ERR_DEFINED */
 
