@@ -30,6 +30,7 @@ static uint32_t s_ntp_epoch;
 static uint32_t s_ntp_calls;
 static ntp_client_handle_t s_ntp_handle_seen;
 static uint8_t s_ntp_count_seen;
+static char s_ntp_first_seen[64];
 
 ntp_client_err_t ntp_client_query(ntp_client_handle_t handle, const char *const *server_list,
                                   uint8_t server_count, uint32_t *unix_epoch_out)
@@ -39,6 +40,7 @@ ntp_client_err_t ntp_client_query(ntp_client_handle_t handle, const char *const 
     s_ntp_count_seen = server_count;
     TEST_ASSERT_NOT_NULL(server_list);
     TEST_ASSERT_NOT_NULL(server_list[0]);
+    (void) strncpy(s_ntp_first_seen, server_list[0], sizeof(s_ntp_first_seen) - 1U);
     if (s_ntp_result == NTP_CLIENT_ERR_OK)
     {
         *unix_epoch_out = s_ntp_epoch;
@@ -404,6 +406,41 @@ void test_boot_syncs_then_arms_and_starts_the_timer(void)
     TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(TIME_SERVICE_NTP_INTERVAL_S_DEFAULT * 1000UL),
                              g_mock_xTimerChangePeriod_last_period);
     TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xTimerStart_call_count);
+}
+
+/* TS-O4 / WP12 D-8: servers and interval come from the configuration */
+void test_configured_servers_and_interval_are_used(void)
+{
+    config_params_t cfg;
+
+    (void) memset(&cfg, 0, sizeof(cfg));
+    (void) strcpy(cfg.ntp_servers[0], "time.example.org");
+    (void) strcpy(cfg.ntp_servers[1], "10.1.2.3");
+    cfg.ntp_server_count = 2U;
+    cfg.ntp_interval_min = 15U;
+
+    time_service_reconfigure(&cfg);
+    init_service();
+    time_service_boot_for_test();
+
+    TEST_ASSERT_EQUAL_UINT8(2U, s_ntp_count_seen);
+    TEST_ASSERT_EQUAL_STRING("time.example.org", s_ntp_first_seen);
+    TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(15UL * 60UL * 1000UL),
+                             g_mock_xTimerChangePeriod_last_period);
+}
+
+void test_zero_configured_servers_use_the_builtin_pair(void)
+{
+    config_params_t cfg;
+
+    (void) memset(&cfg, 0, sizeof(cfg));
+    cfg.ntp_interval_min = 60U;
+    time_service_reconfigure(&cfg);
+    init_service();
+    time_service_boot_for_test();
+
+    TEST_ASSERT_EQUAL_UINT8(2U, s_ntp_count_seen);
+    TEST_ASSERT_EQUAL_STRING("162.159.200.1", s_ntp_first_seen);
 }
 
 /* TC-TS-025 */

@@ -958,3 +958,5 @@ definitions.
 | H-12 | Sizing estimates provided (RAM + ROM) | Done (§15) |
 | H-13 | All SRS traces from header verified against section content | Done — REQ-DM-*, REQ-SA-* traced in §4, §9, §13 |
 | H-14 | Decisions logged with rationale | Done (§19 — CFG-D1..D9) |
+
+**WP12 D-8 (2026-11-01).** `config_params_t` gains `ntp_interval_min` (uint16, minutes, 1..1440, default 60), carved out of the former tail padding (`reserved_c[3]` became `reserved_c` + the field), so `sizeof` and the stored layout are unchanged and `CONFIG_SCHEMA_VERSION` stays 2: a stored 0 is invalid and `prv_repair` replaces it by the default. This deviates from the decision's "one schema bump" on purpose: a bump with an unchanged layout would discard every stored configuration and its profiles. `ntp_servers` may now hold host names. New `CONFIG_PARAM_NTP_INTERVAL_MIN`, console key `ntp-interval-min`, cloud key `ntp_interval_min`.

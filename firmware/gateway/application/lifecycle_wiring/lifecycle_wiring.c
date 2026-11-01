@@ -269,6 +269,7 @@ static const lc_modbus_poller_if_t k_poller = {
 static lc_dep_status_t time_init(void *ctx)
 {
     (void) ctx;
+    time_service_reconfigure(config_service_get_params()); /* servers and interval (TS-O4) */
     return status_of(time_service_init(s_cfg.ntp) == TIME_SERVICE_OK);
 }
 

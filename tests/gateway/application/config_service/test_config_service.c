@@ -116,6 +116,7 @@ void test_init_applies_the_defaults(void)
     TEST_ASSERT_EQUAL_UINT16(8883U, p->mqtt_port);
     TEST_ASSERT_EQUAL_UINT32(60000U, p->telemetry_interval_ms);
     TEST_ASSERT_EQUAL_UINT32(600000U, p->health_interval_ms);
+    TEST_ASSERT_EQUAL_UINT16(60U, p->ntp_interval_min);
     TEST_ASSERT_EQUAL_UINT8(0U, p->ntp_server_count);
     TEST_ASSERT_EQUAL_CHAR('\0', p->mqtt_broker[0]);
     TEST_ASSERT_EQUAL_UINT32(0U, s_save_calls);
@@ -362,6 +363,16 @@ void test_scalar_rules(void)
     uint16_t port = 0U;
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
                       config_service_set_param(CONFIG_PARAM_MQTT_PORT, &port));
+
+    uint16_t ntp_min = 0U; /* WP12 D-8: 1..1440 minutes */
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_NTP_INTERVAL_MIN, &ntp_min));
+    ntp_min = 1441U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_NTP_INTERVAL_MIN, &ntp_min));
+    ntp_min = 1440U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                      config_service_set_param(CONFIG_PARAM_NTP_INTERVAL_MIN, &ntp_min));
 
     uint32_t ms = 999U;
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,

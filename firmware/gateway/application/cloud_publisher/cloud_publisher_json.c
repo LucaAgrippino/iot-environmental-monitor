@@ -382,6 +382,7 @@ static const cp_key_def_t s_keys[] = {
     CP_KEY("mqtt_port", CONFIG_PARAM_MQTT_PORT, mqtt_port, 2U, false, false),
     CP_KEY("ntp_servers", CONFIG_PARAM_NTP_SERVERS, ntp_servers, 2U, false, false),
     CP_KEY("ntp_server_count", CONFIG_PARAM_NTP_SERVER_COUNT, ntp_server_count, 2U, false, false),
+    CP_KEY("ntp_interval_min", CONFIG_PARAM_NTP_INTERVAL_MIN, ntp_interval_min, 2U, false, false),
 };
 
 #define CP_KEY_COUNT (sizeof(s_keys) / sizeof(s_keys[0]))

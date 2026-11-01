@@ -215,6 +215,14 @@ void modbus_poller_run(void)
 static time_service_err_t s_time_result;
 static ntp_client_handle_t s_time_ntp_seen;
 
+static uint32_t s_time_reconfigure_calls;
+
+void time_service_reconfigure(const config_params_t *params)
+{
+    (void) params;
+    s_time_reconfigure_calls++;
+}
+
 time_service_err_t time_service_init(ntp_client_handle_t ntp)
 {
     s_time_ntp_seen = ntp;
@@ -448,6 +456,7 @@ void setUp(void)
     s_poller_ready = true;
     s_poller_run_calls = 0U;
     s_time_result = TIME_SERVICE_OK;
+    s_time_reconfigure_calls = 0U;
     s_time_ntp_seen = NULL;
     s_reset_calls = 0U;
     s_hm_result = HEALTH_MONITOR_ERR_OK;
@@ -817,6 +826,7 @@ void test_LW_045_time_service_init_gets_the_ntp_handle(void)
     bind_ok();
     TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.time_service->init(NULL));
     TEST_ASSERT_EQUAL_PTR(NTP, s_time_ntp_seen);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_time_reconfigure_calls); /* servers and interval, TS-O4 */
 
     s_time_result = TIME_SERVICE_ERR_NULL_ARG;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.time_service->init(NULL));
