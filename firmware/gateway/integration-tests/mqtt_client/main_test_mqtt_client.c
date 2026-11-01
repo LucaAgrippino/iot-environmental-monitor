@@ -417,8 +417,18 @@ static void mqtt_bringup_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
-    wifitask_err_t wifi_err =
-        wifitask_connect_ap(wifitask_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    /* The first join after a module reset often fails with a bare module error and the next one
+     * succeeds (bench 2026-10-29, WP4 D-3), so try up to three times before giving up. */
+    wifitask_err_t wifi_err = WIFITASK_ERR_NO_RESOURCE;
+    for (unsigned attempt = 1U; (attempt <= 3U) && (wifi_err != WIFITASK_ERR_OK); attempt++)
+    {
+        wifi_err = wifitask_connect_ap(wifitask_handle, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+        if (wifi_err != WIFITASK_ERR_OK)
+        {
+            LOG_WARN("Mqtt", "join attempt %u failed (error %d)", attempt, (int) wifi_err);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+        }
+    }
     if (wifi_err != WIFITASK_ERR_OK)
     {
         LOG_ERROR("Mqtt", "wifitask_connect_ap() error code: %d", (int) wifi_err);

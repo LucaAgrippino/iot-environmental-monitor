@@ -35,7 +35,7 @@
 typedef struct
 {
     modbus_master_err_t result;
-    uint8_t payload[8];
+    uint8_t payload[24];
     uint16_t payload_len;
 } step_t;
 
@@ -61,8 +61,41 @@ modbus_master_err_t modbus_master_start(void)
     return s_start_result;
 }
 
+/* ALARM_FLAGS reads (FC04, register 0x0031) are answered by the spy on their own: they are not
+ * scripted steps and not counted in s_transact_calls, so the telemetry scripts stay as they were.
+ */
+static uint16_t s_alarm_word;
+static modbus_master_err_t s_alarm_result;
+static uint32_t s_alarm_reads;
+static uint16_t s_alarm_cb_before;
+static uint16_t s_alarm_cb_now;
+static uint8_t s_alarm_cb_slave;
+static uint32_t s_alarm_cb_calls;
+
+static void alarm_cb_spy(uint8_t slave_addr, uint16_t flags_before, uint16_t flags_now)
+{
+    s_alarm_cb_slave = slave_addr;
+    s_alarm_cb_before = flags_before;
+    s_alarm_cb_now = flags_now;
+    s_alarm_cb_calls++;
+}
+
 modbus_master_err_t modbus_master_transact(const modbus_frame_t *request, modbus_frame_t *response)
 {
+    if ((request->function_code == 4U) && (request->data[0] == 0x00U) &&
+        (request->data[1] == 0x31U) && (request->data[3] == 1U))
+    {
+        s_alarm_reads++;
+        (void) memset(response, 0, sizeof(*response));
+        response->slave_addr = request->slave_addr;
+        response->function_code = request->function_code;
+        response->data[0] = 2U;
+        response->data[1] = (uint8_t) (s_alarm_word >> 8U);
+        response->data[2] = (uint8_t) (s_alarm_word & 0xFFU);
+        response->data_len = 3U;
+        return s_alarm_result;
+    }
+
     if (s_transact_calls < MAX_STEPS)
     {
         s_requests[s_transact_calls] = *request;
@@ -107,13 +140,13 @@ modbus_master_err_t modbus_master_get_stats(modbus_master_stats_t *stats_out)
 static device_profile_t s_profiles[MAX_PROFILES];
 static uint8_t s_profile_count;
 
-bool device_profile_get_next(const device_profile_t **profile, uint8_t *index)
+bool device_profile_get_next(device_profile_t *profile, uint8_t *index)
 {
     if (*index >= s_profile_count)
     {
         return false;
     }
-    *profile = &s_profiles[*index];
+    *profile = s_profiles[*index];
     (*index)++;
     return true;
 }
@@ -184,6 +217,10 @@ void setUp(void)
     (void) memset(s_profiles, 0, sizeof(s_profiles));
     s_step_count = 0U;
     s_transact_calls = 0U;
+    s_alarm_word = 0U;
+    s_alarm_result = MODBUS_MASTER_ERR_OK;
+    s_alarm_reads = 0U;
+    s_alarm_cb_calls = 0U;
     s_default_result = MODBUS_MASTER_ERR_OK;
     s_start_calls = 0U;
     s_start_result = MODBUS_MASTER_ERR_OK;
@@ -197,8 +234,8 @@ void setUp(void)
     s_update_handle = NULL;
     (void) memset(&s_update_stats, 0, sizeof(s_update_stats));
 
-    s_profiles[0] = (device_profile_t){
-        .slave_addr = SLAVE_A, .input_reg_start = 0x0010U, .input_reg_count = 3U};
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
     s_profile_count = 1U;
 }
 
@@ -213,6 +250,50 @@ static void init_ok(void)
     s_resp_queue =
         xQueueCreateStatic(1U, sizeof(modbus_command_response_t), s_resp_buf, &s_resp_storage);
     g_mock_xQueueSend2_last_item_size = sizeof(modbus_command_response_t);
+
+    /* Existing tests exercise polling, not the identity check: trust what is provisioned. */
+    for (uint8_t i = 0U; i < s_profile_count; i++)
+    {
+        modbus_poller_trust_slave_for_test(s_profiles[i].slave_addr);
+    }
+}
+
+/** Same as init_ok() but leaves every slave unverified, for the identity tests. */
+static void init_unverified(void)
+{
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_init(POLL_PERIOD_MS, HEALTH_HANDLE));
+}
+
+/** The scripted answer to the identity read: map version and vendor code, rest zero. */
+static step_t identity_step(uint16_t map_version, uint16_t vendor_code)
+{
+    step_t st = {.result = MODBUS_MASTER_ERR_OK, .payload_len = 17U};
+
+    st.payload[0] = 16U;
+    st.payload[1] = (uint8_t) (map_version >> 8);
+    st.payload[2] = (uint8_t) (map_version & 0xFFU);
+    st.payload[15] = (uint8_t) (vendor_code >> 8);
+    st.payload[16] = (uint8_t) (vendor_code & 0xFFU);
+    return st;
+}
+
+/** The scripted answer to the data poll: 23.00 C, 45.50 %RH, 1013.2 hPa. */
+static step_t data_step(void)
+{
+    return (step_t){.result = MODBUS_MASTER_ERR_OK,
+                    .payload = {6U, 0x08U, 0xFCU, 0x11U, 0xC6U, 0x27U, 0x9CU},
+                    .payload_len = 7U};
+}
+
+static void run_cycle(const step_t *steps, uint32_t n)
+{
+    for (uint32_t i = 0U; i < n; i++)
+    {
+        s_steps[i] = steps[i];
+    }
+    s_step_count = n;
+    s_transact_calls = 0U;
+    modbus_poller_cycle_for_test();
 }
 
 /** Run `n` poll cycles with the scripted results `results[0..n-1]` (one transact each). */
@@ -484,7 +565,7 @@ void test_TC_MP_022_poll_request_is_fc04_over_the_profile_span(void)
 void test_TC_MP_023_two_slaves_keep_independent_link_state(void)
 {
     s_profiles[1] =
-        (device_profile_t){.slave_addr = SLAVE_B, .input_reg_start = 0U, .input_reg_count = 1U};
+        (device_profile_t){.slave_addr = SLAVE_B, .map_version = 1U, .vendor_code = 0x1A45U};
     s_profile_count = 2U;
     init_ok();
 
@@ -510,7 +591,7 @@ void test_TC_MP_024_slave_beyond_table_size_is_skipped(void)
     for (uint8_t i = 0U; i < MAX_PROFILES; i++)
     {
         s_profiles[i] = (device_profile_t){
-            .slave_addr = (uint8_t) (i + 1U), .input_reg_start = 0U, .input_reg_count = 1U};
+            .slave_addr = (uint8_t) (i + 1U), .map_version = 1U, .vendor_code = 0x1A45U};
     }
     s_profile_count = 5U; /* table holds 4 */
     init_ok();
@@ -815,6 +896,71 @@ void test_TC_MP_035_run_starts_master_polls_and_delays_by_the_period(void)
     TEST_ASSERT_EQUAL_UINT32(1U, s_update_calls);
 }
 
+void test_TC_MP_052_poll_period_can_change_while_running(void)
+{
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_NOT_INIT, modbus_poller_set_poll_period(200U));
+    init_ok();
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_INVALID_ARG, modbus_poller_set_poll_period(0U));
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_set_poll_period(200U));
+
+    s_escape_after = 2U;
+    if (setjmp(s_escape) == 0)
+    {
+        modbus_poller_run();
+        TEST_FAIL_MESSAGE("modbus_poller_run() returned");
+    }
+    TEST_ASSERT_EQUAL_UINT32(200U, g_mock_vTaskDelayUntil_last_increment);
+}
+
+/* ===================================================================== */
+/* ALARM_FLAGS (0x0031): transitions reach the callback (B3, SD-05)      */
+/* ===================================================================== */
+
+void test_TC_MP_050_alarm_flag_change_calls_back_once_per_change(void)
+{
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
+    s_profile_count = 1U;
+    init_ok();
+    modbus_poller_set_alarm_callback(alarm_cb_spy);
+
+    modbus_poller_cycle_for_test(); /* flags 0: nothing changed */
+    TEST_ASSERT_EQUAL_UINT32(0U, s_alarm_cb_calls);
+
+    s_alarm_word = 0x0008U; /* HUMIDITY_HIGH */
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_cb_calls);
+    TEST_ASSERT_EQUAL_UINT8(SLAVE_A, s_alarm_cb_slave);
+    TEST_ASSERT_EQUAL_HEX16(0x0000U, s_alarm_cb_before);
+    TEST_ASSERT_EQUAL_HEX16(0x0008U, s_alarm_cb_now);
+
+    modbus_poller_cycle_for_test(); /* unchanged: no repeat */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_cb_calls);
+
+    s_alarm_word = 0x0000U; /* cleared */
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(2U, s_alarm_cb_calls);
+    TEST_ASSERT_EQUAL_HEX16(0x0008U, s_alarm_cb_before);
+    TEST_ASSERT_EQUAL_HEX16(0x0000U, s_alarm_cb_now);
+    TEST_ASSERT_EQUAL_UINT32(4U, s_alarm_reads);
+}
+
+void test_TC_MP_051_alarm_read_failure_is_not_a_transition(void)
+{
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
+    s_profile_count = 1U;
+    init_ok();
+    modbus_poller_set_alarm_callback(alarm_cb_spy);
+    s_alarm_word = 0x0001U;
+    s_alarm_result = MODBUS_MASTER_ERR_TIMEOUT;
+
+    modbus_poller_cycle_for_test();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reads);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_alarm_cb_calls);
+}
+
 void test_TC_MP_036_slave_state_accessor_rejects_out_of_range_slot(void)
 {
     TEST_ASSERT_NULL(modbus_poller_slave_state_for_test(4U));
@@ -900,24 +1046,23 @@ void test_TC_MBP_FD_03_wrong_length_leaves_the_cache_unchanged(void)
     TEST_ASSERT_EQUAL_UINT16(10132U, r.pressure_deci_hpa);
 }
 
-void test_TC_MBP_FD_04_a_span_without_pressure_leaves_it_invalid(void)
+void test_TC_MBP_FD_04_a_map_version_the_poller_does_not_know_is_not_polled(void)
 {
     modbus_fd_reading_t r;
 
+    s_profiles[0].map_version = 99U;
     init_ok();
-    s_profiles[0].input_reg_count = 2U; /* 0x0010 and 0x0011 only */
     s_steps[0] = (step_t){.result = MODBUS_MASTER_ERR_OK,
-                          .payload = {4U, 0x08U, 0xFCU, 0x11U, 0xC6U},
-                          .payload_len = 5U};
+                          .payload = {6U, 0x08U, 0xFCU, 0x11U, 0xC6U, 0x27U, 0x9CU},
+                          .payload_len = 7U};
     s_step_count = 1U;
     modbus_poller_cycle_for_test();
 
+    TEST_ASSERT_EQUAL_UINT32(0U, s_transact_calls);
     TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
-    TEST_ASSERT_TRUE(r.temperature_valid);
-    TEST_ASSERT_TRUE(r.humidity_valid);
+    TEST_ASSERT_FALSE(r.temperature_valid);
+    TEST_ASSERT_FALSE(r.humidity_valid);
     TEST_ASSERT_FALSE(r.pressure_valid);
-    TEST_ASSERT_EQUAL_INT16(2300, r.temperature_centi_c);
-    TEST_ASSERT_EQUAL_UINT16(4550U, r.humidity_centi_pct);
 }
 
 void test_TC_MBP_FD_05_never_polled_returns_ok_with_no_data(void)
@@ -967,4 +1112,222 @@ void test_TC_MBP_FD_07_failed_polls_drop_the_link_but_keep_the_values(void)
     TEST_ASSERT_TRUE(r.has_data);
     TEST_ASSERT_EQUAL_INT16(2300, r.temperature_centi_c);
     TEST_ASSERT_TRUE(r.temperature_valid);
+}
+
+/* ===================================================================== */
+/* Identity check at link establishment (REQ-MB-120, REQ-MB-130)         */
+/* ===================================================================== */
+
+#define MAP_V1 (1U)
+#define VENDOR_OK (0x1A45U)
+
+void test_TC_MP_040_a_new_slave_is_identity_checked_before_its_first_data_poll(void)
+{
+    init_unverified();
+
+    const step_t steps[2] = {identity_step(MAP_V1, VENDOR_OK), data_step()};
+
+    run_cycle(steps, 2U);
+
+    TEST_ASSERT_EQUAL_UINT32(2U, s_transact_calls);
+    /* Request 0 is the identity block: FC04, 0x0000, 8 registers. */
+    TEST_ASSERT_EQUAL_UINT8(0x04U, s_requests[0].function_code);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, s_requests[0].data[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, s_requests[0].data[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, s_requests[0].data[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x08U, s_requests[0].data[3]);
+    /* Request 1 is the data poll at the map table's span. */
+    TEST_ASSERT_EQUAL_UINT8(0x10U, s_requests[1].data[1]);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_VERIFIED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+}
+
+void test_TC_MP_041_a_verified_slave_is_not_checked_again(void)
+{
+    init_unverified();
+
+    const step_t first[2] = {identity_step(MAP_V1, VENDOR_OK), data_step()};
+    const step_t next[1] = {data_step()};
+
+    run_cycle(first, 2U);
+    run_cycle(next, 1U);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_transact_calls);
+    TEST_ASSERT_EQUAL_UINT8(0x10U, s_requests[0].data[1]);
+}
+
+void test_TC_MP_042_a_wrong_vendor_code_rejects_the_slave_and_no_data_is_polled(void)
+{
+    init_unverified();
+
+    const step_t steps[2] = {identity_step(MAP_V1, 0x0042U), data_step()};
+
+    run_cycle(steps, 2U);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_transact_calls); /* only the identity read */
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_REJECTED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+    TEST_ASSERT_FALSE(modbus_poller_slave_state_for_test(0U)->link_online);
+
+    modbus_fd_reading_t r;
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &r));
+    TEST_ASSERT_FALSE(r.has_data);
+}
+
+void test_TC_MP_043_a_wrong_map_version_rejects_the_slave(void)
+{
+    init_unverified();
+
+    const step_t steps[1] = {identity_step(7U, VENDOR_OK)};
+
+    run_cycle(steps, 1U);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_REJECTED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+}
+
+void test_TC_MP_044_a_short_identity_response_rejects_the_slave(void)
+{
+    init_unverified();
+
+    step_t st = identity_step(MAP_V1, VENDOR_OK);
+
+    st.payload_len = 9U;
+    run_cycle(&st, 1U);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_REJECTED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+}
+
+void test_TC_MP_045_a_profile_map_version_the_build_does_not_know_is_rejected_without_a_transaction(
+    void)
+{
+    s_profiles[0].map_version = 99U;
+    init_unverified();
+
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(0U, s_transact_calls);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_REJECTED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+
+    /* And it stays quiet: no transaction in later cycles either. */
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(0U, s_transact_calls);
+}
+
+void test_TC_MP_046_a_rejected_slave_is_checked_again_every_tenth_cycle_and_recovers(void)
+{
+    init_unverified();
+
+    const step_t bad[1] = {identity_step(MAP_V1, 0x0042U)};
+
+    run_cycle(bad, 1U);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_REJECTED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+
+    /* Nine quiet cycles... */
+    for (uint32_t i = 0U; i < 9U; i++)
+    {
+        s_transact_calls = 0U;
+        modbus_poller_cycle_for_test();
+        TEST_ASSERT_EQUAL_UINT32(0U, s_transact_calls);
+    }
+
+    /* ...then the tenth checks again; the right device is now there. */
+    const step_t good[2] = {identity_step(MAP_V1, VENDOR_OK), data_step()};
+
+    run_cycle(good, 2U);
+    TEST_ASSERT_EQUAL_UINT32(2U, s_transact_calls);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_VERIFIED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+}
+
+void test_TC_MP_047_reprobe_makes_the_next_cycle_check_the_identity_again(void)
+{
+    init_ok(); /* verified */
+
+    const step_t data[1] = {data_step()};
+
+    run_cycle(data, 1U);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_transact_calls);
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_reprobe(SLAVE_A));
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_UNVERIFIED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+
+    const step_t again[2] = {identity_step(MAP_V1, VENDOR_OK), data_step()};
+
+    run_cycle(again, 2U);
+    TEST_ASSERT_EQUAL_UINT32(2U, s_transact_calls);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, s_requests[0].data[1]);
+}
+
+void test_TC_MP_048_reprobe_of_a_rejected_slave_checks_at_once(void)
+{
+    init_unverified();
+
+    const step_t bad[1] = {identity_step(MAP_V1, 0x0042U)};
+
+    run_cycle(bad, 1U);
+    s_profiles[0].vendor_code = 0x0042U; /* the operator corrected the profile */
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_reprobe(SLAVE_A));
+
+    const step_t again[2] = {identity_step(MAP_V1, 0x0042U), data_step()};
+
+    run_cycle(again, 2U);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_VERIFIED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+}
+
+void test_TC_MP_049_reprobe_argument_and_state_errors(void)
+{
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_NOT_INIT, modbus_poller_reprobe(SLAVE_A));
+    init_ok();
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_REJECTED, modbus_poller_reprobe(77U));
+}
+
+void test_TC_MP_050_a_rejected_slave_that_was_online_reports_the_link_down_once(void)
+{
+    init_ok(); /* verified */
+    poll_n(MODBUS_MASTER_ERR_OK, 3U);
+    TEST_ASSERT_TRUE(modbus_poller_slave_state_for_test(0U)->link_online);
+
+    const uint32_t events_before = s_event_count;
+
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_reprobe(SLAVE_A));
+
+    const step_t bad[1] = {identity_step(9U, VENDOR_OK)};
+
+    run_cycle(bad, 1U);
+    TEST_ASSERT_FALSE(modbus_poller_slave_state_for_test(0U)->link_online);
+    TEST_ASSERT_EQUAL_UINT32(events_before + 1U, s_event_count);
+    TEST_ASSERT_EQUAL(HEALTH_EVENT_MODBUS_LINK_DOWN, s_event_kind[events_before]);
+    TEST_ASSERT_EQUAL_UINT32(SLAVE_A, s_event_param[events_before]);
+
+    run_cycle(bad, 1U); /* no new check yet, no new event */
+    TEST_ASSERT_EQUAL_UINT32(events_before + 1U, s_event_count);
+}
+
+void test_TC_MP_051_an_unanswered_identity_read_is_a_link_failure_and_stays_unverified(void)
+{
+    init_unverified();
+
+    for (uint32_t i = 0U; i < 3U; i++)
+    {
+        step_t timeout = {.result = MODBUS_MASTER_ERR_TIMEOUT};
+
+        run_cycle(&timeout, 1U);
+    }
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_UNVERIFIED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
+    TEST_ASSERT_EQUAL_UINT8(3U, modbus_poller_slave_state_for_test(0U)->consecutive_failures);
+}
+
+void test_TC_MP_052_going_offline_makes_the_slave_unverified_again(void)
+{
+    init_ok(); /* verified */
+    poll_n(MODBUS_MASTER_ERR_OK, 3U);
+    TEST_ASSERT_TRUE(modbus_poller_slave_state_for_test(0U)->link_online);
+
+    poll_n(MODBUS_MASTER_ERR_TIMEOUT, 3U);
+    TEST_ASSERT_FALSE(modbus_poller_slave_state_for_test(0U)->link_online);
+    TEST_ASSERT_EQUAL_UINT8(MODBUS_SLAVE_UNVERIFIED,
+                            modbus_poller_slave_state_for_test(0U)->identity);
 }

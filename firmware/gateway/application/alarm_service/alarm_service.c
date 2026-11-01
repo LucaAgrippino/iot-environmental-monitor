@@ -10,6 +10,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #ifdef TEST
 #define LOG_ERROR(m, f, ...) ((void) 0)
 #define LOG_INFO(m, f, ...) ((void) 0)
@@ -19,14 +22,16 @@
 
 #define MODULE_TAG "AS"
 
-/* Default thresholds, in the units of sensor_reading_t.value (SS-O6: replaced by
+/* Default thresholds, in the units of sensor_reading_t.value. WP12 D-4: the same set as the
+ * config_params_t defaults, so a device without a stored configuration behaves identically
+ * whether or not alarm_service_reconfigure() has run. (SS-O6: replaced by
  * IConfigProvider values once the Gateway has one). */
-#define ALARM_TEMP_HIGH_DEFAULT (3500)      /*   35.00 degC */
+#define ALARM_TEMP_HIGH_DEFAULT (4000)      /*   40.00 degC */
 #define ALARM_TEMP_LOW_DEFAULT (0)          /*    0.00 degC */
-#define ALARM_TEMP_HYST_DEFAULT (200)       /*    2.00 degC */
+#define ALARM_TEMP_HYST_DEFAULT (100)       /*    1.00 degC */
 #define ALARM_HUMIDITY_HIGH_DEFAULT (8000)  /*   80.00 %RH  */
 #define ALARM_HUMIDITY_LOW_DEFAULT (2000)   /*   20.00 %RH  */
-#define ALARM_HUMIDITY_HYST_DEFAULT (500)   /*    5.00 %RH  */
+#define ALARM_HUMIDITY_HYST_DEFAULT (200)   /*    2.00 %RH  */
 #define ALARM_PRESSURE_HIGH_DEFAULT (10500) /* 1050.0 hPa   */
 #define ALARM_PRESSURE_LOW_DEFAULT (9500)   /*  950.0 hPa   */
 #define ALARM_PRESSURE_HYST_DEFAULT (50)    /*    5.0 hPa   */
@@ -94,6 +99,33 @@ alarm_service_err_t alarm_service_init(void)
 
     s_as.initialised = true;
     LOG_INFO(MODULE_TAG, "AlarmService initialised");
+    return ALARM_SERVICE_ERR_OK;
+}
+
+alarm_service_err_t alarm_service_reconfigure(const config_params_t *params)
+{
+    if (!s_as.initialised)
+    {
+        return ALARM_SERVICE_ERR_NOT_INIT;
+    }
+    if (params == NULL)
+    {
+        return ALARM_SERVICE_ERR_NULL_ARG;
+    }
+
+    /* ConfigService has validated the band and the hysteresis (CFG-D7, WP12 D-6): trusted here.
+     * Active states are kept (WP12 D-5): the new limits apply from the next sample, which may
+     * clear the alarm or raise the other side. */
+    taskENTER_CRITICAL();
+    prv_set_threshold(SENSOR_ID_TEMPERATURE, params->temp_alarm_high, params->temp_alarm_low,
+                      params->temp_hysteresis);
+    prv_set_threshold(SENSOR_ID_HUMIDITY, params->humidity_alarm_high, params->humidity_alarm_low,
+                      params->humidity_hysteresis);
+    prv_set_threshold(SENSOR_ID_PRESSURE, params->pressure_alarm_high, params->pressure_alarm_low,
+                      params->pressure_hysteresis);
+    taskEXIT_CRITICAL();
+
+    LOG_INFO(MODULE_TAG, "alarm thresholds reconfigured");
     return ALARM_SERVICE_ERR_OK;
 }
 

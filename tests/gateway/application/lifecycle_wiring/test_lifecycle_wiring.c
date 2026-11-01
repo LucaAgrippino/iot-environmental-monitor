@@ -10,6 +10,7 @@
 
 #include <string.h>
 
+#include "device_profile_registry_stub.h"
 #include "freertos_mock.h"
 #include "lifecycle_controller.h"
 #include "lifecycle_wiring.h"
@@ -97,6 +98,50 @@ config_service_err_t config_service_persist_pending(void)
     return s_cfg_persist_result;
 }
 
+bool config_service_get_profiles(device_profile_t *out, uint8_t max, uint8_t *count_out)
+{
+    (void) out;
+    (void) max;
+    (void) count_out;
+    return false;
+}
+
+bool config_service_set_profiles(const device_profile_t *in, uint8_t count)
+{
+    (void) in;
+    (void) count;
+    return false;
+}
+
+static config_change_cb_t s_change_cb;
+static config_service_err_t s_register_result;
+static uint32_t s_lock_depth;
+static uint32_t s_period_calls;
+static uint32_t s_period_seen;
+
+config_service_err_t config_service_register_change_cb(config_change_cb_t cb)
+{
+    s_change_cb = cb;
+    return s_register_result;
+}
+
+void config_service_lock(void)
+{
+    s_lock_depth++;
+}
+
+void config_service_unlock(void)
+{
+    s_lock_depth--;
+}
+
+modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms)
+{
+    s_period_calls++;
+    s_period_seen = poll_period_ms;
+    return MODBUS_POLLER_ERR_OK;
+}
+
 const config_params_t *config_service_get_params(void)
 {
     return s_params_null ? NULL : &s_params;
@@ -134,6 +179,16 @@ static alarm_service_err_t spy_alarm_get_state(sensor_id_t sensor, alarm_state_t
     return s_alarm_state_result;
 }
 
+static alarm_service_err_t s_alarm_reconfigure_result;
+static uint32_t s_alarm_reconfigure_calls;
+
+alarm_service_err_t alarm_service_reconfigure(const config_params_t *params)
+{
+    (void) params;
+    s_alarm_reconfigure_calls++;
+    return s_alarm_reconfigure_result;
+}
+
 static const ialarm_service_t s_alarm_vtable = {.get_state = spy_alarm_get_state};
 const ialarm_service_t *const alarm_service = &s_alarm_vtable;
 
@@ -162,6 +217,22 @@ static health_monitor_handle_t s_poller_health_seen;
 static bool s_poller_ready;
 static uint32_t s_poller_run_calls;
 
+static device_profile_registry_err_t s_registry_init_result;
+static device_profile_registry_err_t s_registry_load_result;
+static uint32_t s_registry_init_calls;
+
+device_profile_registry_err_t device_profile_registry_init(const device_profile_storage_t *storage)
+{
+    (void) storage;
+    s_registry_init_calls++;
+    return s_registry_init_result;
+}
+
+device_profile_registry_err_t device_profile_registry_load(void)
+{
+    return s_registry_load_result;
+}
+
 modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_handle_t health)
 {
     s_poller_init_calls++;
@@ -182,6 +253,14 @@ void modbus_poller_run(void)
 
 static time_service_err_t s_time_result;
 static ntp_client_handle_t s_time_ntp_seen;
+
+static uint32_t s_time_reconfigure_calls;
+
+void time_service_reconfigure(const config_params_t *params)
+{
+    (void) params;
+    s_time_reconfigure_calls++;
+}
 
 time_service_err_t time_service_init(ntp_client_handle_t ntp)
 {
@@ -401,6 +480,12 @@ void setUp(void)
     s_reconf_params_seen = NULL;
     s_sensor_ready = true;
     s_alarm_state_result = ALARM_SERVICE_ERR_OK;
+    s_alarm_reconfigure_result = ALARM_SERVICE_ERR_OK;
+    s_alarm_reconfigure_calls = 0U;
+    s_change_cb = NULL;
+    s_register_result = CONFIG_SERVICE_OK;
+    s_lock_depth = 0U;
+    s_period_calls = 0U;
     s_cloud_ready = true;
     s_cloud_flush_result = CP_ERR_OK;
     s_cloud_flush_calls = 0U;
@@ -408,11 +493,15 @@ void setUp(void)
     s_cloud_handle_seen = NULL;
     s_poller_init_result = MODBUS_POLLER_ERR_OK;
     s_poller_init_calls = 0U;
+    s_registry_init_result = DEVICE_PROFILE_REGISTRY_OK;
+    s_registry_load_result = DEVICE_PROFILE_REGISTRY_OK;
+    s_registry_init_calls = 0U;
     s_poller_period_seen = 0U;
     s_poller_health_seen = NULL;
     s_poller_ready = true;
     s_poller_run_calls = 0U;
     s_time_result = TIME_SERVICE_OK;
+    s_time_reconfigure_calls = 0U;
     s_time_ntp_seen = NULL;
     s_reset_calls = 0U;
     s_hm_result = HEALTH_MONITOR_ERR_OK;
@@ -440,6 +529,42 @@ static void bind_ok(void)
 /* ===================================================================== */
 /* bind                                                                  */
 /* ===================================================================== */
+
+/* WP12 D-13: later configuration changes reach the services. */
+void test_LW_100_bind_registers_one_change_callback(void)
+{
+    bind_ok();
+    TEST_ASSERT_NOT_NULL(s_change_cb);
+
+    s_register_result = CONFIG_SERVICE_ERR_INVALID;
+    TEST_ASSERT_NOT_EQUAL(LIFECYCLE_ERR_OK, lifecycle_wiring_bind(&s_config, &s_deps));
+}
+
+void test_LW_101_a_change_is_routed_to_the_service_that_owns_it(void)
+{
+    bind_ok();
+    s_params.modbus_poll_period_ms = 250U;
+
+    s_reconf_calls = 0U;
+    s_change_cb(CONFIG_PARAM_FILTER_ALPHA);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_reconf_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_alarm_reconfigure_calls);
+
+    s_change_cb(CONFIG_PARAM_TEMP_ALARM_HIGH);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reconfigure_calls);
+
+    s_change_cb(CONFIG_PARAM_NTP_INTERVAL_MIN);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_time_reconfigure_calls);
+
+    s_change_cb(CONFIG_PARAM_MODBUS_POLL_PERIOD);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_period_calls);
+    TEST_ASSERT_EQUAL_UINT32(250U, s_period_seen);
+
+    s_change_cb(CONFIG_PARAM_MQTT_PORT); /* someone else's */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_reconf_calls);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reconfigure_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_lock_depth); /* the configuration lock is always released */
+}
 
 void test_LW_001_bind_rejects_null_arguments(void)
 {
@@ -494,7 +619,15 @@ void test_LW_010_integrity_passes_through_and_the_store_handle_is_used(void)
     TEST_ASSERT_EQUAL_PTR(STORE, s_cs_handle_seen);
 }
 
-void test_LW_011_no_valid_slot_is_a_first_boot_by_default(void)
+void test_LW_010b_never_written_is_a_first_boot_even_when_strict(void)
+{
+    s_cs_check_result = CONFIG_STORE_ERR_NEVER_WRITTEN;
+    s_config.fault_on_no_config = true;
+    bind_ok();
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.config_store->check_integrity(NULL));
+}
+
+void test_LW_011_a_damaged_store_runs_on_the_defaults_by_default(void)
 {
     s_cs_check_result = CONFIG_STORE_ERR_NO_VALID_SLOT;
     bind_ok();
@@ -695,6 +828,13 @@ void test_LW_035_alarms_init_verifies_the_service_is_up(void)
 
     s_alarm_state_result = ALARM_SERVICE_ERR_NOT_INIT;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.alarms->init(NULL));
+
+    s_alarm_state_result = ALARM_SERVICE_ERR_OK;
+    s_alarm_reconfigure_calls = 0U;
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.alarms->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_reconfigure_calls); /* thresholds from the config */
+    s_alarm_reconfigure_result = ALARM_SERVICE_ERR_INVALID_ARG;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.alarms->init(NULL));
 }
 
 void test_LW_036_console_has_nothing_left_to_finish(void)
@@ -737,6 +877,26 @@ void test_LW_042_poller_init_uses_the_configured_period_and_the_health_handle(vo
     TEST_ASSERT_EQUAL_PTR(HEALTH, s_poller_health_seen);
 }
 
+void test_LW_042b_the_profile_registry_is_initialised_and_loaded_before_the_poller(void)
+{
+    bind_ok();
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.modbus_poller->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_registry_init_calls);
+}
+
+void test_LW_042c_a_registry_failure_stops_the_poller_from_starting(void)
+{
+    bind_ok();
+    s_registry_init_result = DEVICE_PROFILE_REGISTRY_ERR_NO_RESOURCE;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.modbus_poller->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_poller_init_calls);
+
+    s_registry_init_result = DEVICE_PROFILE_REGISTRY_OK;
+    s_registry_load_result = DEVICE_PROFILE_REGISTRY_ERR_NOT_INIT;
+    TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.modbus_poller->init(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_poller_init_calls);
+}
+
 void test_LW_043_poller_init_failures_are_reported(void)
 {
     bind_ok();
@@ -762,6 +922,7 @@ void test_LW_045_time_service_init_gets_the_ntp_handle(void)
     bind_ok();
     TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.time_service->init(NULL));
     TEST_ASSERT_EQUAL_PTR(NTP, s_time_ntp_seen);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_time_reconfigure_calls); /* servers and interval, TS-O4 */
 
     s_time_result = TIME_SERVICE_ERR_NULL_ARG;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.time_service->init(NULL));

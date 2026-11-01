@@ -67,6 +67,14 @@ typedef struct
     uint16_t data_len;                         /**< Valid words in data[]. */
 } modbus_command_response_t;
 
+/** @brief Whether a slave has proved its identity against its profile (REQ-MB-120). */
+typedef enum
+{
+    MODBUS_SLAVE_UNVERIFIED = 0, /**< Not checked yet, or must be checked again.            */
+    MODBUS_SLAVE_VERIFIED,       /**< Map version and vendor code match the profile.         */
+    MODBUS_SLAVE_REJECTED        /**< Mismatch or unsupported map version; not polled for data. */
+} modbus_slave_identity_t;
+
 /** @brief Per-slave runtime state; exposed for test observability only. */
 typedef struct
 {
@@ -74,6 +82,8 @@ typedef struct
     uint8_t consecutive_successes;
     uint8_t consecutive_failures;
     bool link_online;
+    modbus_slave_identity_t identity;
+    uint8_t recheck_cycles; /**< Cycles until a rejected slave is checked again. */
 } modbus_slave_state_t;
 
 /**
@@ -139,6 +149,27 @@ typedef struct
 } modbus_fd_reading_t;
 
 /**
+ * @brief Change the poll period while running (WP12 D-13); the next cycle uses it.
+ * @return MODBUS_POLLER_ERR_OK; _NOT_INIT; _INVALID_ARG if @p poll_period_ms is 0.
+ * @note Threading: any task; one aligned 32-bit store.
+ */
+modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms);
+
+/**
+ * @brief Called when a Field Device's ALARM_FLAGS (0x0031) changes between two polls.
+ *
+ * @param slave_addr    The slave whose flags changed.
+ * @param flags_before  Flags at the previous poll (0 before the first one).
+ * @param flags_now     Flags now; bit n set = condition n active (register map 6.3.1).
+ * @note Runs in the poller task: it must not block.
+ */
+typedef void (*modbus_poller_alarm_cb_t)(uint8_t slave_addr, uint16_t flags_before,
+                                         uint16_t flags_now);
+
+/** @brief Register the single ALARM_FLAGS change callback (NULL removes it). */
+void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback);
+
+/**
  * @brief Copy the latest decoded readings of one slave (CP-D18, closes MBP-O3).
  *
  * A poll failure does not clear the values; the consumer decides what "offline" means from
@@ -153,6 +184,20 @@ typedef struct
  * @note Threading: any task. A short critical section guards the copy (about 20 bytes).
  */
 modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out);
+
+/**
+ * @brief Make the next poll cycle check a slave's identity again (REQ-DM-101).
+ *
+ * Call after a profile for @p slave_addr was added or updated at runtime (the registry does not
+ * call the poller). The slave is marked unverified, so before its next data poll the poller repeats
+ * the identity check against the profile as it now is. A rejected slave is re-checked at once.
+ *
+ * @param[in] slave_addr  Provisioned slave address.
+ * @return MODBUS_POLLER_ERR_OK; MODBUS_POLLER_ERR_NOT_INIT before modbus_poller_init();
+ *         MODBUS_POLLER_ERR_REJECTED if the address is not provisioned.
+ * @note Threading: any task.
+ */
+modbus_poller_err_t modbus_poller_reprobe(uint8_t slave_addr);
 
 /**
  * @brief ModbusPoller main loop — the ModbusPollerTask entry point.
@@ -182,6 +227,11 @@ void modbus_poller_cycle_for_test(void);
  * @return The slot, or NULL if out of range.
  */
 const modbus_slave_state_t *modbus_poller_slave_state_for_test(uint8_t slot);
+
+/**
+ * @brief Mark a slave verified without the identity read, claiming its slot (unit tests only).
+ */
+void modbus_poller_trust_slave_for_test(uint8_t slave_addr);
 #endif /* TEST */
 
 #endif /* MODBUS_POLLER_H */

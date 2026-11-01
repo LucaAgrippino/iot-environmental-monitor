@@ -365,14 +365,15 @@ void test_CS_T08_load_prefers_the_higher_sequence_in_slot_a(void)
 /* Group 3 — load, error paths                                            */
 /* ====================================================================== */
 
-void test_CS_T09_load_with_both_slots_erased_reports_no_valid_slot(void)
+void test_CS_T09_load_with_both_slots_erased_reports_never_written(void)
 {
     uint32_t len = 0U;
 
     create_ok();
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NO_VALID_SLOT, config_store_load(s_h, s_out, &len, 64U));
-    expect_one_event(HEALTH_EVENT_FAULT, FAULT_CONFIG_NO_VALID_SLOT);
+    /* A fresh device is not a fault: its own code, no health event (LC-O14, D-1). */
+    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NEVER_WRITTEN, config_store_load(s_h, s_out, &len, 64U));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
 }
 
 void test_CS_T10_load_falls_back_to_the_valid_slot_when_the_other_crc_is_bad(void)
@@ -575,10 +576,32 @@ void test_CS_T25_integrity_is_ok_with_both_slots_valid(void)
 
 void test_CS_T26_integrity_with_no_valid_slot_reports_a_fault(void)
 {
+    /* Written once and damaged: "something is there", so a fault. */
+    write_valid_slot(0U, 1U, s_blob1, sizeof(s_blob1));
+    corrupt_slot_crc(0U);
     create_ok();
 
     TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NO_VALID_SLOT, config_store_check_integrity(s_h));
     expect_one_event(HEALTH_EVENT_FAULT, FAULT_CONFIG_NO_VALID_SLOT);
+}
+
+void test_CS_T26b_integrity_on_a_fresh_store_is_never_written_without_a_fault(void)
+{
+    create_ok();
+
+    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NEVER_WRITTEN, config_store_check_integrity(s_h));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
+}
+
+void test_CS_T26c_one_erased_and_one_damaged_slot_is_damaged_not_never_written(void)
+{
+    /* D-2: an interrupted first write (A damaged, B still erased) reads as damaged. */
+    write_valid_slot(0U, 1U, s_blob1, sizeof(s_blob1));
+    corrupt_slot_crc(0U);
+    create_ok();
+
+    uint32_t len = 0U;
+    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NO_VALID_SLOT, config_store_load(s_h, s_out, &len, 64U));
 }
 
 /* ====================================================================== */
@@ -603,7 +626,7 @@ void test_CS_T27_erase_clears_all_sixteen_sectors(void)
     }
 }
 
-void test_CS_T28_load_after_erase_reports_no_valid_slot(void)
+void test_CS_T28_load_after_erase_reports_never_written(void)
 {
     uint32_t len = 0U;
 
@@ -611,7 +634,7 @@ void test_CS_T28_load_after_erase_reports_no_valid_slot(void)
     create_ok();
     TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_OK, config_store_erase(s_h));
 
-    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NO_VALID_SLOT, config_store_load(s_h, s_out, &len, 4096U));
+    TEST_ASSERT_EQUAL(CONFIG_STORE_ERR_NEVER_WRITTEN, config_store_load(s_h, s_out, &len, 4096U));
 }
 
 void test_CS_T29_erase_failure_is_reported(void)

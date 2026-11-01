@@ -333,13 +333,10 @@ static void link_task(void *arg)
     }
 }
 
-/* Read side of DeviceProfileRegistry for `profiles list`. */
-static bool profile_next(const device_profile_t **p, uint8_t *index)
-{
-    return device_profile_get_next(p, index);
-}
-
-static const idevice_profile_provider_t k_profiles = {.get_next = profile_next};
+/* DeviceProfileRegistry for `profiles list / add / remove`: stored in ConfigService's blob, as in
+ * the product (device-profile-registry-lld.md §5.1). */
+static const device_profile_storage_t k_profile_storage = {.load = config_service_get_profiles,
+                                                           .save = config_service_set_profiles};
 
 static void bringup_spin(uint32_t n)
 {
@@ -449,13 +446,23 @@ int main(void)
      * xTaskNotifyFromISR (DUART-O5). */
     NVIC_SetPriority(USART1_IRQn, USART1_IRQ_PRIORITY);
 
+    if ((device_profile_registry_init(&k_profile_storage) != DEVICE_PROFILE_REGISTRY_OK) ||
+        (device_profile_registry_load() != DEVICE_PROFILE_REGISTRY_OK))
+    {
+        for (;;)
+        {
+        }
+    }
+
     const console_deps_t deps = {.uart = debug_uart,
                                  .sensors = sensor_service,
                                  .alarms = alarm_service,
                                  .cfg_read = config_service_get_provider(),
                                  .cfg_write = config_service_get_manager(),
                                  .health = s_hm,
-                                 .prof_read = &k_profiles};
+                                 .prof_read = device_profile_provider,
+                                 .prof_write = device_profile_manager,
+                                 .on_profile_changed = NULL};
 
     if (console_service_init(&deps) != CONSOLE_SERVICE_ERR_OK)
     {

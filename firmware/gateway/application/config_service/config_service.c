@@ -29,10 +29,11 @@
 #define DEFAULT_POLLING_INTERVAL_MS (1000U)
 #define DEFAULT_FILTER_ALPHA (100U)
 #define DEFAULT_MODBUS_SLAVE_ADDR (1U)
-#define DEFAULT_MODBUS_POLL_PERIOD_MS (1000U)
+#define DEFAULT_MODBUS_POLL_PERIOD_MS (200U) /* alarm latency, REQ-NF-113 (B4) */
 #define DEFAULT_MQTT_PORT (8883U)
 #define DEFAULT_TELEMETRY_INTERVAL_MS (60000U)
 #define DEFAULT_HEALTH_INTERVAL_MS (600000U)
+#define DEFAULT_NTP_INTERVAL_MIN (60U)
 
 #define POLL_MS_MIN (100)
 #define POLL_MS_MAX (60000)
@@ -47,6 +48,8 @@
 #define HEALTH_MS_MIN (10000)
 #define HEALTH_MS_MAX (86400000)
 #define NTP_COUNT_MIN (1)
+#define NTP_INTERVAL_MIN_MIN (1)
+#define NTP_INTERVAL_MIN_MAX (1440)
 
 /* Alarm band rule: high - low must exceed twice the hysteresis (CFG-D7). */
 #define HYSTERESIS_BAND_FACTOR (2)
@@ -104,6 +107,7 @@ static const field_desc_t s_fields[CONFIG_PARAM_COUNT] = {
     [CONFIG_PARAM_HEALTH_INTERVAL] = FIELD(health_interval_ms, KIND_U32),
     [CONFIG_PARAM_NTP_SERVERS] = FIELD(ntp_servers, KIND_NTP_BLOCK),
     [CONFIG_PARAM_NTP_SERVER_COUNT] = FIELD(ntp_server_count, KIND_U8),
+    [CONFIG_PARAM_NTP_INTERVAL_MIN] = FIELD(ntp_interval_min, KIND_U16),
 };
 
 /* Sensor channels share one rule set: range, alarm band and hysteresis (CFG-D7, CFG-D10). */
@@ -146,7 +150,8 @@ static struct
     StaticSemaphore_t mutex_buf;
     SemaphoreHandle_t persist_mutex; /* serialises flash writes; held for the whole save */
     StaticSemaphore_t persist_mutex_buf;
-    volatile bool dirty; /* a change is live in RAM but not yet in flash */
+    volatile bool dirty;        /* a change is live in RAM but not yet in flash */
+    config_profiles_t profiles; /* stored device profiles, guarded by mutex */
     config_change_cb_t change_cbs[CONFIG_MAX_CHANGE_CALLBACKS];
     uint8_t change_cb_count;
 } s_cs;
@@ -314,6 +319,8 @@ static bool prv_validate_scalar(config_param_id_t id, int64_t v, const config_pa
         return prv_in_range(v, HEALTH_MS_MIN, HEALTH_MS_MAX);
     case CONFIG_PARAM_NTP_SERVER_COUNT:
         return prv_validate_ntp_count(v, ctx);
+    case CONFIG_PARAM_NTP_INTERVAL_MIN:
+        return prv_in_range(v, NTP_INTERVAL_MIN_MIN, NTP_INTERVAL_MIN_MAX);
     default:
         return false;
     }
@@ -357,6 +364,7 @@ static void prv_apply_defaults(config_params_t *p)
     (void) memset(p, 0, sizeof(*p));
     p->polling_interval_ms = DEFAULT_POLLING_INTERVAL_MS;
     p->filter_alpha = DEFAULT_FILTER_ALPHA;
+    p->ntp_interval_min = DEFAULT_NTP_INTERVAL_MIN;
     p->temp_range_min = -4000;
     p->temp_range_max = 8500;
     p->humidity_range_min = 0U;
@@ -379,25 +387,62 @@ static void prv_apply_defaults(config_params_t *p)
     p->health_interval_ms = DEFAULT_HEALTH_INTERVAL_MS;
 }
 
-/* Write the current parameters to flash. Call with NO mutex held.
+/* The blob being written. It lives here, not on the caller's stack: a persist is called from small
+ * task stacks (the console task has 3 KB) and the blob is over 500 bytes. persist_mutex guards it
+ * and is held for the whole save, so one buffer is enough. */
+#ifdef TEST
+#define PERSIST_BLOB_PLACEMENT /* host builds: ordinary static storage */
+#else
+/* SRAM2, like the console's big buffers: the 96 KB main bank is full (gateway-main.md GM-O13) and a
+ * 520-byte blob there made the production image fail to link. The blob is only read by the CPU
+ * (ConfigStore copies it to flash), so the bank makes no difference. */
+#define PERSIST_BLOB_PLACEMENT __attribute__((section(".bss.sram2")))
+#endif
+static config_blob_t s_persist_blob PERSIST_BLOB_PLACEMENT;
+
+/* Write the current parameters and profiles to flash. Call with NO mutex held.
  *
- * The data mutex is taken only to copy the parameters into a local blob; the slow ConfigStore
- * save then runs under the persist mutex alone, so readers and writers of the in-memory
- * configuration never wait on flash (CFG-D15). A save that starts later always sees the
- * newest values, so concurrent persists cannot leave older data behind. */
-static config_service_err_t prv_persist(void)
+ * persist_mutex is taken FIRST and held across the copy and the slow ConfigStore save; the data
+ * mutex is taken only for the copy, so readers and writers of the in-memory configuration never
+ * wait on flash (CFG-D15). Copying after taking persist_mutex means a save that starts later always
+ * sees the newest values, so concurrent persists cannot leave older data behind.
+ *
+ * With @p replace the new profile list is written instead of the live one and becomes the live one
+ * only if the save succeeded; on failure the live list is untouched (no copy to restore). */
+static config_service_err_t prv_persist_ex(const device_profile_t *new_profiles, uint8_t new_count,
+                                           bool replace)
 {
-    config_blob_t blob;
-    (void) memset(&blob, 0, sizeof(blob));
-    blob.schema_version = CONFIG_SCHEMA_VERSION;
+    (void) xSemaphoreTake(s_cs.persist_mutex, portMAX_DELAY);
 
     (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
-    (void) memcpy(&blob.params, &s_cs.params, sizeof(blob.params));
+    (void) memset(&s_persist_blob, 0, sizeof(s_persist_blob));
+    s_persist_blob.schema_version = CONFIG_SCHEMA_VERSION;
+    (void) memcpy(&s_persist_blob.params, &s_cs.params, sizeof(s_persist_blob.params));
+    if (replace)
+    {
+        s_persist_blob.profiles.count = new_count;
+        if (new_count > 0U)
+        {
+            (void) memcpy(s_persist_blob.profiles.entries, new_profiles,
+                          (size_t) new_count * sizeof(new_profiles[0]));
+        }
+    }
+    else
+    {
+        (void) memcpy(&s_persist_blob.profiles, &s_cs.profiles, sizeof(s_persist_blob.profiles));
+    }
     s_cs.dirty = false; /* everything live at this instant is in the blob */
     (void) xSemaphoreGive(s_cs.mutex);
 
-    (void) xSemaphoreTake(s_cs.persist_mutex, portMAX_DELAY);
-    const config_store_err_t rc = config_store_save(s_cs.store, &blob, (uint32_t) sizeof(blob));
+    const config_store_err_t rc =
+        config_store_save(s_cs.store, &s_persist_blob, (uint32_t) sizeof(s_persist_blob));
+
+    if ((rc == CONFIG_STORE_ERR_OK) && replace)
+    {
+        (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
+        s_cs.profiles = s_persist_blob.profiles;
+        (void) xSemaphoreGive(s_cs.mutex);
+    }
     (void) xSemaphoreGive(s_cs.persist_mutex);
 
     if (rc != CONFIG_STORE_ERR_OK)
@@ -407,6 +452,11 @@ static config_service_err_t prv_persist(void)
         return CONFIG_SERVICE_ERR_PERSIST;
     }
     return CONFIG_SERVICE_OK;
+}
+
+static config_service_err_t prv_persist(void)
+{
+    return prv_persist_ex(NULL, 0U, false);
 }
 
 static void prv_fire_callbacks(config_param_id_t id)
@@ -507,28 +557,90 @@ config_service_err_t config_service_apply_loaded(const void *blob, uint32_t len)
     config_params_t defaults;
     prv_apply_defaults(&defaults);
 
-    config_blob_t loaded;
-    bool usable = (len == (uint32_t) sizeof(loaded));
-    if (usable)
+    /* Schema 2 is the current blob; schema 1 (parameters only) is migrated with no profiles.
+     * Only the parts that are needed are copied out of the caller's buffer, one at a time: this
+     * runs at boot on a task stack, and a whole-blob copy would more than double its stack use. */
+    const uint8_t *const bytes = (const uint8_t *) blob;
+    config_params_t loaded_params;
+    uint32_t version = 0U;
+    bool usable = false;
+    bool has_profiles = false;
+
+    (void) memcpy(&version, bytes + offsetof(config_blob_t, schema_version), sizeof(version));
+    if (len == (uint32_t) sizeof(config_blob_t))
     {
-        (void) memcpy(&loaded, blob, sizeof(loaded));
-        usable = (loaded.schema_version == CONFIG_SCHEMA_VERSION);
+        usable = (version == CONFIG_SCHEMA_VERSION);
+        (void) memcpy(&loaded_params, bytes + offsetof(config_blob_t, params),
+                      sizeof(loaded_params));
+        const uint8_t profile_count =
+            bytes[offsetof(config_blob_t, profiles) + offsetof(config_profiles_t, count)];
+        has_profiles = usable && (profile_count <= DEVICE_PROFILE_MAX);
+        if (usable && !has_profiles)
+        {
+            LOG_WARN(MODULE_TAG, "stored profile count out of range, profiles dropped");
+        }
+    }
+    else if (len == (uint32_t) sizeof(config_blob_v1_t))
+    {
+        usable = (version == CONFIG_SCHEMA_VERSION_V1);
+        (void) memcpy(&loaded_params, bytes + offsetof(config_blob_v1_t, params),
+                      sizeof(loaded_params));
+        if (usable)
+        {
+            LOG_INFO(MODULE_TAG, "schema 1 configuration migrated, no profiles stored");
+        }
     }
 
     (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
     if (!usable)
     {
         s_cs.params = defaults;
+        (void) memset(&s_cs.profiles, 0, sizeof(s_cs.profiles));
         (void) xSemaphoreGive(s_cs.mutex);
         LOG_WARN(MODULE_TAG, "stored configuration discarded, defaults applied");
         return CONFIG_SERVICE_ERR_INVALID;
     }
 
-    prv_repair(&loaded.params, &defaults);
-    s_cs.params = prv_channels_valid(&loaded.params) ? loaded.params : defaults;
+    prv_repair(&loaded_params, &defaults);
+    s_cs.params = prv_channels_valid(&loaded_params) ? loaded_params : defaults;
+    (void) memset(&s_cs.profiles, 0, sizeof(s_cs.profiles));
+    if (has_profiles)
+    {
+        (void) memcpy(&s_cs.profiles, bytes + offsetof(config_blob_t, profiles),
+                      sizeof(s_cs.profiles));
+    }
     (void) xSemaphoreGive(s_cs.mutex);
     LOG_INFO(MODULE_TAG, "stored configuration applied");
     return CONFIG_SERVICE_OK;
+}
+
+bool config_service_get_profiles(device_profile_t *out, uint8_t max, uint8_t *count_out)
+{
+    if (!s_cs.initialised || (out == NULL) || (count_out == NULL))
+    {
+        return false;
+    }
+
+    (void) xSemaphoreTake(s_cs.mutex, portMAX_DELAY);
+    const uint8_t n = (s_cs.profiles.count < max) ? s_cs.profiles.count : max;
+
+    (void) memcpy(out, s_cs.profiles.entries, (size_t) n * sizeof(out[0]));
+    (void) xSemaphoreGive(s_cs.mutex);
+
+    *count_out = n;
+    return n > 0U;
+}
+
+bool config_service_set_profiles(const device_profile_t *in, uint8_t count)
+{
+    if (!s_cs.initialised || (count > DEVICE_PROFILE_MAX) || ((in == NULL) && (count > 0U)))
+    {
+        return false;
+    }
+
+    /* The list is written straight from the caller's array and replaces the live one only if the
+     * save worked: memory and flash always agree, and no second copy sits on this stack. */
+    return prv_persist_ex(in, count, true) == CONFIG_SERVICE_OK;
 }
 
 const config_params_t *config_service_get_params(void)

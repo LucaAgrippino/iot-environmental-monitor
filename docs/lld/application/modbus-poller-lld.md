@@ -16,7 +16,7 @@ document at its own layer.
 **Board:** Gateway (GW) only
 **Provides:** `IModbusPoller`
 **Consumes:** `IModbusMaster`, `IModbusMasterStats` (ModbusMaster),
-`IDeviceProfileProvider` (DeviceProfileRegistry, placeholder — MBP-O4),
+`idevice_profile_provider_t` (DeviceProfileRegistry, WP8),
 `IHealthReport` (HealthMonitor), `ILogger`
 **SRS traces:** REQ-MB-010, MB-020, MB-080, MB-090, MB-100, MB-110,
 MB-120, MB-130, MB-0E1; REQ-NF-103, NF-104, NF-110, NF-201, NF-215
@@ -174,34 +174,25 @@ typedef struct {
 } modbus_frame_t;
 ```
 
-**DeviceProfileRegistry** (`device_profile_registry.h`) — functions
-called by ModbusPoller:
+**DeviceProfileRegistry** (`device_profile_registry.h`, the real module since WP8,
+`device-profile-registry-lld.md` v0.2) — what ModbusPoller uses:
 
 ```c
 typedef struct {
     uint8_t  slave_addr;
-    uint16_t input_reg_start;    /* FC04 range start */
-    uint16_t input_reg_count;    /* FC04 range count */
-    /* Additional profile fields defined in DeviceProfileRegistry companion */
+    uint16_t map_version;   /* MAP_VERSION (0x0000) the Gateway accepts          */
+    uint16_t vendor_code;   /* VENDOR_CODE (0x0007) the slave must return         */
+    char     description[32];
 } device_profile_t;
 
-/**
- * @brief  Iterate the registered device profiles.
- *
- * Returns the next profile in the registry. Set *index = 0 and
- * *profile = NULL before the first call. Returns false when no
- * more profiles exist.
- */
-bool device_profile_get_next(const device_profile_t **profile,
-                             uint8_t *index);
-
-/**
- * @brief  Check whether a slave address is in the registry.
- *
- * Used by modbus_poller_send_command() to validate command targets.
- */
+/* iterate: *index = 0 first; each true return copies one profile and advances *index */
+bool device_profile_get_next(device_profile_t *out, uint8_t *index);
 bool device_profile_is_registered(uint8_t slave_addr);
 ```
+
+The register span is no longer in the profile: ModbusPoller owns a `const` **map table** keyed by
+`map_version` (`k_map_table`; version 1: FC04 `0x0010`, 3 registers) and builds every poll request from
+the entry of the profile's map version (D-1). The poll loop works on a **copy** of each profile.
 
 **IHealthReport** (`health_monitor/health_monitor.h`, Gateway) — as built
 (MBP-D6; the `health_report_update(metric_id, value)` / `METRIC_MB_*`
@@ -215,14 +206,6 @@ health_monitor_err_t health_monitor_push_event(
 /* events used: HEALTH_EVENT_MODBUS_LINK_UP / HEALTH_EVENT_MODBUS_LINK_DOWN,
  * param = slave_addr */
 ```
-
-**DeviceProfileRegistry — placeholder.** The real module is a Draft with no
-code. `firmware/gateway/application/device_profile_registry/` carries the two
-functions above with weak defaults serving one hard-coded Field Device profile
-(slave 1, FC04, start `0x0010`, count 3 — the temperature, humidity and
-pressure registers). `device_profile_get_next()` returns the profile at
-`*index` and then advances `*index`. The real registry replaces that `.c`
-file (MBP-O4).
 
 ---
 
@@ -676,6 +659,39 @@ static void build_poll_request(const device_profile_t *profile,
 
 ---
 
+### 5.8 Identity check at link establishment (REQ-MB-120, REQ-MB-130)
+
+Added with WP8 (device-profile-registry-lld.md §7.1). Each slave slot carries an `identity`:
+`UNVERIFIED` (start state), `VERIFIED` or `REJECTED`, and `recheck_cycles`.
+
+```
+for each profile (a copy):
+    slot = find_or_claim_slot(addr)
+    map  = map_for(profile)
+    if map == NULL:           reject(slot, "map version not supported"); continue   /* no transaction */
+    if !ensure_identity():    continue
+    poll data as before (§5.2)
+
+ensure_identity(slot, profile):
+    VERIFIED                          -> true
+    REJECTED and recheck_cycles > 1   -> recheck_cycles--; false          /* every 10th cycle */
+    transact FC04 0x0000, 8 registers (map version, device ID, hardware revision, firmware version, vendor)
+    no answer                         -> record_poll_outcome(failure); false   /* an ordinary link failure */
+    wrong length / map version != profile / vendor code != profile
+                                      -> reject(...); false
+    else                              -> VERIFIED; true
+reject(): on the first transition only, WARN with slave, reason, expected and got (REQ-MB-130);
+          if the link was online, take it down and push HEALTH_EVENT_MODBUS_LINK_DOWN;
+          identity = REJECTED; recheck_cycles = 10
+```
+
+A slave that goes offline (three failed polls, §5.3) returns to `UNVERIFIED`, so a device replaced while the
+link was down is checked again when it answers. `modbus_poller_reprobe(addr)` (REQ-DM-101) marks a slave
+`UNVERIFIED` and clears `recheck_cycles`; the caller of `DeviceProfileRegistry.add_or_update` calls it.
+The distinct health event for a rejected slave is open item DPR-O3: today it reuses `LINK_DOWN`.
+The identity read does not count as a success for the link hysteresis (only data polls do); an unanswered
+identity read counts as a failure.
+
 ## 6. Synchronisation
 
 Caller serialises. ModbusPoller holds no internal FreeRTOS
@@ -902,6 +918,19 @@ queue/delay stubs.
 | TC-MP-035 | `modbus_poller_run()` (left via `longjmp` from the transact spy) | `modbus_master_start()` once; `vTaskDelayUntil()` with the poll period |
 | TC-MP-036 | `slave_state_for_test(4)` | `NULL` |
 | TC-MP-037 | Corrupt queued command (FC16, count 124) | Answered `ERR_INVALID_ARG`, no transaction |
+| TC-MP-040 | New slave: identity read before the first data poll | Two transactions: FC04 `0x0000` x8, then the data span; slave `VERIFIED` |
+| TC-MP-041 | Verified slave | Not checked again |
+| TC-MP-042 | Wrong vendor code | `REJECTED`, only the identity read, no data, link offline |
+| TC-MP-043 | Wrong map version | `REJECTED` |
+| TC-MP-044 | Identity response too short | `REJECTED` |
+| TC-MP-045 | Profile map version unknown to the build | `REJECTED` with no transaction, quiet afterwards |
+| TC-MP-046 | Rejected slave | Silent for nine cycles, checked on the tenth, recovers when the device matches |
+| TC-MP-047 | `modbus_poller_reprobe` on a verified slave | Next cycle checks identity again |
+| TC-MP-048 | `reprobe` on a rejected slave after the profile was corrected | Checked at once, `VERIFIED` |
+| TC-MP-049 | `reprobe` before init / unknown address | `NOT_INIT` / `REJECTED` |
+| TC-MP-050 | Online slave that is then rejected | One `LINK_DOWN` event, not repeated |
+| TC-MP-051 | Unanswered identity read | Link failure counted, slave stays `UNVERIFIED` |
+| TC-MP-052 | Slave goes offline | Returns to `UNVERIFIED` |
 
 Field Device reading (CP-D18), `test_modbus_poller.c`:
 
@@ -925,7 +954,7 @@ Hardware: **TC-HW-MBP-010** (`integration-tests/modbus_poller`, written, to be r
 |---|---|---|---|
 | MBP-O1 | Command queue depth — 4 is provisional. Confirm at integration by measuring peak queue occupancy under worst-case concurrent callers (TimeService + ConsoleService + UpdateService). | Measure peak queue occupancy at integration | Open |
 | MBP-O2 | Multi-slave poll round-robin order — currently one slave (the FD). When a second slave is added, confirm that the round-robin does not starve slower slaves or exceed the poll period. | Address when second Modbus slave is added | Open |
-| MBP-O4 | DeviceProfileRegistry is a placeholder: weak defaults serve one hard-coded Field Device profile. | Replace `device_profile_registry.c` when the real module is built; reconcile the `idevice_profile_provider_t` vtable with `device_profile_get_next()` / `device_profile_is_registered()` | Open |
+| MBP-O4 | DeviceProfileRegistry was a placeholder. | **Closed (WP8):** the real module replaces it; the poller takes its register span from `k_map_table` and checks identity (§5.8). | Closed |
 | MBP-O5 | Stack headroom — measured on the bench 2026-10-13 (TC-HW-MBP-009): 65 of 512 words free, so about 1.8 KB of the 2 KB budget is used (the `-fstack-usage` estimate of ~1.5 KB missed the FreeRTOS/ISR context frames). Passes, but with only ~260 B margin. | Re-measure with real traffic and the logger active; raise the stack to 640 words if the margin shrinks | Open |
 | MBP-O3 | `forward_response_to_consumers()` target interface — writes decoded register values to a shared data store for CloudPublisher and LcdDisplay consumption. | **Closed 2026-10-28** | No separate data store (it would have one reader on the Gateway): ModbusPoller keeps a per-slave cache in its own slave table and exports a pull query, `modbus_poller_get_fd_reading()` (CP-D18, MBP-D8). | Closed |
 

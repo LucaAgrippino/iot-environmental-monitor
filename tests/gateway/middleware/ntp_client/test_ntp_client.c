@@ -51,6 +51,20 @@ static uint8_t s_sent[NTP_PACKET_BYTES];
 static size_t s_sent_len;
 static uint32_t s_recv_timeout;
 
+static uint32_t s_resolve_calls;
+static wifitask_err_t s_resolve_result;
+static char s_resolve_name[40];
+
+wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, char *ip_out,
+                                size_t ip_out_len)
+{
+    (void) handle;
+    s_resolve_calls++;
+    (void) strncpy(s_resolve_name, hostname, sizeof(s_resolve_name) - 1U);
+    (void) strncpy(ip_out, "93.184.216.34", ip_out_len);
+    return s_resolve_result;
+}
+
 wifitask_err_t wifitask_open_socket(wifitask_handle_t handle, wifi_socket_type_t type,
                                     const char *remote_addr, uint16_t remote_port,
                                     wifi_socket_t *out_socket)
@@ -173,6 +187,8 @@ void setUp(void)
     (void) memset(s_open_addr, 0, sizeof(s_open_addr));
     (void) memset(s_sent, 0xEE, sizeof(s_sent));
     s_open_calls = 0U;
+    s_resolve_calls = 0U;
+    s_resolve_result = (wifitask_err_t) WIFI_ERR_OK;
     s_send_calls = 0U;
     s_recv_calls = 0U;
     s_close_calls = 0U;
@@ -386,6 +402,33 @@ void test_NTP_T11_first_server_times_out_second_answers(void)
     TEST_ASSERT_EQUAL_UINT32(2U, s_open_calls);
     TEST_ASSERT_EQUAL_STRING("10.0.0.2", s_open_addr[1]);
     TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
+}
+
+void test_NTP_T11b_a_host_name_is_resolved_before_the_socket_opens(void)
+{
+    static const char *const names[] = {"time.example.org"};
+    uint32_t epoch = 0U;
+
+    script_good(0U, NTP_SECONDS_2024);
+
+    TEST_ASSERT_EQUAL(NTP_CLIENT_ERR_OK, ntp_client_query(s_h, names, 1U, &epoch));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_resolve_calls);
+    TEST_ASSERT_EQUAL_STRING("time.example.org", s_resolve_name);
+    TEST_ASSERT_EQUAL_STRING("93.184.216.34", s_open_addr[0]);
+}
+
+void test_NTP_T11c_an_ipv4_literal_is_not_resolved_and_a_failed_resolve_is_skipped(void)
+{
+    static const char *const names[] = {"time.example.org", "10.0.0.2"};
+    uint32_t epoch = 0U;
+
+    s_resolve_result = (wifitask_err_t) WIFI_ERR_TIMEOUT;
+    script_good(0U, NTP_SECONDS_2024);
+
+    TEST_ASSERT_EQUAL(NTP_CLIENT_ERR_OK, ntp_client_query(s_h, names, 2U, &epoch));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_resolve_calls); /* only the name, not the literal */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_open_calls);    /* the failed name never opened a socket */
+    TEST_ASSERT_EQUAL_STRING("10.0.0.2", s_open_addr[0]);
 }
 
 void test_NTP_T12_all_servers_time_out(void)

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "itime_service.h"
+#include "config_service/config_params.h"
 #include "ntp_client/ntp_client.h"
 
 /* ======================================================================= */
@@ -67,6 +68,17 @@ typedef enum
  * @note Threading: call before the scheduler starts.
  */
 time_service_err_t time_service_init(ntp_client_handle_t ntp);
+
+/**
+ * @brief Take the NTP servers and the sync interval from the configuration (TS-O4, WP12 D-8).
+ *
+ * Uses @c ntp_servers when @c ntp_server_count is at least 1 (each an IPv4 literal or a host
+ * name), else the built-in pair; the interval is @c ntp_interval_min minutes. A running timer is
+ * re-armed. Safe to call before or after time_service_init() and from a change callback.
+ *
+ * @param params  Live configuration; NULL is ignored.
+ */
+void time_service_reconfigure(const config_params_t *params);
 
 /**
  * @brief Obtain the ITimeService vtable.

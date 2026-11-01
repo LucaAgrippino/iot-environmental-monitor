@@ -110,6 +110,12 @@ modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_r
     return g_spy_fd_return;
 }
 
+static modbus_poller_alarm_cb_t g_spy_fd_alarm_cb;
+void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback)
+{
+    g_spy_fd_alarm_cb = callback;
+}
+
 static void (*g_spy_alarm_cb)(sensor_id_t, alarm_event_t, const sensor_reading_t *);
 static uint32_t g_spy_alarm_subscribe_calls;
 static int32_t g_spy_alarm_limit;
@@ -383,6 +389,8 @@ static const iupdate_service_t g_spy_update_ops = {.handle_command = spy_update_
 
 static mqtt_client_err_t g_spy_mqtt_publish_return;
 static uint32_t g_spy_mqtt_publish_calls;
+/* Ticks each publish takes, added to the mock tick counter (the drain's time budget, CP-D32). */
+static TickType_t g_spy_mqtt_publish_tick_step;
 static char g_spy_mqtt_publish_last_topic[SAF_TOPIC_MAX];
 static char g_spy_mqtt_publish_last_payload[TC_JSON_BUF_SIZE];
 static uint32_t g_spy_mqtt_publish_last_len;
@@ -392,6 +400,7 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
 {
     (void) handle;
     g_spy_mqtt_publish_calls++;
+    g_mock_tick_count += g_spy_mqtt_publish_tick_step;
     (void) strncpy(g_spy_mqtt_publish_last_topic, topic, SAF_TOPIC_MAX - 1u);
     uint32_t copy_len = (len < (sizeof(g_spy_mqtt_publish_last_payload) - 1u))
                             ? len
@@ -448,12 +457,15 @@ bool mqtt_client_is_connected(mqtt_client_handle_t handle)
 
 static mqtt_client_err_t g_spy_mqtt_connect_return;
 static uint32_t g_spy_mqtt_connect_calls;
+static const char *g_spy_mqtt_connect_last_endpoint;
+static const char *g_spy_mqtt_connect_last_client_id;
 mqtt_client_err_t mqtt_client_connect_step(mqtt_client_handle_t handle,
                                            const mqtt_connect_cfg_t *cfg)
 {
     (void) handle;
-    (void) cfg;
     g_spy_mqtt_connect_calls++;
+    g_spy_mqtt_connect_last_endpoint = cfg->broker_endpoint;
+    g_spy_mqtt_connect_last_client_id = cfg->client_id;
     return g_spy_mqtt_connect_return;
 }
 
@@ -476,6 +488,7 @@ void setUp(void)
 
     g_spy_alarm_limit = 0;
     g_spy_alarm_cb = NULL;
+    g_spy_fd_alarm_cb = NULL;
     g_spy_alarm_subscribe_calls = 0u;
 
     (void) memset(&g_spy_fd_reading, 0, sizeof(g_spy_fd_reading));
@@ -534,6 +547,7 @@ void setUp(void)
     (void) memset(g_spy_mqtt_subscribe_topic, 0, sizeof(g_spy_mqtt_subscribe_topic));
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_publish_calls = 0u;
+    g_spy_mqtt_publish_tick_step = 0u;
     (void) memset(g_spy_mqtt_publish_last_topic, 0, sizeof(g_spy_mqtt_publish_last_topic));
     (void) memset(g_spy_mqtt_publish_last_payload, 0, sizeof(g_spy_mqtt_publish_last_payload));
     (void) memset(&g_spy_mqtt_stats, 0, sizeof(g_spy_mqtt_stats));
@@ -542,6 +556,8 @@ void setUp(void)
     g_spy_mqtt_is_connected_return = true; /* most tests assume an already-connected broker */
     g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_connect_calls = 0u;
+    g_spy_mqtt_connect_last_endpoint = NULL;
+    g_spy_mqtt_connect_last_client_id = NULL;
 
     (void) memset(&g_cfg, 0, sizeof(g_cfg));
     g_cfg.mqtt = (mqtt_client_handle_t) 0x1000;
@@ -1154,6 +1170,37 @@ void test_CP_T25_cleared_alarm_reports_the_limit_that_was_raised(void)
     TEST_ASSERT_EQUAL_STRING("pressure", ev.sensor_name);
     TEST_ASSERT_EQUAL(CP_ALARM_TYPE_CLEAR, ev.alarm_type);
     TEST_ASSERT_EQUAL(ALARM_EVENT_RAISED_LOW, g_spy_alarm_limit_event);
+}
+
+void test_CP_T27_fd_alarm_flags_become_field_device_alarms(void)
+{
+    g_cfg.fd_slave_addr = 1u;
+    g_spy_fd_return = MODBUS_POLLER_ERR_OK;
+    g_spy_fd_reading.humidity_centi_pct = 8123u;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_NOT_NULL(g_spy_fd_alarm_cb);
+
+    /* HUMIDITY_HIGH (bit 3) rises. */
+    g_mock_xQueueSend_last_item_size = sizeof(cp_alarm_event_t);
+    g_spy_fd_alarm_cb(1u, 0x0000u, 0x0008u);
+    cp_alarm_event_t ev;
+    (void) memcpy(&ev, g_mock_xQueueSend_last_item, sizeof(ev));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xQueueSend_call_count);
+    TEST_ASSERT_EQUAL_STRING("humidity", ev.sensor_name);
+    TEST_ASSERT_EQUAL(CP_ALARM_TYPE_HIGH, ev.alarm_type);
+    TEST_ASSERT_EQUAL(CP_ALARM_SOURCE_FIELD_DEVICE, ev.source);
+    TEST_ASSERT_EQUAL_INT32(8123, ev.measured_value_raw);
+
+    /* The same bit falls, TEMP_LOW (bit 0) rises: two events, the clear first by bit order. */
+    g_mock_xQueueSend_call_count = 0u;
+    g_spy_fd_alarm_cb(1u, 0x0008u, 0x0001u);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_mock_xQueueSend_call_count);
+
+    /* Another slave's flags are not ours. */
+    g_mock_xQueueSend_call_count = 0u;
+    g_spy_fd_alarm_cb(7u, 0x0000u, 0x0001u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_mock_xQueueSend_call_count);
 }
 
 void test_CP_T26_alarm_for_unthresholded_sensor_is_ignored(void)
@@ -2408,4 +2455,227 @@ void test_CP_T106_the_placeholder_symbols_are_not_part_of_the_build(void)
      * line is the proof; the done-when check on the ELF repeats it with nm (WP1 section 12). */
     prv_create_and_connect();
     TEST_ASSERT_TRUE(cloud_publisher_is_ready(g_handle));
+}
+
+/* ======================================================================= */
+/* CP-T107..T112 - paced store-and-forward replay (CP-D32, GM-O20)           */
+/* ======================================================================= */
+
+/* Let the mock clock run, then take a stats tick: the drain's pacing is in ticks, not in calls. */
+static void prv_stats_tick_after_ms(uint32_t ms)
+{
+    g_mock_tick_count += pdMS_TO_TICKS(ms);
+    prv_stats_tick();
+}
+
+static void prv_load_backlog(uint32_t entries, uint32_t payload_len)
+{
+    saf_entry_t entry;
+
+    (void) memset(&entry, 0, sizeof(entry));
+    (void) strncpy(entry.topic, "dt/iotmonitor/x/telemetry", SAF_TOPIC_MAX - 1u);
+    entry.payload_len = payload_len;
+    entry.qos = MQTT_QOS_0;
+    g_spy_saf_dequeue_entry = entry;
+    g_spy_saf_dequeue_return = SAF_ERR_OK;
+    g_spy_saf_dequeue_available = entries;
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+}
+
+void test_CP_T107_a_replay_pass_stops_at_the_entry_limit(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 2u);
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_saf_confirm_calls);
+    /* The link is served after each entry, not only at the end of the pass. */
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(4u, g_spy_mqtt_process_calls);
+}
+
+void test_CP_T108_a_replay_pass_stops_at_the_byte_limit(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 4000u);
+
+    prv_stats_tick();
+
+    /* One 4000 B entry is over the 2048 B limit and ends the pass. */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T109_a_replay_pass_stops_at_the_time_limit(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 2u);
+    g_spy_mqtt_publish_tick_step = pdMS_TO_TICKS(300u);
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T110_a_failed_replay_publish_backs_off_before_the_next_attempt(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(40u, 2u);
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_PUBLISH_FAIL;
+
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+
+    prv_stats_tick_after_ms(4900u); /* CP_DRAIN_BACKOFF_MIN_S is 5 s */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+
+    prv_stats_tick_after_ms(200u);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_confirm_calls);
+}
+
+void test_CP_T111_an_entry_that_fails_three_times_in_a_row_is_dropped(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(60u, 2u);
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_PUBLISH_FAIL;
+
+    for (uint32_t i = 0u; (i < 40u) && (g_spy_mqtt_publish_calls < 3u); i++)
+    {
+        prv_stats_tick_after_ms(1000u);
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_confirm_calls); /* the drop */
+    bool dropped_reported = false;
+    for (uint32_t i = 0u; (i < g_spy_health_push_event_calls) && (i < TC_EVENT_LOG); i++)
+    {
+        dropped_reported |= (g_spy_health_events[i] == HEALTH_EVENT_BUFFER_OVERFLOW);
+    }
+    TEST_ASSERT_TRUE(dropped_reported);
+}
+
+void test_CP_T112_replay_is_not_attempted_while_the_link_is_down(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(10u, 2u);
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_saf_dequeue_calls = 0u;
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_saf_dequeue_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+}
+
+void test_CP_T113_a_second_pass_waits_for_the_pass_interval_however_often_it_is_woken(void)
+{
+    prv_create_and_connect();
+    prv_load_backlog(40u, 2u);
+
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_publish_calls);
+
+    /* Receive-ready wakes run the same code path as the 1 Hz tick. */
+    prv_stats_tick_after_ms(100u);
+    prv_stats_tick_after_ms(100u);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_publish_calls);
+
+    prv_stats_tick_after_ms(900u); /* CP_DRAIN_PASS_INTERVAL_MS has run out */
+    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_publish_calls);
+}
+
+/* ======================================================================= */
+/* CP-T114..T118 - the link is made ready before a connect attempt         */
+/* (CP-D33, CP-D34, GM-O17/O18/O19)                                         */
+/* ======================================================================= */
+
+static uint32_t g_spy_prepare_calls;
+static const char *g_spy_prepare_result;
+static const char *prv_spy_prepare(void)
+{
+    g_spy_prepare_calls++;
+    return g_spy_prepare_result;
+}
+
+static void prv_create_disconnected_with_prepare(void)
+{
+    g_cfg.connect_prepare = prv_spy_prepare;
+    g_spy_prepare_calls = 0u;
+    g_spy_prepare_result = "13.60.114.42";
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+}
+
+void test_CP_T114_the_address_from_the_hook_is_the_one_connected_to(void)
+{
+    prv_create_disconnected_with_prepare();
+
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+    TEST_ASSERT_EQUAL_STRING("13.60.114.42", g_spy_mqtt_connect_last_endpoint);
+}
+
+void test_CP_T115_a_hook_that_is_not_ready_counts_as_a_failed_attempt(void)
+{
+    prv_create_disconnected_with_prepare();
+    g_spy_prepare_result = NULL;
+
+    prv_stats_tick(); /* hook says no: no connect, back off */
+    prv_stats_tick(); /* still backing off: the hook is not asked again */
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_connect_calls);
+}
+
+void test_CP_T116_the_hook_is_asked_again_once_the_backoff_has_run_out(void)
+{
+    prv_create_disconnected_with_prepare();
+    g_spy_prepare_result = NULL;
+
+    prv_stats_tick();
+    prv_stats_tick();
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls); /* backoff 2 s: two ticks waiting */
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_prepare_calls);
+
+    g_spy_prepare_result = "13.60.114.43"; /* the network is back */
+    for (uint32_t i = 0u; (i < 10u) && (g_spy_mqtt_connect_calls == 0u); i++)
+    {
+        prv_stats_tick();
+    }
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_connect_calls);
+    TEST_ASSERT_EQUAL_STRING("13.60.114.43", g_spy_mqtt_connect_last_endpoint);
+}
+
+void test_CP_T117_the_hook_is_not_asked_between_the_steps_of_one_attempt(void)
+{
+    prv_create_disconnected_with_prepare();
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_IN_PROGRESS;
+
+    prv_stats_tick();
+    prv_stats_tick();
+    prv_stats_tick();
+
+    TEST_ASSERT_EQUAL_UINT32(3u, g_spy_mqtt_connect_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prepare_calls);
+}
+
+void test_CP_T118_the_cpu_serial_is_the_client_id_unless_one_is_given(void)
+{
+    g_cfg.mqtt_connect_cfg.client_id = NULL;
+    prv_create_disconnected_with_prepare();
+    prv_stats_tick();
+    TEST_ASSERT_NOT_NULL(g_spy_mqtt_connect_last_client_id);
+    TEST_ASSERT_EQUAL_UINT32(24u, (uint32_t) strlen(g_spy_mqtt_connect_last_client_id));
+
+    cloud_publisher_reset_for_test();
+    g_cfg.mqtt_connect_cfg.client_id = "given-id";
+    prv_create_disconnected_with_prepare();
+    prv_stats_tick();
+    TEST_ASSERT_EQUAL_STRING("given-id", g_spy_mqtt_connect_last_client_id);
 }

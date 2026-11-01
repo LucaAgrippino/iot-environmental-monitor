@@ -49,7 +49,7 @@ LCD framebuffer: N/A (Gateway has no display).
 | UpdateService + FirmwareStore — state | 512 | companions §3 |
 | ConsoleService — UART RX line buffer | 512 | `console-service-lld.md` §3 |
 | HealthMonitor — snapshot + mutex | 512 | `health-monitor.md` §3 |
-| LifecycleController — state machine | 256 | `lifecycle-controller.md` §3 |
+| LifecycleController — state machine | 256 | `lifecycle-controller-lld.md` §3 |
 | DeviceProfileRegistry — profile cache | 512 | `device-profile-registry-lld.md` §3 |
 | BSS / startup code / ISR stacks | 2 048 | linker estimate |
 | **Total static** | **60 232** | |
@@ -112,7 +112,7 @@ LCD framebuffer (800 × 480 × 2 bytes = 768 KB) lives in **external SDRAM** —
 | SensorService + AlarmService — state | 384 | companions §3 |
 | ConsoleService — UART RX line buffer | 512 | `console-service-lld.md` §3 |
 | HealthMonitor — snapshot + mutex | 512 | `health-monitor.md` §3 |
-| LifecycleController — state machine | 256 | `lifecycle-controller.md` §3 |
+| LifecycleController — state machine | 256 | `lifecycle-controller-lld.md` §3 |
 | DeviceProfileRegistry — profile cache | 512 | `device-profile-registry-lld.md` §3 |
 | BSS / startup code / ISR stacks | 2 048 | linker estimate |
 | **Total static** | **58 104** | |

@@ -67,9 +67,12 @@ typedef struct
     uint32_t health_interval_ms;    /**< default 600000; range [10000, 86400000]     */
 
     /* -- Time sync -- */
-    char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN]; /**< IPv4 literals  */
+    char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN]; /**< IPv4 or host name */
     uint8_t ntp_server_count;                                          /**< default 0       */
-    uint8_t reserved_c[3];                                             /**< Tail padding; zero */
+    uint8_t reserved_c;                                                /**< Padding; zero   */
+    uint16_t ntp_interval_min; /**< Sync interval, minutes; default 60; range [1, 1440]. Carved out
+                                    of the former tail padding, so the blob size and schema stay;
+                                    a stored 0 is invalid and repaired to the default (D-8). */
 } config_params_t;
 
 /* The layout is part of the stored blob: any change must bump CONFIG_SCHEMA_VERSION. */
@@ -80,6 +83,7 @@ _Static_assert((offsetof(config_params_t, mqtt_port) % 2U) == 0U, "mqtt_port");
 _Static_assert((offsetof(config_params_t, telemetry_interval_ms) % 4U) == 0U,
                "telemetry_interval_ms");
 _Static_assert((offsetof(config_params_t, health_interval_ms) % 4U) == 0U, "health_interval_ms");
+_Static_assert((offsetof(config_params_t, ntp_interval_min) % 2U) == 0U, "ntp_interval_min");
 _Static_assert((sizeof(config_params_t) % 4U) == 0U, "config_params_t size");
 
 #endif /* CONFIG_PARAMS_H */

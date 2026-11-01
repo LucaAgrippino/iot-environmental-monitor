@@ -133,15 +133,16 @@ static const iconfig_manager_t s_cfg_write = {.ctx = NULL,
                                               .set_param_deferred = sim_set,
                                               .persist_pending = sim_persist};
 
-static device_profile_t s_profiles[2] = {{1U, 0U, 10U}, {2U, 100U, 4U}};
+static const device_profile_t s_profiles[2] = {{1U, 1U, 0x1A45U, "Field Device 1"},
+                                               {2U, 2U, 0x0042U, "Spare"}};
 
-static bool sim_next(const device_profile_t **p, uint8_t *i)
+static bool sim_next(device_profile_t *p, uint8_t *i)
 {
     if (*i >= 2U)
     {
         return false;
     }
-    *p = &s_profiles[*i];
+    *p = s_profiles[*i];
     (*i)++;
     return true;
 }

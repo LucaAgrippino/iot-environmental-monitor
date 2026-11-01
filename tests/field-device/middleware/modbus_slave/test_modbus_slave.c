@@ -93,6 +93,31 @@ static modbus_slave_err_t stub_write_holding(uint16_t addr, uint16_t value)
     return s_write_holding_return;
 }
 
+static uint16_t           s_block_addr;
+static uint16_t           s_block_count;
+static uint16_t           s_block_values[4];
+static uint32_t           s_block_calls;
+static modbus_slave_err_t s_block_return;
+
+static modbus_slave_err_t stub_write_block(uint16_t addr, const uint16_t *values, uint16_t count)
+{
+    s_block_addr  = addr;
+    s_block_count = count;
+    for (uint16_t i = 0U; (i < count) && (i < 4U); i++)
+    {
+        s_block_values[i] = values[i];
+    }
+    s_block_calls++;
+    return s_block_return;
+}
+
+static const IModbusRegisterMap k_block_map = {
+    .read_input    = stub_read_input,
+    .read_holding  = stub_read_holding,
+    .write_holding = stub_write_holding,
+    .write_block   = stub_write_block,
+};
+
 static const IModbusRegisterMap k_reg_map = {
     .read_input    = stub_read_input,
     .read_holding  = stub_read_holding,
@@ -144,6 +169,8 @@ void setUp(void)
     s_read_holding_value  = 0U;
     s_write_holding_return = MODBUS_SLAVE_ERR_OK;
     s_write_count = 0U;
+    s_block_calls = 0U;
+    s_block_return = MODBUS_SLAVE_ERR_OK;
     (void) memset(s_write_addrs,  0, sizeof(s_write_addrs));
     (void) memset(s_write_values, 0, sizeof(s_write_values));
 }
@@ -652,4 +679,50 @@ void test_TC_MBS_023_all_functions_before_init_return_not_init(void)
     TEST_ASSERT_EQUAL_INT(MODBUS_SLAVE_ERR_OK, modbus_slave_get_stats(&stats));
     TEST_ASSERT_EQUAL_UINT32(0U, stats.valid_frames);
     TEST_ASSERT_EQUAL_INT(MODBUS_SLAVE_ERR_OK, modbus_slave_reset_stats());
+}
+
+/* ===================================================================== */
+/* TC-MBS-024: FC16 with a block entry -> one call, whole block (B2)     */
+/* ===================================================================== */
+
+void test_TC_MBS_024_fc16_block_entry_called_once_with_all_values(void)
+{
+    TEST_ASSERT_EQUAL_INT(MODBUS_SLAVE_ERR_OK,
+                          modbus_slave_init(&k_block_map, 1U, s_task_handle));
+
+    /* CMD_SET_TIME shape: 2 registers at 0x0210. */
+    const uint8_t pdu[] = {0x01U, 0x10U, 0x02U, 0x10U, 0x00U, 0x02U,
+                            0x04U, 0x07U, 0xEAU, 0x0BU, 0x00U};
+    inject_frame(pdu, sizeof(pdu));
+
+    TEST_ASSERT_EQUAL_INT(MODBUS_SLAVE_ERR_OK, modbus_slave_process());
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_block_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_write_count);
+    TEST_ASSERT_EQUAL_UINT16(0x0210U, s_block_addr);
+    TEST_ASSERT_EQUAL_UINT16(2U, s_block_count);
+    TEST_ASSERT_EQUAL_UINT16(0x07EAU, s_block_values[0]);
+    TEST_ASSERT_EQUAL_UINT16(0x0B00U, s_block_values[1]);
+    TEST_ASSERT_EQUAL_UINT16(8U, s_stub_tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0x10U, s_stub_tx_frame[1]);
+}
+
+/* ===================================================================== */
+/* TC-MBS-025: block entry error maps to the exception code              */
+/* ===================================================================== */
+
+void test_TC_MBS_025_fc16_block_entry_error_maps_to_exception(void)
+{
+    TEST_ASSERT_EQUAL_INT(MODBUS_SLAVE_ERR_OK,
+                          modbus_slave_init(&k_block_map, 1U, s_task_handle));
+    s_block_return = MODBUS_SLAVE_ERR_INVALID_VALUE;
+
+    const uint8_t pdu[] = {0x01U, 0x10U, 0x02U, 0x10U, 0x00U, 0x02U,
+                            0x04U, 0x00U, 0x01U, 0x00U, 0x02U};
+    inject_frame(pdu, sizeof(pdu));
+
+    /* process() returns OK once the exception response is built. */
+    TEST_ASSERT_EQUAL_INT(MODBUS_SLAVE_ERR_OK, modbus_slave_process());
+    TEST_ASSERT_EQUAL_HEX8(0x90U, s_stub_tx_frame[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x03U, s_stub_tx_frame[2]);
 }

@@ -33,10 +33,11 @@ typedef enum
     CONFIG_STORE_ERR_NO_RESOURCE = 2,   /**< Static pool exhausted.          */
     CONFIG_STORE_ERR_NOT_INIT = 3,      /**< Handle not created or invalid.  */
     CONFIG_STORE_ERR_TOO_LARGE = 4,     /**< Blob exceeds the capacity given. */
-    CONFIG_STORE_ERR_NO_VALID_SLOT = 5, /**< Neither slot holds a valid blob. */
+    CONFIG_STORE_ERR_NO_VALID_SLOT = 5, /**< Something is stored but neither slot is valid. */
     CONFIG_STORE_ERR_FLASH_ERASE = 6,   /**< Erase failure from the driver.  */
     CONFIG_STORE_ERR_FLASH_WRITE = 7,   /**< Program failure from the driver. */
-    CONFIG_STORE_ERR_FLASH_READ = 8     /**< Read failure from the driver.   */
+    CONFIG_STORE_ERR_FLASH_READ = 8,    /**< Read failure from the driver.   */
+    CONFIG_STORE_ERR_NEVER_WRITTEN = 9  /**< Both slots erased: nothing was ever saved (LC-O14). */
 } config_store_err_t;
 
 /** Largest config blob accepted: the 32 744-byte data area less a 32-byte margin. */

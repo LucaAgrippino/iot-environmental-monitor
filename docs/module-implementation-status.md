@@ -36,7 +36,7 @@ Hardware columns come from the bench results recorded during the project; where 
 | RtcDriver | harness exists | |
 | SpiDriver | harness exists | |
 | LedDriver | harness exists | |
-| WifiDriver (ISM43362) | ✅ validated | 2.4 GHz only, no DNS resolver |
+| WifiDriver (ISM43362) | ✅ validated | 2.4 GHz only; DNS lookup via `D0` (`wifi_resolve`, WIFI-O18), not yet used by callers |
 | QspiFlashDriver | ✅ TC-HW-QSPI-001..010 | Sector erase 81 ms, page program 3.2 ms. QSPID-O1 is closed (2026-10-26): the driver takes its own priority-inheritance mutex for each whole operation, hardware-validated |
 | ModbusUartDriver | ✅ TC-HW-MBUART-001..010 | PA15 RTS/DE unverified |
 | ResetDriver | ✅ TC-HW-RST-001..004 | `reset_trigger()`; reuses `cpu_hw.h`, adds `CPU_HW_DATA_BARRIER`. Committed config survived a real reset ordered via `/control` |
@@ -54,7 +54,7 @@ Hardware columns come from the bench results recorded during the project; where 
 |---|---|---|
 | Logger | harness exists | |
 | WifiTask | ✅ validated | Alarm-latency decision CP-O6 largely resolved |
-| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (provisional 44 KB, mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open **not yet measured** (TC-HW-MQTT-014, Luca); the two 16 KB SSL record buffers alone take about 33 KB (MQTT-O1) |
+| MqttClient | ✅ validated | TLS mutual auth, non-blocking publish. WP2: mbedTLS now allocates only from the static `tls_arena` (28 KB since WP4 D-1 (MQTT-D19), mutex-guarded; `tls_arena_init()` must run before the scheduler). Arena peak with a TLS session open (TC-HW-MQTT-014): **46 280 bytes** with the default 16 KB record buffers (2026-10-29; the old 44 KB arena was 1 224 bytes too small), **20 920 bytes** with the 5 120 / 2 048 buffers against AWS IoT Core (2026-10-30). `tls_server_name` (MQTT-D18) separates the certificate name from the connect address |
 | NtpClient | ✅ validated | IPv4 servers only |
 | TimeProvider | ✅ TC-HW-TP-001..011 | |
 | ConfigStore | ✅ validated | Diverges from the FD copy (CS-O5) |
@@ -68,16 +68,16 @@ Hardware columns come from the bench results recorded during the project; where 
 |---|---|---|
 | HealthMonitor | ✅ used in TimeProvider and sensor runs | LED behaviour and pin PB14 were flagged as blockers earlier |
 | SensorService | ✅ TC-HW-SS-001..009 | int32 fixed point; worst cycle 5.1 ms |
-| AlarmService | ✅ same run | Thresholds are compile-time defaults (SS-O6) |
+| AlarmService | ✅ same run | Thresholds from ConfigService via `alarm_service_reconfigure(const config_params_t*)` (SS-O6 closed 2026-11-01, WP12 D-3..D-6): defaults are now the `config_params_t` set (temperature 40.00 / 0.00 / 1.00 degC, humidity 80/20/2.00 %RH), an active alarm keeps its state when limits move, validation stays in ConfigService. Boot-applied only until D-13. Not run on hardware |
 | CloudPublisher | ✅ TC-HW-CP-001..012 (re-run 2026-10-24); CP-013; **WP1 PR-D reconciliation host-tested (95 tests), TC-HW-CP-014..017 to be run** | Links against the real StoreAndForward, HealthMonitor, ConfigService, TimeService interface, ModbusPoller Field Device query and TimeProvider; no placeholder type or function is left (`nm -A` on the harness ELF shows none of the twelve names; LC-O13, SAF-O3, TS-O6, CP-O2, CP-O4, CP-O5 closed). Schema 1.1 on all payloads (timestamp and `sync_state`, `null` for an invalid channel, nested Field Device, health with 20 metrics and the firmware version). `/config` parsed and applied all-or-nothing with `set_param_deferred`, persisted by LifecycleController (LC-D23); `/config` and `/control` now subscribed. OTA flow from #106 unchanged. Open: CP-O8 (`/control` has no result topic), CP-O9 (REQ-CC-010 metrics missing from the snapshot), CP-O10 (128-byte command cap: about five parameters). Alarm outcome of TC-HW-CP-011 is read from MQTT stats and the SAF count in the harness |
 | StoreAndForward | ✅ validated 2026-10-11 (harness now reads a real HealthMonitor, not yet re-run) | Reports to the real HealthMonitor (SAF-D7, SAF-O4 closed). CloudPublisher still wired to it through a placeholder type set (SAF-O3 / LC-O13, WP1 PR-D) |
 | ModbusPoller | ✅ TC-HW-MBP-001..009 (010 written, not yet run) | `modbus_poller_is_ready()` = initialised only (MBP-D7). Decodes the Field Device sensor registers into a per-slave cache and offers `modbus_poller_get_fd_reading()` (MBP-D8, CP-D18, MBP-O3 closed); 7 new host tests; verified against a real Field Device in WP7 |
-| TimeService | ✅ TC-HW-TS-001..005 (2026-10-24) | Modbus bus stubbed in the harness; FD handler missing (TS-O5) |
+| TimeService | ✅ TC-HW-TS-001..005 (2026-10-24) | Modbus bus stubbed in the harness; the FD handler exists since 2026-10-31 (TS-O5 closed), two-board check is WP7 |
 | ConfigService | ✅ PR #88 hw-validated 2026-10-24 | Fixed-point as on the FD. `set_param` takes 774 ms (CFG-O7). Consumers not wired (CFG-O8). Already has snapshot/restore/flush internally |
 | ConsoleService | ✅ PR #89 hw-validated 30/30 (`scripts/console_bench.py`) | Palette cells, deferred persist, Ctrl-L repaint. Open: GCS-O4..O10 |
 | LifecycleController | ✅ PR #90 hw-validated TC-HW-LC-001..014, 114 host tests | Local `lc_*_if_t` interfaces. PR #105 (LCC-2..4, LC-D19..D22): `OTA_FINISHED` → Operational, `OTA_RESET_REQUESTED` → flush, 2 s delay, soft reset; rollback path without the delay; the real UpdateService and FirmwareStore are bound when the wiring gets all four OTA members. LC-D23 (WP1 PR-C): also writes deferred configuration changes to flash on its idle tick and before every reset (`persist_pending`). Open: LC-O10, LC-O11, LC-O13..O15 |
 | LifecycleWiring (not an HLD module) | ✅ TC-HW-LW-001..009, 55 host tests | LC-D15..D18. Real controller over ConfigStore on QSPI, ConfigService, SensorTask, AlarmService, ModbusPoller, HealthMonitor, ResetDriver. Blank ConfigStore is treated as a first boot (corrupt vs blank indistinguishable, LC-O14). `/control` payload `{"command":"restart"\|"restart_confirm"\|"reset_metrics"}` is my own definition (LC-D17) |
-| UpdateService | ✅ PR #103; TC-HW-US-001..011 on the board 2026-10-27/28 | Real FreeRTOS, FirmwareStore, bootloader; images over the debug UART. 480 KB image in 90.2 s (UART-bound, not an MQTT figure), 25 power-cut points never left the device unbootable, record write atomic at about 22 ms, longest interrupt gap 22.5 ms from Slot A (limit 30 ms), rollback reported 0.23 s after a failed self-check (REQ-NF-204: 10 s), stack 586 of 1024 words free. **Not covered:** MQTT on the board, `verify` heap with a TLS session open (FS-O4), US-O1 (real download rate), US-O11 |
+| UpdateService | ✅ PR #103; TC-HW-US-001..011 on the board 2026-10-27/28 | Real FreeRTOS, FirmwareStore, bootloader; images over the debug UART. 480 KB image in 90.2 s (UART-bound, not an MQTT figure), 25 power-cut points never left the device unbootable, record write atomic at about 22 ms, longest interrupt gap 22.5 ms from Slot A (limit 30 ms), rollback reported 0.23 s after a failed self-check (REQ-NF-204: 10 s), stack 586 of 1024 words free. `update_service_get_instance()` (US-D15, TC-US-003b) hands out the singleton handle before `update_service_create()`, so `cloud_publisher_config_t::update` can be filled before the transport exists (US-O12 closed; WP4 D-2). **Not covered:** MQTT on the board, `verify` heap with a TLS session open (FS-O4), US-O1 (real download rate), US-O11 |
 | DeviceProfileRegistry | 🟡 placeholder | Enough for ModbusPoller; the real registry is not built |
 
 SensorService additionally gained `sensor_service_reconfigure(const config_params_t*)` (SS-D20; alpha per-mille, ranges, polling period to Group A; TC-HW-SS-010), which closes the SensorService half of SS-O6. Sensor drivers must still init **before** the scheduler (SS-D9), so Lifecycle's sensors/alarms/cloud/console adapters only verify.
@@ -112,7 +112,7 @@ Known deliberate details: the FD codebase contains planted bugs for the intervie
 | **GraphicsLibrary** | LLD exists | LVGL vendoring/simulator branch exists on the remote |
 | **LcdUi** | LLD exists | Depends on all four above |
 
-Also missing on the FD side: the handler for the new `CMD_SET_TIME_HI/LO` registers (0x0210/0x0211) that the Gateway's TimeService writes (TS-O5).
+The FD side now handles the `CMD_SET_TIME_HI/LO` registers (0x0210/0x0211) that the Gateway's TimeService writes (TS-O5 closed 2026-10-31, `ModbusRegisterMap`, LLD-D16): host tests TC-MRM-028..034 pass; the harness phase that sets the RTC from simulated register writes is written and compiles, but was **not run on a board**.
 
 ---
 
@@ -121,13 +121,13 @@ Also missing on the FD side: the handler for the new `CMD_SET_TIME_HI/LO` regist
 | Area | Item |
 |---|---|
 | Merge state | Resolved: #91–#95 landed through #101; #103, #105, #106, #107 and #104 were merged on 2026-10-28 (stacked PRs retargeted to `main`, `main` merged into each branch to start CI, ancestry verified). No PR is open. The merged feature branches have not been deleted (WP0 hands over the delete commands). The Visual Paradigm model and PNG diagrams are not updated for A1–A4 / B1–B4 |
-| Wiring | No real `main()` / task set on either board (LC-O15; `integration-tests/lifecycle_wiring` is the Gateway draft). To bind: `tls_arena_init()` first, before the scheduler and before any mbedTLS call (every harness that uses mbedTLS already does it); `cloud_publisher_on_message` as the MQTT message callback and `cloud_publisher_on_disconnect` as the disconnect callback (mandatory), `lifecycle_handle_remote` as `control_handler`, `fd_slave_addr` 1 and `fw_version` from `firmware_boot_info_t.running_version` in `cloud_publisher_config_t`, the four OTA members into the lifecycle wiring config, `cloud_publisher_get_ota_transport` into `update_service_config_t`. TimeService and SensorService tasks are never instantiated in production wiring |
-| OTA, not yet exercised | MQTT on the board (needs `main()`); `verify` arena peak with TLS open (FS-O4, TC-HW-MQTT-014; the arena itself is implemented); real download rate (US-O1); US-O11. Bootloader: BL-O2 (lifetime rollback counter), BL-O3 (CRC only, no signature check), BL-O4 (no write protection) |
+| Wiring | **Gateway: `firmware/gateway/Src/main.c` exists (WP4 session 2, 2026-10-31)** and `scripts/build-gateway-app.sh` links it into a complete image (all modules, console included) that fits the chip. It is still excluded from the CubeIDE build (`.cproject`, not edited by Claude). Boots on the board to Operational: join on the first attempt, the broker name resolved (D-7), every module started. The cloud session is unstable once connected (send errors `err=6`, GM-O20), so end-to-end publishing is not yet validated. Field Device: still no real `main()` |
+| OTA, not yet exercised | MQTT on the board (needs `main()`); `verify` arena peak with TLS open (FS-O4: measured, the verify adds 0 to the 46 280-byte handshake peak); real download rate (US-O1); US-O11. Bootloader: BL-O2 (lifetime rollback counter), BL-O3 (CRC only, no signature check), BL-O4 (no write protection) |
 | Lifecycle | LC-O10: FD file still has dead `BOARD_GATEWAY` code. LC-O14: blank vs corrupt ConfigStore indistinguishable |
 | Config | `IConfigProvider` still not consumed by TimeService (TS-O4) and ConfigService consumers are unwired (CFG-O8); SensorService half of SS-O6 closed |
 | Time | `trigger_retry()` on reconnect is wired in CloudPublisher (TS-O6 closed, CP-D23); TimeService is still never instantiated in production wiring (LC-O15) |
 | Telemetry | Invalid sensor channels are sent as 0 and listed in `invalid_channels`; cloud schema confirmation pending (CP-O4) |
-| RAM | After WP2 the default Gateway image has `.bss` 91.6 KB in the 96 KB RAM region (the 44 KB arena is most of it): about 8 KB is left below the stack. The 32 KB SRAM2 region holds nothing. Budget for the real `main()` is WP4 |
+| RAM | WP4 option F, measured on the production image (2026-10-31): main bank 97 224 of 98 304 B (1 080 spare), SRAM2 30 928 of 32 768 B (1 840 spare), flash 323 KB of 1 MB. The link fails if the image does not fit (`build-gateway-app.sh`). MqttClient's pool lives in SRAM2 (MQTT-D19, `.bss.sram2`) |
 | Storage | CFL-O8 erase spin vs the 500 ms alarm budget (the QSPI mutex itself is merged and closed) |
 | Sensors | I2C TIMINGR, DRDY pins PC8/PD11 and real ODRs unmeasured; own harnesses for i2c and groups A/B never run |
 | Design | ConsoleService CS-O4..CS-O8 open under a "Pass H complete" status |

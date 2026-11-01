@@ -17,6 +17,7 @@
 #include "event_groups.h"
 #endif /* TEST */
 
+#include "device_profile_registry/device_profile_registry.h"
 #include "lifecycle_wiring_internal.h"
 
 #ifdef TEST
@@ -56,11 +57,19 @@ static lc_dep_status_t cs_check_integrity(void *ctx)
         s_using_defaults = false;
         return LC_DEP_OK;
     }
+    if (rc == CONFIG_STORE_ERR_NEVER_WRITTEN)
+    {
+        /* A fresh device: ConfigService already holds the defaults (LC-D16, LC-O14). */
+        LOG_INFO(MODULE_TAG, "no stored configuration yet: running on the defaults");
+        s_using_defaults = true;
+        return LC_DEP_OK;
+    }
     if ((rc == CONFIG_STORE_ERR_NO_VALID_SLOT) && !s_cfg.fault_on_no_config)
     {
-        /* A never-programmed device and a corrupt one look the same here; the first is far
-         * more common, and ConfigService already holds the defaults (LC-D16). */
-        LOG_WARN(MODULE_TAG, "no valid stored configuration: running on the defaults");
+        /* Something was stored and is damaged. The console is not up yet, so a fault here
+         * cannot be cleared by a factory erase: by default the boot goes on with the defaults
+         * (LC-D16); fault_on_no_config makes it fatal. */
+        LOG_WARN(MODULE_TAG, "stored configuration is damaged: running on the defaults");
         s_using_defaults = true;
         return LC_DEP_OK;
     }
@@ -184,9 +193,11 @@ static lc_dep_status_t alarms_init(void *ctx)
     (void) ctx;
     alarm_state_t state = ALARM_STATE_CLEAR;
 
-    /* Initialised together with SensorService (SS-D9); a query that works proves it. */
-    return status_of(alarm_service->get_state(SENSOR_ID_TEMPERATURE, &state) ==
-                     ALARM_SERVICE_ERR_OK);
+    /* Initialised together with SensorService (SS-D9); a query that works proves it. Then the
+     * loaded thresholds are applied (SS-O6, WP12 D-3). */
+    return status_of(
+        (alarm_service->get_state(SENSOR_ID_TEMPERATURE, &state) == ALARM_SERVICE_ERR_OK) &&
+        (alarm_service_reconfigure(config_service_get_params()) == ALARM_SERVICE_ERR_OK));
 }
 
 static const lc_alarms_if_t k_alarms = {.ctx = NULL, .init = alarms_init};
@@ -234,12 +245,21 @@ static const lc_cloud_if_t k_cloud = {
 /* IModbusPoller / ITimeService                                             */
 /* ======================================================================= */
 
+/* The registry keeps its profiles in ConfigService's blob (device-profile-registry-lld.md §5.1). */
+static const device_profile_storage_t k_profile_storage = {.load = config_service_get_profiles,
+                                                           .save = config_service_set_profiles};
+
 static lc_dep_status_t poller_init(void *ctx)
 {
     (void) ctx;
     const config_params_t *params = config_service_get_params();
 
     if (params == NULL)
+    {
+        return LC_DEP_FAIL;
+    }
+    if ((device_profile_registry_init(&k_profile_storage) != DEVICE_PROFILE_REGISTRY_OK) ||
+        (device_profile_registry_load() != DEVICE_PROFILE_REGISTRY_OK))
     {
         return LC_DEP_FAIL;
     }
@@ -259,6 +279,7 @@ static const lc_modbus_poller_if_t k_poller = {
 static lc_dep_status_t time_init(void *ctx)
 {
     (void) ctx;
+    time_service_reconfigure(config_service_get_params()); /* servers and interval (TS-O4) */
     return status_of(time_service_init(s_cfg.ntp) == TIME_SERVICE_OK);
 }
 
@@ -448,6 +469,55 @@ static const lc_health_admin_if_t k_health_admin = {
 /* Public API                                                               */
 /* ======================================================================= */
 
+/* ======================================================================= */
+/* Later configuration changes (WP12 D-13, CFG-O8)                          */
+/* ======================================================================= */
+
+/* Runs in the task that changed the parameter, with the configuration mutex released. The
+ * services copy what they need inside their own reconfigure call, so the mutex is held for that
+ * call to read a consistent set. Boot values are applied by the init steps above. */
+static void prv_config_changed(config_param_id_t id)
+{
+    config_service_lock();
+    const config_params_t *const p = config_service_get_params();
+
+    switch (id)
+    {
+    case CONFIG_PARAM_POLL_INTERVAL:
+    case CONFIG_PARAM_FILTER_ALPHA:
+    case CONFIG_PARAM_TEMP_RANGE_MIN:
+    case CONFIG_PARAM_TEMP_RANGE_MAX:
+    case CONFIG_PARAM_HUMIDITY_RANGE_MIN:
+    case CONFIG_PARAM_HUMIDITY_RANGE_MAX:
+    case CONFIG_PARAM_PRESSURE_RANGE_MIN:
+    case CONFIG_PARAM_PRESSURE_RANGE_MAX:
+        (void) sensor_service_reconfigure(p);
+        break;
+    case CONFIG_PARAM_TEMP_ALARM_HIGH:
+    case CONFIG_PARAM_TEMP_ALARM_LOW:
+    case CONFIG_PARAM_TEMP_HYSTERESIS:
+    case CONFIG_PARAM_HUMIDITY_ALARM_HIGH:
+    case CONFIG_PARAM_HUMIDITY_ALARM_LOW:
+    case CONFIG_PARAM_HUMIDITY_HYSTERESIS:
+    case CONFIG_PARAM_PRESSURE_ALARM_HIGH:
+    case CONFIG_PARAM_PRESSURE_ALARM_LOW:
+    case CONFIG_PARAM_PRESSURE_HYSTERESIS:
+        (void) alarm_service_reconfigure(p);
+        break;
+    case CONFIG_PARAM_NTP_SERVERS:
+    case CONFIG_PARAM_NTP_SERVER_COUNT:
+    case CONFIG_PARAM_NTP_INTERVAL_MIN:
+        time_service_reconfigure(p);
+        break;
+    case CONFIG_PARAM_MODBUS_POLL_PERIOD:
+        (void) modbus_poller_set_poll_period(p->modbus_poll_period_ms);
+        break;
+    default:
+        break; /* broker, intervals of the cloud, slave address: other owners */
+    }
+    config_service_unlock();
+}
+
 lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
                                       lifecycle_deps_t *deps_out)
 {
@@ -477,6 +547,11 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
          (config->firmware_ops->rollback == NULL)))
     {
         return LIFECYCLE_ERR_NULL_ARG;
+    }
+
+    if (config_service_register_change_cb(prv_config_changed) != CONFIG_SERVICE_OK)
+    {
+        return LIFECYCLE_ERR_QUEUE_FULL; /* no callback slot left */
     }
 
     s_cfg = *config;

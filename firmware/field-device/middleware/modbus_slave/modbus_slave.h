@@ -102,12 +102,16 @@ typedef struct modbus_slave_stats_s
 typedef modbus_slave_err_t (*fn_read_input_reg_t)(uint16_t addr, uint16_t *value_out);
 typedef modbus_slave_err_t (*fn_read_holding_reg_t)(uint16_t addr, uint16_t *value_out);
 typedef modbus_slave_err_t (*fn_write_holding_reg_t)(uint16_t addr, uint16_t value);
+/** Optional block write: all @p count registers reach the map in one call (FC16, MRM-D16). */
+typedef modbus_slave_err_t (*fn_write_holding_block_t)(uint16_t addr, const uint16_t *values,
+                                                       uint16_t count);
 
 typedef struct
 {
     fn_read_input_reg_t read_input;       /**< FC04 dispatch. */
     fn_read_holding_reg_t read_holding;   /**< FC03 dispatch. */
-    fn_write_holding_reg_t write_holding; /**< FC06 / FC16 dispatch. */
+    fn_write_holding_reg_t write_holding; /**< FC06 dispatch; FC16 fallback. */
+    fn_write_holding_block_t write_block; /**< FC16 dispatch; NULL = per-register fallback. */
 } IModbusRegisterMap;
 
 /* ===================================================================== */
