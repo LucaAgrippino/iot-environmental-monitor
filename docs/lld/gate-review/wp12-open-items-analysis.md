@@ -1,7 +1,7 @@
 # WP12 open items: analysis for Pass H
 
 **Date:** 2026-10-31 · **Work package:** WP12 (open-item and documentation clean-up) · **Gate:** GATE-DESIGN
-**Status:** Decided 2026-11-01: Luca accepted every recommendation D-1 to D-13 (section 7). Nothing here changes code; the implementation is a separate step, one PR per group, not yet started.
+**Status:** Decided 2026-11-01: Luca accepted every recommendation D-1 to D-13 (section 7). Implemented in #148, #149, #150, #151 except D-11 and D-12 (see the status table at the end of section 7).
 
 The items of WP12 that the plan marks "analysis, then stop for design" are examined below. Every
 statement about the code was checked in the repository on `main` (7328305); where an answer depends
@@ -171,4 +171,18 @@ the Gateway already (data-tick counter); it remains to confirm for the Field Dev
 | D-12 | Logger and console sharing USART1 | Route log lines into the console scrollback (accepted) |
 | D-13 | Should SensorService and ModbusPoller follow *later* configuration changes (change callback), or only the boot values? | Follow changes: one `register_change_cb` user in `lifecycle_wiring` for both (accepted) |
 
-No code was changed for any of D-1 to D-13. Suggested implementation groups: ConfigStore (D-1, D-2); ConfigService schema (D-8; D-7 deferred); AlarmService (D-3 to D-6); wiring (D-13); console and health snapshot (D-10 to D-12). D-9 needs no work.
+**Implementation status (2026-11-01).**
+
+| Decision | State |
+|---|---|
+| D-1, D-2 | PR #148. Deviation: a damaged store still follows `fault_on_no_config` (default: run on the defaults), because the console is not up at the integrity step, so a boot fault could not be cleared by a console factory erase |
+| D-3 to D-6 | PR #150. A default device now alarms at 40 degC (was 35) |
+| D-7 | Deferred as decided |
+| D-8 | PR #149. Deviation: `ntp_interval_min` uses the former tail padding, so no schema bump (a bump with an unchanged layout would discard every stored configuration) |
+| D-9 | No work |
+| D-10 | Already true: `profiles add` is key=value since WP8 |
+| D-11 | **Not done.** WifiDriver has no accessor for the local address or SSID; the ISM43362 status command output has to be read and parsed on the module, which needs the board |
+| D-12 | **Not done.** Needs a Logger sink and a queue into the console task; the Release image has 596 B of SRAM2 and 748 B of the main bank left (GM-O25), so it needs a RAM decision first |
+| D-13 | PR #151 (contains #149 and #150) |
+
+Before the status above, this section said: no code was changed for any of D-1 to D-13. Suggested implementation groups: ConfigStore (D-1, D-2); ConfigService schema (D-8; D-7 deferred); AlarmService (D-3 to D-6); wiring (D-13); console and health snapshot (D-10 to D-12). D-9 needs no work.
