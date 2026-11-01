@@ -45,6 +45,7 @@
 #define MODBUS_FC_READ_INPUT (0x04U)
 #define MODBUS_FC_WRITE_SINGLE (0x06U)
 #define MODBUS_FC_WRITE_MULTIPLE (0x10U)
+#define MODBUS_SLAVE_MAX_WRITE_REGS (123U) /* Modbus FC16 limit */
 
 #define MODBUS_EXC_ILLEGAL_FC (0x01U)
 #define MODBUS_EXC_ILLEGAL_ADDR (0x02U)
@@ -188,28 +189,50 @@ static modbus_slave_err_t build_write_multiple_response(void)
         return MODBUS_SLAVE_ERR_INVALID_VALUE;
     }
 
-    for (uint16_t i = 0U; i < reg_count; i++)
+    modbus_slave_err_t err = MODBUS_SLAVE_ERR_OK;
+
+    if (s_slave.reg_map->write_block != NULL)
     {
-        uint16_t value = ((uint16_t) s_slave.rx_buf[7U + i * 2U] << 8U) |
-                         (uint16_t) s_slave.rx_buf[7U + i * 2U + 1U];
+        /* One call with every value: the map validates the whole block (CMD_SET_TIME is a pair). */
+        uint16_t values[MODBUS_SLAVE_MAX_WRITE_REGS];
 
-        modbus_slave_err_t err = s_slave.reg_map->write_holding(start_addr + i, value);
-
-        if (err == MODBUS_SLAVE_ERR_INVALID_ADDR)
-        {
-            build_exception_response(MODBUS_FC_WRITE_MULTIPLE, MODBUS_EXC_ILLEGAL_ADDR);
-            return err;
-        }
-        if (err == MODBUS_SLAVE_ERR_INVALID_VALUE)
+        if ((reg_count == 0U) || (reg_count > MODBUS_SLAVE_MAX_WRITE_REGS))
         {
             build_exception_response(MODBUS_FC_WRITE_MULTIPLE, MODBUS_EXC_ILLEGAL_VALUE);
-            return err;
+            return MODBUS_SLAVE_ERR_INVALID_VALUE;
         }
-        if (err == MODBUS_SLAVE_ERR_DEVICE_FAIL)
+        for (uint16_t i = 0U; i < reg_count; i++)
         {
-            build_exception_response(MODBUS_FC_WRITE_MULTIPLE, MODBUS_EXC_DEVICE_FAIL);
-            return err;
+            values[i] = ((uint16_t) s_slave.rx_buf[7U + i * 2U] << 8U) |
+                        (uint16_t) s_slave.rx_buf[7U + i * 2U + 1U];
         }
+        err = s_slave.reg_map->write_block(start_addr, values, reg_count);
+    }
+    else
+    {
+        for (uint16_t i = 0U; (i < reg_count) && (err == MODBUS_SLAVE_ERR_OK); i++)
+        {
+            uint16_t value = ((uint16_t) s_slave.rx_buf[7U + i * 2U] << 8U) |
+                             (uint16_t) s_slave.rx_buf[7U + i * 2U + 1U];
+
+            err = s_slave.reg_map->write_holding(start_addr + i, value);
+        }
+    }
+
+    if (err == MODBUS_SLAVE_ERR_INVALID_ADDR)
+    {
+        build_exception_response(MODBUS_FC_WRITE_MULTIPLE, MODBUS_EXC_ILLEGAL_ADDR);
+        return err;
+    }
+    if (err == MODBUS_SLAVE_ERR_INVALID_VALUE)
+    {
+        build_exception_response(MODBUS_FC_WRITE_MULTIPLE, MODBUS_EXC_ILLEGAL_VALUE);
+        return err;
+    }
+    if (err == MODBUS_SLAVE_ERR_DEVICE_FAIL)
+    {
+        build_exception_response(MODBUS_FC_WRITE_MULTIPLE, MODBUS_EXC_DEVICE_FAIL);
+        return err;
     }
 
     /* ACK response: addr, FC, start_addr(2), reg_count(2), CRC(2). */

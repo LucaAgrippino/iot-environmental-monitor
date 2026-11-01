@@ -619,7 +619,15 @@ void test_LW_010_integrity_passes_through_and_the_store_handle_is_used(void)
     TEST_ASSERT_EQUAL_PTR(STORE, s_cs_handle_seen);
 }
 
-void test_LW_011_no_valid_slot_is_a_first_boot_by_default(void)
+void test_LW_010b_never_written_is_a_first_boot_even_when_strict(void)
+{
+    s_cs_check_result = CONFIG_STORE_ERR_NEVER_WRITTEN;
+    s_config.fault_on_no_config = true;
+    bind_ok();
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.config_store->check_integrity(NULL));
+}
+
+void test_LW_011_a_damaged_store_runs_on_the_defaults_by_default(void)
 {
     s_cs_check_result = CONFIG_STORE_ERR_NO_VALID_SLOT;
     bind_ok();
