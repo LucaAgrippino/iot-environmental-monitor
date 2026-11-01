@@ -185,9 +185,11 @@ static lc_dep_status_t alarms_init(void *ctx)
     (void) ctx;
     alarm_state_t state = ALARM_STATE_CLEAR;
 
-    /* Initialised together with SensorService (SS-D9); a query that works proves it. */
-    return status_of(alarm_service->get_state(SENSOR_ID_TEMPERATURE, &state) ==
-                     ALARM_SERVICE_ERR_OK);
+    /* Initialised together with SensorService (SS-D9); a query that works proves it. Then the
+     * loaded thresholds are applied (SS-O6, WP12 D-3). */
+    return status_of(
+        (alarm_service->get_state(SENSOR_ID_TEMPERATURE, &state) == ALARM_SERVICE_ERR_OK) &&
+        (alarm_service_reconfigure(config_service_get_params()) == ALARM_SERVICE_ERR_OK));
 }
 
 static const lc_alarms_if_t k_alarms = {.ctx = NULL, .init = alarms_init};
