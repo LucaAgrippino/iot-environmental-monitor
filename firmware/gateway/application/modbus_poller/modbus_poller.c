@@ -77,6 +77,7 @@ static modbus_slave_state_t s_slave_states[MODBUS_MAX_SLAVES];
  */
 static uint16_t s_alarm_flags[MODBUS_MAX_SLAVES];
 static modbus_poller_alarm_cb_t s_alarm_cb;
+static modbus_poller_link_up_cb_t s_link_up_cb;
 
 /** Decoded readings, one per slave slot (same index as s_slave_states); no heap (CP-D18). */
 typedef struct
@@ -130,6 +131,10 @@ static void emit_link_up(uint8_t slave_addr)
 {
     (void) health_monitor_push_event(s_poller.health, HEALTH_EVENT_MODBUS_LINK_UP, slave_addr);
     LOG_INFO(MODULE_TAG, "slave %u link up", (unsigned) slave_addr);
+    if (s_link_up_cb != NULL)
+    {
+        s_link_up_cb(slave_addr);
+    }
 }
 
 static void emit_node_offline(uint8_t slave_addr)
@@ -626,6 +631,11 @@ void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback)
     s_alarm_cb = callback;
 }
 
+void modbus_poller_set_link_up_callback(modbus_poller_link_up_cb_t callback)
+{
+    s_link_up_cb = callback;
+}
+
 modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_reading_t *out)
 {
     if (!s_poller.initialised)
@@ -781,6 +791,7 @@ void modbus_poller_reset_for_test(void)
     }
     (void) memset(s_slave_states, 0, sizeof(s_slave_states));
     s_alarm_cb = NULL;
+    s_link_up_cb = NULL;
     (void) memset(s_alarm_flags, 0, sizeof(s_alarm_flags));
     (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     (void) memset(&s_poller, 0, sizeof(s_poller));

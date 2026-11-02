@@ -28,6 +28,7 @@
 /* Notification bits for TimeServiceTask. */
 #define TS_NOTIFY_BIT_PERIODIC (1UL << 0)
 #define TS_NOTIFY_BIT_RETRY (1UL << 1)
+#define TS_NOTIFY_BIT_FD_LINK_UP (1UL << 2) /* the FD link came up: push the clock again */
 
 /* Task sizing per task-breakdown.md §TimeServiceTask. */
 #define TS_TASK_STACK_WORDS (512U) /* D-1 F: 337 of 768 words used */
@@ -81,6 +82,8 @@ static void prv_timer_cb(TimerHandle_t timer);
 static void prv_arm_timer(void);
 static void prv_handle_notification(uint32_t bits);
 static time_service_err_t prv_push_time_to_fd(uint32_t utc);
+static void prv_fd_link_up_cb(uint8_t slave_addr);
+static void prv_push_current_time_to_fd(void);
 static time_service_sync_t prv_get_sync_state(void *ctx);
 static void prv_trigger_retry(void *ctx);
 static time_service_err_t prv_do_ntp_sync(void);
@@ -112,6 +115,12 @@ time_service_err_t time_service_init(ntp_client_handle_t ntp)
 
     s_ts.task_handle = xTaskCreateStatic(prv_task, "TS", TS_TASK_STACK_WORDS, NULL,
                                          TS_TASK_PRIORITY, s_task_stack, &s_task_tcb);
+
+    /* The first push, right after the first NTP sync, is refused: the poller is created later and
+     * the link is not up yet. Push again when the poller reports the slave online, which also
+     * covers a Field Device that restarts later. Registered after the task exists, because the
+     * callback notifies it. */
+    modbus_poller_set_link_up_callback(prv_fd_link_up_cb);
 
     s_vtable.ctx = &s_ts;
     s_vtable.get_sync_state = prv_get_sync_state;
@@ -174,6 +183,11 @@ static void prv_boot(void)
 
 static void prv_handle_notification(uint32_t bits)
 {
+    if ((bits & TS_NOTIFY_BIT_FD_LINK_UP) != 0U)
+    {
+        prv_push_current_time_to_fd();
+    }
+
     if ((bits & (TS_NOTIFY_BIT_PERIODIC | TS_NOTIFY_BIT_RETRY)) == 0U)
     {
         return;
@@ -338,6 +352,34 @@ static time_service_err_t prv_push_time_to_fd(uint32_t utc)
         return TIME_SERVICE_ERR_FD_PUSH;
     }
     return TIME_SERVICE_OK;
+}
+
+/* Runs in the poller task: only wakes the TimeService task, which does the (blocking) push. */
+static void prv_fd_link_up_cb(uint8_t slave_addr)
+{
+    if ((slave_addr == TS_FD_SLAVE_ADDR) && (s_ts.task_handle != NULL))
+    {
+        (void) xTaskNotify(s_ts.task_handle, TS_NOTIFY_BIT_FD_LINK_UP, eSetBits);
+    }
+}
+
+/* The clock is pushed only when it is worth pushing: before the first NTP sync the RTC holds an
+ * arbitrary post-reset value (TS-D5), and that first sync pushes by itself when it succeeds. */
+static void prv_push_current_time_to_fd(void)
+{
+    time_provider_ts_t now;
+
+    if (s_ts.sync_state == TIME_SERVICE_SYNC_NEVER)
+    {
+        return;
+    }
+    if ((time_provider_get(&now) != TIME_PROVIDER_ERR_OK) ||
+        (now.sync_state != TIME_SYNC_SYNCHRONISED))
+    {
+        return;
+    }
+
+    (void) prv_push_time_to_fd(now.epoch); /* logged inside; best effort (TS-D9) */
 }
 
 /* ======================================================================= */
