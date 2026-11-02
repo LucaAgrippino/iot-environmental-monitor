@@ -82,10 +82,10 @@ typedef struct
     bool initialised;
     sensor_snapshot_t snapshot;             /* guarded by taskENTER_CRITICAL for reads */
     int32_t prev_filtered[SENSOR_ID_COUNT]; /* IIR filter state (same units as reading.value) */
-    bool filter_seeded[SENSOR_ID_COUNT];    /* the filter state holds a real sample, not the reset 0 */
-    uint8_t alpha_num;                      /* IIR coefficient numerator   */
-    uint8_t alpha_den;                      /* IIR coefficient denominator */
-    bool driver_failed[SENSOR_ID_COUNT];    /* permanent fail flag */
+    bool filter_seeded[SENSOR_ID_COUNT]; /* the filter state holds a real sample, not the reset 0 */
+    uint8_t alpha_num;                   /* IIR coefficient numerator   */
+    uint8_t alpha_den;                   /* IIR coefficient denominator */
+    bool driver_failed[SENSOR_ID_COUNT]; /* permanent fail flag */
     void (*subscribers[SENSOR_MAX_SUBSCRIBERS])(const sensor_snapshot_t *);
     uint8_t subscriber_count;
     TimerHandle_t poll_timer;
