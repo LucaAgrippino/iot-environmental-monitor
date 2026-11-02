@@ -1,8 +1,10 @@
+import sys
 import time
 import minimalmodbus
 
 # --- Configuration ---
-PORT_NAME = 'COM8'  # Change to 'COM3', 'COM11', etc. for Windows
+# Serial port: first argument, e.g. /dev/ttyUSB0 (Linux) or COM8 (Windows).
+PORT_NAME = sys.argv[1] if len(sys.argv) > 1 else '/dev/ttyUSB0'
 BAUDRATE = 9600
 
 # --- ANSI Terminal Color Codes ---

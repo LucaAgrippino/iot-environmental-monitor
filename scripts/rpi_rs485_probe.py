@@ -83,7 +83,15 @@ def listen(port):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "probe"
     path = sys.argv[2] if len(sys.argv) > 2 else "/dev/ttyUSB0"
-    port = serial.Serial(path, BAUD, bytesize=8, parity="N", stopbits=1, timeout=0.05)
+    # Open with DTR and RTS low: pyserial raises both by default, and some USB-RS485 dongles use RTS
+    # to enable their transmitter, which would hold the bus driven while the port is open.
+    port = serial.Serial(None, BAUD, bytesize=8, parity="N", stopbits=1, timeout=0.05)
+    port.port = path
+    port.dtr = False
+    port.rts = False
+    port.open()
+    port.dtr = False
+    port.rts = False
     (probe if mode == "probe" else listen)(port)
 
 
