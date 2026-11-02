@@ -274,8 +274,9 @@ void test_TC_SS_003_range_violation_valid_false_clamped_feeds_filter(void)
     TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_get_snapshot(&snap));
     TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
 
-    /* cycle 2: (1*2200 + 9*850 + 5) / 10 = 9855 / 10 = 985  (= 9.85°C x100) */
-    TEST_ASSERT_EQUAL_INT32(985, snap.readings[SENSOR_ID_TEMPERATURE].value);
+    /* cycle 2: the first VALID sample seeds the filter, so the clamped junk of cycle 1 is
+     * dropped and the output is the sample itself: 2200 (22.00°C x100). */
+    TEST_ASSERT_EQUAL_INT32(2200, snap.readings[SENSOR_ID_TEMPERATURE].value);
 }
 
 /* ======================================================================= */
@@ -328,9 +329,43 @@ void test_TC_SS_005_get_snapshot_returns_copy(void)
     sensor_service_get_snapshot(&snap2);
 
     /* snap2 should still reflect the internal state (cycle_count = 1).
-     * First-cycle filter: (1*2500 + 9*0 + 5) / 10 = 250  (2.50°C x100) */
+     * The first valid sample seeds the filter: 2500 (25.00°C x100). */
     TEST_ASSERT_EQUAL_UINT32(1U, snap2.cycle_count);
-    TEST_ASSERT_EQUAL_INT32(250, snap2.readings[SENSOR_ID_TEMPERATURE].value);
+    TEST_ASSERT_EQUAL_INT32(2500, snap2.readings[SENSOR_ID_TEMPERATURE].value);
+}
+
+/* ======================================================================= */
+/* First valid sample seeds the IIR filter (no ramp from zero at boot)      */
+/* ======================================================================= */
+
+void test_first_valid_sample_seeds_the_filter_then_the_formula_applies(void)
+{
+    init_with_default_alpha();
+    sensor_snapshot_t snap;
+
+    g_ht_temp_x100 = 2500;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_run_cycle());
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_get_snapshot(&snap));
+    TEST_ASSERT_EQUAL_INT32(2500, snap.readings[SENSOR_ID_TEMPERATURE].value);
+
+    /* second sample: (1*3500 + 9*2500 + 5) / 10 = 2600 */
+    g_ht_temp_x100 = 3500;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_run_cycle());
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_get_snapshot(&snap));
+    TEST_ASSERT_EQUAL_INT32(2600, snap.readings[SENSOR_ID_TEMPERATURE].value);
+}
+
+void test_a_negative_first_sample_seeds_exactly(void)
+{
+    init_with_default_alpha();
+    sensor_snapshot_t snap;
+
+    g_ht_temp_x100 = -1000; /* -10.00°C: the formula's rounding term would give -900 */
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_run_cycle());
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_get_snapshot(&snap));
+
+    TEST_ASSERT_TRUE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+    TEST_ASSERT_EQUAL_INT32(-1000, snap.readings[SENSOR_ID_TEMPERATURE].value);
 }
 
 /* ======================================================================= */

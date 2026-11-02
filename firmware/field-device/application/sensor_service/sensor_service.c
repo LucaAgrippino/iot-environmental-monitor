@@ -82,6 +82,7 @@ typedef struct
     bool initialised;
     sensor_snapshot_t snapshot;             /* guarded by taskENTER_CRITICAL for reads */
     int32_t prev_filtered[SENSOR_ID_COUNT]; /* IIR filter state (same units as reading.value) */
+    bool filter_seeded[SENSOR_ID_COUNT];    /* the filter state holds a real sample, not the reset 0 */
     uint8_t alpha_num;                      /* IIR coefficient numerator   */
     uint8_t alpha_den;                      /* IIR coefficient denominator */
     bool driver_failed[SENSOR_ID_COUNT];    /* permanent fail flag */
@@ -365,10 +366,23 @@ static void process_sensor_reading(int id, int32_t raw_value, bool driver_ok,
      * filtered = (alpha_num * clamped + (alpha_den - alpha_num) * prev + alpha_den/2)
      *            / alpha_den
      * The half-denominator term provides round-to-nearest rather than truncation. */
-    int32_t filtered = ((int32_t) s_ss.alpha_num * clamped +
-                        (int32_t) (s_ss.alpha_den - s_ss.alpha_num) * s_ss.prev_filtered[id] +
-                        (int32_t) (s_ss.alpha_den / 2U)) /
-                       (int32_t) s_ss.alpha_den;
+    int32_t filtered;
+
+    if (!s_ss.filter_seeded[id] && r->valid)
+    {
+        /* The first valid sample starts the filter. Starting from the reset state 0 makes every
+         * boot ramp up from zero, which raised a false LOW alarm for about two seconds. The
+         * formula is skipped: its half-denominator rounding is only right for positive values. */
+        filtered = clamped;
+        s_ss.filter_seeded[id] = true;
+    }
+    else
+    {
+        filtered = ((int32_t) s_ss.alpha_num * clamped +
+                    (int32_t) (s_ss.alpha_den - s_ss.alpha_num) * s_ss.prev_filtered[id] +
+                    (int32_t) (s_ss.alpha_den / 2U)) /
+                   (int32_t) s_ss.alpha_den;
+    }
     s_ss.prev_filtered[id] = filtered;
     r->value = filtered;
 }
@@ -398,6 +412,7 @@ void sensor_service_set_alpha_for_test(uint8_t num, uint8_t den)
 void sensor_service_set_prev_filtered_for_test(int id, int32_t value)
 {
     s_ss.prev_filtered[id] = value;
+    s_ss.filter_seeded[id] = true; /* a test that sets the state wants the formula, not seeding */
 }
 
 void sensor_service_get_prev_filtered_for_test(int32_t out[SENSOR_ID_COUNT])
