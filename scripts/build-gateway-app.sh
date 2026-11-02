@@ -20,6 +20,7 @@
 #                      that does not fit, to read its section sizes
 #   CERTS_DIR     directory with bringup_certs.h / bringup_secrets.h (default: firmware/gateway/certs)
 #   --flash       program the board with openocd and reset it
+#   ST_SERIAL     ST-LINK serial number to use when several boards are attached
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -111,5 +112,5 @@ if [[ "${1:-}" == "--flash" ]]; then
     p=/opt/st/stm32cubeide_2.2.0/plugins
     "$p"/com.st.stm32cube.ide.mcu.externaltools.openocd.linux64_*/tools/bin/openocd \
         -s "$(echo "$p"/com.st.stm32cube.ide.mcu.debug.openocd_*/resources/openocd/st_scripts)" \
-        -f "$gw/gateway.cfg" -c "program $out/gateway_app.elf verify reset exit"
+        -f "$gw/gateway.cfg" ${ST_SERIAL:+-c "adapter serial $ST_SERIAL"} -c "program $out/gateway_app.elf verify reset exit"
 fi

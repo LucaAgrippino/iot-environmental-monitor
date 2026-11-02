@@ -66,6 +66,11 @@
 #define CONSOLE_TASK_STACK_WORDS (768U)
 #define LC_TASK_PRIORITY (1U)
 #define LC_TASK_STACK_WORDS (2048U)
+/* UART interrupts call FromISR functions, so their NVIC priority must be numerically at or above
+ * configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5). The drivers leave it at the reset value 0, the
+ * highest, which lets the ISR run inside kernel critical sections. */
+#define MODBUS_UART_IRQ_PRIORITY (6U)
+#define DEBUG_UART_IRQ_PRIORITY (6U)
 #define REPORT_TASK_PRIORITY (1U)
 #define REPORT_TASK_STACK_WORDS (384U)
 
@@ -304,6 +309,8 @@ int main(void)
 
     /* 1. Clock tree (180 MHz) and drivers with no dependencies on each other. */
     system_clock_init();
+    NVIC_SetPriority(USART6_IRQn, MODBUS_UART_IRQ_PRIORITY);
+    NVIC_SetPriority(USART3_IRQn, DEBUG_UART_IRQ_PRIORITY);
     (void) gpio_init();
     (void) led_init(k_fd_led_pins, LED_COUNT);
     (void) rtc_init();

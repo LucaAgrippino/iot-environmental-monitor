@@ -19,6 +19,7 @@
 #define BASE_UTC (1760000000UL)
 #define NOTIFY_PERIODIC (1UL << 0)
 #define NOTIFY_RETRY (1UL << 1)
+#define NOTIFY_FD_LINK_UP (1UL << 2)
 #define CMD_SET_TIME_HI_REG (0x0210U)
 
 /* ======================================================================= */
@@ -78,6 +79,13 @@ modbus_poller_err_t modbus_poller_send_command(const modbus_command_t *cmd)
     return s_mp_result;
 }
 
+static modbus_poller_link_up_cb_t s_mp_link_cb;
+
+void modbus_poller_set_link_up_callback(modbus_poller_link_up_cb_t callback)
+{
+    s_mp_link_cb = callback;
+}
+
 /* ======================================================================= */
 /* Fixture                                                                  */
 /* ======================================================================= */
@@ -103,6 +111,7 @@ void setUp(void)
 
     s_mp_result = MODBUS_POLLER_ERR_OK;
     s_mp_calls = 0U;
+    s_mp_link_cb = NULL;
     (void) memset(&s_mp_cmd, 0, sizeof(s_mp_cmd));
 
     /* The FD response queue: report one OK reply by default. */
@@ -376,6 +385,78 @@ void test_fd_push_command_shape(void)
     TEST_ASSERT_EQUAL_UINT16(2U, s_mp_cmd.reg_count);
     TEST_ASSERT_NOT_NULL(s_mp_cmd.response_queue);
     TEST_ASSERT_NOT_EQUAL(0U, s_mp_cmd.slave_addr);
+}
+
+/* ======================================================================= */
+/* Field Device push when the link comes up                                 */
+/* ======================================================================= */
+
+/* The first push, right after the first NTP sync, is refused because the poller is created
+ * later; the push is repeated when the poller reports the slave online. */
+
+void test_init_registers_the_poller_link_up_callback(void)
+{
+    init_service();
+
+    TEST_ASSERT_NOT_NULL(s_mp_link_cb);
+}
+
+void test_link_up_of_the_field_device_notifies_the_task(void)
+{
+    init_service();
+    const uint32_t before = g_mock_xTaskNotify_call_count;
+
+    s_mp_link_cb(1U);
+
+    TEST_ASSERT_EQUAL_UINT32(before + 1U, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(NOTIFY_FD_LINK_UP, g_mock_xTaskNotify_last_value);
+}
+
+void test_link_up_of_another_slave_is_ignored(void)
+{
+    init_service();
+    const uint32_t before = g_mock_xTaskNotify_call_count;
+
+    s_mp_link_cb(2U);
+
+    TEST_ASSERT_EQUAL_UINT32(before, g_mock_xTaskNotify_call_count);
+}
+
+void test_link_up_notification_pushes_the_current_time_without_an_ntp_query(void)
+{
+    sync_once_ok();
+    const uint32_t pushes_before = s_mp_calls;
+    const uint32_t ntp_before = s_ntp_calls;
+    s_tp_now.epoch = BASE_UTC + 500U;
+
+    time_service_notify_for_test(NOTIFY_FD_LINK_UP);
+
+    TEST_ASSERT_EQUAL_UINT32(pushes_before + 1U, s_mp_calls);
+    TEST_ASSERT_EQUAL_UINT32(ntp_before, s_ntp_calls);
+    TEST_ASSERT_EQUAL_UINT8(0x10U, s_mp_cmd.function_code);
+    TEST_ASSERT_EQUAL_UINT16(CMD_SET_TIME_HI_REG, s_mp_cmd.start_reg);
+    TEST_ASSERT_EQUAL_UINT16((uint16_t) ((BASE_UTC + 500U) >> 16), s_mp_cmd.data[0]);
+    TEST_ASSERT_EQUAL_UINT16((uint16_t) ((BASE_UTC + 500U) & 0xFFFFU), s_mp_cmd.data[1]);
+}
+
+void test_link_up_notification_before_the_first_sync_pushes_nothing(void)
+{
+    init_service(); /* sync state is NEVER: the RTC holds an arbitrary value (TS-D5) */
+
+    time_service_notify_for_test(NOTIFY_FD_LINK_UP);
+
+    TEST_ASSERT_EQUAL_UINT32(0U, s_mp_calls);
+}
+
+void test_link_up_notification_with_an_unsynchronised_rtc_pushes_nothing(void)
+{
+    sync_once_ok();
+    const uint32_t pushes_before = s_mp_calls;
+    s_tp_now.sync_state = TIME_SYNC_UNSYNCHRONISED;
+
+    time_service_notify_for_test(NOTIFY_FD_LINK_UP);
+
+    TEST_ASSERT_EQUAL_UINT32(pushes_before, s_mp_calls);
 }
 
 /* ======================================================================= */

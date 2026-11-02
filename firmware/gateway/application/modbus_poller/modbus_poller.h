@@ -170,6 +170,25 @@ typedef void (*modbus_poller_alarm_cb_t)(uint8_t slave_addr, uint16_t flags_befo
 void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback);
 
 /**
+ * @brief Called when a slave's link comes up (the hysteresis reaches online).
+ *
+ * Lets a consumer repeat something that was refused while the link was down, such as the
+ * TimeService push of the clock to the Field Device, which cannot succeed before the first
+ * poll completes and must be repeated when the slave restarts.
+ *
+ * @param slave_addr  The slave whose link came up.
+ * @note Runs in the poller task: it must not block.
+ */
+typedef void (*modbus_poller_link_up_cb_t)(uint8_t slave_addr);
+
+/**
+ * @brief Register the single link-up callback (NULL removes it).
+ *
+ * May be called before modbus_poller_init(); init does not clear it.
+ */
+void modbus_poller_set_link_up_callback(modbus_poller_link_up_cb_t callback);
+
+/**
  * @brief Copy the latest decoded readings of one slave (CP-D18, closes MBP-O3).
  *
  * A poll failure does not clear the values; the consumer decides what "offline" means from

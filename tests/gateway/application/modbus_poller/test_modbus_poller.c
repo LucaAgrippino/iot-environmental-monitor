@@ -455,6 +455,33 @@ void test_TC_MP_003_third_success_emits_link_up_once(void)
     TEST_ASSERT_EQUAL_UINT8(SLAVE_A, slot0()->slave_addr);
 }
 
+static uint32_t s_link_up_calls;
+static uint8_t s_link_up_slave;
+
+static void link_up_cb_spy(uint8_t slave_addr)
+{
+    s_link_up_calls++;
+    s_link_up_slave = slave_addr;
+}
+
+void test_link_up_callback_runs_once_when_the_third_success_brings_the_link_up(void)
+{
+    s_link_up_calls = 0U;
+    s_link_up_slave = 0U;
+    modbus_poller_set_link_up_callback(link_up_cb_spy); /* before init: init must keep it */
+    init_ok();
+
+    poll_n(MODBUS_MASTER_ERR_OK, 2U);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_link_up_calls);
+
+    poll_n(MODBUS_MASTER_ERR_OK, 1U);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_link_up_calls);
+    TEST_ASSERT_EQUAL_UINT8(SLAVE_A, s_link_up_slave);
+
+    poll_n(MODBUS_MASTER_ERR_OK, 3U); /* already online: no second call */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_link_up_calls);
+}
+
 void test_TC_MP_004_third_failure_from_online_emits_node_offline_once(void)
 {
     init_ok();
