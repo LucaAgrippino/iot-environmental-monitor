@@ -77,7 +77,7 @@ def main():
     remote = ("timeout %d ~/pymodbus-venv/bin/python -u ~/%s/two_board_monitor.py --serial /dev/ttyUSB0 "
               "--mqtt-host %s --cafile ~/%s/certs/ca.crt --cert ~/%s/certs/operator.crt "
               "--key ~/%s/certs/operator.key --topic 'dt/iotmonitor/#'") % (
-                  int(args.cycles * 23 + args.settle + 30), args.broker, d, d, d, d)
+                  int(args.cycles * 23 + args.settle + 30), d, args.broker, d, d, d)
     mon = subprocess.Popen(["ssh", "-o", "BatchMode=yes", args.pi, remote], stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL, text=True)
 
