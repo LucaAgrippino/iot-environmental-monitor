@@ -182,19 +182,29 @@ up to one poll period (B4), is not visible: the Field Device logs nothing when i
 the poll period in force, against the 500 ms of REQ-NF-113.
 
 **Result, 2026-11-03** (dongle on a Raspberry Pi running the monitor, so the bus and the broker share one clock;
-poll period 200 ms; Field Device sensors are simulated, so the alarm is provoked by lowering `temp-alarm-high` to
-5.00 degC with `config set` + `config commit` on the Field Device console):
+poll period 200 ms; the Field Device sensors are simulated, so the alarm is provoked by lowering `temp-alarm-high` to
+5.00 degC with `config set` + `config commit` on the Field Device console and restored to 40.00 degC afterwards).
+Time from the bus read that first showed the flag change to the broker receiving the alarm message, 14 edges:
 
-| Run | Bus read showing the flag to broker |
+| Edge | Times (ms) |
 |---|---|
-| 1 (first alarm after a Field Device boot) | 844 ms |
-| 2 | 285 ms |
-| 3 | 320 ms |
-| 4 | 230 ms |
+| Raise (9) | 844, 285, 320, 230, 5308, 2363, 193, 234, 306 |
+| Clear (5) | 392, 236, 290, 1526, 361 |
 
-Runs 2 to 4 are inside the 500 ms budget; the first alarm after boot is not, and its cause is not investigated. The
-time from the Field Device setting the flag to the first read of it (up to one 200 ms poll period) is not included, so
-these figures are a lower bound on the end-to-end latency. Clear edges are not timed by the monitor.
+Median 306 ms; 10 of 14 are inside the 500 ms budget. The four slow ones are the CloudPublisher limit already
+recorded as **CP-O6** (`cloud-publisher-lld.md`): one QoS 1 publish costs about 350 ms of module round trip and the
+single CloudPublisher task cannot preempt a publish already in flight, so an alarm that lands behind other traffic
+waits. 5308 ms was measured right after the test broker was restarted: three buffered telemetry messages were replayed
+at reconnect ahead of the alarm. The 844, 2363 and 1526 ms cases are consistent with in-flight traffic, but the bus and
+broker view cannot prove the cause. REQ-NF-113 is therefore **not reliably met** on this hardware, as CP-O6 says; a hard
+guarantee needs a dedicated alarm task or socket, or faster module I/O.
+
+The time from the Field Device setting the flag to the first read of it (up to one 200 ms poll period) is not
+included, so these figures are a lower bound on the end-to-end latency. The Field Device re-evaluates alarms once per
+sensor cycle (`polling-interval-ms`, 2000 ms by default), which comes before the flag is set and is outside the
+requirement's bracket. `scripts/two_board_monitor.py` now splits a request and a fast reply that arrive in one burst
+(no more `BAD CRC` for them) and times clear edges as well as raises; subscribe it to `dt/iotmonitor/#` to see the
+other traffic around a slow alarm.
 
 ## 6. Expected logs
 

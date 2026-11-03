@@ -44,6 +44,25 @@ def add_crc(frame):
     return frame + struct.pack("<H", crc16(frame))
 
 
+def crc_ok(frame):
+    return len(frame) >= 4 and crc16(frame[:-2]) == struct.unpack("<H", frame[-2:])[0]
+
+
+def split_frames(buf):
+    """Split a burst into CRC-valid frames.
+
+    A reply that starts less than FRAME_GAP_S after its request (the Field Device answers in about
+    8 ms at 9600 baud, and a request is 8 bytes = 8.3 ms on the wire) leaves no silent gap, so the
+    pair arrives as one burst. Return the valid frames, or [buf] when it does not split cleanly.
+    """
+    if crc_ok(buf):
+        return [buf]
+    for cut in range(4, len(buf) - 3):
+        if crc_ok(buf[:cut]) and crc_ok(buf[cut:]):
+            return [buf[:cut], buf[cut:]]
+    return [buf]
+
+
 class FrameDecoder:
     """Turns complete frames into text lines and ALARM_FLAGS change events."""
 
@@ -95,31 +114,37 @@ class Monitor:
     def __init__(self, out=print):
         self.dec = FrameDecoder()
         self.out = out
-        self.flag_change_t = None
+        self.flag_change = None  # (time of the bus read, 'raise' | 'clear')
         self.lock = threading.Lock()
 
     @staticmethod
     def stamp(t):
         return time.strftime("%H:%M:%S", time.localtime(t)) + ".%03d" % int((t % 1) * 1000)
 
-    def bus_frame(self, frame, t):
+    def bus_frame(self, burst, t):
+        for frame in split_frames(burst):
+            self.bus_one(frame, t)
+
+    def bus_one(self, frame, t):
         lines, events = self.dec.decode(frame, t)
         with self.lock:
             for line in lines:
                 self.out("%s [BUS]  %s" % (self.stamp(t), line))
             for _, old, new, when in events:
                 self.out("%s [BUS]  >>> ALARM_FLAGS 0x%04X -> 0x%04X (first read showing it)" % (self.stamp(when), old, new))
-                if new != 0:
-                    self.flag_change_t = when
+                self.flag_change = (when, "raise" if (new & ~old) else "clear")
 
     def mqtt_message(self, topic, payload, t):
         with self.lock:
             self.out("%s [MQTT] %s  %s" % (self.stamp(t), topic, payload[:200]))
-            if self.flag_change_t is not None:
-                self.out("%s [MQTT] >>> %.0f ms from the bus read that showed the alarm to the broker receiving it"
+            # Only an alarm message ends the measurement: telemetry or health on a wildcard
+            # subscription must not consume the pending flag change.
+            if self.flag_change is not None and topic.endswith("/alarms"):
+                when, kind = self.flag_change
+                self.out("%s [MQTT] >>> %.0f ms from the bus read that showed the %s to the broker receiving it"
                          " (REQ-NF-113 budget is 500 ms from the FD setting the flag)" % (
-                             self.stamp(t), (t - self.flag_change_t) * 1000.0))
-                self.flag_change_t = None
+                             self.stamp(t), (t - when) * 1000.0, kind))
+                self.flag_change = None
 
 
 def run_serial(mon, port, baud):
@@ -165,6 +190,20 @@ def selftest():
     assert any("ALARM_FLAGS 0x0000 -> 0x0001" in ln for ln in lines), lines
     mon.mqtt_message("dt/iotmonitor/x/alarms", "{}", t0 + 1.02 + 0.180)
     assert any(" 180 ms" in ln for ln in lines), lines
+    # a request and its reply with no gap between them arrive as one burst
+    lines.clear()
+    merged = Monitor(out=lines.append)
+    merged.bus_frame(req + quiet, t0)
+    assert not any("BAD CRC" in ln for ln in lines) and len(lines) == 2, lines
+    # a clear edge is timed, and telemetry on a wildcard topic does not consume the measurement
+    lines.clear()
+    clr = Monitor(out=lines.append)
+    for frame, t in ((req, t0), (alarm, t0 + 0.02), (req, t0 + 1.0), (quiet, t0 + 1.02)):
+        clr.bus_frame(frame, t)
+    clr.mqtt_message("dt/iotmonitor/x/telemetry", "{}", t0 + 1.1)
+    assert not any(" ms " in ln for ln in lines), lines
+    clr.mqtt_message("dt/iotmonitor/x/alarms", "{}", t0 + 1.02 + 0.25)
+    assert any(" 250 ms" in ln and "clear" in ln for ln in lines), lines
     bad = bytearray(alarm)
     bad[-1] ^= 1
     assert "BAD CRC" in FrameDecoder().decode(bytes(bad), 0)[0][0]
