@@ -618,6 +618,28 @@ void test_TC_CS_064_config_commit_y_applies_values(void)
     TEST_ASSERT_GREATER_THAN_INT(0, g_spy_set_call_count);
 }
 
+/* Regression: commit used to write all ten parameters, zeros for every key the user had not set,
+ * so a single `config set temp-alarm-high` ended in "apply failed" and never reached the alarm
+ * logic. */
+void test_TC_CS_064b_config_commit_writes_only_staged_keys(void)
+{
+    do_init();
+    push_ok_line("config set temp-alarm-high 500");
+    console_service->run_once();
+    push_ok_line("config set pressure-hysteresis 60");
+    console_service->run_once();
+
+    g_spy_set_call_count = 0;
+    g_tx_len = 0U;
+    g_tx_buf[0] = '\0';
+    push_ok_line("config commit");
+    push_ok_line("y");
+    TEST_ASSERT_EQUAL_INT(CONSOLE_SERVICE_ERR_OK, console_service->run_once());
+    TEST_ASSERT_EQUAL_INT(2, g_spy_set_call_count);
+    TEST_ASSERT_EQUAL_INT(CONFIG_PARAM_TEMP_ALARM_HIGH, g_spy_set_calls[0].id);
+    TEST_ASSERT_EQUAL_INT(CONFIG_PARAM_PRESSURE_HYSTERESIS, g_spy_set_calls[1].id);
+}
+
 void test_TC_CS_065_config_commit_n_discards(void)
 {
     do_init();

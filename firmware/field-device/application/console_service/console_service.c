@@ -75,6 +75,7 @@ typedef struct
 typedef struct
 {
     bool dirty;
+    uint16_t staged; /* bit i = s_cfg_keys[i] was set; commit writes only these */
     uint32_t polling_interval_ms;
     int16_t temp_alarm_high;
     int16_t temp_alarm_low;
@@ -699,6 +700,7 @@ static console_service_err_t cmd_config(int argc, const char *argv[])
                     break;
                 }
                 s_cfg_pending.dirty = true;
+                s_cfg_pending.staged |= (uint16_t) (1U << i);
                 tx_fmt("[OK] staged: %s = %s\r\n", key, val);
                 return CONSOLE_SERVICE_ERR_OK;
             }
@@ -724,7 +726,7 @@ static console_service_err_t cmd_config(int argc, const char *argv[])
             return CONSOLE_SERVICE_ERR_TIMEOUT;
         }
 
-        /* Apply each dirty field */
+        /* Apply each staged field (applies[] is in s_cfg_keys[] order) */
         config_service_err_t rc = CONFIG_SERVICE_OK;
         const struct
         {
@@ -744,6 +746,12 @@ static console_service_err_t cmd_config(int argc, const char *argv[])
         };
         for (size_t i = 0U; i < sizeof(applies) / sizeof(applies[0]); i++)
         {
+            /* Untouched keys hold zeros in the pending struct: writing them would be rejected
+             * (or worse, accepted) and mask the one change the user asked for. */
+            if ((s_cfg_pending.staged & (1U << i)) == 0U)
+            {
+                continue;
+            }
             config_service_err_t e = s_cfg_write->set_param(applies[i].id, applies[i].val);
             if ((e != CONFIG_SERVICE_OK) && (rc == CONFIG_SERVICE_OK))
             {
