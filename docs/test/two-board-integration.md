@@ -215,13 +215,26 @@ arrival, so the figures are a few ms to tens of ms low. **End to end (worst case
 The Field Device re-evaluates alarms once per sensor cycle (`polling-interval-ms`, 2000 ms by default), which comes
 before the flag is set and is outside the requirement's bracket.
 
-*What the bench could not show.* Later runs were disturbed by the Wi-Fi module: from about 23:00 the board dropped
-its MQTT session every 60 to 120 s (`wifitask_send failed, err=4`, then `the Wi-Fi module does not answer, resetting
-it`), with and without alarm traffic and with both the old and the dedicated-alarm-task publisher. Alarms raised in
-those gaps were buffered in StoreAndForward and delivered late, behind an old backlog (the ring survives power
-cycles). Only about half the alarms were paired in those runs, so they say nothing about the dedicated task's gain;
-see CP-O6. Before a latency run: power-cycle the Gateway, let any replay finish (no alarm PUBLISH at the broker for
-30 s), and confirm 20 flag reads per 4 s.
+*Dedicated alarm task, before and after (CP-O6, CP-D35).* Same bench, back to back, link quiet and the Gateway's
+StoreAndForward ring empty, 10 raises and 10 clears each, 200 ms poll, 20 of 20 alarms paired in both:
+
+| Bus read to broker | Raise median | Clear median | Maximum |
+|---|---|---|---|
+| `main` (one publisher task) | 175 ms | 94 ms | 476 ms |
+| Dedicated alarm task | 136 ms | 55 ms | 287 ms |
+
+All 40 inside 500 ms. One run each, so the gain is indicative. The Field Device gap in these runs: median 91 and 85 ms,
+maximum 154 and 185 ms.
+
+*Prepare the bench or the numbers are wrong.* Earlier runs that day paired only about half the alarms and
+looked like lost alarms. They were not lost. A broker outage fills the Gateway's StoreAndForward ring (it survives
+power cycles; `status` on the Gateway console shows `Buffer N entries`). At every reconnect the Gateway replays it,
+four entries per pass, through the Wi-Fi module; a send then failed (`wifitask_send failed, err=4`, `Send failed,
+dropping the session`, `the Wi-Fi module does not answer, resetting it`), the session dropped, and alarms raised in the
+gap were buffered behind the backlog and arrived minutes later. With the ring drained (about 10 minutes for 600
+entries) the link stayed up and every alarm paired. So: keep the broker running, wait for `Buffer 0` and let it stay
+there, confirm 20 flag reads per 4 s on the bus, and expect a reset or reflash to bring entries back (a reboot
+raised the count from 0 to 602; see the CircularFlashLog head pointer, CFL-D10).
 
 `scripts/two_board_monitor.py` splits a request and a fast reply that arrive in one burst, times clear edges, and
 pairs an alarm with its flag change by kind and timestamp; subscribe it to `dt/iotmonitor/#` to see the other
