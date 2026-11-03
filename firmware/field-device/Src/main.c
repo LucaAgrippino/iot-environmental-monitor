@@ -125,6 +125,45 @@ static void on_alarm_event(sensor_id_t sensor, alarm_event_t event, const sensor
     }
 }
 
+/* SS-O1: AlarmService judges samples against the ConfigService limits, at start and after every
+ * later change (console `config commit`, Modbus write to 0x0101..), not the compiled-in defaults.
+ */
+static void apply_alarm_thresholds(void)
+{
+    const config_params_t *p = config_service_get_params();
+
+    if (p == NULL)
+    {
+        return;
+    }
+    (void) alarm_service_set_thresholds(SENSOR_ID_TEMPERATURE, p->temp_alarm_high,
+                                        p->temp_alarm_low, p->temp_hysteresis);
+    (void) alarm_service_set_thresholds(SENSOR_ID_HUMIDITY, p->humidity_alarm_high,
+                                        p->humidity_alarm_low, p->humidity_hysteresis);
+    (void) alarm_service_set_thresholds(SENSOR_ID_PRESSURE, p->pressure_alarm_high,
+                                        p->pressure_alarm_low, p->pressure_hysteresis);
+}
+
+static void on_config_changed(config_param_id_t id)
+{
+    switch (id)
+    {
+    case CONFIG_PARAM_TEMP_ALARM_HIGH:
+    case CONFIG_PARAM_TEMP_ALARM_LOW:
+    case CONFIG_PARAM_TEMP_HYSTERESIS:
+    case CONFIG_PARAM_HUMIDITY_ALARM_HIGH:
+    case CONFIG_PARAM_HUMIDITY_ALARM_LOW:
+    case CONFIG_PARAM_HUMIDITY_HYSTERESIS:
+    case CONFIG_PARAM_PRESSURE_ALARM_HIGH:
+    case CONFIG_PARAM_PRESSURE_ALARM_LOW:
+    case CONFIG_PARAM_PRESSURE_HYSTERESIS:
+        apply_alarm_thresholds();
+        break;
+    default:
+        break;
+    }
+}
+
 static void sensor_task(void *arg)
 {
     (void) arg;
@@ -137,6 +176,8 @@ static void sensor_task(void *arg)
         return;
     }
     (void) alarm_service_subscribe(on_alarm_event);
+    apply_alarm_thresholds();
+    (void) config_service_register_change_callback(on_config_changed);
     s_sensors_ready = true;
 
     for (;;)

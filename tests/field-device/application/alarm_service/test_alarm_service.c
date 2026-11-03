@@ -269,3 +269,55 @@ void test_TC_AS_007_subscriber_receives_correct_fields(void)
     TEST_ASSERT_EQUAL_INT32(trigger_temp, g_spy_events[0].reading.value);
     TEST_ASSERT_EQUAL_UINT32(12345UL, g_spy_events[0].reading.timestamp.epoch);
 }
+
+/* ======================================================================= */
+/* TC-AS-008..011: thresholds from ConfigService (SS-O1)                    */
+/* ======================================================================= */
+
+void test_TC_AS_008_set_thresholds_moves_the_alarm_point(void)
+{
+    /* 20.00 degC is quiet with the defaults; a 15.00 degC limit makes it an alarm. */
+    sensor_snapshot_t snap = make_snap_with_temp(2000, true);
+    alarm_service_evaluate(&snap);
+    TEST_ASSERT_EQUAL_UINT8(0U, g_spy_count);
+
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_OK,
+                      alarm_service_set_thresholds(SENSOR_ID_TEMPERATURE, 1500, 0, 100));
+    alarm_service_evaluate(&snap);
+
+    alarm_state_t state;
+    alarm_service_get_state(SENSOR_ID_TEMPERATURE, &state);
+    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, state);
+    TEST_ASSERT_EQUAL_UINT8(1U, g_spy_count);
+}
+
+void test_TC_AS_009_active_alarm_clears_under_the_new_limit(void)
+{
+    sensor_snapshot_t snap = make_snap_with_temp(3600, true); /* above the 35.00 default */
+    alarm_service_evaluate(&snap);
+    TEST_ASSERT_EQUAL_UINT8(1U, g_spy_count);
+
+    /* Raise the limit: the state is kept until the next sample, which then clears it. */
+    (void) alarm_service_set_thresholds(SENSOR_ID_TEMPERATURE, 4000, 0, 100);
+    alarm_state_t state;
+    alarm_service_get_state(SENSOR_ID_TEMPERATURE, &state);
+    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, state);
+
+    alarm_service_evaluate(&snap);
+    alarm_service_get_state(SENSOR_ID_TEMPERATURE, &state);
+    TEST_ASSERT_EQUAL(ALARM_STATE_CLEAR, state);
+    TEST_ASSERT_EQUAL(ALARM_EVENT_CLEARED, g_spy_events[1].event);
+}
+
+void test_TC_AS_010_set_thresholds_rejects_an_unknown_sensor(void)
+{
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_INVALID_ARG,
+                      alarm_service_set_thresholds(SENSOR_ID_COUNT, 1, 0, 1));
+}
+
+void test_TC_AS_011_set_thresholds_before_init_is_refused(void)
+{
+    alarm_service_reset_for_test();
+    TEST_ASSERT_EQUAL(ALARM_SERVICE_ERR_NOT_INIT,
+                      alarm_service_set_thresholds(SENSOR_ID_TEMPERATURE, 1, 0, 1));
+}

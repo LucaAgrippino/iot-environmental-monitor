@@ -49,6 +49,7 @@ typedef enum
     ALARM_SERVICE_ERR_NOT_INIT = 1,
     ALARM_SERVICE_ERR_NULL_ARG = 2,
     ALARM_SERVICE_ERR_NO_SUB = 3,
+    ALARM_SERVICE_ERR_INVALID_ARG = 4,
 } alarm_service_err_t;
 
 /** Maximum number of alarm-event subscribers (compile-time). */
@@ -111,6 +112,25 @@ alarm_service_err_t alarm_service_subscribe(void (*cb)(sensor_id_t sensor, alarm
  * @return ALARM_SERVICE_ERR_OK on success; non-zero otherwise.
  */
 alarm_service_err_t alarm_service_ack_all(void);
+
+/**
+ * @brief Replace the thresholds of one sensor (SS-O1: values come from ConfigService).
+ *
+ * The values are trusted: ConfigService is the only place that validates the band and the
+ * hysteresis. An active alarm keeps its state; the next sample is judged against the new limits,
+ * which may clear it or raise the other side. Safe to call from any task: each limit is a
+ * 32-bit store, and a sample evaluated half-way through a change sees at worst one old and one
+ * new limit, for that single sample.
+ *
+ * @param sensor      TEMPERATURE, HUMIDITY or PRESSURE (units of sensor_reading_t.value).
+ * @param high        Upper limit.
+ * @param low         Lower limit.
+ * @param hysteresis  Distance from a limit before the alarm clears.
+ * @return ALARM_SERVICE_ERR_OK; ALARM_SERVICE_ERR_NOT_INIT before init;
+ *         ALARM_SERVICE_ERR_INVALID_ARG for an unknown sensor.
+ */
+alarm_service_err_t alarm_service_set_thresholds(sensor_id_t sensor, int32_t high, int32_t low,
+                                                 int32_t hysteresis);
 
 /* ======================================================================= */
 /* Singleton vtable — IAlarmService (LLD-D10, LLD-D14)                    */
