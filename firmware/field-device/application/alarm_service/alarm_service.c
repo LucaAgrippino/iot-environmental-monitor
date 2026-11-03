@@ -27,8 +27,8 @@
 #define MODULE_TAG "AS"
 
 /* ======================================================================= */
-/* Default alarm thresholds (loaded from IConfigProvider when available)   */
-/* SS-O1: IConfigProvider not yet implemented; compile-time defaults used. */
+/* Default alarm thresholds, used until alarm_service_set_thresholds() runs  */
+/* (SS-O1: Src/main.c feeds the ConfigService values at start and on change). */
 /* ======================================================================= */
 
 /* Units match sensor_reading_t.value per sensor ID:
@@ -124,6 +124,26 @@ alarm_service_err_t alarm_service_init(void)
 
     s_as.initialised = true;
     LOG_INFO(MODULE_TAG, "AlarmService initialised");
+    return ALARM_SERVICE_ERR_OK;
+}
+
+alarm_service_err_t alarm_service_set_thresholds(sensor_id_t sensor, int32_t high, int32_t low,
+                                                 int32_t hysteresis)
+{
+    if (!s_as.initialised)
+    {
+        return ALARM_SERVICE_ERR_NOT_INIT;
+    }
+    if (((int32_t) sensor < 0) || ((int32_t) sensor >= (int32_t) SENSOR_ID_COUNT))
+    {
+        return ALARM_SERVICE_ERR_INVALID_ARG;
+    }
+
+    s_as.thresholds[sensor].high = high;
+    s_as.thresholds[sensor].low = low;
+    s_as.thresholds[sensor].hysteresis = hysteresis;
+    LOG_INFO(MODULE_TAG, "thresholds sensor %d: high %ld low %ld hyst %ld", (int) sensor,
+             (long) high, (long) low, (long) hysteresis);
     return ALARM_SERVICE_ERR_OK;
 }
 

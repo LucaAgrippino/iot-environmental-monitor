@@ -158,15 +158,17 @@ must arrive in one FC16`. That signature confirms B2 and nothing else is wrong.
 **After B2 is resolved, pass:** no `FD time push` warning on the Gateway; the Field Device logs
 `MRM CMD_SET_TIME applied: <epoch>`; the FC16 response is the 8-byte echo `start=0x0210 count=2`.
 
-### 2B-007: alarm propagation (SD-05, REQ-NF-113) — blocked by B3 and B4
+### 2B-007: alarm propagation (SD-05, REQ-NF-113) — B3 and B4 done; latency run pending the dongle
 
 Part A, the Field Device side, can be run today: raise an alarm on the Field Device (lower the temperature high threshold
 below the current reading, from the Field Device console or with the dongle as master in 2B-001's setup:
 `fd.write_register(0x0101, 500, functioncode=6)` sets the high limit to 5.00 degrees: it must stay above the low limit, which is 0, or the write is refused with exception 0x03, and it is below room temperature). **Pass:** register 0x0031 changes from
 0x0000 to a non-zero value on the next read. **This part cannot be combined with the Gateway** because two masters collide.
 
-Part B, to the cloud, **cannot pass until B3 is implemented.** Today the monitor will show the flag value only if a
-master reads 0x0031, which the Gateway never does. When B3 exists, measure with both the bus and the broker on one clock:
+Part B, to the cloud: B3 is implemented and proven on hardware (2026-11-02: the broker received `source: field_device`
+alarms). Only the latency figure is still open. Do not trigger the alarm with a dongle master write while the Gateway is
+attached (two masters collide); use the Field Device console `config set` instead. Measure with both the bus and the
+broker on one clock:
 
 ```
 python3 scripts/two_board_monitor.py --serial /dev/ttyUSB0 --mqtt-host <broker-ip> \
@@ -178,6 +180,21 @@ It prints the time from the bus read that first showed the alarm to the broker r
 (the broker acknowledges at that moment). The time from the Field Device setting the flag to that first read, which is
 up to one poll period (B4), is not visible: the Field Device logs nothing when it raises an alarm. Report both, and
 the poll period in force, against the 500 ms of REQ-NF-113.
+
+**Result, 2026-11-03** (dongle on a Raspberry Pi running the monitor, so the bus and the broker share one clock;
+poll period 200 ms; Field Device sensors are simulated, so the alarm is provoked by lowering `temp-alarm-high` to
+5.00 degC with `config set` + `config commit` on the Field Device console):
+
+| Run | Bus read showing the flag to broker |
+|---|---|
+| 1 (first alarm after a Field Device boot) | 844 ms |
+| 2 | 285 ms |
+| 3 | 320 ms |
+| 4 | 230 ms |
+
+Runs 2 to 4 are inside the 500 ms budget; the first alarm after boot is not, and its cause is not investigated. The
+time from the Field Device setting the flag to the first read of it (up to one 200 ms poll period) is not included, so
+these figures are a lower bound on the end-to-end latency. Clear edges are not timed by the monitor.
 
 ## 6. Expected logs
 
