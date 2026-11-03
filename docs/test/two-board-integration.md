@@ -181,6 +181,21 @@ It prints the time from the bus read that first showed the alarm to the broker r
 up to one poll period (B4), is not visible: the Field Device logs nothing when it raises an alarm. Report both, and
 the poll period in force, against the 500 ms of REQ-NF-113.
 
+**Result, 2026-11-03** (dongle on a Raspberry Pi running the monitor, so the bus and the broker share one clock;
+poll period 200 ms; Field Device sensors are simulated, so the alarm is provoked by lowering `temp-alarm-high` to
+5.00 degC with `config set` + `config commit` on the Field Device console):
+
+| Run | Bus read showing the flag to broker |
+|---|---|
+| 1 (first alarm after a Field Device boot) | 844 ms |
+| 2 | 285 ms |
+| 3 | 320 ms |
+| 4 | 230 ms |
+
+Runs 2 to 4 are inside the 500 ms budget; the first alarm after boot is not, and its cause is not investigated. The
+time from the Field Device setting the flag to the first read of it (up to one 200 ms poll period) is not included, so
+these figures are a lower bound on the end-to-end latency. Clear edges are not timed by the monitor.
+
 ## 6. Expected logs
 
 | Board | Event | Line |
