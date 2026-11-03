@@ -27,7 +27,7 @@
 | PROVIDES (upward) | *(none — top of the stack)* | `components.md` |
 | USES (downward) | MqttClient, IMqttStats, ISensorService, IAlarmService, IModbusPoller, StoreAndForward, IHealthSnapshot, IHealthReport, ILogger | `components.md` |
 | Additional USES (command routing) | IConfigManager, IUpdateService, ILifecycle, IConfigProvider | Companion §7; tracked as F-03 for `components.md` update |
-| Hosted in task | CloudPublisherTask, priority 3, 768 words / 3 KB | `task-breakdown.md` |
+| Hosted in task | CloudPublisherTask, priority 3, 768 words / 3 KB; **CpAlarmTask**, priority 4, 512 words / 2 KB in SRAM2 (alarm publishing, CP-D35) | `task-breakdown.md` |
 | Root requirements | REQ-CC-000–090 (cloud connectivity), REQ-BF-000–020 (buffering), REQ-DM-000/002 (commands) | `SRS.md` |
 
 **F-03 (components.md gap):** The `components.md` USES list does not yet
@@ -157,7 +157,7 @@ bitmask) and two queues:
 | Bit 0 — `TELEMETRY_TICK` | Software timer | 60 s (REQ-NF-111, configurable) |
 | Bit 1 — `HEALTH_TICK` | Software timer | 600 s (REQ-NF-112, configurable) |
 | Bit 2 — `STATS_TICK` | Software timer | 1 Hz |
-| Bit 3 — `ALARM_PENDING` | alarm_queue non-empty | Event-driven |
+| Bit 3 — `ALARM_PENDING` | alarm_queue non-empty; **notifies CpAlarmTask, not CloudPublisherTask** (CP-D35) | Event-driven |
 | Bit 4 — `COMMAND_PENDING` | command_queue non-empty | Event-driven |
 
 ```
@@ -166,10 +166,28 @@ CloudPublisherTask loop:
     if TELEMETRY_TICK:  publish_telemetry()
     if HEALTH_TICK:     publish_health()
     if STATS_TICK:      poll_stats()
-    if ALARM_PENDING:   drain_alarm_queue()
     if COMMAND_PENDING: drain_command_queue()
     mqtt_client_process(mqtt)   /* service keep-alive + inbound */
 ```
+
+Alarms are not handled here. **CpAlarmTask** (priority 4, one above the
+publisher) sleeps on its own notification and publishes them (CP-D35):
+
+```
+CpAlarmTask loop:
+    xTaskNotifyWait(...)            /* ALARM_PENDING */
+    take(link_lock)
+    drain_alarm_queue()
+    give(link_lock)
+```
+
+`link_lock` is a priority-inheriting mutex that guards MqttClient and
+StoreAndForward, neither of which is thread-safe. CloudPublisherTask takes
+it for the whole step and **gives it up between work items** (before the
+telemetry publish, the health publish, the stats poll, the final
+`mqtt_client_process`, and after every replayed store-and-forward entry),
+so an alarm waits for the publish in flight and never for the rest of the
+step.
 
 Timers start at create. If the connection is down, publish calls route
 to StoreAndForward.
@@ -259,17 +277,17 @@ static void prv_alarm_event_cb(alarm_event_t *ev, void *ctx)
 {
     struct cloud_publisher_inst *inst = ctx;
     xQueueSend(inst->alarm_queue, ev, 0u); /* non-blocking */
-    xTaskNotify(inst->task_handle, ALARM_PENDING, eSetBits);
+    xTaskNotify(inst->alarm_task_handle, ALARM_PENDING, eSetBits);
 }
 ```
 
-CloudPublisherTask drains the queue and publishes at QoS 1:
+CpAlarmTask drains the queue and publishes at QoS 1, from its own 512-byte JSON buffer (the publisher's `scratch_buf` belongs to the publisher):
 
 ```
 drain_alarm_queue():
     while xQueueReceive(alarm_queue, &ev, 0) == pdTRUE:
-        n = serialise_alarm(scratch_buf, CP_JSON_BUF_SIZE, &ev)
-        enqueue_or_publish(inst, TOPIC_ALARMS, scratch_buf, n, QOS_1)
+        n = serialise_alarm(alarm_buf, CP_ALARM_JSON_BUF_SIZE, &ev)
+        enqueue_or_publish(inst, TOPIC_ALARMS, alarm_buf, n, QOS_1)   /* under link_lock */
 ```
 
 ### 5.3 Connectivity gate
@@ -542,7 +560,8 @@ Test file: `tests/gateway/application/cloud_publisher/test_cloud_publisher.c`
 | CP-T16 | Configurable intervals | `get_telemetry_interval` changed → new period used on next tick |
 | CP-T20 | `MQTT_CLIENT_WIFI_RECV_READY_BIT` wake (WIFITASK-O1 Phase 3, CP-D11) | Notification with only this bit set (not `CP_NOTIFY_STATS_TICK`) still calls `prv_poll_stats` |
 | CP-T21 | Wake bit cleared, no busy-loop (CP-D11) | After one step consuming the bit, a second step with no re-arm sees no pending notification |
-| CP-T22 | Alarm drained before telemetry/health in one wake (CP-D12) | A notification with both `CP_NOTIFY_ALARM_PENDING` and `CP_NOTIFY_TELEMETRY_TICK` set publishes the alarm before the telemetry frame |
+| CP-T22 | Alarm drained before telemetry/health in one wake (CP-D12; superseded by CP-D35 and CP-T120..T123) | A notification with both `CP_NOTIFY_ALARM_PENDING` and `CP_NOTIFY_TELEMETRY_TICK` set publishes the alarm before the telemetry frame |
+| CP-T120..T123 | The dedicated alarm task (CP-D35, CP-O6) | The alarm task is created at priority 4, one above the publisher; an alarm is published under `link_lock` (one take, one give); a publisher step takes and gives the lock in balanced pairs more than once, so it yields between work items; a publisher step no longer publishes a queued alarm |
 | CP-T25 | Reconnect backoff is exponential and resets (CP-D13) | Successive terminal failures back off 2 s then 4 s (doubling); a successful connect resets the curve so the next drop retries immediately then backs off from 2 s again |
 | CP-T30..T37, T42 | `is_ready()` (NULL, true offline), `flush()` (NULL, posts bit 6, failed notify), the task drains the buffer / skips it when disconnected / publishes alarms first, the notify mask clears bit 6 and bit 8 (CP-D16). CP-T38..T41 (the rollback report) were removed with it (CP-D17) |
 | CP-T50..T59 | The OTA inbound path (CP-D17): a command is parsed and handed over; a refusal is not reported by CloudPublisher; a malformed command is rejected with the job when readable, without it otherwise, buffered offline; a chunk goes straight to `on_chunk` (header decoded, a full 1 KB kept, never queued) and `/ota` does not capture `/ota/data`; short chunks and a Gateway without OTA are dropped; both topics subscribed once per connection, retried on failure, again after a reconnect; `cloud_publisher_on_message` before and after create |
@@ -634,6 +653,7 @@ TC-HW-CP-014) needs the integrated image (WP4).
 | CP-D32 | The store-and-forward replay (section 5.4) is paced: one pass sends at most 4 entries, 2048 B or 500 ms, whichever comes first, and the next pass waits 1 s (`CP_DRAIN_*`, build-time overridable). The link is served (`mqtt_client_process`) after every entry. A failed publish on a live link holds the replay for 5 s, doubling to 60 s; an entry that fails 3 times in a row on a live link is dropped (`HEALTH_EVENT_BUFFER_OVERFLOW`). Nothing is attempted while the link is down. Pacing is by tick timestamp, not by call count, because the stats path also runs on every receive-ready wake | Hardware finding GM-O20: 311 stored 4 KB entries replayed in one burst at connect took the session down (send err=6, subscribes failed, reconnect loop). Measured: 4 x 4 KB per pass failed at the first send after connect; one 4 KB entry per pass ran 72 entries clean. **Open (GM-O21):** with pacing, about one run in three still shows a corrupted stream after a large publish (broker: RESERVED packet / malformed packet), so the cause is below CloudPublisher | CP-T107..T113 |
 | CP-D33 | `mqtt_connect_cfg.client_id` NULL means the device serial (the CPU unique id). Client id, AWS IoT Thing name and topic prefix are one name | GM-O19: the client id was the placeholder `gw-bringup-001` while the topics used the CPU id, so no `${iot:Connection.Thing.ThingName}` policy matched both. Decided 2026-10-31: the CPU id. Each board needs an AWS Thing named by its id | CP-T118 |
 | CP-D34 | `cloud_publisher_config_t.connect_prepare` is called in task context before every fresh connect attempt (not between the steps of one, CP-D10) and returns the address to connect to, or NULL (counted as a failed attempt: CP-D13 backoff). Gateway `main.c` implements it as: resolve the broker name; if that fails, rejoin the access point and resolve again | GM-O17/O18: BootTask halted when the join or the lookup failed, nothing rejoined the access point or re-resolved the address after boot (the cached link state never changes after a drop, WIFI-O15). Decided 2026-10-31: boot offline, restore the link before each attempt. Hardware: wrong Wi-Fi password: 3 join attempts, `continuing offline`, Operational, backoff 2..60 s; two broker restarts: reconnected in about 10 s each | CP-T114..T117, WIFITASK-T27/T28 |
+| CP-D35 | Alarms are published by **CpAlarmTask**, a task of its own at priority 4 (publisher + 1), with a 512-word stack and a 512-byte JSON buffer in SRAM2. A priority-inheriting mutex, `link_lock`, guards MqttClient and StoreAndForward; the publisher yields it between work items and after every replayed entry | CP-O6: with one task, an alarm queued behind a telemetry publish, a replay pass or a reconnect step waited for all of it (measured 844 to 5308 ms against a 500 ms budget). The mutex is needed because MqttClient and StoreAndForward are not thread-safe (a replayed entry points into SAF's buffer until the next SAF call). SRAM2 because the main bank has 1.6 KB free (the build grew 184 B there, 2560 B in SRAM2). **What it cannot do:** the ISM43362 serialises every send, so an alarm that arrives while a publish is already on the module still waits for it (about 350 ms) before its own 350 ms send; the dedicated task removes the wait for everything else, not that one. |
 
 ---
 

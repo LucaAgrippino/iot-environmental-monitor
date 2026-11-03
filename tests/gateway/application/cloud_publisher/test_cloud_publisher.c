@@ -590,7 +590,8 @@ void test_CP_T01_create_happy_path(void)
     TEST_ASSERT_EQUAL(CP_ERR_OK, rc);
     TEST_ASSERT_NOT_NULL(g_handle);
     TEST_ASSERT_EQUAL_UINT32(3u, g_mock_xQueueCreateStatic_call_count); /* alarm, command, OTA */
-    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTaskCreateStatic_call_count);
+    TEST_ASSERT_EQUAL_UINT32(2u,
+                             g_mock_xTaskCreateStatic_call_count); /* publisher, alarm (CP-D35) */
     TEST_ASSERT_EQUAL_UINT32(3u, g_mock_xTimerCreateStatic_call_count);
     TEST_ASSERT_EQUAL_UINT32(3u, g_mock_xTimerStart_call_count);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_alarm_subscribe_calls);
@@ -691,7 +692,7 @@ void test_CP_T07_alarm_connected(void)
     g_mock_xQueueReceive_available = 1u;
 
     g_mock_xTaskNotifyWait_next_value = TC_ALARM_PENDING;
-    cloud_publisher_task_step_for_test(g_handle);
+    cloud_publisher_alarm_task_step_for_test(g_handle); /* CP-D35: CpAlarmTask publishes alarms */
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_topic, "/alarms"));
@@ -718,7 +719,7 @@ void test_CP_T08_alarm_disconnected(void)
     g_mock_xQueueReceive_available = 1u;
 
     g_mock_xTaskNotifyWait_next_value = TC_ALARM_PENDING;
-    cloud_publisher_task_step_for_test(g_handle);
+    cloud_publisher_alarm_task_step_for_test(g_handle); /* CP-D35: CpAlarmTask publishes alarms */
 
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
@@ -727,6 +728,75 @@ void test_CP_T08_alarm_disconnected(void)
     TEST_ASSERT_EQUAL_UINT32(1u, cloud_publisher_alarm_buffered_for_test());
     TEST_ASSERT_EQUAL_UINT32(0u, cloud_publisher_alarm_published_for_test());
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_health_push_event_calls);
+}
+
+/* CP-D35 (CP-O6): the dedicated alarm task. */
+
+void test_CP_T120_alarm_task_outranks_the_publisher(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL_UINT32(2u, g_mock_xTaskCreateStatic_call_count);
+    /* The mock records the last task created: the alarm task, one priority above the publisher. */
+    TEST_ASSERT_EQUAL_UINT32(4u, g_mock_xTaskCreateStatic_last_priority);
+}
+
+void test_CP_T121_alarm_is_published_under_the_link_lock(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+
+    cp_alarm_event_t ev;
+    prv_load_alarm_event(&ev);
+    g_mock_xQueueSend_last_item_size = sizeof(ev);
+    cloud_publisher_inject_alarm_for_test(g_handle, &ev);
+    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item, sizeof(ev));
+    g_mock_xQueueReceive_next_item_size = sizeof(ev);
+    g_mock_xQueueReceive_return = pdTRUE;
+    g_mock_xQueueReceive_available = 1u;
+
+    g_mock_xSemaphoreTake_call_count = 0u;
+    g_mock_xSemaphoreGive_call_count = 0u;
+    g_mock_xTaskNotifyWait_next_value = TC_ALARM_PENDING;
+    cloud_publisher_alarm_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xSemaphoreGive_call_count);
+}
+
+void test_CP_T122_publisher_step_takes_the_lock_once_and_gives_it_up_between_items(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    g_mock_xSemaphoreTake_call_count = 0u;
+    g_mock_xSemaphoreGive_call_count = 0u;
+    g_mock_xTaskNotifyWait_next_value = TC_TELEMETRY_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    /* Balanced, and more than one hold: the lock is given up between the work items so a waiting
+     * alarm never sits behind the whole step. */
+    TEST_ASSERT_EQUAL_UINT32(g_mock_xSemaphoreTake_call_count, g_mock_xSemaphoreGive_call_count);
+    TEST_ASSERT_GREATER_THAN_UINT32(1u, g_mock_xSemaphoreTake_call_count);
+}
+
+void test_CP_T123_publisher_step_no_longer_publishes_alarms(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+
+    cp_alarm_event_t ev;
+    prv_load_alarm_event(&ev);
+    g_mock_xQueueSend_last_item_size = sizeof(ev);
+    cloud_publisher_inject_alarm_for_test(g_handle, &ev);
+    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item, sizeof(ev));
+    g_mock_xQueueReceive_next_item_size = sizeof(ev);
+    g_mock_xQueueReceive_return = pdTRUE;
+    g_mock_xQueueReceive_available = 1u;
+
+    g_mock_xTaskNotifyWait_next_value = TC_ALARM_PENDING;
+    cloud_publisher_task_step_for_test(g_handle);
+
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
 }
 
 void test_CP_T15_alarm_queue_full(void)

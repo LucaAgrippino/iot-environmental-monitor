@@ -249,6 +249,7 @@ Eight application tasks, plus idle and timer.
 | `ModbusPollerTask` | `ModbusPoller`, `ModbusMaster` | Periodic + event (timeout, retry) | **4** | 512 / 2 KB | REQ-MB-050 (200 ms), REQ-NF-103/104 (link state) |
 | `WifiTask` | `WifiDriver` | Event (ISR + API request) | **3** | 256 / 1 KB | D29; sole WiFi SPI owner |
 | `CloudPublisherTask` | `CloudPublisher`, `MqttClient`, `StoreAndForward` calls | Event (publish queue) | **2** | 2048 / 8 KB | REQ-CC-* (MQTT publish), TLS handshake worst case |
+| `CpAlarmTask` | `CloudPublisher` (alarm publishing only) | Event (alarm notification) | **4** (CloudPublisherTask + 1; the build runs the publisher at 3) | 512 / 2 KB, in SRAM2 | REQ-NF-113 (alarm within 500 ms), CP-O6, CloudPublisher LLD CP-D35 |
 | `TimeServiceTask` | `TimeService`, `NtpClient` | Periodic (hourly) + event (post-reconnect) | **2** | 768 / 3 KB | REQ-TS-* (NTP), D13 (re-sync trigger) |
 | `UpdateServiceTask` | `UpdateService`, `FirmwareStore` | Event (OTA command) | **1** | 1024 / 4 KB | REQ-DM-050..-074 (firmware update) |
 | `ConsoleTask` | `ConsoleService` | Event (UART RX) | **1** | 512 / 2 KB | REQ-LI-010 |
@@ -445,6 +446,7 @@ remain the authoritative source.
 | **D30** — `SensorTask` priority raised to 5 (above `ModbusPollerTask` at priority 4) on both boards | REQ-NF-101 requires alarm detection within one polling cycle. A 600 ms Modbus retry storm at priority 4 would preempt `SensorTask` at priority 3 for five to six consecutive 100 ms cycles, breaching REQ-NF-101 |
 | **D31** — `LcdUiTask` render cadence set to 200 ms (5 Hz, matching REQ-NF-108) | REQ-NF-108 mandates a 5 Hz display refresh rate. Internal double-buffering decouples sensor data acquisition rate from display render cadence |
 | **D32** — `SensorTask` default sample period 100 ms | REQ-NF-100 mandates a full polling cycle within 100 ms — that is a WCET deadline, not a mandated period. The 100 ms default provides a comfortable duty-cycle margin; REQ-SA-070 allows operator configuration of the actual rate |
+| **D33** — `CpAlarmTask` publishes alarms, apart from `CloudPublisherTask`, behind a priority-inheriting `link_lock` that guards `MqttClient` and `StoreAndForward` | REQ-NF-113. With one task, an alarm waited behind telemetry, replay and reconnect work (844 to 5308 ms measured against 500 ms). The lock keeps the two tasks off the non-thread-safe client; the publisher gives it up between work items so an alarm waits for at most the publish in flight. The module serialises sends, so that one in-flight publish (about 350 ms) is still a floor. See CloudPublisher LLD CP-D35. |
 
 ---
 

@@ -24,6 +24,7 @@ uint32_t       g_mock_xQueueCreateStatic_call_count;
 TaskHandle_t   g_mock_xTaskCreateStatic_return;
 uint32_t       g_mock_xTaskCreateStatic_call_count;
 TaskFunction_t g_mock_xTaskCreateStatic_last_fn;
+UBaseType_t    g_mock_xTaskCreateStatic_last_priority;
 
 BaseType_t  g_mock_xQueueSend_return;
 uint32_t    g_mock_xQueueSend_call_count;
@@ -140,6 +141,7 @@ void mock_freertos_reset(void)
 
     g_mock_xTaskCreateStatic_return     = DUMMY_HANDLE;
     g_mock_xTaskCreateStatic_call_count = 0U;
+    g_mock_xTaskCreateStatic_last_priority = 0U;
     g_mock_xTaskCreateStatic_last_fn    = NULL;
 
     g_mock_xQueueSend_return            = pdTRUE;
@@ -346,9 +348,9 @@ TaskHandle_t xTaskCreateStatic(TaskFunction_t fn, const char *name,
     (void)name;
     (void)stack_words;
     (void)arg;
-    (void)priority;
     (void)stack;
     (void)tcb;
+    g_mock_xTaskCreateStatic_last_priority = priority;
     g_mock_xTaskCreateStatic_call_count++;
     g_mock_xTaskCreateStatic_last_fn = fn;
     return g_mock_xTaskCreateStatic_return;

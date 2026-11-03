@@ -236,6 +236,9 @@ uint32_t cloud_publisher_alarm_buffered_for_test(void);
 /** @brief Runs exactly one iteration of the task body (single-step testing). */
 void cloud_publisher_task_step_for_test(cloud_publisher_handle_t handle);
 
+/** @brief Runs exactly one iteration of the alarm task body (CP-D35). */
+void cloud_publisher_alarm_task_step_for_test(cloud_publisher_handle_t handle);
+
 /**
  * @brief Test-only injection of an alarm event, as if delivered by the
  * IAlarmService subscriber callback (CP-O5: real wiring pending
