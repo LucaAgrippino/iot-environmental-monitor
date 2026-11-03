@@ -191,7 +191,7 @@ Time from the bus read that first showed the flag change to the broker receiving
 | Raise (9) | 844, 285, 320, 230, 5308, 2363, 193, 234, 306 |
 | Clear (5) | 392, 236, 290, 1526, 361 |
 
-Median 306 ms; 10 of 14 are inside the 500 ms budget. The four slow ones are the CloudPublisher limit already
+Median 313 ms; 10 of 14 are inside the 500 ms budget. The four slow ones are the CloudPublisher limit already
 recorded as **CP-O6** (`cloud-publisher-lld.md`): one QoS 1 publish costs about 350 ms of module round trip and the
 single CloudPublisher task cannot preempt a publish already in flight, so an alarm that lands behind other traffic
 waits. 5308 ms was measured right after the test broker was restarted: three buffered telemetry messages were replayed
