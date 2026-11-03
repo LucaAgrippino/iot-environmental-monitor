@@ -182,29 +182,50 @@ up to one poll period (B4), is not visible: the Field Device logs nothing when i
 the poll period in force, against the 500 ms of REQ-NF-113.
 
 **Result, 2026-11-03** (dongle on a Raspberry Pi running the monitor, so the bus and the broker share one clock;
-poll period 200 ms; the Field Device sensors are simulated, so the alarm is provoked by lowering `temp-alarm-high` to
-5.00 degC with `config set` + `config commit` on the Field Device console and restored to 40.00 degC afterwards).
-Time from the bus read that first showed the flag change to the broker receiving the alarm message, 14 edges:
+the Field Device sensors are simulated, so the alarm is provoked by lowering `temp-alarm-high` to 5.00 degC with
+`config set` + `config commit` on the Field Device console and restored to 40.00 degC afterwards;
+`scripts/alarm_latency_bench.py` automates it).
+
+**Correction: the poll period.** The first dataset below was taken with the Gateway polling once per second, not
+every 200 ms. The 200 ms (B4) is the ConfigService default, but the Gateway keeps the value saved in flash, and
+this board still held 1000 ms from before the default changed (`config list`: `modbus-poll-period-ms 1000`). It was
+set to 200 ms with `config set modbus-poll-period-ms 200` + `config commit`, which persists. Check it before any
+latency run: 20 reads of `ALARM_FLAGS` in 4 s on the bus is 200 ms.
+
+*Bus read to broker* (the poll period does not enter this figure), 14 edges, first dataset:
 
 | Edge | Times (ms) |
 |---|---|
 | Raise (9) | 844, 285, 320, 230, 5308, 2363, 193, 234, 306 |
 | Clear (5) | 392, 236, 290, 1526, 361 |
 
-Median 313 ms; 10 of 14 are inside the 500 ms budget. The four slow ones are the CloudPublisher limit already
-recorded as **CP-O6** (`cloud-publisher-lld.md`): one QoS 1 publish costs about 350 ms of module round trip and the
-single CloudPublisher task cannot preempt a publish already in flight, so an alarm that lands behind other traffic
-waits. 5308 ms was measured right after the test broker was restarted: three buffered telemetry messages were replayed
-at reconnect ahead of the alarm. The 844, 2363 and 1526 ms cases are consistent with in-flight traffic, but the bus and
-broker view cannot prove the cause. REQ-NF-113 is therefore **not reliably met** on this hardware, as CP-O6 says; a hard
-guarantee needs a dedicated alarm task or socket, or faster module I/O.
+Median 313 ms; 10 of 14 are inside the 500 ms budget. The slow ones are the CloudPublisher limit recorded as **CP-O6**
+(`cloud-publisher-lld.md`): one QoS 1 publish costs about 350 ms of module round trip and a single task could not
+preempt a publish already in flight. 5308 ms was measured right after the test broker was restarted, with buffered
+telemetry replayed ahead of the alarm. A later version of the monitor pairs an alarm only by kind and timestamp,
+because alarms replayed from StoreAndForward after an outage were being taken for the live one.
 
-The time from the Field Device setting the flag to the first read of it (up to one 200 ms poll period) is not
-included, so these figures are a lower bound on the end-to-end latency. The Field Device re-evaluates alarms once per
-sensor cycle (`polling-interval-ms`, 2000 ms by default), which comes before the flag is set and is outside the
-requirement's bracket. `scripts/two_board_monitor.py` now splits a request and a fast reply that arrive in one burst
-(no more `BAD CRC` for them) and times clear edges as well as raises; subscribe it to `dt/iotmonitor/#` to see the
-other traffic around a slow alarm.
+*Field Device gap* (flag set to the first Modbus read that shows it), 200 ms poll, 10 raises: 106, -11, 111, -4, 78,
+186, 79, 156, 91, 156 ms; median 98 ms, maximum 186 ms. That is the expected 0 to 200 ms. The two small negative
+values are the log line's own delay: the Field Device logs `alarm raised` and this machine timestamps the line on
+arrival, so the figures are a few ms to tens of ms low. **End to end (worst case) is therefore the poll period
+(200 ms) plus the bus read to broker time**; with the 50 to 326 ms seen on a healthy link that is at most about
+0.25 to 0.53 s. REQ-NF-113 is met in most cases and not guaranteed (CP-O6).
+
+The Field Device re-evaluates alarms once per sensor cycle (`polling-interval-ms`, 2000 ms by default), which comes
+before the flag is set and is outside the requirement's bracket.
+
+*What the bench could not show.* Later runs were disturbed by the Wi-Fi module: from about 23:00 the board dropped
+its MQTT session every 60 to 120 s (`wifitask_send failed, err=4`, then `the Wi-Fi module does not answer, resetting
+it`), with and without alarm traffic and with both the old and the dedicated-alarm-task publisher. Alarms raised in
+those gaps were buffered in StoreAndForward and delivered late, behind an old backlog (the ring survives power
+cycles). Only about half the alarms were paired in those runs, so they say nothing about the dedicated task's gain;
+see CP-O6. Before a latency run: power-cycle the Gateway, let any replay finish (no alarm PUBLISH at the broker for
+30 s), and confirm 20 flag reads per 4 s.
+
+`scripts/two_board_monitor.py` splits a request and a fast reply that arrive in one burst, times clear edges, and
+pairs an alarm with its flag change by kind and timestamp; subscribe it to `dt/iotmonitor/#` to see the other
+traffic around a slow alarm.
 
 ## 6. Expected logs
 
