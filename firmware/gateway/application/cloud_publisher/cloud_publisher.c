@@ -208,7 +208,9 @@ struct cloud_publisher_inst
     TimerHandle_t stats_timer;
     TaskHandle_t task_handle;
     TaskHandle_t alarm_task_handle; /**< CP-D35: publishes alarms. */
-    SemaphoreHandle_t link_lock;    /**< CP-D35: guards MqttClient and StoreAndForward. */
+    SemaphoreHandle_t link_lock;    /**< CP-D35: guards MqttClient (and the publisher's SAF use). */
+    SemaphoreHandle_t saf_lock; /**< CP-D36: guards StoreAndForward alone. Taken after link_lock,
+                                     never before it. */
 
     alarm_event_t last_raised[SENSOR_ID_COUNT]; /**< Side last raised, for CLEARED payloads. */
 
@@ -248,6 +250,7 @@ static StackType_t s_alarm_task_stack[CP_ALARM_TASK_STACK_WORDS] CP_ALARM_RAM;
 static StaticTask_t s_alarm_task_tcb;
 static char s_alarm_buf[CP_ALARM_JSON_BUF_SIZE] CP_ALARM_RAM;
 static StaticSemaphore_t s_link_lock_ctrl;
+static StaticSemaphore_t s_saf_lock_ctrl;
 
 /* ===================================================================== */
 /* Private function prototypes                                           */
@@ -268,7 +271,9 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst);
 static void prv_note_connect_failure(struct cloud_publisher_inst *inst, mqtt_client_err_t rc);
 static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_publish_failed(struct cloud_publisher_inst *inst);
-static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst);
+static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst, bool link_held);
+static cloud_publisher_err_t prv_buffer_to_saf(struct cloud_publisher_inst *inst, const char *topic,
+                                               const uint8_t *buf, uint32_t len, mqtt_qos_t qos);
 static void prv_drain_command_queue(struct cloud_publisher_inst *inst);
 static void prv_flush(struct cloud_publisher_inst *inst);
 static void prv_drain_ota_out(struct cloud_publisher_inst *inst);
@@ -383,6 +388,7 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
                                          s_ota_queue_storage, &s_ota_queue_ctrl);
 
     inst->link_lock = xSemaphoreCreateMutexStatic(&s_link_lock_ctrl);
+    inst->saf_lock = xSemaphoreCreateMutexStatic(&s_saf_lock_ctrl);
 
     g_active_inst = inst;
 
@@ -497,11 +503,21 @@ static void prv_alarm_task_step(struct cloud_publisher_inst *inst)
     uint32_t notif = 0u;
     (void) xTaskNotifyWait(0u, CP_NOTIFY_ALL_BITS, &notif, portMAX_DELAY);
 
+    /* CP-D36: with the link down an alarm only has to reach store-and-forward, and the publisher
+     * may be inside a reconnect step holding link_lock for hundreds of ms. Buffer it under saf_lock
+     * alone. A link that comes up meanwhile only means these alarms are buffered and replayed,
+     * never published without link_lock. */
+    if (!mqtt_client_is_connected(inst->mqtt))
+    {
+        prv_drain_alarm_queue(inst, false);
+        return;
+    }
+
     /* The mutex has priority inheritance: while this task waits, the publisher runs at this
      * task's priority until it reaches the next prv_link_yield(). */
     if (xSemaphoreTake(inst->link_lock, portMAX_DELAY) == pdTRUE)
     {
-        prv_drain_alarm_queue(inst);
+        prv_drain_alarm_queue(inst, true);
         (void) xSemaphoreGive(inst->link_lock);
     }
 }
@@ -594,9 +610,19 @@ static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst 
         /* Publish failed while nominally connected — fall through to SAF. */
     }
 
+    return prv_buffer_to_saf(inst, topic, buf, len, qos);
+}
+
+/* CP-D36: the store-and-forward half of the gate, under saf_lock so the alarm task can buffer while
+ * the publisher holds link_lock. */
+static cloud_publisher_err_t prv_buffer_to_saf(struct cloud_publisher_inst *inst, const char *topic,
+                                               const uint8_t *buf, uint32_t len, mqtt_qos_t qos)
+{
     /* The real SAF drops its oldest entry when the ring is full and succeeds (REQ-BF-020), so a
      * refusal is a flash error or an entry that does not fit: the message is lost (CP-D29). */
+    (void) xSemaphoreTake(inst->saf_lock, portMAX_DELAY);
     const saf_err_t saf_rc = saf_enqueue(inst->saf, topic, buf, (uint16_t) len, (uint8_t) qos);
+    (void) xSemaphoreGive(inst->saf_lock);
     if (saf_rc != SAF_ERR_OK)
     {
         LOG_ERROR(CP_LOG_MODULE, "SAF refused %s (code %d), message lost", topic, (int) saf_rc);
@@ -837,14 +863,24 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst)
      * the same entry, which is how a failed publish is retried. One pass sends at most
      * CP_DRAIN_MAX_ENTRIES / _BYTES / _MS (CP-D32). */
     while ((sent < CP_DRAIN_MAX_ENTRIES) && (bytes < CP_DRAIN_MAX_BYTES) &&
-           ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(CP_DRAIN_MAX_MS)) &&
-           (saf_dequeue(inst->saf, &entry) == SAF_ERR_OK))
+           ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(CP_DRAIN_MAX_MS)))
     {
+        /* CP-D36: saf_lock covers one entry, dequeue to confirm, because the entry is valid only
+         * until the next SAF call (an alarm buffered meanwhile would invalidate it). It is released
+         * before the link is served and yielded, so a buffering alarm waits for one publish at
+         * most. */
+        (void) xSemaphoreTake(inst->saf_lock, portMAX_DELAY);
+        if (saf_dequeue(inst->saf, &entry) != SAF_ERR_OK)
+        {
+            (void) xSemaphoreGive(inst->saf_lock);
+            break;
+        }
         mqtt_client_err_t rc = mqtt_client_publish(inst->mqtt, entry->topic, entry->payload,
                                                    entry->payload_len, (mqtt_qos_t) entry->qos);
         if (rc != MQTT_CLIENT_ERR_OK)
         {
             prv_drain_publish_failed(inst);
+            (void) xSemaphoreGive(inst->saf_lock);
             failed = true;
             break; /* stop drain; re-attempt after the backoff */
         }
@@ -852,7 +888,9 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst)
         inst->drain_backoff_s = CP_DRAIN_BACKOFF_MIN_S;
         sent++;
         bytes += entry->payload_len;
-        if (saf_confirm(inst->saf) != SAF_ERR_OK)
+        const saf_err_t confirm_rc = saf_confirm(inst->saf);
+        (void) xSemaphoreGive(inst->saf_lock);
+        if (confirm_rc != SAF_ERR_OK)
         {
             /* The entry stays pending and is sent again: a duplicate, acceptable at QoS 1. */
             LOG_WARN(CP_LOG_MODULE, "SAF confirm failed, drain stops for this tick");
@@ -904,7 +942,7 @@ static void prv_drain_publish_failed(struct cloud_publisher_inst *inst)
  * flash-backed and so survives the reset that follows a restart. */
 static void prv_flush(struct cloud_publisher_inst *inst)
 {
-    prv_drain_alarm_queue(inst);
+    prv_drain_alarm_queue(inst, true);
     if (mqtt_client_is_connected(inst->mqtt))
     {
         prv_drain_saf(inst);
@@ -939,16 +977,31 @@ static bool prv_subscribe_one(struct cloud_publisher_inst *inst, bool *done, con
 
 static void prv_subscribe_commands(struct cloud_publisher_inst *inst)
 {
+    /* CP-D36: each subscribe() blocks on its SUBACK (one module round trip, ~300 ms on hardware),
+     * and the caller holds link_lock. The lock is given up before every topic that still has to be
+     * subscribed, so an alarm waits for one round trip, not for all of them. */
     bool all = prv_subscribe_one(inst, &inst->sub_config, inst->topic_config_cmd, MQTT_QOS_1);
 
     if (inst->control_handler != NULL)
     {
+        if (!inst->sub_control)
+        {
+            prv_link_yield(inst);
+        }
         all =
             prv_subscribe_one(inst, &inst->sub_control, inst->topic_control_cmd, MQTT_QOS_1) && all;
     }
     if (inst->update_ops != NULL)
     {
+        if (!inst->sub_ota_cmd)
+        {
+            prv_link_yield(inst);
+        }
         all = prv_subscribe_one(inst, &inst->sub_ota_cmd, inst->topic_ota_cmd, MQTT_QOS_1) && all;
+        if (!inst->sub_ota_data)
+        {
+            prv_link_yield(inst);
+        }
         all = prv_subscribe_one(inst, &inst->sub_ota_data, inst->topic_ota_data, MQTT_QOS_0) && all;
     }
     (void) all;
@@ -1031,7 +1084,7 @@ static bool prv_ota_report(void *ctx, const us_ota_report_t *rep)
     return prv_ota_enqueue((struct cloud_publisher_inst *) ctx, &entry);
 }
 
-static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
+static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst, bool link_held)
 {
     cp_alarm_event_t ev;
     while (xQueueReceive(inst->alarm_queue, &ev, 0u) == pdTRUE)
@@ -1044,8 +1097,11 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
             continue;
         }
 
-        const cloud_publisher_err_t rc = prv_enqueue_or_publish(
-            inst, inst->topic_alarms, (const uint8_t *) s_alarm_buf, n, MQTT_QOS_1);
+        const cloud_publisher_err_t rc =
+            link_held ? prv_enqueue_or_publish(inst, inst->topic_alarms,
+                                               (const uint8_t *) s_alarm_buf, n, MQTT_QOS_1)
+                      : prv_buffer_to_saf(inst, inst->topic_alarms, (const uint8_t *) s_alarm_buf,
+                                          n, MQTT_QOS_1);
         /* The REQ-NF-113 "detection -> publish" outcome is a local seam (CP-D19): nothing in the
          * health snapshot consumes it. PUBLISHED went out now; BUFFERED is safe in SAF but still
          * owes the cloud a publish. TC-HW-CP-011 times the alarm path from the broker's side. */

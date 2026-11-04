@@ -764,6 +764,58 @@ void test_CP_T121_alarm_is_published_under_the_link_lock(void)
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xSemaphoreGive_call_count);
 }
 
+/* CP-D36 / CP-O13: with the link down an alarm is buffered under saf_lock alone, so it never waits
+ * for a reconnect step that holds link_lock. */
+static void prv_run_one_alarm_step(void)
+{
+    cp_alarm_event_t ev;
+    prv_load_alarm_event(&ev);
+    g_mock_xQueueSend_last_item_size = sizeof(ev);
+    cloud_publisher_inject_alarm_for_test(g_handle, &ev);
+    (void) memcpy(g_mock_xQueueReceive_next_item, g_mock_xQueueSend_last_item, sizeof(ev));
+    g_mock_xQueueReceive_next_item_size = sizeof(ev);
+    g_mock_xQueueReceive_return = pdTRUE;
+    g_mock_xQueueReceive_available = 1u;
+
+    g_mock_xSemaphoreTake_call_count = 0u;
+    g_mock_xTaskNotifyWait_next_value = TC_ALARM_PENDING;
+    cloud_publisher_alarm_task_step_for_test(g_handle);
+}
+
+void test_CP_T124_alarm_with_the_link_down_is_buffered_without_the_link_lock(void)
+{
+    g_mock_xSemaphoreCreateMutexStatic_distinct = true;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    TEST_ASSERT_EQUAL_UINT32(2u, g_mock_xSemaphoreCreateMutexStatic_created_count);
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_saf_enqueue_return = SAF_ERR_OK;
+    g_spy_saf_enqueue_calls = 0u;
+    g_spy_mqtt_publish_calls = 0u;
+
+    prv_run_one_alarm_step();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_saf_enqueue_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xSemaphoreTake_call_count);
+    TEST_ASSERT_TRUE(g_mock_xSemaphoreTake_handles[0] ==
+                     g_mock_xSemaphoreCreateMutexStatic_created[1]); /* saf_lock, not link_lock */
+}
+
+void test_CP_T125_alarm_with_the_link_up_takes_the_link_lock(void)
+{
+    g_mock_xSemaphoreCreateMutexStatic_distinct = true;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_is_connected_return = true;
+    g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
+    g_spy_mqtt_publish_calls = 0u;
+
+    prv_run_one_alarm_step();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_TRUE(g_mock_xSemaphoreTake_handles[0] ==
+                     g_mock_xSemaphoreCreateMutexStatic_created[0]); /* link_lock first */
+}
+
 void test_CP_T122_publisher_step_takes_the_lock_once_and_gives_it_up_between_items(void)
 {
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
