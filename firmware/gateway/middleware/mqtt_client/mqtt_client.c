@@ -73,8 +73,10 @@
 
 /** Outstanding QoS 1 record slots (MQTT_InitStatefulQoS). A handful is
  *  enough headroom for this project's single in-flight publish/subscribe
- *  usage pattern (CloudPublisherTask is the sole caller). */
-#define MQTT_OUTGOING_PUBLISH_RECORDS 4u
+ *  usage pattern (CloudPublisherTask is the sole caller). Publishing is
+ *  non-blocking since MQTT-D13, so up to this many PUBLISHes wait for their
+ *  PUBACK at once; a full array is handled in mqtt_client_publish() (MQTT-D14). */
+#define MQTT_OUTGOING_PUBLISH_RECORDS 8u
 #define MQTT_INCOMING_PUBLISH_RECORDS 4u
 
 /** Timeout budget handed to the TEST-only transport recv path
@@ -960,7 +962,19 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
      * returns PUBLISH_FAIL here, so CloudPublisher routes it to SAF; only a
      * PUBACK lost on a still-live connection goes untracked, an inherent
      * QoS1/clean-session tail bounded by the keep-alive. */
-    const MQTTStatus_t publish_status = MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id);
+    MQTTStatus_t publish_status = MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id);
+    if (publish_status == MQTTNoMemory)
+    {
+        /* MQTT-D14: every outstanding-QoS-1 slot is waiting for its PUBACK, because the PUBACKs
+         * are reaped off this call (above) and a burst (SAF replay, an alarm) outruns them.
+         * Reap what has already arrived and try once more, instead of refusing a publish the
+         * link could carry. Hardware 2026-11-04: 33 of 33 refusals were MQTTNoMemory. */
+        (void) MQTT_ProcessLoop(&handle->mqtt_ctx);
+        if (handle->connected)
+        {
+            publish_status = MQTT_Publish(&handle->mqtt_ctx, &publish_info, packet_id);
+        }
+    }
     if (publish_status != MQTTSuccess)
     {
         handle->stats.publish_failures++;
