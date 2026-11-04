@@ -149,6 +149,12 @@ extern uint32_t   g_mock_xQueueReceive2_available;
 extern SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
 
 /* xSemaphoreTake / xSemaphoreGive mocks */
+/* Opt-in: hand out a distinct handle per mutex (the buffer address), remember the creation order and
+ * log the handle of every take, so a test can tell which lock was used. */
+extern bool        g_mock_xSemaphoreCreateMutexStatic_distinct;
+extern SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_created[4];
+extern uint32_t    g_mock_xSemaphoreCreateMutexStatic_created_count;
+extern SemaphoreHandle_t g_mock_xSemaphoreTake_handles[32];
 extern BaseType_t g_mock_xSemaphoreTake_return;
 extern uint32_t   g_mock_xSemaphoreTake_call_count;
 extern BaseType_t g_mock_xSemaphoreGive_return;

@@ -63,6 +63,10 @@ static QueueHandle_t s_mock_queue1_handle;
 static QueueHandle_t s_mock_queue2_handle;
 
 SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_return;
+bool              g_mock_xSemaphoreCreateMutexStatic_distinct;
+SemaphoreHandle_t g_mock_xSemaphoreCreateMutexStatic_created[4];
+uint32_t          g_mock_xSemaphoreCreateMutexStatic_created_count;
+SemaphoreHandle_t g_mock_xSemaphoreTake_handles[32];
 BaseType_t        g_mock_xSemaphoreTake_return;
 uint32_t          g_mock_xSemaphoreTake_call_count;
 BaseType_t        g_mock_xSemaphoreGive_return;
@@ -182,6 +186,10 @@ void mock_freertos_reset(void)
     s_mock_queue2_handle                = NULL;
 
     g_mock_xSemaphoreCreateMutexStatic_return = DUMMY_HANDLE;
+    g_mock_xSemaphoreCreateMutexStatic_distinct      = false;
+    g_mock_xSemaphoreCreateMutexStatic_created_count = 0U;
+    (void)memset(g_mock_xSemaphoreCreateMutexStatic_created, 0, sizeof(g_mock_xSemaphoreCreateMutexStatic_created));
+    (void)memset(g_mock_xSemaphoreTake_handles, 0, sizeof(g_mock_xSemaphoreTake_handles));
     g_mock_xSemaphoreTake_return              = pdTRUE;
     g_mock_xSemaphoreTake_call_count          = 0U;
     g_mock_xSemaphoreGive_return              = pdTRUE;
@@ -373,14 +381,26 @@ TickType_t xTaskGetTickCountFromISR(void)
 
 SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *buf)
 {
-    (void)buf;
+    if (g_mock_xSemaphoreCreateMutexStatic_distinct)
+    {
+        SemaphoreHandle_t handle = (SemaphoreHandle_t)buf;
+        if (g_mock_xSemaphoreCreateMutexStatic_created_count < 4U)
+        {
+            g_mock_xSemaphoreCreateMutexStatic_created[g_mock_xSemaphoreCreateMutexStatic_created_count] = handle;
+        }
+        g_mock_xSemaphoreCreateMutexStatic_created_count++;
+        return handle;
+    }
     return g_mock_xSemaphoreCreateMutexStatic_return;
 }
 
 BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, TickType_t ticks)
 {
-    (void)sem;
     (void)ticks;
+    if (g_mock_xSemaphoreTake_call_count < 32U)
+    {
+        g_mock_xSemaphoreTake_handles[g_mock_xSemaphoreTake_call_count] = sem;
+    }
     g_mock_xSemaphoreTake_call_count++;
     return g_mock_xSemaphoreTake_return;
 }
