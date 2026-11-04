@@ -703,6 +703,53 @@ void test_MQTT_T09b_publish_qos1_missing_puback_is_not_a_failure(void)
     TEST_ASSERT_EQUAL_UINT32(0u, stats.publish_failures);
 }
 
+/* MQTT-D14: publish() is non-blocking, so PUBACKs are reaped off its call. A burst larger than the
+ * outstanding-record array (SAF replay plus an alarm) must reap and retry instead of refusing. */
+static void prv_fill_outstanding_records(mqtt_client_handle_t handle)
+{
+    const uint8_t payload[] = "X";
+    for (uint32_t i = 0u; i < 8u; i++)
+    {
+        TEST_ASSERT_EQUAL(
+            MQTT_CLIENT_ERR_OK,
+            mqtt_client_publish(handle, "dt/iotmonitor/gw-001/alarms", payload, 1u, MQTT_QOS_1));
+    }
+}
+
+void test_MQTT_T09d_full_record_array_reaps_a_waiting_puback_and_publishes(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    prv_fill_outstanding_records(handle);
+
+    prv_queue_puback(1u); /* already on the wire when the ninth publish arrives */
+    const uint8_t payload[] = "Y";
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_publish(handle, "dt/iotmonitor/gw-001/alarms",
+                                                              payload, 1u, MQTT_QOS_1));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(9u, stats.publishes_sent);
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.publishes_acked);
+    TEST_ASSERT_EQUAL_UINT32(0u, stats.publish_failures);
+}
+
+void test_MQTT_T09e_full_record_array_without_puback_refuses_but_keeps_the_session(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    prv_fill_outstanding_records(handle);
+
+    const uint8_t payload[] = "Z";
+    TEST_ASSERT_EQUAL(
+        MQTT_CLIENT_ERR_PUBLISH_FAIL,
+        mqtt_client_publish(handle, "dt/iotmonitor/gw-001/alarms", payload, 1u, MQTT_QOS_1));
+
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(8u, stats.publishes_sent);
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.publish_failures);
+    TEST_ASSERT_TRUE(mqtt_client_is_connected(handle)); /* a full array is not a dead link */
+}
+
 void test_MQTT_T10_publish_not_connected(void)
 {
     mqtt_client_handle_t handle = prv_create_default(); /* never connected */
