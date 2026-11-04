@@ -95,6 +95,7 @@ extern uint32_t      g_mock_xQueueCreateStatic_call_count;
 extern TaskHandle_t  g_mock_xTaskCreateStatic_return;
 extern uint32_t      g_mock_xTaskCreateStatic_call_count;
 extern TaskFunction_t g_mock_xTaskCreateStatic_last_fn;
+extern UBaseType_t   g_mock_xTaskCreateStatic_last_priority;
 
 /* xQueueSend mock: configurable return + last-item capture */
 extern BaseType_t g_mock_xQueueSend_return;

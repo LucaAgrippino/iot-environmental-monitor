@@ -22,6 +22,7 @@ Needs pyserial; paho-mqtt only for the MQTT half.
 """
 
 import argparse
+import re
 import struct
 import sys
 import threading
@@ -132,7 +133,7 @@ class Monitor:
                 self.out("%s [BUS]  %s" % (self.stamp(t), line))
             for _, old, new, when in events:
                 self.out("%s [BUS]  >>> ALARM_FLAGS 0x%04X -> 0x%04X (first read showing it)" % (self.stamp(when), old, new))
-                self.flag_change = (when, "raise" if (new & ~old) else "clear")
+                self.flag_change = (when, "raise" if (new & ~old) else "clear", when)
 
     def mqtt_message(self, topic, payload, t):
         with self.lock:
@@ -140,11 +141,28 @@ class Monitor:
             # Only an alarm message ends the measurement: telemetry or health on a wildcard
             # subscription must not consume the pending flag change.
             if self.flag_change is not None and topic.endswith("/alarms"):
-                when, kind = self.flag_change
+                when, kind, _ = self.flag_change
+                if not self.matches(kind, payload, when):
+                    return  # an old alarm replayed from store-and-forward, or the other edge
                 self.out("%s [MQTT] >>> %.0f ms from the bus read that showed the %s to the broker receiving it"
                          " (REQ-NF-113 budget is 500 ms from the FD setting the flag)" % (
                              self.stamp(t), (t - when) * 1000.0, kind))
                 self.flag_change = None
+
+    @staticmethod
+    def matches(kind, payload, when):
+        """True when this alarm message can be the one that follows the flag change.
+
+        A raise is followed by a HIGH/LOW message, a clear by CLEAR; the message timestamp (epoch
+        seconds, set by the Gateway) must be within 10 s of the bus read, which rejects alarms
+        replayed from the Gateway's store-and-forward buffer after a broker outage. A payload with
+        no alarm_type or timestamp (the self-test) is accepted.
+        """
+        kind_m = re.search(r'"alarm_type"\s*:\s*"(\w+)"', payload)
+        if kind_m and (kind_m.group(1) == "CLEAR") != (kind == "clear"):
+            return False
+        ts_m = re.search(r'"timestamp"\s*:\s*(\d+)', payload)
+        return not ts_m or abs(int(ts_m.group(1)) - when) <= 10.0
 
 
 def run_serial(mon, port, baud):
@@ -204,6 +222,16 @@ def selftest():
     assert not any(" ms " in ln for ln in lines), lines
     clr.mqtt_message("dt/iotmonitor/x/alarms", "{}", t0 + 1.02 + 0.25)
     assert any(" 250 ms" in ln and "clear" in ln for ln in lines), lines
+    # an old alarm replayed after an outage, and an alarm of the wrong kind, do not end a measurement
+    lines.clear()
+    rep = Monitor(out=lines.append)
+    for frame, t in ((req, t0), (quiet, t0 + 0.02), (req, t0 + 1.0), (alarm, t0 + 1.02)):
+        rep.bus_frame(frame, t)
+    rep.mqtt_message("dt/x/alarms", '{"timestamp":%d,"alarm_type":"HIGH"}' % (t0 - 100), t0 + 1.1)
+    rep.mqtt_message("dt/x/alarms", '{"timestamp":%d,"alarm_type":"CLEAR"}' % t0, t0 + 1.2)
+    assert not any(" ms from" in ln for ln in lines), lines
+    rep.mqtt_message("dt/x/alarms", '{"timestamp":%d,"alarm_type":"HIGH"}' % (t0 + 1), t0 + 1.3)
+    assert any(" 280 ms" in ln and "raise" in ln for ln in lines), lines
     bad = bytearray(alarm)
     bad[-1] ^= 1
     assert "BAD CRC" in FrameDecoder().decode(bytes(bad), 0)[0][0]

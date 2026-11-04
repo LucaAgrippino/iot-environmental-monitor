@@ -21,6 +21,7 @@
 #include "task.h"
 #include "timers.h"
 #include "queue.h"
+#include "semphr.h"
 
 #include "logger/logger.h"
 #include "mqtt_topic_config.h"
@@ -39,6 +40,17 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #define CP_OTA_QUEUE_LEN 4u /**< Outbound OTA requests and reports (CPC-5). */
 #define CP_TASK_STACK_WORDS 768u
 #define CP_TASK_PRIORITY 3u
+
+/* CP-O6 / CP-D35: alarms are published by a task of their own, one priority above the publisher.
+ * Its stack and JSON buffer live in SRAM2 (the main bank has no room, see mqtt_client.c). */
+#define CP_ALARM_TASK_STACK_WORDS 512u
+#define CP_ALARM_TASK_PRIORITY (CP_TASK_PRIORITY + 1u)
+#define CP_ALARM_JSON_BUF_SIZE 512u
+#ifdef TEST
+#define CP_ALARM_RAM /* host builds: ordinary static storage */
+#else
+#define CP_ALARM_RAM __attribute__((section(".bss.sram2"), aligned(8)))
+#endif
 
 #define CP_TELEMETRY_PERIOD_MS_DEFAULT 60000u
 #define CP_HEALTH_PERIOD_MS_DEFAULT 600000u
@@ -195,6 +207,8 @@ struct cloud_publisher_inst
     TimerHandle_t health_timer;
     TimerHandle_t stats_timer;
     TaskHandle_t task_handle;
+    TaskHandle_t alarm_task_handle; /**< CP-D35: publishes alarms. */
+    SemaphoreHandle_t link_lock;    /**< CP-D35: guards MqttClient and StoreAndForward. */
 
     alarm_event_t last_raised[SENSOR_ID_COUNT]; /**< Side last raised, for CLEARED payloads. */
 
@@ -230,12 +244,19 @@ static StaticTimer_t s_stats_timer_ctrl;
 
 static StackType_t s_task_stack[CP_TASK_STACK_WORDS];
 static StaticTask_t s_task_tcb;
+static StackType_t s_alarm_task_stack[CP_ALARM_TASK_STACK_WORDS] CP_ALARM_RAM;
+static StaticTask_t s_alarm_task_tcb;
+static char s_alarm_buf[CP_ALARM_JSON_BUF_SIZE] CP_ALARM_RAM;
+static StaticSemaphore_t s_link_lock_ctrl;
 
 /* ===================================================================== */
 /* Private function prototypes                                           */
 /* ===================================================================== */
 
 static void prv_task_body(void *arg);
+static void prv_alarm_task_body(void *arg);
+static void prv_alarm_task_step(struct cloud_publisher_inst *inst);
+static void prv_link_yield(struct cloud_publisher_inst *inst);
 static void prv_task_step(struct cloud_publisher_inst *inst);
 static cloud_publisher_err_t prv_enqueue_or_publish(struct cloud_publisher_inst *inst,
                                                     const char *topic, const uint8_t *buf,
@@ -361,10 +382,15 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->ota_queue = xQueueCreateStatic(CP_OTA_QUEUE_LEN, (UBaseType_t) sizeof(cp_ota_out_t),
                                          s_ota_queue_storage, &s_ota_queue_ctrl);
 
+    inst->link_lock = xSemaphoreCreateMutexStatic(&s_link_lock_ctrl);
+
     g_active_inst = inst;
 
     inst->task_handle = xTaskCreateStatic(prv_task_body, "CloudPublisherTask", CP_TASK_STACK_WORDS,
                                           inst, CP_TASK_PRIORITY, s_task_stack, &s_task_tcb);
+    inst->alarm_task_handle =
+        xTaskCreateStatic(prv_alarm_task_body, "CpAlarmTask", CP_ALARM_TASK_STACK_WORDS, inst,
+                          CP_ALARM_TASK_PRIORITY, s_alarm_task_stack, &s_alarm_task_tcb);
 
     inst->telemetry_ms = prv_interval_ms(inst, true);
     inst->health_ms = prv_interval_ms(inst, false);
@@ -455,24 +481,54 @@ static void prv_task_body(void *arg)
     }
 }
 
+/* CP-D35: the alarm task. It sleeps on a task notification and publishes alarms the moment one is
+ * queued, taking link_lock only for the publish itself. */
+static void prv_alarm_task_body(void *arg)
+{
+    struct cloud_publisher_inst *inst = (struct cloud_publisher_inst *) arg;
+    for (;;)
+    {
+        prv_alarm_task_step(inst);
+    }
+}
+
+static void prv_alarm_task_step(struct cloud_publisher_inst *inst)
+{
+    uint32_t notif = 0u;
+    (void) xTaskNotifyWait(0u, CP_NOTIFY_ALL_BITS, &notif, portMAX_DELAY);
+
+    /* The mutex has priority inheritance: while this task waits, the publisher runs at this
+     * task's priority until it reaches the next prv_link_yield(). */
+    if (xSemaphoreTake(inst->link_lock, portMAX_DELAY) == pdTRUE)
+    {
+        prv_drain_alarm_queue(inst);
+        (void) xSemaphoreGive(inst->link_lock);
+    }
+}
+
+/* CP-D35: let a waiting alarm in. The alarm task has the higher priority, so as soon as the lock
+ * is given it takes it and runs; this task blocks on the retake until the alarm is out. */
+static void prv_link_yield(struct cloud_publisher_inst *inst)
+{
+    (void) xSemaphoreGive(inst->link_lock);
+    (void) xSemaphoreTake(inst->link_lock, portMAX_DELAY);
+}
+
 static void prv_task_step(struct cloud_publisher_inst *inst)
 {
     uint32_t notif = 0u;
     (void) xTaskNotifyWait(0u, CP_NOTIFY_ALL_BITS, &notif, portMAX_DELAY);
 
+    /* CP-D35: MqttClient and StoreAndForward are not thread-safe and the alarm task publishes too,
+     * so this step holds link_lock and gives it up between work items (prv_link_yield). An alarm
+     * therefore waits for the publish in flight, never for the rest of the step. */
+    (void) xSemaphoreTake(inst->link_lock, portMAX_DELAY);
+
     /* The mirror UpdateService reads through IOtaTransport.is_connected (CPC-5). */
     inst->link_up = mqtt_client_is_connected(inst->mqtt);
 
-    /* Alarms and inbound commands run before the periodic telemetry/health
-     * publishes: all four ultimately call prv_enqueue_or_publish(), which
-     * for QoS1 blocks this single task ~350 ms on the PUBACK, so a telemetry
-     * publish handled first would push a co-woken alarm past REQ-NF-113's
-     * 500 ms budget (CP-D3; TC-HW-CP-011). This orders the co-wake case; it
-     * cannot preempt a publish already in flight (see CP-O6). */
-    if ((notif & CP_NOTIFY_ALARM_PENDING) != 0u)
-    {
-        prv_drain_alarm_queue(inst);
-    }
+    /* Alarms are no longer handled here: CpAlarmTask publishes them (CP-D35, CP-O6). Inbound
+     * commands still run before the periodic telemetry/health publishes (CP-D12). */
     if ((notif & CP_NOTIFY_COMMAND_PENDING) != 0u)
     {
         prv_drain_command_queue(inst);
@@ -491,10 +547,12 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
     }
     if ((notif & CP_NOTIFY_TELEMETRY_TICK) != 0u)
     {
+        prv_link_yield(inst);
         prv_publish_telemetry(inst);
     }
     if ((notif & CP_NOTIFY_HEALTH_TICK) != 0u)
     {
+        prv_link_yield(inst);
         prv_publish_health(inst);
     }
     /* WIFITASK-O1 Phase 3: also re-drive on MQTT_CLIENT_WIFI_RECV_READY_BIT,
@@ -506,10 +564,13 @@ static void prv_task_step(struct cloud_publisher_inst *inst)
      * below (CP-D9/CP-D10) for the actual retry driven here. */
     if ((notif & (CP_NOTIFY_STATS_TICK | MQTT_CLIENT_WIFI_RECV_READY_BIT)) != 0u)
     {
+        prv_link_yield(inst);
         prv_poll_stats(inst);
     }
 
+    prv_link_yield(inst);
     (void) mqtt_client_process(inst->mqtt);
+    (void) xSemaphoreGive(inst->link_lock);
 }
 
 /* ===================================================================== */
@@ -800,6 +861,7 @@ static void prv_drain_saf(struct cloud_publisher_inst *inst)
         /* Serve the link between entries (CP-D32): keep-alive, acknowledgements and inbound
          * packets must not wait for the end of a replay pass. */
         (void) mqtt_client_process(inst->mqtt);
+        prv_link_yield(inst); /* CP-D35: a waiting alarm goes between two replayed entries. */
         if (!mqtt_client_is_connected(inst->mqtt))
         {
             break;
@@ -975,15 +1037,15 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
     while (xQueueReceive(inst->alarm_queue, &ev, 0u) == pdTRUE)
     {
         uint32_t n =
-            cp_serialise_alarm(inst->scratch_buf, CP_JSON_BUF_SIZE, &ev, inst->device_serial);
+            cp_serialise_alarm(s_alarm_buf, CP_ALARM_JSON_BUF_SIZE, &ev, inst->device_serial);
         if (n == 0u)
         {
-            LOG_WARN(CP_LOG_MODULE, "alarm payload exceeded %u bytes", CP_JSON_BUF_SIZE);
+            LOG_WARN(CP_LOG_MODULE, "alarm payload exceeded %u bytes", CP_ALARM_JSON_BUF_SIZE);
             continue;
         }
 
         const cloud_publisher_err_t rc = prv_enqueue_or_publish(
-            inst, inst->topic_alarms, (const uint8_t *) inst->scratch_buf, n, MQTT_QOS_1);
+            inst, inst->topic_alarms, (const uint8_t *) s_alarm_buf, n, MQTT_QOS_1);
         /* The REQ-NF-113 "detection -> publish" outcome is a local seam (CP-D19): nothing in the
          * health snapshot consumes it. PUBLISHED went out now; BUFFERED is safe in SAF but still
          * owes the cloud a publish. TC-HW-CP-011 times the alarm path from the broker's side. */
@@ -1015,7 +1077,7 @@ static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst)
 static void prv_enqueue_alarm(struct cloud_publisher_inst *inst, const cp_alarm_event_t *event)
 {
     (void) xQueueSend(inst->alarm_queue, event, 0u); /* non-blocking */
-    (void) xTaskNotify(inst->task_handle, CP_NOTIFY_ALARM_PENDING, eSetBits);
+    (void) xTaskNotify(inst->alarm_task_handle, CP_NOTIFY_ALARM_PENDING, eSetBits);
 }
 
 static const char *prv_sensor_name(sensor_id_t sensor)
@@ -1562,6 +1624,11 @@ uint32_t cloud_publisher_alarm_buffered_for_test(void)
 void cloud_publisher_task_step_for_test(cloud_publisher_handle_t handle)
 {
     prv_task_step(handle);
+}
+
+void cloud_publisher_alarm_task_step_for_test(cloud_publisher_handle_t handle)
+{
+    prv_alarm_task_step(handle);
 }
 
 void cloud_publisher_inject_alarm_for_test(cloud_publisher_handle_t handle,
