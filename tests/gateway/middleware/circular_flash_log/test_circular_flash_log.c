@@ -743,6 +743,33 @@ void test_cfl_ring_wraps_and_reuses_sectors(void)
     peek_expect(handle, 64U, 0xEEU);
 }
 
+/* CFL-O6 (2026-11-03): after a lap the sectors past the tail still hold
+ * consumed records. The boot scan must not count them as live. */
+void test_cfl_boot_scan_ignores_stale_sectors_past_the_tail_after_a_lap(void)
+{
+    cfl_handle_t handle = create_ok();
+    uint32_t entries = 0U;
+    uint32_t bytes = 0U;
+
+    for (uint32_t i = 0U; i < DATA_SECTOR_COUNT + 10U; i++)
+    {
+        append_ok(handle, CFL_MAX_RECORD_BYTES, (uint8_t) i);
+        TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+    }
+
+    /* Two live records, then a reset. */
+    append_ok(handle, 64U, 0xA1U);
+    append_ok(handle, 64U, 0xA2U);
+
+    cfl_reset_for_test();
+    handle = create_ok();
+
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(2U, entries);
+    TEST_ASSERT_EQUAL_UINT32(128U, bytes);
+    peek_expect(handle, 64U, 0xA1U);
+}
+
 /* PR-B: a NULL health handle stays allowed (bring-up harnesses): no event, no crash. */
 void test_cfl_null_health_handle_raises_no_events(void)
 {
