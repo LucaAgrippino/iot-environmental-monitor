@@ -509,10 +509,14 @@ static cfl_err_t cfl_meta_store(struct cfl_inst *inst)
  * Scanning stops at the first record that is implausible or fails its CRC —
  * a record interrupted by power loss therefore terminates the sector without
  * discarding anything written before it (CFL-T12).
+ *
+ * Live records carry consecutive sequence numbers (every append takes the next
+ * one). A record that does not continue the sequence is a leftover from an
+ * earlier lap of the ring, consumed long ago, and ends the scan (CFL-O6).
  */
 static cfl_err_t cfl_scan_sector(const struct cfl_inst *inst, uint8_t sector, uint32_t *count_out,
                                  uint32_t *bytes_out, uint32_t *end_offset_out,
-                                 uint32_t *max_seq_out)
+                                 uint32_t *max_seq_out, bool any_before)
 {
     uint32_t offset = 0U;
 
@@ -547,15 +551,17 @@ static cfl_err_t cfl_scan_sector(const struct cfl_inst *inst, uint8_t sector, ui
             break;
         }
 
+        if ((any_before || (*count_out > 0U)) && (hdr.seq_num != (*max_seq_out + 1U)))
+        {
+            break;
+        }
+
         (*count_out)++;
         *bytes_out += hdr.data_len;
         offset += cfl_record_size(hdr.data_len);
         *end_offset_out = offset;
 
-        if (hdr.seq_num >= *max_seq_out)
-        {
-            *max_seq_out = hdr.seq_num;
-        }
+        *max_seq_out = hdr.seq_num;
     }
 
     return CFL_ERR_OK;
@@ -630,7 +636,8 @@ static cfl_err_t cfl_boot_scan(struct cfl_inst *inst)
         uint32_t count = 0U;
         uint32_t bytes = 0U;
         uint32_t end_offset = 0U;
-        cfl_err_t err = cfl_scan_sector(inst, sector, &count, &bytes, &end_offset, &max_seq);
+        cfl_err_t err =
+            cfl_scan_sector(inst, sector, &count, &bytes, &end_offset, &max_seq, any_record);
 
         if (err != CFL_ERR_OK)
         {
