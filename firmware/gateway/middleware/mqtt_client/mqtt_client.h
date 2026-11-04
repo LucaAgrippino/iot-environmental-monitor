@@ -280,6 +280,47 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
 mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char *topic,
                                         mqtt_qos_t qos);
 
+/** @brief Progress of the one non-blocking SUBSCRIBE (MQTT-D15). */
+typedef enum
+{
+    MQTT_SUB_IDLE = 0, /**< None started, or its result was already taken. */
+    MQTT_SUB_PENDING,  /**< SUBSCRIBE sent, SUBACK not yet received.        */
+    MQTT_SUB_OK,       /**< SUBACK granted the subscription.                */
+    MQTT_SUB_FAILED    /**< SUBACK refused it, or none came in time.        */
+} mqtt_sub_state_t;
+
+/**
+ * @brief Start a SUBSCRIBE without waiting for the SUBACK (MQTT-D15).
+ *
+ * Transmits the SUBSCRIBE and returns. The SUBACK is reaped in
+ * mqtt_client_process(); read the outcome with mqtt_client_subscribe_poll().
+ * One subscription can be outstanding at a time.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @param[in] topic   Null-terminated topic filter string.
+ * @param[in] qos     Maximum QoS for messages on this subscription.
+ * @return MQTT_CLIENT_ERR_OK once the SUBSCRIBE is on the wire;
+ *         MQTT_CLIENT_ERR_NO_RESOURCE if one is already outstanding;
+ *         MQTT_CLIENT_ERR_NOT_CONNECTED; MQTT_CLIENT_ERR_SUBSCRIBE_FAIL on a
+ *         transmit failure (a send failure also drops the session).
+ * @note Threading: task-context only, does not block on the broker.
+ */
+mqtt_client_err_t mqtt_client_subscribe_start(mqtt_client_handle_t handle, const char *topic,
+                                              mqtt_qos_t qos);
+
+/**
+ * @brief Read the outcome of mqtt_client_subscribe_start().
+ *
+ * MQTT_SUB_OK and MQTT_SUB_FAILED are reported once and the state returns to
+ * MQTT_SUB_IDLE. A SUBACK that has not arrived after MQTT_SUBACK_TIMEOUT_MS
+ * counts as MQTT_SUB_FAILED. A dropped connection also returns to
+ * MQTT_SUB_IDLE.
+ *
+ * @param[in] handle  MqttClient handle.
+ * @return The state, MQTT_SUB_IDLE for a NULL handle.
+ */
+mqtt_sub_state_t mqtt_client_subscribe_poll(mqtt_client_handle_t handle);
+
 /**
  * @brief Process inbound MQTT frames and service keep-alive.
  *

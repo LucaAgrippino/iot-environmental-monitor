@@ -197,6 +197,8 @@ struct cloud_publisher_inst
     bool sub_control;
     bool sub_ota_cmd;
     bool sub_ota_data;
+    bool *sub_inflight; /**< Task only: the flag of the SUBSCRIBE in flight (CP-D37). */
+    const char *sub_inflight_topic;
     volatile bool link_up; /**< Mirror of is_connected() for any task.  */
 
     /* FreeRTOS objects */
@@ -363,6 +365,7 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->sub_control = false;
     inst->sub_ota_cmd = false;
     inst->sub_ota_data = false;
+    inst->sub_inflight = NULL;
     inst->link_up = false;
     inst->was_connected = false;
     inst->reconnect_countdown_s = 0u; /* CP-D9: attempt connect on the first stats tick */
@@ -734,6 +737,7 @@ static void prv_note_link(struct cloud_publisher_inst *inst, bool connected)
     inst->sub_control = false;
     inst->sub_ota_cmd = false;
     inst->sub_ota_data = false;
+    inst->sub_inflight = NULL;
 
     if (connected)
     {
@@ -954,57 +958,84 @@ static void prv_flush(struct cloud_publisher_inst *inst)
 /* ===================================================================== */
 
 /* Subscribe to every command topic after a connect (CP-D26). One flag per topic, so a partial
- * failure retries only what is missing, on the next stats tick. The OTA topics are subscribed only
- * when UpdateService is wired, /control only when a handler is. */
-static bool prv_subscribe_one(struct cloud_publisher_inst *inst, bool *done, const char *topic,
-                              mqtt_qos_t qos)
+ * failure retries only what is missing. The OTA topics are subscribed only when UpdateService is
+ * wired, /control only when a handler is.
+ *
+ * CP-D37: the SUBSCRIBEs are non-blocking (MQTT-D15). Each call settles the one in flight, then
+ * starts the next topic still missing and returns, so link_lock is never held across a SUBACK wait
+ * (1.1-1.4 s on the module right after a handshake). The SUBACK is reaped in mqtt_client_process();
+ * the stats tick and the receive-ready notification bring this function back. */
+/** @brief One command topic the link needs: its done flag, filter and QoS. */
+typedef struct
 {
-    if (*done)
-    {
-        return true;
-    }
-
-    const mqtt_client_err_t rc = mqtt_client_subscribe(inst->mqtt, topic, qos);
-
-    if (rc == MQTT_CLIENT_ERR_OK)
-    {
-        *done = true;
-        return true;
-    }
-    LOG_WARN(CP_LOG_MODULE, "subscribe to %s failed (%d), retrying", topic, (int) rc);
-    return false;
-}
+    bool *done;
+    const char *topic;
+    mqtt_qos_t qos;
+} cp_sub_want_t;
 
 static void prv_subscribe_commands(struct cloud_publisher_inst *inst)
 {
-    /* CP-D36: each subscribe() blocks on its SUBACK (one module round trip, ~300 ms on hardware),
-     * and the caller holds link_lock. The lock is given up before every topic that still has to be
-     * subscribed, so an alarm waits for one round trip, not for all of them. */
-    bool all = prv_subscribe_one(inst, &inst->sub_config, inst->topic_config_cmd, MQTT_QOS_1);
+    cp_sub_want_t wanted[4];
+    uint32_t count = 0u;
 
+    wanted[count++] = (cp_sub_want_t){&inst->sub_config, inst->topic_config_cmd, MQTT_QOS_1};
     if (inst->control_handler != NULL)
     {
-        if (!inst->sub_control)
-        {
-            prv_link_yield(inst);
-        }
-        all =
-            prv_subscribe_one(inst, &inst->sub_control, inst->topic_control_cmd, MQTT_QOS_1) && all;
+        wanted[count++] = (cp_sub_want_t){&inst->sub_control, inst->topic_control_cmd, MQTT_QOS_1};
     }
     if (inst->update_ops != NULL)
     {
-        if (!inst->sub_ota_cmd)
-        {
-            prv_link_yield(inst);
-        }
-        all = prv_subscribe_one(inst, &inst->sub_ota_cmd, inst->topic_ota_cmd, MQTT_QOS_1) && all;
-        if (!inst->sub_ota_data)
-        {
-            prv_link_yield(inst);
-        }
-        all = prv_subscribe_one(inst, &inst->sub_ota_data, inst->topic_ota_data, MQTT_QOS_0) && all;
+        wanted[count++] = (cp_sub_want_t){&inst->sub_ota_cmd, inst->topic_ota_cmd, MQTT_QOS_1};
+        wanted[count++] = (cp_sub_want_t){&inst->sub_ota_data, inst->topic_ota_data, MQTT_QOS_0};
     }
-    (void) all;
+
+    for (;;)
+    {
+        if (inst->sub_inflight != NULL)
+        {
+            const mqtt_sub_state_t state = mqtt_client_subscribe_poll(inst->mqtt);
+
+            if (state == MQTT_SUB_PENDING)
+            {
+                return; /* the SUBACK has not come yet; the next tick looks again */
+            }
+            if (state == MQTT_SUB_OK)
+            {
+                *inst->sub_inflight = true;
+            }
+            else
+            {
+                /* FAILED, or IDLE because the session dropped: the topic is tried again on the
+                 * next tick, not in a loop here. */
+                LOG_WARN(CP_LOG_MODULE, "subscribe to %s failed, retrying",
+                         inst->sub_inflight_topic);
+                inst->sub_inflight = NULL;
+                return;
+            }
+            inst->sub_inflight = NULL;
+        }
+
+        uint32_t next = 0u;
+        while ((next < count) && *wanted[next].done)
+        {
+            next++;
+        }
+        if (next == count)
+        {
+            return; /* everything holds */
+        }
+
+        const mqtt_client_err_t rc =
+            mqtt_client_subscribe_start(inst->mqtt, wanted[next].topic, wanted[next].qos);
+        if (rc != MQTT_CLIENT_ERR_OK)
+        {
+            LOG_WARN(CP_LOG_MODULE, "subscribe to %s failed (%d), retrying", wanted[next].topic,
+                     (int) rc);
+            return;
+        }
+        inst->sub_inflight = wanted[next].done;
+        inst->sub_inflight_topic = wanted[next].topic;
+    }
 }
 
 /* OTA transport (CPC-1, CPC-5): see also prv_subscribe_commands() above. */
