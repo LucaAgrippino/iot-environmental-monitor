@@ -181,6 +181,11 @@ struct mqtt_client_inst
     /* Blocking-wait bookkeeping for publish()/subscribe() */
     bool suback_received;
     MQTTSubAckStatus_t suback_status;
+
+    /* MQTT-D15: the one non-blocking SUBSCRIBE */
+    mqtt_sub_state_t sub_state;
+    uint16_t sub_packet_id;
+    uint32_t sub_start_ms;
 };
 
 /* The instance pool (6 312 bytes: TLS contexts, the 4 096-byte packet buffer, coreMQTT state) lives
@@ -509,6 +514,21 @@ static void prv_event_callback(MQTTContext_t *ctx, MQTTPacketInfo_t *packet_info
             inst->suback_status = MQTTSubAckFailure;
         }
         inst->suback_received = true;
+
+        /* MQTT-D15: the non-blocking SUBSCRIBE is settled by its own packet id. */
+        if ((inst->sub_state == MQTT_SUB_PENDING) &&
+            (deserialized_info->packetIdentifier == inst->sub_packet_id))
+        {
+            if (inst->suback_status == MQTTSubAckFailure)
+            {
+                inst->stats.subscribe_failures++;
+                inst->sub_state = MQTT_SUB_FAILED;
+            }
+            else
+            {
+                inst->sub_state = MQTT_SUB_OK;
+            }
+        }
         break;
     }
 
@@ -657,6 +677,7 @@ static void prv_teardown_connection(struct mqtt_client_inst *inst)
     prv_tls_close(inst);
     (void) wifitask_close_socket(inst->wifi, inst->net_ctx.socket);
     inst->connected = false;
+    inst->sub_state = MQTT_SUB_IDLE; /* a new session starts with no subscription in flight */
 }
 
 /**
@@ -983,6 +1004,67 @@ mqtt_client_err_t mqtt_client_publish(mqtt_client_handle_t handle, const char *t
     }
     handle->stats.publishes_sent++;
     return MQTT_CLIENT_ERR_OK;
+}
+
+mqtt_client_err_t mqtt_client_subscribe_start(mqtt_client_handle_t handle, const char *topic,
+                                              mqtt_qos_t qos)
+{
+    if ((handle == NULL) || (topic == NULL))
+    {
+        return MQTT_CLIENT_ERR_NULL_PTR;
+    }
+    if (!handle->connected)
+    {
+        return MQTT_CLIENT_ERR_NOT_CONNECTED;
+    }
+    if (handle->sub_state != MQTT_SUB_IDLE)
+    {
+        return MQTT_CLIENT_ERR_NO_RESOURCE;
+    }
+
+    MQTTSubscribeInfo_t sub_info = {0};
+    sub_info.qos = (qos == MQTT_QOS_1) ? MQTTQoS1 : MQTTQoS0;
+    sub_info.pTopicFilter = topic;
+    sub_info.topicFilterLength = (uint16_t) strlen(topic);
+
+    const uint16_t packet_id = MQTT_GetPacketId(&handle->mqtt_ctx);
+    handle->sub_packet_id = packet_id;
+    handle->sub_start_ms = prv_get_time_ms();
+    handle->sub_state = MQTT_SUB_PENDING; /* before the send: a SUBACK may not wait for us */
+
+    const MQTTStatus_t subscribe_status =
+        MQTT_Subscribe(&handle->mqtt_ctx, &sub_info, 1u, packet_id);
+    if (subscribe_status != MQTTSuccess)
+    {
+        handle->sub_state = MQTT_SUB_IDLE;
+        handle->stats.subscribe_failures++;
+        prv_drop_after_send_failure(handle, subscribe_status);
+        return MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
+    }
+
+    return MQTT_CLIENT_ERR_OK;
+}
+
+mqtt_sub_state_t mqtt_client_subscribe_poll(mqtt_client_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return MQTT_SUB_IDLE;
+    }
+
+    if ((handle->sub_state == MQTT_SUB_PENDING) &&
+        ((prv_get_time_ms() - handle->sub_start_ms) >= MQTT_SUBACK_TIMEOUT_MS))
+    {
+        handle->stats.subscribe_failures++;
+        handle->sub_state = MQTT_SUB_FAILED;
+    }
+
+    const mqtt_sub_state_t state = handle->sub_state;
+    if ((state == MQTT_SUB_OK) || (state == MQTT_SUB_FAILED))
+    {
+        handle->sub_state = MQTT_SUB_IDLE; /* reported once */
+    }
+    return state;
 }
 
 mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char *topic,

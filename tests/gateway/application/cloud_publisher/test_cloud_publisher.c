@@ -416,8 +416,13 @@ static uint32_t g_spy_mqtt_subscribe_calls;
 static char g_spy_mqtt_subscribe_topic[4][SAF_TOPIC_MAX];
 static mqtt_qos_t g_spy_mqtt_subscribe_qos[4];
 static mqtt_client_err_t g_spy_mqtt_subscribe_return;
-mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char *topic,
-                                        mqtt_qos_t qos)
+/* CP-D37: the SUBSCRIBE is started, then polled. By default the SUBACK has already come when the
+ * poll looks (MQTT_SUB_OK); a test can hold it back or fail it. */
+static mqtt_sub_state_t g_spy_mqtt_sub_poll_return;
+static bool g_spy_mqtt_sub_started;
+static uint32_t g_spy_mqtt_sub_poll_calls;
+mqtt_client_err_t mqtt_client_subscribe_start(mqtt_client_handle_t handle, const char *topic,
+                                              mqtt_qos_t qos)
 {
     (void) handle;
     if (g_spy_mqtt_subscribe_calls < 4u)
@@ -427,7 +432,23 @@ mqtt_client_err_t mqtt_client_subscribe(mqtt_client_handle_t handle, const char 
         g_spy_mqtt_subscribe_qos[g_spy_mqtt_subscribe_calls] = qos;
     }
     g_spy_mqtt_subscribe_calls++;
+    g_spy_mqtt_sub_started = (g_spy_mqtt_subscribe_return == MQTT_CLIENT_ERR_OK);
     return g_spy_mqtt_subscribe_return;
+}
+
+mqtt_sub_state_t mqtt_client_subscribe_poll(mqtt_client_handle_t handle)
+{
+    (void) handle;
+    g_spy_mqtt_sub_poll_calls++;
+    if (!g_spy_mqtt_sub_started)
+    {
+        return MQTT_SUB_IDLE;
+    }
+    if (g_spy_mqtt_sub_poll_return != MQTT_SUB_PENDING)
+    {
+        g_spy_mqtt_sub_started = false; /* the outcome is reported once */
+    }
+    return g_spy_mqtt_sub_poll_return;
 }
 
 static mqtt_stats_t g_spy_mqtt_stats;
@@ -544,6 +565,9 @@ void setUp(void)
 
     g_spy_mqtt_subscribe_calls = 0u;
     g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_OK;
+    g_spy_mqtt_sub_poll_return = MQTT_SUB_OK;
+    g_spy_mqtt_sub_started = false;
+    g_spy_mqtt_sub_poll_calls = 0u;
     (void) memset(g_spy_mqtt_subscribe_topic, 0, sizeof(g_spy_mqtt_subscribe_topic));
     g_spy_mqtt_publish_return = MQTT_CLIENT_ERR_OK;
     g_spy_mqtt_publish_calls = 0u;
@@ -1698,18 +1722,54 @@ void test_CP_T57_a_subscribe_that_fails_is_retried_on_the_next_tick(void)
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
     g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_SUBSCRIBE_FAIL;
 
+    /* The SUBSCRIBE cannot be sent: the tick gives up, it does not try the other topics. */
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_subscribe_calls);
 
     g_spy_mqtt_subscribe_return = MQTT_CLIENT_ERR_OK;
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_UINT32(5u, g_spy_mqtt_subscribe_calls); /* 1 failed + all four */
 
     g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
     cloud_publisher_task_step_for_test(g_handle);
-    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_subscribe_calls); /* done */
+    TEST_ASSERT_EQUAL_UINT32(5u, g_spy_mqtt_subscribe_calls); /* done */
+}
+
+/* CP-D37 / MQTT-O11: a SUBACK that has not come is waited for without blocking and without a
+ * second SUBSCRIBE; one that was refused is sent again. */
+void test_CP_T126_a_subscribe_waiting_for_its_suback_blocks_nothing_and_is_not_repeated(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_sub_poll_return = MQTT_SUB_PENDING;
+
+    for (uint32_t tick = 0u; tick < 3u; tick++)
+    {
+        g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+        cloud_publisher_task_step_for_test(g_handle);
+    }
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_subscribe_calls); /* started once, still pending */
+
+    g_spy_mqtt_sub_poll_return = MQTT_SUB_OK; /* the SUBACK arrives; the next topic follows */
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(4u, g_spy_mqtt_subscribe_calls);
+}
+
+void test_CP_T127_a_refused_subscription_is_sent_again_on_the_next_tick(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    g_spy_mqtt_sub_poll_return = MQTT_SUB_FAILED;
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_mqtt_subscribe_calls); /* started, refused, not looped */
+
+    g_mock_xTaskNotifyWait_next_value = TC_STATS_TICK;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_mqtt_subscribe_calls);
+    TEST_ASSERT_EQUAL_STRING(g_spy_mqtt_subscribe_topic[0], g_spy_mqtt_subscribe_topic[1]);
 }
 
 void test_CP_T58_every_new_connection_subscribes_again(void)

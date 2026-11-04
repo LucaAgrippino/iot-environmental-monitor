@@ -794,6 +794,89 @@ void test_MQTT_T12_subscribe_suback_failure(void)
 }
 
 /* ========================================================================
+ * MQTT-T11b..T11f — the non-blocking subscribe (MQTT-D15)
+ * ==================================================================== */
+
+void test_MQTT_T11b_subscribe_start_returns_before_the_suback(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_subscribe_start(
+                                              handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+    TEST_ASSERT_EQUAL(MQTT_SUB_PENDING, mqtt_client_subscribe_poll(handle));
+    TEST_ASSERT_EQUAL(MQTT_SUB_PENDING, mqtt_client_subscribe_poll(handle)); /* still waiting */
+}
+
+void test_MQTT_T11c_the_suback_is_reaped_in_process_and_reported_once(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_subscribe_start(
+                                              handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+
+    prv_queue_suback(1u, MQTT_TEST_SUBACK_RC_SUCCESS_QOS1);
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_process(handle));
+
+    TEST_ASSERT_EQUAL(MQTT_SUB_OK, mqtt_client_subscribe_poll(handle));
+    TEST_ASSERT_EQUAL(MQTT_SUB_IDLE, mqtt_client_subscribe_poll(handle));
+}
+
+void test_MQTT_T11d_a_refused_subscription_is_failed_and_counted(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_subscribe_start(
+                                              handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+
+    prv_queue_suback(1u, MQTT_TEST_SUBACK_RC_FAILURE);
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_process(handle));
+
+    TEST_ASSERT_EQUAL(MQTT_SUB_FAILED, mqtt_client_subscribe_poll(handle));
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.subscribe_failures);
+}
+
+void test_MQTT_T11e_only_one_subscription_can_be_outstanding(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_subscribe_start(
+                                              handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+
+    TEST_ASSERT_EQUAL(
+        MQTT_CLIENT_ERR_NO_RESOURCE,
+        mqtt_client_subscribe_start(handle, "cmd/iotmonitor/gw-001/control", MQTT_QOS_1));
+}
+
+void test_MQTT_T11f_a_suback_that_never_comes_fails_after_the_timeout(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_subscribe_start(
+                                              handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+
+    g_mock_tick_count += 16000u; /* past MQTT_SUBACK_TIMEOUT_MS, no real sleep needed */
+
+    TEST_ASSERT_EQUAL(MQTT_SUB_FAILED, mqtt_client_subscribe_poll(handle));
+    mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_get_stats(handle, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1u, stats.subscribe_failures);
+}
+
+void test_MQTT_T11g_a_dropped_session_forgets_the_outstanding_subscription(void)
+{
+    mqtt_client_handle_t handle = prv_connect_success();
+    TEST_ASSERT_EQUAL(MQTT_CLIENT_ERR_OK, mqtt_client_subscribe_start(
+                                              handle, "cmd/iotmonitor/gw-001/config", MQTT_QOS_1));
+
+    s_send_result = (wifitask_err_t) WIFI_ERR_SOCKET;
+    prv_mock_tls_teardown();
+    const uint8_t payload[] = "T";
+    TEST_ASSERT_EQUAL(
+        MQTT_CLIENT_ERR_PUBLISH_FAIL,
+        mqtt_client_publish(handle, "dt/iotmonitor/gw-001/telemetry", payload, 1u, MQTT_QOS_0));
+
+    TEST_ASSERT_EQUAL(MQTT_SUB_IDLE, mqtt_client_subscribe_poll(handle));
+}
+
+/* ========================================================================
  * MQTT-T13..T14 — mqtt_client_process()
  * ==================================================================== */
 
