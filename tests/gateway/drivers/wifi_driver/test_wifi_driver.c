@@ -600,6 +600,33 @@ void test_WIFI_T15c_a_module_that_never_gets_ready_times_out(void)
     TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_get_rssi(handle, &rssi));
 }
 
+/* A command that is answered before the next poll leaves no DRDY dip to see.
+ * The wait for the dip runs its 100 ms (1001 reads of 100 us) with DRDY high; the answer is
+ * waiting, so it is read and the command succeeds. */
+void test_WIFI_T15e_a_missed_drdy_dip_still_reads_the_answer(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u + 1001u + 1u); /* pre-send, no dip for 100 ms, answer ready */
+    helper_script_data_phase("\r\n-67\r\nOK\r\n> ");
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
+    TEST_ASSERT_EQUAL_INT8(-67, rssi);
+    TEST_ASSERT_EQUAL(GPIO_LEVEL_HIGH, last_write_level(NSS_PORT, NSS_PIN));
+}
+
+/* With no dip and nothing sensible waiting, the command is still a timeout. */
+void test_WIFI_T15f_no_dip_and_no_answer_is_still_a_timeout(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u + 1001u + 1u);
+    helper_script_data_phase("\r\n");
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_get_rssi(handle, &rssi));
+    TEST_ASSERT_EQUAL(GPIO_LEVEL_HIGH, last_write_level(NSS_PORT, NSS_PIN));
+}
+
 /* GM-O22: wifi_send() reports a timeout as a timeout and a refusal as a socket error. */
 void test_WIFI_T15d_send_reports_a_timeout_as_a_timeout(void)
 {

@@ -427,10 +427,14 @@ static wifi_err_t prv_at_command(struct wifi_inst *inst, const uint8_t *cmd, siz
         return send_err;
     }
 
-    if (!prv_wait_drdy(inst, false, WIFI_DRDY_TIMEOUT_MS))
-    {
-        return WIFI_ERR_TIMEOUT;
-    }
+    /* DRDY normally dips low while the module works on the command and rises again when the answer
+     * is ready. A short command (R1=, P0=, ...) can be done before the next poll, so the dip is
+     * shorter than WIFI_POLL_INTERVAL_US and is never seen: on the board DRDY stayed high for 2 s
+     * with the whole answer ("\r\nOK\r\n> ") already waiting, and the driver reported a timeout,
+     * dropped the session and wedged the module. So a dip that is not seen is
+     * not an error: DRDY high means a Data Phase is ready, read it. A module that is really silent
+     * gives a response without OK or ERROR and prv_parse_response() reports the timeout. */
+    (void) prv_wait_drdy(inst, false, WIFI_DRDY_TIMEOUT_MS);
 
     if (!prv_wait_drdy(inst, true, resp_timeout_ms))
     {
