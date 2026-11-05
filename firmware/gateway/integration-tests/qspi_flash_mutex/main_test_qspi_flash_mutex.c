@@ -165,6 +165,7 @@ static uint8_t pattern_byte(uint32_t worker, uint32_t round, uint32_t page, uint
     return (uint8_t) ((worker * 37U) + (round * 11U) + (page * 5U) + i);
 }
 
+/* cppcheck-suppress constParameterCallback -- the entry point type is FreeRTOS's TaskFunction_t */
 static void worker_task(void *arg)
 {
     const uint32_t w = (uint32_t) (uintptr_t) arg;
