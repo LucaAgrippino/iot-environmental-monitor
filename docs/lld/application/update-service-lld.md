@@ -411,7 +411,11 @@ any) is not touched:
 | 4 | `job` ∉ {0, 0xFFFFFFFF}; file size for the target slot in 129 … 491 648 | `bad_command` |
 | 5 | `lifecycle->post_event(OTA_REQUESTED, job)` returns true (false while UPDATING_FW or when the queue is full) | `busy` |
 
-On acceptance: `US_ST_AWAITING_START`, start timer `US_START_TIMEOUT_MS`.
+On acceptance: `US_ST_AWAITING_START`, start timer `US_START_TIMEOUT_MS`. The job and the state are set
+**before** rule 5 posts the event, and undone if the post fails: LifecycleTask and UpdateService run at the
+same priority, so LifecycleTask can call `start(job)` at any point after `post_event()`, and `start()`
+refuses anything but AWAITING_START (seen on the board 2026-11-05: `update start refused`, LifecycleController
+FAULTED, one job in five). Tests TC-US-008g, TC-US-008h.
 `accepted` is reported in `start()` handling (§10.1), not here: until
 LifecycleController agrees, the device has not committed to the update.
 

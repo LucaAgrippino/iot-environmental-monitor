@@ -185,12 +185,12 @@ static void process_inbox(void)
 
     const lifecycle_event_t ev = {.type = LC_EVENT_OTA_REQUESTED, .param = cmd.job};
 
-    if (!g_us.cfg.lifecycle->post_event(ev)) /* rule 5 */
-    {
-        reject(&cmd, US_REASON_BUSY);
-        return;
-    }
-
+    /* The job is recorded and the state set BEFORE the event is posted. LifecycleTask and this task
+     * run at the same priority and time-slice: it can handle the event and call start() at any
+     * point after post_event() returns, and start() only accepts AWAITING_START for the active job.
+     * With the state set afterwards, a tick between the two made start() return BAD_STATE, the
+     * controller answered "update start refused" and went to FAULTED (seen once in five jobs on the
+     * board). */
     g_us.cmd = cmd;
     g_us.target_slot = target;
     g_us.file_len = size;
@@ -198,9 +198,22 @@ static void process_inbox(void)
     g_us.start_deadline = xTaskGetTickCount() + MS(US_START_TIMEOUT_MS);
 
     us_lock();
+    const uint32_t previous_job = g_us.active_job;
     g_us.active_job = cmd.job;
     g_us.state = US_ST_AWAITING_START;
     us_unlock();
+
+    if (!g_us.cfg.lifecycle->post_event(ev)) /* rule 5 */
+    {
+        /* Not accepted: nothing was started, undo. start() cannot have run for an event that was
+         * never queued. */
+        us_lock();
+        g_us.active_job = previous_job;
+        g_us.state = US_ST_IDLE;
+        us_unlock();
+        g_us.start_armed = false;
+        reject(&cmd, US_REASON_BUSY);
+    }
 }
 
 /* ---------------------------------------------------------------------- */

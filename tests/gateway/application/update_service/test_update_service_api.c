@@ -412,6 +412,50 @@ void test_TC_US_008f_rule5_a_refused_lifecycle_event_is_busy(void)
     expect_rejected(US_REASON_BUSY);
 }
 
+/* What LifecycleTask does with the event: it can run at any point after post_event() is called. */
+static update_service_err_t s_start_result_in_post;
+
+static void start_from_post(lifecycle_event_t event)
+{
+    if (event.type == LC_EVENT_OTA_REQUESTED)
+    {
+        s_start_result_in_post = update_control_ops.start(ust_us, event.param);
+    }
+}
+
+/* The job and AWAITING_START are in place before the event is posted, so a start() that runs as
+ * soon as the event is out is accepted (it was BAD_STATE, and the controller faulted). */
+void test_TC_US_008g_start_called_while_the_event_is_posted_is_accepted(void)
+{
+    (void) ust_create();
+    s_start_result_in_post = UPDATE_SERVICE_ERR_BAD_STATE;
+    fake_lifecycle_set_post_hook(start_from_post);
+
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, ust_send_command());
+    ust_step();
+
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, s_start_result_in_post);
+    TEST_ASSERT_EQUAL_UINT32(1U, fake_lifecycle_events_of(LC_EVENT_OTA_REQUESTED));
+}
+
+/* A refused event leaves the service idle again and the job number free. */
+void test_TC_US_008h_a_refused_event_undoes_the_state_it_set_early(void)
+{
+    (void) ust_create();
+    fake_lifecycle_refuse_posts(1U);
+
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, ust_send_command());
+    ust_step();
+
+    expect_rejected(US_REASON_BUSY);
+    TEST_ASSERT_EQUAL_INT(0, update_service_state_for_test()); /* IDLE */
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_BAD_STATE, update_control_ops.start(ust_us, UST_JOB));
+
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, ust_send_command()); /* and the next one works */
+    ust_step();
+    TEST_ASSERT_EQUAL_INT(1, update_service_state_for_test());
+}
+
 void test_TC_US_009_a_command_while_downloading_is_busy_and_the_download_is_untouched(void)
 {
     ust_to_downloading();

@@ -15,6 +15,7 @@ static lifecycle_state_t s_state;
 static uint32_t s_refuse;
 static uint32_t s_refuse_type;
 static uint32_t s_post_calls;
+static void (*s_post_hook)(lifecycle_event_t event);
 static lifecycle_event_t s_events[FL_LOG_MAX];
 static uint32_t s_event_count;
 
@@ -42,6 +43,11 @@ static bool l_post_event(lifecycle_event_t event)
         fake_trace_add(k_tags[event.type]);
     }
 
+    if (s_post_hook != NULL)
+    {
+        s_post_hook(event);
+    }
+
     if (s_refuse > 0U)
     {
         s_refuse--;
@@ -67,8 +73,14 @@ const ilifecycle_t fake_lifecycle_ops = {
     .post_event = l_post_event,
 };
 
+void fake_lifecycle_set_post_hook(void (*hook)(lifecycle_event_t event))
+{
+    s_post_hook = hook;
+}
+
 void fake_lifecycle_reset(void)
 {
+    s_post_hook = NULL;
     s_state = LIFECYCLE_STATE_OPERATIONAL;
     s_refuse = 0U;
     s_refuse_type = FL_NO_TYPE;
