@@ -357,7 +357,7 @@ static void test_cross_page_read(void)
 /* TC-HW-QSPI-006: NOR flash clears bits but cannot set them without erase. */
 static void test_nor_and_semantics(void)
 {
-    uint8_t expected[QSPI_FLASH_PAGE_SIZE_BYTES];
+    uint8_t expected[QSPI_FLASH_PAGE_SIZE_BYTES] = {0U}; /* the loop below writes every element */
 
     for (uint32_t i = 0U; i < QSPI_FLASH_PAGE_SIZE_BYTES; i++)
     {

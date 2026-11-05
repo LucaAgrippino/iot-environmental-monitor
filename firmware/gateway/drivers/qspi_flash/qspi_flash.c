@@ -343,7 +343,6 @@ qspi_flash_err_t qspi_flash_init(void)
 
 static qspi_flash_err_t read_unlocked(uint32_t addr, uint8_t *buf, uint32_t len)
 {
-    qspi_flash_err_t err;
     uint32_t i;
 
     if (!s_initialised)
@@ -374,7 +373,7 @@ static qspi_flash_err_t read_unlocked(uint32_t addr, uint8_t *buf, uint32_t len)
 
     for (i = 0U; i < len; i++)
     {
-        err = wait_sr(QUADSPI_SR_FTF, true);
+        const qspi_flash_err_t err = wait_sr(QUADSPI_SR_FTF, true);
         if (err != QSPI_FLASH_OK)
         {
             return err;
