@@ -29,6 +29,10 @@ void fake_lifecycle_refuse_posts(uint32_t n);
 void fake_lifecycle_refuse_type(lifecycle_event_type_t type);
 void fake_lifecycle_refuse_none(void);
 
+/** @brief Called inside post_event() for every event, before it returns (the real LifecycleTask can
+ *  run at that point). NULL clears it. */
+void fake_lifecycle_set_post_hook(void (*hook)(lifecycle_event_t event));
+
 uint32_t fake_lifecycle_post_calls(void);
 uint32_t fake_lifecycle_event_count(void);
 lifecycle_event_t fake_lifecycle_event_at(uint32_t index);
