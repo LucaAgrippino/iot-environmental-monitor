@@ -259,13 +259,15 @@ uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const health_snapshot
             "\"wifi_rssi_dbm\":%ld,\"cloud_connected\":%s,"
             "\"buffer_entry_count\":%lu,\"buffer_overflow_count\":%lu,"
             "\"ntp_sync_fail_count\":%lu,\"last_ntp_sync_epoch\":%lu,"
+            "\"cpu_load_pct\":%u,\"arena_min_free_bytes\":%lu,"
             "\"stack_free_words\":[",
             (unsigned long) snap->modbus_transactions_ok, (unsigned long) snap->modbus_timeouts,
             snap->modbus_link_online ? "true" : "false", (unsigned long) snap->mqtt_publishes_sent,
             (unsigned long) snap->mqtt_publishes_failed, (unsigned long) snap->mqtt_reconnect_count,
             (long) snap->wifi_rssi_dbm, snap->cloud_connected ? "true" : "false",
             (unsigned long) snap->buffer_entry_count, (unsigned long) snap->buffer_overflow_count,
-            (unsigned long) snap->ntp_sync_fail_count, (unsigned long) snap->last_ntp_sync_epoch);
+            (unsigned long) snap->ntp_sync_fail_count, (unsigned long) snap->last_ntp_sync_epoch,
+            (unsigned) snap->cpu_load_pct, (unsigned long) snap->arena_min_free_bytes);
 
     const uint32_t tasks = prv_stack_count(snap);
 

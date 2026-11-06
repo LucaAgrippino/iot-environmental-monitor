@@ -211,6 +211,11 @@ typedef struct
     uint32_t ntp_sync_fail_count;
     uint32_t last_ntp_sync_epoch; /**< 0 if never synced.             */
 
+    /* ── Resources ── */
+    uint8_t cpu_load_pct;          /**< 0-100, share of run time not spent in the idle task. */
+    uint32_t arena_min_free_bytes; /**< Least free space ever left in the static TLS arena; the
+                                        Gateway has no other dynamic memory (REQ-NF-408).   */
+
     /* ── RTOS task stack watermarks ── */
     uint16_t stack_watermark_words[HEALTH_MONITOR_MAX_TASKS];
 } health_snapshot_t;
@@ -370,6 +375,20 @@ health_monitor_err_t health_monitor_update_lifecycle(health_monitor_handle_t han
  */
 health_monitor_err_t health_monitor_update_wifi_rssi(health_monitor_handle_t handle,
                                                      int32_t rssi_dbm);
+
+/**
+ * @brief Record the CPU load and the static TLS arena headroom (REQ-CC-010).
+ *
+ * @param[in] handle                HealthMonitor handle.
+ * @param[in] cpu_load_pct          0-100; larger values are clamped to 100.
+ * @param[in] arena_min_free_bytes  Smallest free space the arena has had.
+ * @return HEALTH_MONITOR_ERR_OK; HEALTH_MONITOR_ERR_NULL_PTR if handle is NULL;
+ *         HEALTH_MONITOR_ERR_NOT_INIT.
+ * @note Threading: task-context only. Not ISR-safe.
+ */
+health_monitor_err_t health_monitor_update_resources(health_monitor_handle_t handle,
+                                                     uint32_t cpu_load_pct,
+                                                     uint32_t arena_min_free_bytes);
 
 /* ====================================================================== */
 /* IHealthSnapshot — read side (consumers)                                */

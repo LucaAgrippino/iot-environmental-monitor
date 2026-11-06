@@ -404,6 +404,19 @@ void test_HM_T20_wifi_rssi_is_stored(void)
     TEST_ASSERT_EQUAL_INT32(-65, snap().wifi_rssi_dbm);
 }
 
+void test_HM_T20b_resources_are_stored_and_the_load_is_clamped(void)
+{
+    create_ok();
+
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_update_resources(s_h, 37U, 12345U));
+    TEST_ASSERT_EQUAL_UINT8(37U, snap().cpu_load_pct);
+    TEST_ASSERT_EQUAL_UINT32(12345U, snap().arena_min_free_bytes);
+
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_update_resources(s_h, 250U, 0U));
+    TEST_ASSERT_EQUAL_UINT8(100U, snap().cpu_load_pct);
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_PTR, health_monitor_update_resources(NULL, 1U, 1U));
+}
+
 void test_HM_T21_operational_lifecycle_makes_the_led_solid(void)
 {
     create_ok();

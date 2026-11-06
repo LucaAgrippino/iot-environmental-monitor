@@ -1100,6 +1100,8 @@ machine has 4 branches, each exercised.
 | HM-D8 | No vtable — ADT handle is the DIP seam | Middleware producers depend on `health_monitor.h` (public API), not on the implementation. The opaque handle satisfies P2 (DIP) without the RAM and complexity cost of function-pointer tables. Consistent with SAF-D5 and CFL ADT approach. |
 | HM-D9 | GW LED mapping — single LED (LD2) with blink-rate encoding | The B-L475E-IOT01A has one fitted user LED (LD2 green at PB14). Blink rate encodes severity: rapid (fault), slow (alarm), solid (operational), medium (init). Resolves HM-O2 from v0.1. |
 | HM-D10 | `HEALTH_MONITOR_MAX_TASKS = 8U` | Matches the 8 GW application tasks in task-breakdown.md §5.2. v0.1 used 7 — incorrect; the WifiTask was missing from the count. |
+| HM-D12 | `health_monitor_update_resources(handle, cpu_load_pct, arena_min_free_bytes)` stores the CPU load (idle-task share of the run-time counter, sampled every 5 s by `main.c` report task, clamped to 100) and the smallest free space the static TLS arena has had | REQ-CC-010 / REQ-LD-070. The Gateway has no heap (configSUPPORT_DYNAMIC_ALLOCATION 0), so "free heap" is the arena headroom. Board: CPU 40 %, arena min free 7 992 B (28 672 - 20 680) |
+| HM-D13 | MCU temperature is NOT reported yet | needs an ADC driver for the internal sensor (L475: ADC1 channel 17 with the TS_CAL1/TS_CAL2 factory values), which is a new module and needs its own LLD first |
 
 ---
 
