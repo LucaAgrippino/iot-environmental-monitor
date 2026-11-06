@@ -71,7 +71,7 @@ typedef struct __attribute__((packed))
     char mqtt_broker[CONFIG_MAX_BROKER_LEN];
     uint16_t mqtt_port;             /**< default 8883   */
     uint32_t telemetry_interval_ms; /**< default 60000  */
-    uint32_t health_interval_ms;    /**< default 600000 */
+    uint32_t health_interval_ms;    /**< default 300000 */
 
     /* ── Time sync (GW only) ── */
     char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];

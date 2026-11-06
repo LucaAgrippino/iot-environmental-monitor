@@ -64,7 +64,7 @@ typedef struct
     uint16_t mqtt_port;                      /**< default 8883                                */
     uint8_t reserved_b[2];          /**< Padding so the next field is 4-byte aligned; zero */
     uint32_t telemetry_interval_ms; /**< default 60000; range [1000, 3600000]        */
-    uint32_t health_interval_ms;    /**< default 600000; range [10000, 86400000]     */
+    uint32_t health_interval_ms;    /**< default 300000; range [10000, 86400000]     */
 
     /* -- Time sync -- */
     char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN]; /**< IPv4 or host name */

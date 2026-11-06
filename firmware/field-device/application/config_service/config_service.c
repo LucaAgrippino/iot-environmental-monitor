@@ -497,7 +497,7 @@ static void apply_defaults(config_params_t *p)
     (void) memset(p->mqtt_broker, 0, sizeof(p->mqtt_broker));
     p->mqtt_port = 8883U;
     p->telemetry_interval_ms = 60000U;
-    p->health_interval_ms = 600000U;
+    p->health_interval_ms = 300000U;
     (void) memset(p->ntp_servers, 0, sizeof(p->ntp_servers));
     p->ntp_server_count = 0U;
 #endif /* BOARD_GATEWAY */

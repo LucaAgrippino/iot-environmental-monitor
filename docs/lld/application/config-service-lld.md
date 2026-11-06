@@ -122,7 +122,7 @@ typedef struct {
     char     mqtt_broker[CONFIG_MAX_BROKER_LEN];
     uint16_t mqtt_port;                  /* default 8883 */
     uint32_t telemetry_interval_ms;      /* default 60000 */
-    uint32_t health_interval_ms;         /* default 600000 */
+    uint32_t health_interval_ms;         /* default 300000 */
 
     /* ── Time sync (GW only) ── */
     char     ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];
@@ -515,7 +515,7 @@ static void prv_apply_defaults(void)
     (void)memset(p->mqtt_broker, 0, sizeof(p->mqtt_broker));
     p->mqtt_port             = 8883U;
     p->telemetry_interval_ms = 60000U;
-    p->health_interval_ms    = 600000U;
+    p->health_interval_ms    = 300000U;
     p->ntp_server_count      = 0U;
 #endif
 }

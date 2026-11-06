@@ -115,7 +115,7 @@ void test_init_applies_the_defaults(void)
     TEST_ASSERT_EQUAL_UINT8(1U, p->modbus_slave_addr);
     TEST_ASSERT_EQUAL_UINT16(8883U, p->mqtt_port);
     TEST_ASSERT_EQUAL_UINT32(60000U, p->telemetry_interval_ms);
-    TEST_ASSERT_EQUAL_UINT32(600000U, p->health_interval_ms);
+    TEST_ASSERT_EQUAL_UINT32(300000U, p->health_interval_ms);
     TEST_ASSERT_EQUAL_UINT16(60U, p->ntp_interval_min);
     TEST_ASSERT_EQUAL_UINT8(0U, p->ntp_server_count);
     TEST_ASSERT_EQUAL_CHAR('\0', p->mqtt_broker[0]);
