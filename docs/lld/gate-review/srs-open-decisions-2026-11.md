@@ -26,10 +26,11 @@
 | # | SRS says | Code does | Options |
 |---|---|---|---|
 | I-1 | REQ-NF-109: 10 s system watchdog | Gateway `main.c` has no watchdog (LC-O8) | implement IWDG feeding from a task-health scheme, or downgrade the requirement |
-| I-2 | REQ-NF-209: reconnect at 1 Hz | MQTT/Wi-Fi back off 2..60 s (session notes 2026-11-04/05) | amend the SRS to a backoff, or cap the backoff at 1 s |
+| I-2 | REQ-NF-209: reconnect at 1 Hz | **Measured 2026-11-06:** MQTT retries at 2, 4, 8, 16, 32, 60 s (`docs/test/hardware-check-2026-11-06.md`) | amend the SRS to a backoff, or cap the backoff at 1 s |
 | I-3 | REQ-NF-406/407: 3 MB log + 4 MB buffer on the Gateway | one 1 MB CircularFlashLog ring serves both (254 entries) | the limits are upper bounds, so it complies; if 4 MB of buffering is wanted, the ring must grow |
 | I-4 | REQ-LD-*, REQ-SA-180..240 | display stack and history buffer not built | WP9 |
-| I-5 | REQ-TS-050/060, REQ-MB-140, REQ-NF-307/308 | no citation found | check each; add the citation or record the gap |
+| I-5 | REQ-TS-050/060, REQ-MB-140, REQ-NF-307/308 | checked on hardware 2026-11-06: TS-060, MB-140 (log only) and NF-307 pass; **NF-308 / SA-170 have no command** (`/control` has restart, restart_confirm, reset_metrics only); TS-050 not run | add the on-demand read command or drop the requirement |
+| I-6 | REQ-CC-010, REQ-BF-000 | health message lacks stack/heap/CPU/temperature items, and one health message was lost across a broker outage | see the hardware check findings 1 and 2 |
 
 ## 3. Reproduce
 
