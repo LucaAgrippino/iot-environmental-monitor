@@ -116,7 +116,7 @@ Operational on a self-check.
 | 5 | SelfChecking        | none         | Verify sensors readable and Modbus link present (REQ-DM-040)            | none        | Pass → Operational; Fail → Faulted                          |
 
 **Time budgets:**
-- Cold boot ≤ [TBD]s (REQ-NF-213) — includes WiFi association.
+- Cold boot ≤ 10 s (REQ-NF-213) — includes WiFi association. Measured on the Gateway: Operational about 8 s after reset.
 - Watchdog reset ≤ 5s (REQ-NF-202).
 - Normal/remote reset ≤ 5s (REQ-NF-203).
 
@@ -707,7 +707,7 @@ Unlike the gateway, the field-device Init has **no SelfChecking sub-step**
 — REQ-DM-040 is gateway-only (UC-17). Sensor and LCD verification happens
 implicitly in BringingUpSensors / BringingUpLCD.
 
-**Time budgets:** Cold boot ≤ [TBD]s (REQ-NF-213); Watchdog reset ≤ 5s
+**Time budgets:** Cold boot ≤ 10 s (REQ-NF-213); Watchdog reset ≤ 5s
 (REQ-NF-202).
 
 **Traceability:** SA-000, -010, -020, -030, -040, -050, -060;
@@ -1017,8 +1017,7 @@ by the gate checklist.
    storage.
 2. **Backoff strategy beyond REQ-NF-209's 1 Hz constant.** Keep flat 1 Hz;
    revisit if integration testing reveals problems.
-3. **Buffer size [TBD]** — driven by CON-009 flash endurance and ASM-004
-   SRAM budget.
+3. **Buffer size** — resolved: 254 entries (REQ-BF-020), the CircularFlashLog data-ring sector count.
 4. **Cold-boot vs warm-restart Init time budgets.** REQ-NF-213 (cold) is
    distinct from REQ-NF-202 / -203 (warm). Different boot paths, different
    budgets — documented per-state in this spec.

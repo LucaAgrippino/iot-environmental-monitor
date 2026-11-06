@@ -39,7 +39,7 @@ Logger is documented as a "bootstrap exception" (`components.md` §1 preamble, l
 
 | ID | Text | SRS source | Use case |
 |---|---|---|---|
-| REQ-LI-010 | "The system shall receive a diagnostic command [command list TBD] and execute it." | SRS line 163 | UC-04 (SRS matrix line 462) |
+| REQ-LI-010 | "The system shall receive a diagnostic command [command list TBD] and execute it." (SRS v1.3: now "from the command set in Appendix A") | SRS line 163 | UC-04 (SRS matrix line 462) |
 | REQ-LI-000 | "The system shall provide a serial console interface accessible to the Field Technician. The connection parameters are: Baud Rate 115200, Data bits 8, Parity bit No Parity, Stop bits 1." | SRS line 158 | UC-04 |
 
 REQ-LI-000 governs the wire-level configuration and is therefore the binding requirement for §4 (hardware contract).

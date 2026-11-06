@@ -984,8 +984,8 @@ treated as a fault. Fixed and covered by TC-SS-110 (SS-D17).
 
 | ID | Item | Resolution path | Status |
 |----|------|-----------------|--------|
-| SS-O1 | IIR filter alpha value — [TBD] in REQ-SA-140. Provisional 0.1. Must be in range (0, 1) exclusive; validated at init. | Confirm with sensor characterisation data or customer spec | Open |
-| SS-O2 | REQ-SA-090 "most recent [TBD] readings per sensor" — TBD not resolved. Decision: N=1 (latest reading only). If N > 1 required, add static ring buffer per sensor. | Implement N=1; revisit if historical access required | Open |
+| SS-O1 | IIR filter alpha: REQ-SA-140 fixes α = 0.1 (the SRS no longer has a TBD); range (0, 1) exclusive validated at init. | Closed 2026-11 | Closed |
+| SS-O2 | REQ-SA-090 now reads "latest validated reading plus filter state" (SRS v1.3), which is the N=1 implementation. Stored history is REQ-SA-180..240 (unbuilt). | Closed 2026-11 | Closed |
 | SS-O3 | IMU and magnetometer alarm evaluation (GW) — deferred. Per-axis and magnitude thresholds have different physical interpretations. | Design at coding time once customer spec confirmed | Open |
 | SS-O4 | WCET measurement — 3 ms (FD) / 5 ms (GW) budget must be verified by timing `sensor_service_run_cycle()` under debugger at target speed. | Measured on the Gateway 2026-10-15 (TC-HW-SS-009): worst case **5081 us** over 50 timed cycles, 81 us over the estimate. About 4 ms of it is the Group A drivers' two 2 ms not-ready retry sleeps (blocked, not CPU-busy); a cycle with no due Group A read is far shorter. The requirement is to finish well inside the 100 ms period (REQ-NF-101), so the GW budget is restated as 10 ms wall time. Record in task-breakdown.md §8. | Closed (GW) |
 | SS-O5 | `firmware/common/` directory — not in original project structure. | Closed 2026-10-15 — per-board copies kept (SS-D16). | Closed |

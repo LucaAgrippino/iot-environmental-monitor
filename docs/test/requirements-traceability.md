@@ -11,17 +11,16 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | Evidence | Count |
 |---|---|
 | LLD + code | 58 |
-| LLD | 97 |
+| LLD | 98 |
 | code | 1 |
 | HLD only | 11 |
-| No reference | 39 |
+| No reference | 38 |
 
 ## Requirements with no reference
 
 | ID | Section | Requirement |
 |---|---|---|
 | REQ-SA-175 | 2.1 Sensor Acquisition [SA] | The system shall mark the sensor value as invalid if sensor reading fails. |
-| REQ-SA-180 | 2.1 Sensor Acquisition [SA] | The system shall maintain a rolling in-memory history of validated sensor readings for each environmental chan |
 | REQ-SA-190 | 2.1 Sensor Acquisition [SA] | The history shall span a window of 5 minutes |
 | REQ-SA-200 | 2.1 Sensor Acquisition [SA] | The history shall be sampled at a fixed interval of 5 seconds, independent of the configured polling rate |
 | REQ-SA-210 | 2.1 Sensor Acquisition [SA] | The history shall retain 60 entries per channel |
@@ -100,7 +99,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-SA-150 | UC-07 | HLD only | sequence-diagrams | - | - |
 | REQ-SA-175 | UC-07 | No reference | - | - | - |
 | REQ-SA-170 | UC-14 | LLD + code | - | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | TC-SS-012 |
-| REQ-SA-180 | UC-01 | No reference | - | - | - |
+| REQ-SA-180 | UC-01 | LLD | - | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | - |
 | REQ-SA-190 | UC-01 | No reference | - | - | - |
 | REQ-SA-200 | UC-01 | No reference | - | - | - |
 | REQ-SA-210 | UC-01 | No reference | - | - | - |
@@ -255,7 +254,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-NF-208 | UC-07 | LLD | sequence-diagrams | health-monitor-lld, i2c-driver, lld | - |
 | REQ-NF-209 | UC-10, UC-11, UC-12 | HLD only | hld, sequence-diagrams, state-machines | - | - |
 | REQ-NF-210 | UC-13 | LLD | sequence-diagrams | lld, time-provider | - |
-| REQ-NF-211 | UC-13 | LLD | sequence-diagrams | lld, time-provider | - |
+| REQ-NF-211 | UC-13 | LLD | - | lld, time-provider | - |
 | REQ-NF-212 | UC-13 | LLD + code | sequence-diagrams | cloud-publisher-lld, lld, rtc-driver, time-provider, time-service-lld | - |
 | REQ-NF-213 | — | LLD + code | components, sequence-diagrams, state-machines | lifecycle-controller-lld, lld, rtc-driver | TC-LC-042 |
 | REQ-NF-214 | — | LLD + code | components, state-machines | bootloader, config-store-lld, firmware-store, lifecycle-controller-lld, lld, update-service-lld | TC-HW-CS-011, TC-LC-073, TC-LC-074 |

@@ -12,7 +12,7 @@
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
 | 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
-| 1.3     | November 2026 | Removed two duplicate IDs: "mark sensor value invalid" is now REQ-SA-175 (REQ-SA-180 stays the history requirement); "discard input on no confirmation" is now REQ-LD-155 (REQ-LD-250 stays the status-LED requirement, as cited by components.md). Corrected section counts (206 requirements). No wording changed. |
+| 1.3     | November 2026 | Removed two duplicate IDs: "mark sensor value invalid" is now REQ-SA-175 (REQ-SA-180 stays the history requirement); "discard input on no confirmation" is now REQ-LD-155 (REQ-LD-250 stays the status-LED requirement, as cited by components.md). Corrected section counts (206 requirements). Resolved the open values from the implemented firmware (REQ-TS-000, NF-210, NF-211, BF-020, LI-010 command set, DM-020 30 s, LI-000 gateway baud, SA-090 wording). |
 ---
 
 ## 1. Introduction
@@ -89,7 +89,7 @@ polling interval
 - [REQ-SA-080] The system shall log the error code if a sensor read operation fails
 
 <!-- 2. System gets data from sensor -->
-- [REQ-SA-090] The system shall store the 10 most recent readings per sensor. (Value driven by the IIR low-pass filter window; see REQ-SA-140.)
+- [REQ-SA-090] The system shall hold the latest validated reading per sensor together with the IIR filter state. (The figure of 10 samples is the filter window of REQ-SA-140, not a stored buffer; stored history is REQ-SA-180..-240.)
 <!-- HLD coverage: NONE — to be addressed in LLD (in-memory ring-buffer depth is an implementation detail) -->
 - [REQ-SA-100] The system shall store a timestamp with each sensor measurement
 
@@ -199,11 +199,11 @@ polling interval
 <!-- Traces to: UC-04 -->
 - [REQ-LI-000] The system shall provide a serial console interface accessible to the Field Technician. The connection parameters are:
 <!-- Traces to: HLD §5.1 (FD — ConsoleService component), §6.1 (GW — ConsoleService component) -->
-    - Baud Rate: 115200
+    - Baud Rate: 115200 on the field device; 460800 on the gateway, which runs a three-panel terminal console (a build option falls back to 115200 for a plain log)
     - Data bits: 8
     - Parity bit: No Parity
     - Stop bits: 1
-- [REQ-LI-010] The system shall receive a diagnostic command [command list TBD] and execute it
+- [REQ-LI-010] The system shall receive a diagnostic command from the command set in Appendix A and execute it
 - [REQ-LI-020] The system shall display the result of the diagnostic
 <!-- Traces to: HLD §5.4 (FD diagnostic/traceability view), §6.4 (GW diagnostic) -->
 
@@ -318,7 +318,7 @@ polling interval
 ### 2.7 Time Synchronisation [TS] — 7 requirements
 
 <!-- Traces to: UC-13 -->
-- [REQ-TS-000] The system shall update the internal time during the boot and periodically every [TBD] thereafter. [TBD — determined by RTC drift measurement during integration testing; see REQ-NF-210, REQ-NF-211.]
+- [REQ-TS-000] The system shall update the internal time during the boot and periodically every 3600 seconds thereafter (default; configurable, see REQ-NF-210). Basis: TIME_SERVICE_NTP_INTERVAL_S_DEFAULT; a 32.768 kHz crystal at ±20 ppm drifts about 72 ms per hour, so the default keeps the RTC well inside one second. The drift itself has not been measured on the boards.
 - [REQ-TS-010] The system shall synchronise time using NTP, with a configurable list of NTP servers
 - [REQ-TS-020] The system shall update the RTC with the synchronised time
 - [REQ-TS-030] The system shall write the current time to the field device via Modbus holding register on initial connection and at regular intervals.
@@ -336,7 +336,7 @@ polling interval
 - [REQ-DM-002] The system shall send a confirmation or rejection response to the cloud after processing a remote parameter change.
 <!-- Traces to: UC-17 -->
 - [REQ-DM-010] The system shall execute remote restart command
-- [REQ-DM-020] The system shall request confirmation from the Remote Operator before executing a restart
+- [REQ-DM-020] The system shall request confirmation from the Remote Operator before executing a restart and shall cancel the restart if no confirmation arrives within 30 seconds
 - [REQ-DM-021] The system shall cancel the restart if the Remote Operator declines confirmation
 - [REQ-DM-030] The system shall report restart success after reboot and self-check
 - [REQ-DM-040] The system shall complete a self-check after restart, verifying sensor initialisations and communication links
@@ -369,7 +369,7 @@ polling interval
 <!-- Traces to: UC-10, UC-11, UC-12 (exception flows) -->
 - [REQ-BF-000] The system shall buffer all outbound cloud messages (telemetry, alarms, device health) in non-volatile storage when internet connectivity is lost
 - [REQ-BF-010] The system shall publish buffered messages in chronological order when connectivity is restored
-- [REQ-BF-020] The system shall discard the oldest buffered messages when the buffer reaches its maximum capacity of [TBD] entries
+- [REQ-BF-020] The system shall discard the oldest buffered messages when the buffer reaches its maximum capacity of 254 entries (SAF_CAPACITY: one entry per 4 KB sector of the CircularFlashLog data ring, worst case)
 
 
 ---
@@ -415,8 +415,8 @@ polling interval
 - [REQ-NF-208] The system shall substitute a defined error indicator value for any sensor that fails to provide a reading
 <!-- 1 Hz rate balances reconnect responsiveness (REQ-NF-106) with WiFi module AT-command state machine constraints (ASM-006 Inventek ISM43362 timing analysis). -->
 - [REQ-NF-209] The system shall attempt both WiFi-layer and MQTT-layer reconnection at a frequency of 1 Hz following the detection of a connection loss on the respective layer.
-- [REQ-NF-210] The system shall synchronise the RTC every [TBD] [TBD — determined by RTC drift measurement during integration testing; see REQ-TS-000, REQ-NF-211].
-- [REQ-NF-211] The system shall synchronise the field node time every [TBD] [TBD — determined by RTC drift measurement during integration testing; see REQ-TS-000, REQ-NF-210].
+- [REQ-NF-210] The system shall synchronise the RTC every 3600 seconds by default; the interval shall be configurable from the console (`ntp-interval-min`). See REQ-TS-000.
+- [REQ-NF-211] The system shall write the time to the field node after every successful NTP synchronisation (3600 seconds by default, REQ-NF-210) and whenever the Modbus link to the field node comes up.
 - [REQ-NF-212] See REQ-TS-040. *(Requirement text retained in REQ-TS-040 as the authoritative functional-section entry; this entry retained for ID continuity.)*
 <!-- Source: worst-case gateway boot sequence — FreeRTOS init + WiFi association (ASM-006, ≤ 5 s) + MQTT connection establishment + all Init sub-steps. Field device boots within 5 s (REQ-NF-203). -->
 - [REQ-NF-213] The system shall reach normal operational state within 10 seconds of power-on.
@@ -721,6 +721,15 @@ polling interval
 | **TOTAL** | — | — |
 
 **206 requirements** across 14 functional and non-functional sections (27 SA + 6 AM + 31 LD + 20 LI + 16 MB + 12 CC + 7 TS + 27 DM + 3 BF + 15 NF-Performance + 17 NF-Reliability + 9 NF-Security + 9 NF-Memory + 7 NF-Maintainability). REQ-SA-160 is counted under CC, where its text lives.
+
+---
+
+## Appendix A — Diagnostic and provisioning command set (REQ-LI-010)
+
+Taken from the command tables in `firmware/gateway/application/console_service/` and `firmware/field-device/application/console_service/` (2026-11). The console LLDs own the exact syntax; this list fixes the scope.
+
+- **Gateway:** alarms, clear, config (list|set|commit|discard), filter-alpha, health-interval-ms, help, humidity-range-max/min, modbus status, modbus-poll-period-ms, mqtt status, mqtt-port, net, ntp-interval-min, polling-interval-ms, pressure-range-max/min, profiles (add|list|remove), prov (set|commit|discard), read, reboot, selftest, selftest-result, sensor, sensors, serial, set, status, telemetry-interval-ms, temp-range-max/min, term, thresholds, uptime, version, wifi status
+- **Field device:** help, version, serial, sensors, status, alarms, selftest, selftest-result, config, prov, modbus, profiles, wifi, mqtt, polling-interval-ms, temp-alarm-high/low, temp-hysteresis, humidity-alarm-high/low, humidity-hysteresis, pressure-alarm-high/low, pressure-hysteresis
 
 ---
 
