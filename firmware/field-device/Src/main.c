@@ -336,7 +336,17 @@ static void report_task(void *arg)
     report_stack("modbus", s_modbus_task, MODBUS_TASK_STACK_WORDS);
     report_stack("console", s_console_task, CONSOLE_TASK_STACK_WORDS);
     report_stack("lifecycle", s_lc_task, LC_TASK_STACK_WORDS);
-    vTaskDelete(NULL);
+
+    /* Housekeeping, once a second: the Modbus slave counters and the uptime reach HealthMonitor
+     * (console `status`, register map); nothing else calls these two. */
+    modbus_register_map_t *mrm = modbus_register_map_instance();
+
+    for (;;)
+    {
+        (void) modbus_register_map_poll_stats(mrm);
+        health_monitor_poll();
+        vTaskDelay(pdMS_TO_TICKS(1000U));
+    }
 }
 
 /* ======================================================================= */
