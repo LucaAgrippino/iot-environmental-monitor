@@ -50,6 +50,16 @@ static void prv_sensor_task(void *params)
     }
 }
 
+bool sensor_task_request_read(void)
+{
+    if (s_task_handle == NULL)
+    {
+        return false;
+    }
+    (void) xTaskNotifyGive(s_task_handle);
+    return true;
+}
+
 sensor_task_err_t sensor_task_create(health_monitor_handle_t health)
 {
     if (health == NULL)

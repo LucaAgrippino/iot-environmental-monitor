@@ -33,7 +33,9 @@
 #define MQTT_TOPIC_SUFFIX_ALARMS "/alarms"
 #define MQTT_TOPIC_SUFFIX_OTA_RESULT "/ota/result"
 #define MQTT_TOPIC_SUFFIX_CONFIG_RESULT                                                            \
-    "/config/result"                                 /**< Result of a /config command (CP-D30).  */
+    "/config/result" /**< Result of a /config command (CP-D30).  */
+#define MQTT_TOPIC_SUFFIX_CONTROL_RESULT                                                           \
+    "/control/result" /**< Result of a /control command (CP-O8).           */
 #define MQTT_TOPIC_SUFFIX_OTA_REQUEST "/ota/request" /**< Chunk request, device to cloud.   */
 
 #define MQTT_TOPIC_SUFFIX_CONFIG "/config"

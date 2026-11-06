@@ -12,6 +12,7 @@
 #ifndef SENSOR_TASK_H
 #define SENSOR_TASK_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "FreeRTOS.h"
@@ -61,5 +62,17 @@ sensor_task_err_t sensor_task_create(health_monitor_handle_t health);
  * @note Threading: any task.
  */
 TaskHandle_t sensor_task_get_handle(void);
+
+/**
+ * @brief Ask SensorTask for one extra acquisition cycle now (REQ-SA-170).
+ *
+ * The cycle runs in SensorTask like every other one, so SensorService never has two callers.
+ * A request that arrives together with the 100 ms tick is merged with it: both give one cycle,
+ * which still starts after the request.
+ *
+ * @return true when the request was delivered; false before sensor_task_create() succeeded.
+ * @note Threading: any task.
+ */
+bool sensor_task_request_read(void);
 
 #endif /* SENSOR_TASK_H */

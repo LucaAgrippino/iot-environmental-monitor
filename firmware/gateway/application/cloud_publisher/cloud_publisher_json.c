@@ -682,6 +682,151 @@ uint32_t cp_serialise_config_result(char *buf, uint32_t buf_size, bool req_known
 }
 
 /* ---------------------------------------------------------------------- */
+/* /control (CP-O8)                                                         */
+/* ---------------------------------------------------------------------- */
+
+#define CP_CTRL_TEXT_MAX (96U)
+
+/** Position just after `"key"` and its colon (spaces allowed), or NULL. */
+static const char *prv_find_member(const char *text, const char *key)
+{
+    char needle[24];
+
+    (void) snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char *p = strstr(text, needle);
+
+    if (p == NULL)
+    {
+        return NULL;
+    }
+    p += strlen(needle);
+    while (*p == ' ')
+    {
+        p++;
+    }
+    if (*p != ':')
+    {
+        return NULL;
+    }
+    p++;
+    while (*p == ' ')
+    {
+        p++;
+    }
+    return p;
+}
+
+cp_control_cmd_t cp_parse_control_command(const uint8_t *payload, uint32_t len, bool *req_known,
+                                          uint32_t *req)
+{
+    char text[CP_CTRL_TEXT_MAX + 1U];
+
+    if (req_known != NULL)
+    {
+        *req_known = false;
+    }
+    if ((payload == NULL) || (len == 0U) || (len > CP_CTRL_TEXT_MAX))
+    {
+        return CP_CTRL_BAD_FORMAT;
+    }
+    (void) memcpy(text, payload, len);
+    text[len] = '\0';
+
+    if ((strchr(text, '{') == NULL) || (strrchr(text, '}') == NULL))
+    {
+        return CP_CTRL_BAD_FORMAT;
+    }
+    const char *v = prv_find_member(text, "command");
+
+    if ((v == NULL) || (*v != '"'))
+    {
+        return CP_CTRL_BAD_FORMAT;
+    }
+    v++;
+    const char *end = strchr(v, '"');
+
+    if (end == NULL)
+    {
+        return CP_CTRL_BAD_FORMAT;
+    }
+
+    const char *r = prv_find_member(text, "req");
+
+    if ((r != NULL) && (*r >= '0') && (*r <= '9') && (req_known != NULL) && (req != NULL))
+    {
+        uint32_t id = 0U;
+
+        while ((*r >= '0') && (*r <= '9') && (id < 100000000U))
+        {
+            id = (id * 10U) + (uint32_t) (*r - '0');
+            r++;
+        }
+        *req = id;
+        *req_known = true;
+    }
+
+    const uint32_t n = (uint32_t) (end - v);
+    static const struct
+    {
+        const char *name;
+        cp_control_cmd_t cmd;
+    } k_names[] = {{"read", CP_CTRL_READ},
+                   {"restart", CP_CTRL_RESTART},
+                   {"restart_confirm", CP_CTRL_RESTART_CONFIRM},
+                   {"reset_metrics", CP_CTRL_RESET_METRICS}};
+
+    for (uint32_t i = 0U; i < (sizeof(k_names) / sizeof(k_names[0])); i++)
+    {
+        if ((strlen(k_names[i].name) == n) && (strncmp(k_names[i].name, v, n) == 0))
+        {
+            return k_names[i].cmd;
+        }
+    }
+    return CP_CTRL_UNKNOWN;
+}
+
+const char *cp_control_name(cp_control_cmd_t cmd)
+{
+    switch (cmd)
+    {
+    case CP_CTRL_READ:
+        return "read";
+    case CP_CTRL_RESTART:
+        return "restart";
+    case CP_CTRL_RESTART_CONFIRM:
+        return "restart_confirm";
+    case CP_CTRL_RESET_METRICS:
+        return "reset_metrics";
+    default:
+        return "unknown";
+    }
+}
+
+uint32_t cp_serialise_control_result(char *buf, uint32_t buf_size, cp_control_cmd_t cmd,
+                                     bool req_known, uint32_t req, bool accepted,
+                                     const char *reason, const time_provider_ts_t *ts,
+                                     const char *device_serial)
+{
+    uint32_t len = 0U;
+
+    bool ok = prv_common(buf, buf_size, &len, device_serial, ts);
+
+    ok = ok && prv_append(buf, buf_size, &len, ",\"event\":\"control\",\"command\":\"%s\"",
+                          cp_control_name(cmd));
+    if (req_known)
+    {
+        ok = ok && prv_append(buf, buf_size, &len, ",\"req\":%lu", (unsigned long) req);
+    }
+    ok = ok &&
+         prv_append(buf, buf_size, &len, ",\"result\":\"%s\"", accepted ? "accepted" : "rejected");
+    if (reason != NULL)
+    {
+        ok = ok && prv_append(buf, buf_size, &len, ",\"reason\":\"%s\"", reason);
+    }
+    return ok ? prv_close(buf, buf_size, len) : 0U;
+}
+
+/* ---------------------------------------------------------------------- */
 /* OTA (update-service-lld.md section 6)                                   */
 /* ---------------------------------------------------------------------- */
 
