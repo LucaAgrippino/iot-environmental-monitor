@@ -89,6 +89,8 @@ LTDC_TypeDef g_mock_ltdc;
 /* ====================================================================== */
 
 EXTI_TypeDef g_mock_exti;
+IWDG_TypeDef g_mock_iwdg;
+DBGMCU_TypeDef g_mock_dbgmcu;
 
 
 /* ====================================================================== */
@@ -226,6 +228,13 @@ void stm32_cmsis_mock_reset(void)
     g_mock_exti.FTSR  = 0;
     g_mock_exti.SWIER = 0;
     g_mock_exti.PR    = 0;
+
+    /* §IWDG / §DBGMCU */
+    g_mock_iwdg.KR = 0;
+    g_mock_iwdg.PR = 0;
+    g_mock_iwdg.RLR = 0;
+    g_mock_iwdg.SR = 0;
+    g_mock_dbgmcu.APB1FZ = 0;
 
     /* §NVIC */
     for (uint32_t i = 0; i < NVIC_IRQ_COUNT_MAX; ++i)

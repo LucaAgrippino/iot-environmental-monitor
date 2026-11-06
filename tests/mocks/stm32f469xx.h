@@ -518,6 +518,30 @@ extern LTDC_TypeDef g_mock_ltdc;
 
 #define LTDC_SRCR_VBR    (1UL << 1)    /* Vertical blanking reload bit */
 /* ====================================================================== */
+/* §IWDG / §DBGMCU — WatchdogDriver                                       */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t KR;  /* Key register (last value written). */
+    volatile uint32_t PR;  /* Prescaler. */
+    volatile uint32_t RLR; /* Reload. */
+    volatile uint32_t SR;  /* Status (PVU, RVU); the mock keeps 0. */
+} IWDG_TypeDef;
+
+typedef struct
+{
+    volatile uint32_t APB1FZ; /* APB1 freeze register. */
+} DBGMCU_TypeDef;
+
+extern IWDG_TypeDef g_mock_iwdg;
+extern DBGMCU_TypeDef g_mock_dbgmcu;
+
+#define IWDG (&g_mock_iwdg)
+#define DBGMCU (&g_mock_dbgmcu)
+#define DBGMCU_APB1_FZ_DBG_IWDG_STOP (1UL << 12U)
+
+/* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
 
