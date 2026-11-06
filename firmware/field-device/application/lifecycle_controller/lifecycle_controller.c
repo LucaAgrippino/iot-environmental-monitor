@@ -62,6 +62,8 @@
 
 #include <string.h>
 
+#include "watchdog_driver/watchdog_driver.h"
+
 /* ======================================================================= */
 /* Internal configuration                                                  */
 /* ======================================================================= */
@@ -80,6 +82,9 @@
 
 /* Queue receive timeout (watchdog kick period) */
 #define LC_QUEUE_WAIT_MS (1000U)
+
+/* Hardware watchdog timeout, REQ-NF-109 */
+#define LC_WATCHDOG_TIMEOUT_MS (10000U)
 
 /* ======================================================================= */
 /* File-scope state                                                        */
@@ -302,6 +307,12 @@ static void fd_run_init_sequence(void)
     s_state = LIFECYCLE_STATE_OPERATIONAL;
     LOG_INFO("LC: Operational");
 
+    /* The long boot steps are done; from here the event loop kicks, gated on SensorTask. */
+    if (watchdog_start(LC_WATCHDOG_TIMEOUT_MS) != WATCHDOG_OK)
+    {
+        LOG_WARN("LC: watchdog did not start");
+    }
+
 #ifdef USE_GUI
     (void) s_lcd_ui->dismiss_splash();
 #endif
@@ -372,14 +383,48 @@ static void handle_operational(const lifecycle_event_t *ev)
     }
 }
 
+/* ======================================================================= */
+/* Watchdog (watchdog-driver.md section 3, REQ-NF-109)                      */
+/* ======================================================================= */
+
+/* SensorTask cycle count at the last kick: a stuck acquisition stops the kicks (WDG-D3). */
+static uint32_t s_wd_last_cycles;
+
+#ifdef FD_WDG_TEST_STALL
+/* Bench aid: stop kicking after this many kicks to prove the reset on the board. */
+#define LC_WD_STALL_AFTER_KICKS (20U)
+static uint32_t s_wd_kicks;
+#endif
+
+static void kick_watchdog(void)
+{
+    sensor_snapshot_t snap;
+
+    if ((s_sensors->get_snapshot(&snap) != SENSOR_SERVICE_ERR_OK) ||
+        (snap.cycle_count == s_wd_last_cycles))
+    {
+        return; /* SensorTask made no progress since the last kick */
+    }
+    s_wd_last_cycles = snap.cycle_count;
+#ifdef FD_WDG_TEST_STALL
+    s_wd_kicks++;
+    if (s_wd_kicks > LC_WD_STALL_AFTER_KICKS)
+    {
+        return;
+    }
+#endif
+    watchdog_kick();
+}
+
 static void run_event_loop_once(void)
 {
     lifecycle_event_t ev;
     BaseType_t got = xQueueReceive(s_event_queue, &ev, pdMS_TO_TICKS(LC_QUEUE_WAIT_MS));
 
+    kick_watchdog(); /* every pass, so a busy queue cannot starve the kicks */
+
     if (got != pdTRUE)
     {
-        /* Timeout — kick watchdog (not yet implemented) and return */
         return;
     }
 
@@ -394,7 +439,7 @@ static void run_event_loop_once(void)
         break;
 
     case LIFECYCLE_STATE_FAULTED:
-        /* In Faulted: only kick watchdog; no event causes exit */
+        /* In Faulted: only the watchdog kick above; no event causes exit */
         break;
 
     case LIFECYCLE_STATE_INIT:
@@ -581,6 +626,8 @@ EventGroupHandle_t lifecycle_get_start_gate(void)
 #ifdef TEST
 void lifecycle_controller_reset_for_test(void)
 {
+    s_wd_last_cycles = 0U;
+    watchdog_reset_for_test();
     s_config_store = NULL;
     s_cfg_read = NULL;
     s_cfg_write = NULL;

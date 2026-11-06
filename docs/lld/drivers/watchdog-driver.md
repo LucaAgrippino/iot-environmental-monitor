@@ -2,7 +2,7 @@
 
 **Document:** `docs/lld/drivers/watchdog-driver.md`
 **Version:** 1.0
-**Board scope:** Gateway (B-L475E-IOT01A) only; the Field Device follows later (WDG-O1)
+**Board scope:** Gateway (B-L475E-IOT01A) and Field Device (STM32F469I-DISCO)
 **Layer:** Driver
 **Status:** Implemented, hardware-validated 2026-11-06 (TC-HW-WDG-001, 002)
 **Date:** November 2026
@@ -77,7 +77,7 @@ Hardware: TC-HW-WDG-001 normal run, 10 minutes, no reset; TC-HW-WDG-002 stalled 
 
 | ID | Item | Status |
 |---|---|---|
-| WDG-O1 | Field Device watchdog (the FD lifecycle LLD already has the kick hook) | Open |
+| WDG-O1 | Field Device watchdog | Closed: implemented in `firmware/field-device/drivers/watchdog_driver/` (section 9) |
 | WDG-O2 | Only SensorTask is supervised; ModbusPoller and CloudPublisher hang detection would need task check-in flags | Open |
 
 ## 8. Decisions log
@@ -88,3 +88,12 @@ Hardware: TC-HW-WDG-001 normal run, 10 minutes, no reset; TC-HW-WDG-002 stalled 
 | WDG-D2 | Independent watchdog (IWDG), not the window watchdog | Runs from its own clock; cannot be disabled by software |
 | WDG-D3 | The kick is gated on SensorTask progress, in LifecycleWiring, not in the driver | The driver stays policy-free |
 | WDG-D4 | Start after the long boot steps | Join, NTP and TLS setup take seconds and are covered by the init timer (LC-O2) |
+
+## 9. Field Device (WDG-O1)
+
+- Same driver and API as the Gateway. Differences: header `stm32f469xx.h`; the debug freeze bit is `DBGMCU->APB1FZ` `DBG_IWDG_STOP`; the F4 LSI is nominally 32 kHz but the datasheet range is wider (about 17 to 47 kHz), so the 10 s setting expires between roughly 7 and 19 s. REQ-NF-109 is still a ceiling for hang detection.
+- Policy lives in the FD LifecycleController, which has no wiring layer: `fd_run_init_sequence()` calls `watchdog_start(10000)` when it enters Operational (the init sequence is bounded by the 10 s init timer, so it is not supervised by the watchdog). `run_event_loop_once()` calls `kick_watchdog()` on every pass (the 1 s queue timeout or an event), so a busy queue cannot starve the kicks.
+- `kick_watchdog()` refreshes the counter only if `sensor_snapshot_t.cycle_count` moved since the previous kick; a failed snapshot also withholds the kick. SensorTask runs a cycle every 100 ms, so a stuck acquisition stops the kicks and the board resets. The Faulted state keeps kicking.
+- Test aid: building with `-DFD_WDG_TEST_STALL` (EXTRA_CFLAGS of `scripts/build-fd-app.sh`) stops the kicks after 20 kicks.
+- Unit tests: `test_watchdog_driver_fd.c` (same six cases as the Gateway) and `TC-LC-WDG-01..05` in `test_lifecycle_controller_fd.c` (start on Operational, kick on progress, none without progress, none on a failed snapshot, kick while Faulted).
+- Hardware, 2026-11-06 (STM32F469I-DISCO): TC-HW-WDG-001 about 10 minutes with no reset; TC-HW-WDG-002 (`-DFD_WDG_TEST_STALL`) reset 31 s after boot and the next boot logged `reset cause watchdog`.

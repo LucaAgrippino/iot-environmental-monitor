@@ -39,6 +39,7 @@
   :test:
     - gateway/drivers/gpio/**
     - gateway/drivers/led/**
+    - gateway/drivers/watchdog_driver/**
     - gateway/middleware/logger/**
     - gateway/drivers/wifi_driver/**
     - gateway/middleware/time_provider/**
@@ -150,6 +151,9 @@
     - TEST
   :test_preprocess:
     - *common_defines
+    - TEST
+  :test_watchdog_driver:
+    - STM32L475xx
     - TEST
   :test_circular_flash_log:
     - STM32L475xx
