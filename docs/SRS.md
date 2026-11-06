@@ -1,7 +1,7 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.2
-**Date:** June 2026
+**Version:** 1.3
+**Date:** November 2026
 **Status:** Approved — baselined for HLD
 
 **Revision History:**
@@ -12,6 +12,7 @@
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
 | 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
+| 1.3     | November 2026 | Removed two duplicate IDs: "mark sensor value invalid" is now REQ-SA-175 (REQ-SA-180 stays the history requirement); "discard input on no confirmation" is now REQ-LD-155 (REQ-LD-250 stays the status-LED requirement, as cited by components.md). Corrected section counts (206 requirements). No wording changed. |
 ---
 
 ## 1. Introduction
@@ -60,7 +61,7 @@ The system consists of two nodes — a field device (STM32F469 Discovery) and a 
 
 ## 2. Functional Requirements
 
-### 2.1 Sensor Acquisition [SA] — 20 requirements
+### 2.1 Sensor Acquisition [SA] — 27 requirements
 
 <!-- Traces to: UC-07 -->
 <!-- preconditions: System is initialised -->
@@ -102,7 +103,7 @@ polling interval
 - [REQ-SA-150] The system shall make processed sensor data available for Modbus register access and LCD display
 
 <!-- E1 (step 2): if some sensors don't respond, use a default error value -->
-- [REQ-SA-180] The system shall mark the sensor value as invalid if sensor reading fails.
+- [REQ-SA-175] The system shall mark the sensor value as invalid if sensor reading fails.
 <!-- REQ-SA-160 relocated to §2.6 Cloud Communication (cloud publication responsibility). See §2.6 for full requirement text. -->
 
 <!-- Traces to: UC-14 -->
@@ -136,7 +137,7 @@ polling interval
 - [REQ-AM-030] The system shall send alarm notification to AWS IoT Core
 - [REQ-AM-040] The system shall include in each alarm notification: sensor ID, alarm type (high/low), measured value, threshold value, timestamp, and device ID
 
-### 2.3 Local Display — LCD [LD] — 22 requirements
+### 2.3 Local Display — LCD [LD] — 31 requirements
 
 <!-- Traces to: UC-01, UC-02, UC-03 -->
 <!-- Traces to: UC-01 -->
@@ -171,7 +172,7 @@ polling interval
 <!-- Traces to: HLD §5.6, §7.6 -->
 - [REQ-LD-140] The system shall retain the previous configuration until all new parameters are successfully applied
 <!-- Traces to: HLD §7.6 (FD lifecycle EditingConfig snapshot/rollback semantics), §5.6 -->
-- [REQ-LD-250] The system shall discard all the input parameters if no confirmation is received.
+- [REQ-LD-155] The system shall discard all the input parameters if no confirmation is received.
 - [REQ-LD-150] The system shall save the parameters to persistent memory when they are successfully applied.
 <!-- Traces to: HLD §5.6 (FD config/persistence — ConfigStore persistence), §13.3 (FD flash layout — ConfigStore partition) -->
 <!-- Sensor trend screen — traces to UC-01 -->
@@ -529,7 +530,7 @@ polling interval
 | REQ-SA-130 | UC-07 | §5.1 |
 | REQ-SA-140 | UC-07 | §5.1 |
 | REQ-SA-150 | UC-07 | §5.1, §5.3 |
-| REQ-SA-180 | UC-07 | §5.1 |
+| REQ-SA-175 | UC-07 | §5.1 |
 | REQ-SA-160 | UC-07, UC-10 | §5.4 |
 | REQ-SA-170 | UC-14 | §5.7 |
 | REQ-SA-180 | UC-01 | §5.5 |
@@ -561,6 +562,7 @@ polling interval
 | REQ-LD-130 | UC-15 | §5.5 |
 | REQ-LD-140 | UC-15 | §5.5 |
 | REQ-LD-150 | UC-15 | §5.5, §5.9 |
+| REQ-LD-155 | UC-15 | §5.5 |
 | REQ-LD-160 | UC-01 | §5.5 |
 | REQ-LD-170 | UC-01 | §5.5 |
 | REQ-LD-180 | UC-01 | §5.5 |
@@ -718,7 +720,7 @@ polling interval
 | REQ-NF-506 | — | §9 |
 | **TOTAL** | — | — |
 
-**190 requirements** across 14 functional and non-functional sections (20 SA + 6 AM + 22 LD + 20 LI + 16 MB + 12 CC + 7 TS + 27 DM + 3 BF + 15 NF-Performance + 17 NF-Reliability + 9 NF-Security + 9 NF-Memory + 7 NF-Maintainability).
+**206 requirements** across 14 functional and non-functional sections (27 SA + 6 AM + 31 LD + 20 LI + 16 MB + 12 CC + 7 TS + 27 DM + 3 BF + 15 NF-Performance + 17 NF-Reliability + 9 NF-Security + 9 NF-Memory + 7 NF-Maintainability). REQ-SA-160 is counted under CC, where its text lives.
 
 ---
 
