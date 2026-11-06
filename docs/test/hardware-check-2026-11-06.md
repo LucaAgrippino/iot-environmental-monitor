@@ -16,7 +16,7 @@
 | Time re-push after the FD was held in reset 10 s | REQ-TS-060 | **PASS** — node offline logged within 1–2 s, then `CMD_SET_TIME applied` after the FD resumed |
 | Node offline after failed polls | REQ-NF-215 | **PASS** — `slave 1 node offline` 1 s after the FD stopped |
 | Broker outage 105 s, then recovery | REQ-BF-000/010, NF-200 | **PASS** — two telemetry messages buffered and replayed in timestamp order, then live |
-| Reconnect rate | REQ-NF-209 (1 Hz) | **FAIL as written** — back-off 2, 4, 8, 16, 32, 60 s. Reconnected 30 s after the broker returned |
+| Reconnect rate | REQ-NF-209 (1 Hz) | **PASS against SRS v1.4** (was FAIL against the old 1 Hz text) — back-off 2, 4, 8, 16, 32, 60 s. Reconnected 30 s after the broker returned |
 | Stacks | — | lowest: Tmr Svc 84 words, SensorTask 87 words; TLS arena peak 20 680 of 28 672 bytes |
 
 ## Findings (new)

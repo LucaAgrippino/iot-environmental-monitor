@@ -348,7 +348,7 @@ directly.
 
 MQTT session is down. Buffer outbound messages and retry connect at 1 Hz.
 
-- **Entry action:** start 1 Hz `reconnect_timer` (REQ-NF-209).
+- **Entry action:** start `reconnect_timer` at 2 s, doubling per failed attempt up to 60 s (REQ-NF-209, CP-D13).
 - **Do activity:** enqueue outbound messages to CircularFlashLog
   (REQ-BF-000); if buffer full, drop oldest and enqueue (REQ-BF-020).
 - **Exit action:** stop `reconnect_timer`.
@@ -1015,7 +1015,7 @@ by the gate checklist.
    including it in HLD would clutter without adding clarity. LLD is the
    right place — alongside the per-channel data structures and threshold
    storage.
-2. **Backoff strategy beyond REQ-NF-209's 1 Hz constant.** Keep flat 1 Hz;
+2. **Backoff strategy.** Resolved: exponential 2 s to 60 s (REQ-NF-209 v1.4, CP-D13);
    revisit if integration testing reveals problems.
 3. **Buffer size** — resolved: 254 entries (REQ-BF-020), the CircularFlashLog data-ring sector count.
 4. **Cold-boot vs warm-restart Init time budgets.** REQ-NF-213 (cold) is

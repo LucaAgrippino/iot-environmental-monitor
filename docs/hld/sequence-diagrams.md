@@ -723,7 +723,7 @@ Two sub-diagrams: SD-04a (disconnect detection → buffering, including the buff
 | REQ-CC-050  | Reconnect uses MQTT/TLS/X.509                                                       | IMPLIES MESSAGE (TLS handshake on reconnect)           |
 | REQ-CC-060  | Reconnect automatically if MQTT connection is lost                                  | IMPLIES MESSAGE + IMPLIES FRAGMENT(loop) on reconnect attempt |
 | REQ-NF-200  | Continue local sensor acquisition and alarm evaluation when internet is lost        | NO SEQUENCE IMPLICATION here (UML note)                |
-| REQ-NF-209  | Reconnect attempt at 1 Hz                                                           | IMPLIES TIMING CONSTRAINT on reconnect loop            |
+| REQ-NF-209  | Reconnect backoff 2 s to 60 s                                                          | IMPLIES TIMING CONSTRAINT on reconnect loop            |
 
 ### 9.2 Step 2 — Participants (shared)
 
@@ -759,7 +759,7 @@ Two sub-diagrams: SD-04a (disconnect detection → buffering, including the buff
 | —   |                    |                   |        |                                      | **end loop**                           |              |                |
 | —   |                    |                   |        |                                      | **operand: reconnect attempts**        |              |                |
 | —   |                    |                   |        |                                      | **loop** `[disconnected]`              |              | CC-060, NF-209 |
-| 7   |   `MqttClient`     | `MqttClient`      | self   | reconnect attempt                    |                                        | period 1 s   | NF-209         |
+| 7   |   `MqttClient`     | `MqttClient`      | self   | reconnect attempt                    |                                        | 2..60 s      | NF-209         |
 | 8   |   `MqttClient`     | `WifiDriver`      | sync   | open TCP / TLS handshake             |                                        |              | CC-050         |
 | —   |                    |                   |        |                                      | **alt**                                |              |                |
 | —   |                    |                   |        |                                      | `[handshake ok]`                       |              |                |
@@ -816,7 +816,7 @@ The `par` fragment captures the architectural fact that the two activities — b
 | Disconnect event from MqttClient    | REQ-CC-060                             |
 | Buffer to flash                     | REQ-BF-000                             |
 | Drop oldest on full                 | REQ-BF-020                             |
-| 1 Hz reconnect attempts             | REQ-NF-209, REQ-CC-060                 |
+| Reconnect backoff 2 s to 60 s       | REQ-NF-209, REQ-CC-060                 |
 | TLS handshake on reconnect          | REQ-CC-050                             |
 | Drain in chronological order        | REQ-BF-010                             |
 | Local acquisition unaffected (note) | REQ-NF-200                             |
