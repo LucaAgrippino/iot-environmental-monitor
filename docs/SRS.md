@@ -1,6 +1,6 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.3
+**Version:** 1.4
 **Date:** November 2026
 **Status:** Approved — baselined for HLD
 
@@ -12,6 +12,7 @@
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
 | 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
+| 1.4     | November 2026 | REQ-NF-209 changed from a fixed 1 Hz to a 2 s start interval doubling to 60 s (the implemented and benched behaviour, CP-D13); a fixed 1 Hz re-associates the Wi-Fi module too often. |
 | 1.3     | November 2026 | Removed two duplicate IDs: "mark sensor value invalid" is now REQ-SA-175 (REQ-SA-180 stays the history requirement); "discard input on no confirmation" is now REQ-LD-155 (REQ-LD-250 stays the status-LED requirement, as cited by components.md). Corrected section counts (206 requirements). Resolved the open values from the implemented firmware (REQ-TS-000, NF-210, NF-211, BF-020, LI-010 command set, DM-020 30 s, LI-000 gateway baud, SA-090 wording). |
 ---
 
@@ -413,8 +414,8 @@ polling interval
 <!-- Rationale: at-least-once delivery for safety-critical events -->
 - [REQ-NF-207] The system shall use MQTT QoS 1 for publishing alarm notifications
 - [REQ-NF-208] The system shall substitute a defined error indicator value for any sensor that fails to provide a reading
-<!-- 1 Hz rate balances reconnect responsiveness (REQ-NF-106) with WiFi module AT-command state machine constraints (ASM-006 Inventek ISM43362 timing analysis). -->
-- [REQ-NF-209] The system shall attempt both WiFi-layer and MQTT-layer reconnection at a frequency of 1 Hz following the detection of a connection loss on the respective layer.
+<!-- v1.4: the retry interval grows because repeated Wi-Fi re-associations stress the access point and the ISM43362 module (ASM-006, CP-D13). Measured on the board 2026-11-06: 2, 4, 8, 16, 32, 60 s. -->
+- [REQ-NF-209] The system shall start reconnecting within 2 seconds of detecting a connection loss on the WiFi layer or the MQTT layer, shall double the interval between consecutive failed attempts up to a maximum of 60 seconds, shall retry indefinitely, and shall return to the 2 second start interval after a successful connection.
 - [REQ-NF-210] The system shall synchronise the RTC every 3600 seconds by default; the interval shall be configurable from the console (`ntp-interval-min`). See REQ-TS-000.
 - [REQ-NF-211] The system shall write the time to the field node after every successful NTP synchronisation (3600 seconds by default, REQ-NF-210) and whenever the Modbus link to the field node comes up.
 - [REQ-NF-212] See REQ-TS-040. *(Requirement text retained in REQ-TS-040 as the authoritative functional-section entry; this entry retained for ID continuity.)*
