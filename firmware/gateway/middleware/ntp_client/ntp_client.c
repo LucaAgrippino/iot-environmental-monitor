@@ -213,6 +213,9 @@ ntp_client_err_t ntp_client_query(ntp_client_handle_t handle, const char *const 
     {
         if (query_one(handle, server_list[i], unix_epoch_out))
         {
+            /* HealthMonitor keeps the time of the last good sync (REQ-CC-010). */
+            (void) health_monitor_push_event(handle->health, HEALTH_EVENT_NTP_SYNC_OK,
+                                             *unix_epoch_out);
             return NTP_CLIENT_ERR_OK;
         }
     }

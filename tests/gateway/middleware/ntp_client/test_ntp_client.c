@@ -120,11 +120,15 @@ wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t soc
 static uint32_t s_event_count;
 static health_event_t s_event_kind[MAX_EVENTS];
 static health_monitor_handle_t s_event_handle;
+static uint32_t s_ok_param;
 
 health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, health_event_t event,
                                                uint32_t param)
 {
-    (void) param;
+    if (event == HEALTH_EVENT_NTP_SYNC_OK)
+    {
+        s_ok_param = param;
+    }
     if (s_event_count < MAX_EVENTS)
     {
         s_event_kind[s_event_count] = event;
@@ -263,7 +267,8 @@ void test_NTP_T04_single_valid_reply_returns_ok(void)
 
     TEST_ASSERT_EQUAL(NTP_CLIENT_ERR_OK, ntp_client_query(s_h, k_servers, 1U, &epoch));
     TEST_ASSERT_EQUAL_UINT32(UNIX_SECONDS_2024, epoch);
-    TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_event_count); /* only the sync-OK event */
+    TEST_ASSERT_EQUAL_UINT32(1U, count_events(HEALTH_EVENT_NTP_SYNC_OK));
 }
 
 void test_NTP_T05_epoch_conversion(void)
@@ -386,6 +391,18 @@ void test_NTP_T20_bad_reply_then_good_reply_succeeds_with_one_bad_event(void)
     TEST_ASSERT_EQUAL_UINT32(0U, count_events(HEALTH_EVENT_NTP_SYNC_FAILED));
 }
 
+void test_NTP_T20b_good_reply_pushes_sync_ok_with_the_epoch(void)
+{
+    uint32_t epoch = 0U;
+
+    script_good(0U, NTP_SECONDS_2024);
+    s_ok_param = 0U;
+
+    TEST_ASSERT_EQUAL(NTP_CLIENT_ERR_OK, ntp_client_query(s_h, k_servers, 1U, &epoch));
+    TEST_ASSERT_EQUAL_UINT32(1U, count_events(HEALTH_EVENT_NTP_SYNC_OK));
+    TEST_ASSERT_EQUAL_UINT32(UNIX_SECONDS_2024, s_ok_param);
+}
+
 /* ===================================================================== */
 /* failover                                                              */
 /* ===================================================================== */
@@ -401,7 +418,8 @@ void test_NTP_T11_first_server_times_out_second_answers(void)
     TEST_ASSERT_EQUAL_UINT32(UNIX_SECONDS_2024, epoch);
     TEST_ASSERT_EQUAL_UINT32(2U, s_open_calls);
     TEST_ASSERT_EQUAL_STRING("10.0.0.2", s_open_addr[1]);
-    TEST_ASSERT_EQUAL_UINT32(0U, s_event_count);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_event_count); /* only the sync-OK event */
+    TEST_ASSERT_EQUAL_UINT32(1U, count_events(HEALTH_EVENT_NTP_SYNC_OK));
 }
 
 void test_NTP_T11b_a_host_name_is_resolved_before_the_socket_opens(void)

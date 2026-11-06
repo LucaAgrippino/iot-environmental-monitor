@@ -53,7 +53,7 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #endif
 
 #define CP_TELEMETRY_PERIOD_MS_DEFAULT 60000u
-#define CP_HEALTH_PERIOD_MS_DEFAULT 600000u
+#define CP_HEALTH_PERIOD_MS_DEFAULT 300000u
 #define CP_STATS_PERIOD_MS 1000u
 
 /** CP-D9: retry backoff between failed reconnect attempts (stats ticks). */

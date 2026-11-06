@@ -288,17 +288,50 @@ static void feed_wifi_rssi(void)
     (void) health_monitor_update_wifi_rssi(s_hm, rssi);
 }
 
+/* The tasks whose stack margin the health message reports (REQ-CC-010). HealthMonitor holds
+ * HEALTH_MONITOR_MAX_TASKS (8) of them, so the eight with the least margin on the bench. */
+static const char *const s_health_task_names[] = {"lifecycle", "SensorTask",      "ModbusPoller",
+                                                   "WifiTask",  "CloudPublisherT", "TS",
+                                                   "console",   "Tmr Svc"};
+#define HEALTH_TASKS_READY_MS (20000U) /* BootTask has created every task by then */
+
+static void register_health_tasks(void)
+{
+    const UBaseType_t n = uxTaskGetSystemState(s_status, REPORT_MAX_TASKS, NULL);
+
+    for (UBaseType_t i = 0U; i < n; i++)
+    {
+        for (uint32_t k = 0U; k < (sizeof(s_health_task_names) / sizeof(s_health_task_names[0]));
+             k++)
+        {
+            if (strcmp(s_status[i].pcTaskName, s_health_task_names[k]) == 0)
+            {
+                (void) health_monitor_register_task(s_hm, s_health_task_names[k],
+                                                    s_status[i].xHandle);
+            }
+        }
+    }
+}
+
 static void report_task(void *arg)
 {
     (void) arg;
 
     uint32_t since_report_ms = 0U;
+    uint32_t since_boot_ms = 0U;
+    bool health_tasks_registered = false;
 
     for (;;)
     {
         vTaskDelay(pdMS_TO_TICKS(RSSI_PERIOD_MS));
         feed_wifi_rssi();
         since_report_ms += RSSI_PERIOD_MS;
+        since_boot_ms += RSSI_PERIOD_MS;
+        if (!health_tasks_registered && (since_boot_ms >= HEALTH_TASKS_READY_MS))
+        {
+            register_health_tasks();
+            health_tasks_registered = true;
+        }
         if (since_report_ms < REPORT_PERIOD_MS)
         {
             continue;

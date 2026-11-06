@@ -457,6 +457,7 @@ polling interval
 <!-- Traces to: HLD §3, §13.3 (FD on-chip flash layout) -->
 - [REQ-NF-405] The system shall operate within the 16 MB QUAD-SPI FLASH of the STM32F469 Discovery 
 <!-- Traces to: HLD §3, §13.3 (FD QSPI flash layout) -->
+<!-- Implemented 2026-11: one 1 MB CircularFlashLog ring serves REQ-NF-406 and REQ-NF-407 (254 telemetry entries); both limits are maxima and are met. -->
 - [REQ-NF-406] The system shall allocate no more than 3 MB of non-volatile storage for diagnostic logs on the gateway (CircularFlashLog partition — see `flash-partition-layout.md`). The field device has no diagnostic log buffer in v1.0.
 <!-- Traces to: HLD §13.4 (GW flash layout — CircularFlashLog partition), §13.3 (FD flash layout) -->
 - [REQ-NF-407] The system shall allocate no more than 4 MB of non-volatile storage for buffered outbound sensor measurements on the gateway (StoreAndForward / CircularFlashLog). The field device has no store-and-forward buffer (see vision §5.9).

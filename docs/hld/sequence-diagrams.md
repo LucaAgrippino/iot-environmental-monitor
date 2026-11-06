@@ -625,7 +625,7 @@ The telemetry leg and the health leg are split into two sub-diagrams (decision S
 | REQ-CC-090  | Include device serial number in all cloud health messages                      | IMPLIES MESSAGE PAYLOAD (UML note on health leg)       |
 | REQ-NF-106  | Queue MQTT message for publication within 200 ms of data being ready           | IMPLIES TIMING CONSTRAINT on serialise→publish span    |
 | REQ-NF-111  | Publish sensor measurements each 60 seconds                                    | IMPLIES TIMING CONSTRAINT on telemetry timer           |
-| REQ-NF-112  | Publish health data each 10 minutes                                            | IMPLIES TIMING CONSTRAINT on health timer              |
+| REQ-NF-112  | Publish health data each 5 minutes                                             | IMPLIES TIMING CONSTRAINT on health timer              |
 | REQ-NF-206  | Use MQTT QoS 0 for sensor telemetry                                            | IMPLIES MESSAGE (no PUBACK at QoS 0 — absence drawn as the lack of a return arrow) |
 | REQ-NF-216  | Use MQTT QoS 0 for device health data                                          | IMPLIES MESSAGE (same; no PUBACK)                      |
 

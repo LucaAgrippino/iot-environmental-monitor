@@ -21,10 +21,12 @@
 
 ## Findings (new)
 
-1. **Health message is incomplete (CP-O9).** The 20 metrics carry `stack_free_words: []`, no free heap, CPU load or MCU temperature, and `last_ntp_sync_epoch: 0` although NTP had synced. REQ-CC-010/LD-070 list those items.
-2. **A health message was not delivered after the outage.** One was due at about 21:22:28, inside the outage; none arrived on reconnect, and the next came at 21:27:14 (`buffer_entry_count` 0). REQ-BF-000 says health is buffered. Cause not isolated.
+1. **Health message is incomplete (CP-O9). FIXED in the follow-up PR:** `last_ntp_sync_epoch` is now pushed by the NTP client and eight task stack watermarks are registered; verified on the board (epoch non-zero, 8 stack values). Heap, CPU load and MCU temperature are still absent.
+   Original finding: The 20 metrics carry `stack_free_words: []`, no free heap, CPU load or MCU temperature, and `last_ntp_sync_epoch: 0` although NTP had synced. REQ-CC-010/LD-070 list those items.
+2. **RETRACTED.** The health period is 10 minutes in the code (not 5), so nothing was lost; the code default is now 5 minutes (REQ-NF-112).
+   Original text: One was due at about 21:22:28, inside the outage; none arrived on reconnect, and the next came at 21:27:14 (`buffer_entry_count` 0). REQ-BF-000 says health is buffered. Cause not isolated.
 3. **`fw_version` reports `1.0.0`** while the console shows `v0.0.0+0c157b3-dirty` (REQ-NF-503 wants one version).
-4. **Field Device `status` shows `Modbus frames: 0` and `Uptime: 0 s`** while the Gateway counts 1785 good transactions; the two counters are not fed.
+4. **FIXED in the follow-up PR (1 s housekeeping loop; uptime 33 s, 360 frames verified).** Field Device `status` shows `Modbus frames: 0` and `Uptime: 0 s`** while the Gateway counts 1785 good transactions; the two counters are not fed.
 5. **`openocd reset run` did not reset the Field Device** with `dapdirect_swd`; `reset halt` + `resume` did.
 6. **The FD Modbus slave stack has 109 of 512 words free** (`stack modbus`), the lowest on that board.
 7. **REQ-SA-170 / REQ-NF-308 (on-demand sensor read) has no command.** `/control` accepts only `restart`, `restart_confirm` and `reset_metrics`.
