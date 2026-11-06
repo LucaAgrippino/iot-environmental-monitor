@@ -21,6 +21,8 @@ GPIO_TypeDef g_mock_gpio_l4[MOCK_GPIO_PORT_COUNT_L4];
 /* ====================================================================== */
 
 RCC_TypeDef g_mock_rcc_l4;
+IWDG_TypeDef g_mock_iwdg_l4;
+DBGMCU_TypeDef g_mock_dbgmcu_l4;
 
 
 /* ====================================================================== */
@@ -172,6 +174,11 @@ void stm32l475_cmsis_mock_reset(void)
     }
 
     /* §RCC */
+    g_mock_iwdg_l4.KR = 0;
+    g_mock_iwdg_l4.PR = 0;
+    g_mock_iwdg_l4.RLR = 0;
+    g_mock_iwdg_l4.SR = 0;
+    g_mock_dbgmcu_l4.APB1FZR1 = 0;
     g_mock_rcc_l4.CR       = 0;
     g_mock_rcc_l4.AHB3ENR  = 0;
     g_mock_rcc_l4.CFGR     = 0;

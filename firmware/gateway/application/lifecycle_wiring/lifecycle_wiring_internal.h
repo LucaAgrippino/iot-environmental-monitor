@@ -16,6 +16,7 @@
 #include "reset_driver/reset_driver.h"
 #include "sensor_service/sensor_service.h"
 #include "sensor_service/sensor_task.h"
+#include "watchdog_driver/watchdog_driver.h"
 #include "time_service/time_service.h"
 
 #endif /* LIFECYCLE_WIRING_INTERNAL_H */
