@@ -268,6 +268,21 @@ time_service_err_t time_service_init(ntp_client_handle_t ntp)
     return s_time_result;
 }
 
+static uint32_t s_wd_kicks;
+static uint32_t s_snap_cycles;
+static sensor_service_err_t s_snap_result;
+
+void watchdog_kick(void)
+{
+    s_wd_kicks++;
+}
+
+sensor_service_err_t sensor_service_get_snapshot(sensor_snapshot_t *snap)
+{
+    snap->cycle_count = s_snap_cycles;
+    return s_snap_result;
+}
+
 static uint32_t s_reset_calls;
 
 void reset_trigger(void)
@@ -454,6 +469,9 @@ void setUp(void)
     g_mock_xQueueSend_last_item_size = sizeof(lifecycle_event_t);
     lifecycle_controller_reset_for_test();
     lifecycle_wiring_reset_for_test();
+    s_wd_kicks = 0U;
+    s_snap_cycles = 0U;
+    s_snap_result = SENSOR_SERVICE_ERR_OK;
 
     s_cs_check_result = CONFIG_STORE_ERR_OK;
     s_cs_load_result = CONFIG_STORE_ERR_OK;
@@ -589,7 +607,7 @@ void test_LW_002_bind_rejects_each_missing_handle(void)
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_NULL_ARG, lifecycle_wiring_bind(&c, &s_deps));
 }
 
-void test_LW_003_bind_fills_every_member_and_leaves_the_watchdog_empty(void)
+void test_LW_003_bind_fills_every_member_including_the_watchdog(void)
 {
     bind_ok();
     TEST_ASSERT_NOT_NULL(s_deps.config_store);
@@ -605,7 +623,41 @@ void test_LW_003_bind_fills_every_member_and_leaves_the_watchdog_empty(void)
     TEST_ASSERT_NOT_NULL(s_deps.time_service);
     TEST_ASSERT_NOT_NULL(s_deps.firmware_store);
     TEST_ASSERT_NOT_NULL(s_deps.reset_driver);
-    TEST_ASSERT_NULL(s_deps.watchdog);
+    TEST_ASSERT_NOT_NULL(s_deps.watchdog);
+}
+
+/* LW-WD: the kick is gated on SensorTask progress (watchdog-driver.md WDG-D3). */
+void test_LW_WD1_a_kick_needs_the_sensor_cycle_count_to_have_moved(void)
+{
+    bind_ok();
+    s_snap_cycles = 5U;
+    s_deps.watchdog->kick(NULL);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_wd_kicks);
+
+    s_deps.watchdog->kick(NULL); /* no new cycle: no kick */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_wd_kicks);
+
+    s_snap_cycles = 6U;
+    s_deps.watchdog->kick(NULL);
+    TEST_ASSERT_EQUAL_UINT32(2U, s_wd_kicks);
+}
+
+void test_LW_WD2_a_failed_snapshot_does_not_kick(void)
+{
+    bind_ok();
+    s_snap_cycles = 9U;
+    s_snap_result = SENSOR_SERVICE_ERR_NOT_INIT;
+    s_deps.watchdog->kick(NULL);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_wd_kicks);
+}
+
+void test_LW_WD3_without_a_sensor_task_the_gate_is_skipped(void)
+{
+    bind_ok();
+    s_sensor_task = NULL; /* no SensorTask: nothing to supervise */
+    s_deps.watchdog->kick(NULL);
+    s_deps.watchdog->kick(NULL);
+    TEST_ASSERT_EQUAL_UINT32(2U, s_wd_kicks);
 }
 
 /* ===================================================================== */

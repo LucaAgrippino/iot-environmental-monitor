@@ -51,6 +51,27 @@ extern RCC_TypeDef g_mock_rcc_l4;
 
 #define RCC (&g_mock_rcc_l4)
 
+/* --- IWDG and DBGMCU (WatchdogDriver) --------------------------------- */
+typedef struct
+{
+    volatile uint32_t KR;  /**< Key register (last value written).   */
+    volatile uint32_t PR;  /**< Prescaler.                            */
+    volatile uint32_t RLR; /**< Reload.                               */
+    volatile uint32_t SR;  /**< Status (PVU, RVU); the mock keeps 0.  */
+} IWDG_TypeDef;
+
+typedef struct
+{
+    volatile uint32_t APB1FZR1; /**< APB1 freeze register 1. */
+} DBGMCU_TypeDef;
+
+extern IWDG_TypeDef g_mock_iwdg_l4;
+extern DBGMCU_TypeDef g_mock_dbgmcu_l4;
+
+#define IWDG (&g_mock_iwdg_l4)
+#define DBGMCU (&g_mock_dbgmcu_l4)
+#define DBGMCU_APB1FZR1_DBG_IWDG_STOP (1UL << 12U)
+
 /* --- RCC_CR bits (CpuDriver) ----------------------------------------- */
 #define RCC_CR_MSIPLLEN_Pos (2U)
 #define RCC_CR_MSIPLLEN     (1UL << RCC_CR_MSIPLLEN_Pos)

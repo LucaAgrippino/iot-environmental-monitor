@@ -156,6 +156,9 @@
   :test_reset_driver:
     - STM32L475xx
     - TEST
+  :test_watchdog_driver:
+    - STM32L475xx
+    - TEST
   :test_cpu:
     - STM32L475xx
     - TEST

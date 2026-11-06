@@ -419,6 +419,46 @@ static void reset_soft_reset(void *ctx)
 static const lc_reset_driver_if_t k_reset = {.ctx = NULL, .soft_reset = reset_soft_reset};
 
 /* ======================================================================= */
+/* Watchdog (watchdog-driver.md section 3)                                  */
+/* ======================================================================= */
+
+/* Cycle count at the last kick, so a stuck SensorTask stops the kicks (WDG-D3). */
+static uint32_t s_wd_last_cycles;
+
+#ifdef GATEWAY_WDG_TEST_STALL
+/* Bench aid: stop kicking after this many kicks (one per second) to prove the reset. */
+#define WD_STALL_AFTER_KICKS (20U)
+static uint32_t s_wd_kicks;
+#endif
+
+static void wd_kick(void *ctx)
+{
+    (void) ctx;
+
+    if (sensor_task_get_handle() != NULL)
+    {
+        sensor_snapshot_t snap;
+
+        if ((sensor_service_get_snapshot(&snap) != SENSOR_SERVICE_ERR_OK) ||
+            (snap.cycle_count == s_wd_last_cycles))
+        {
+            return; /* SensorTask made no progress since the last kick */
+        }
+        s_wd_last_cycles = snap.cycle_count;
+    }
+#ifdef GATEWAY_WDG_TEST_STALL
+    s_wd_kicks++;
+    if (s_wd_kicks > WD_STALL_AFTER_KICKS)
+    {
+        return;
+    }
+#endif
+    watchdog_kick();
+}
+
+static const lc_watchdog_if_t k_watchdog = {.ctx = NULL, .kick = wd_kick};
+
+/* ======================================================================= */
 /* IHealthReport / IHealthAdmin                                             */
 /* ======================================================================= */
 
@@ -571,7 +611,7 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
                            .time_service = &k_time,
                            .firmware_store = ota_all ? &k_firmware_real : &k_firmware_standin,
                            .reset_driver = &k_reset,
-                           .watchdog = NULL};
+                           .watchdog = &k_watchdog};
     return LIFECYCLE_ERR_OK;
 }
 
@@ -649,5 +689,6 @@ void lifecycle_wiring_reset_for_test(void)
 {
     (void) memset(&s_cfg, 0, sizeof(s_cfg));
     s_using_defaults = false;
+    s_wd_last_cycles = 0U;
 }
 #endif /* TEST */

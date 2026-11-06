@@ -15,7 +15,8 @@
  *
  * Not product-complete (open items in gateway-main.md): the Wi-Fi credentials, the MQTT client id
  * and the TLS material still come from the gitignored bring-up headers, the same ones the
- * harnesses use; nothing secret is committed. There is no watchdog (LC-O8, section 9 of the doc).
+ * harnesses use; nothing secret is committed. The watchdog starts right before BootTask becomes
+ * LifecycleTask (watchdog-driver.md).
  *
  * Task stacks follow decision D-1 option F (1.5x the measured use). Every task's lowest free stack
  * is logged by the stack reporter, with a warning when it runs low.
@@ -64,6 +65,7 @@
 #include "spi/spi.h"
 #include "store_and_forward/store_and_forward.h"
 #include "time_provider/time_provider.h"
+#include "watchdog_driver/watchdog_driver.h"
 #include "time_service/time_service.h"
 #include "update_service/update_service.h"
 #include "wifi_driver/wifi_driver.h"
@@ -293,6 +295,7 @@ static void feed_wifi_rssi(void)
 static const char *const s_health_task_names[] = {"lifecycle", "SensorTask",      "ModbusPoller",
                                                    "WifiTask",  "CloudPublisherT", "TS",
                                                    "console",   "Tmr Svc"};
+#define WATCHDOG_TIMEOUT_MS (10000U)   /* REQ-NF-109 */
 #define HEALTH_TASKS_READY_MS (20000U) /* BootTask has created every task by then */
 
 static void register_health_tasks(void)
@@ -471,7 +474,12 @@ static void boot_task(void *arg)
 {
     (void) arg;
 
-    LOG_INFO("Main", "BootTask: Phase B starts");
+    {
+        static const char *const k_cause[] = {"power_on", "soft", "watchdog", "unknown"};
+
+        LOG_INFO("Main", "BootTask: Phase B starts, reset cause %s",
+                 k_cause[((unsigned) s_reset_cause < 4U) ? (unsigned) s_reset_cause : 3U]);
+    }
 
     /* WifiTask is created in task context, after the scheduler (F-1). */
     const wifitask_config_t wifitask_cfg = {.wifi = s_wifi};
@@ -624,6 +632,12 @@ static void boot_task(void *arg)
     (void) xTaskCreateStatic(lifecycle_wiring_poller_task, "ModbusPoller", POLLER_STACK_WORDS, NULL,
                              POLLER_PRIORITY, s_poller_stack, &s_poller_tcb);
 
+    /* The long boot steps are done; from here LifecycleController kicks once a second, gated on
+     * SensorTask progress (watchdog-driver.md). REQ-NF-109. */
+    if (watchdog_start(WATCHDOG_TIMEOUT_MS) != WATCHDOG_OK)
+    {
+        LOG_WARN("Main", "watchdog did not start");
+    }
     LOG_INFO("Main", "BootTask becomes LifecycleTask");
     lifecycle_task_body(NULL); /* never returns */
 }
