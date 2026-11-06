@@ -419,10 +419,10 @@ sub-state 5 — SelfChecking                       [REQ-DM-040]
 ### 7.3 Init time budget
 
 A FreeRTOS software timer is created at init with a period of
-**REQ-NF-213 TBD** (LC-O2). On expiry it posts
+**10 s, REQ-NF-213** (LC-O2, closed). On expiry it posts
 `LC_EVENT_UNRECOVERABLE_FAULT` with `param = LC_FAULT_INIT_TIMEOUT`.
 The timer is started at the first sub-state and stopped on Operational
-entry. Provisional value: **10 seconds** — confirm at coding time.
+entry. Value: **10 seconds**, confirmed by REQ-NF-213; the Gateway reaches Operational about 8 s after reset.
 
 ---
 
@@ -977,9 +977,9 @@ Earlier IDs (LC-O1..LC-O0) assigned in passes A–G.
 | ID | Item | Resolution path | Status |
 |---|---|---|---|
 | **LC-O1** | `s_cfg_snapshot` was sized for `CONFIG_STORE_MAX_DATA_BYTES` (32 712 B). | The Gateway buffer is 1 024 B (`LIFECYCLE_CFG_SNAPSHOT_BYTES`): the stored blob is `config_params_t` (about 480 B) plus the store header, and 32 KB cannot fit the 96 KB bank beside the TLS heap. A larger blob makes LoadingConfig fail instead of truncating. See LC-D3. | Resolved (Gateway) |
-| **LC-O2** | Init timeout budget (REQ-NF-213, value TBD) — provisional 10 s. | Implemented as the `lc_init` software timer, 10 s, started with sub-state 1 and stopped on Operational entry or when SelfChecking parks for the post-update verdict. The expiry is read at sub-state boundaries only, so it cannot interrupt a collaborator call that never returns; that case is the watchdog's. Value still awaits the SRS. | Open (value) |
+| **LC-O2** | Init timeout budget (REQ-NF-213) — 10 s. | Implemented as the `lc_init` software timer, 10 s, started with sub-state 1 and stopped on Operational entry or when SelfChecking parks for the post-update verdict. The expiry is read at sub-state boundaries only, so it cannot interrupt a collaborator call that never returns; that case is the watchdog's. Value fixed by REQ-NF-213 (10 s); Gateway Operational measured at about 8 s. | Closed 2026-11 |
 | **LC-O3** | Start-gate event group bit allocation — needs a project-wide event-group bit map. Provisional bit 0. | Bit 0 in `LIFECYCLE_START_GATE_BIT`. | Open |
-| **LC-O4** | Restart confirmation timeout (GW, REQ-DM-020) — provisional 30 s. | Implemented as the `lc_restart` timer, 30 s, measured on hardware at 29 990 ms (TC-HW-LC-009). Value still awaits the SRS. | Open (value) |
+| **LC-O4** | Restart confirmation timeout (GW, REQ-DM-020) — provisional 30 s. | Implemented as the `lc_restart` timer, 30 s, measured on hardware at 29 990 ms (TC-HW-LC-009). REQ-DM-020 now states the 30 s. | Closed 2026-11 |
 | **LC-O5** | Test hook design for `lifecycle_task_body`. | Resolved: in a TEST build the task body runs Init once, handles at most one event and returns. `lifecycle_controller_reset_for_test()`, `lifecycle_last_event_result_for_test()`, `lifecycle_timer_callback_for_test()` and `lifecycle_deferred_count_for_test()` complete the hook. | Resolved |
 | **LC-O6** | The collaborator interfaces (LC-D1) were defined here, not by their owners; the real modules lacked operations and UpdateService, FirmwareStore and ResetDriver did not exist. | **Mostly closed 2026-10-26.** `lifecycle_wiring` (LC-D15..D18) binds the real modules. Operations added to their owners: `sensor_service_reconfigure` (SS-D20), `modbus_poller_is_ready` (MBP-D7), `cloud_publisher_is_ready` / `flush` / `report_rollback_result` (CP-D16); ResetDriver built (`reset_trigger`). ConfigService, ConfigStore, TimeService and HealthMonitor needed no change. **Closed 2026-10-27 (LC-D19..D22):** UpdateService and FirmwareStore are bound through real adapters (the stand-ins remain for a Gateway without OTA). **Still open:** CloudPublisher cannot link into a real image (LC-O13), and `cloud_publisher_report_rollback_result` is dead code until CPC-6. | Mostly closed |
 | **LC-O7** | SelfChecking probed `cloud->is_ready()` right after `cloud->init()`, when the broker is not yet connected. | **Resolved 2026-10-26** by defining readiness as "created and able to accept messages" (CP-D16): CloudPublisher buffers in StoreAndForward while offline, so an offline start is normal. Same rule for the poller (MBP-D7). | Resolved |

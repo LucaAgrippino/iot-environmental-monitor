@@ -220,7 +220,7 @@ This sequence is the runtime view of the LifecycleController state machine's Ini
 | REQ-LD-230  | Boot splash visible until Operational                                              | NO SEQUENCE IMPLICATION here (lifecycle predicate) |
 | REQ-LD-240  | Splash dismissed on first Operational frame                                        | IMPLIES MESSAGE (final LCD update)          |
 | REQ-DM-090  | Persist configuration to non-volatile storage                                      | NO SEQUENCE IMPLICATION here (load side appears) |
-| REQ-NF-213  | Boot to operational within [TBD]                                                   | IMPLIES TIMING CONSTRAINT on boot duration  |
+| REQ-NF-213  | Boot to operational within 10 s                                                    | IMPLIES TIMING CONSTRAINT on boot duration  |
 
 #### Step 2 — Participants
 
@@ -238,7 +238,7 @@ This sequence is the runtime view of the LifecycleController state machine's Ini
 
 | #  | From                  | To                | Type   | Message text                          | Guard / fragment | Timing                           | Trace             |
 |----|-----------------------|-------------------|--------|---------------------------------------|------------------|----------------------------------|-------------------|
-| 1  | `LifecycleController` | `LifecycleController` | self | enter Init                           |                  | boot total {≤ NF-213 [TBD]}      | NF-213            |
+| 1  | `LifecycleController` | `LifecycleController` | self | enter Init                           |                  | boot total {≤ NF-213 10 s}      | NF-213            |
 | 2  | `LifecycleController` | `GraphicsLibrary` | sync   | render splash (stage: starting)       |                  |                                  | LD-200, LD-220    |
 | 3  | `LifecycleController` | `ConfigService`   | sync   | load configuration                    |                  |                                  | DM-090            |
 | 4  | `ConfigService`       | `ConfigStore`     | sync   | read config from flash                |                  |                                  | DM-090            |
@@ -270,7 +270,7 @@ This sequence is the runtime view of the LifecycleController state machine's Ini
 | REQ-MB-100              | Address multiple field devices by unique slave address                             | IMPLIES MESSAGE (per-slave probe loop)      |
 | REQ-CC-050              | Connect to AWS IoT Core via TLS                                                    | IMPLIES `ref` to SD-04b (TLS handshake)     |
 | REQ-NF-203              | Recover from MCU reset within 5 s                                                  | IMPLIES TIMING CONSTRAINT on boot duration  |
-| REQ-NF-213              | Boot to operational within [TBD]                                                   | IMPLIES TIMING CONSTRAINT                   |
+| REQ-NF-213              | Boot to operational within 10 s                                                    | IMPLIES TIMING CONSTRAINT                   |
 | REQ-TS-000              | NTP sync at boot                                                                   | IMPLIES `ref` to SD-09                      |
 | REQ-DM-040              | Self-check verifies sensor initialisations and communication links after boot      | IMPLIES MESSAGE (probes) + IMPLIES FRAGMENT(alt) |
 
@@ -1480,7 +1480,7 @@ This message is shown as an outbound async event; on receipt, `TimeService` re-e
 
 **UML note 1 (FD timestamp use):** *"Once the FD's holding register is written, the FD uses the gateway-provided time for its own timestamps (REQ-SA-100). Until then, the FD uses uptime-based timestamps and flags data unsynchronised (REQ-NF-212, REQ-TS-040)."*
 
-**UML note 2 (period configuration):** *"NTP sync period is configurable (REQ-TS-000 [TBD]). Boot sync runs once during SD-00b cold boot; periodic sync uses the same flow."*
+**UML note 2 (period configuration):** *"NTP sync period is configurable (REQ-TS-000, default 3600 s). Boot sync runs once during SD-00b cold boot; periodic sync uses the same flow."*
 
 **UML note 3 (`ModbusPoller` as P1 gatekeeper):** *"`TimeService` (application) routes the holding-register write through `ModbusPoller` (message 10) via the `IModbusPoller` interface to respect P1 strict directional layering — application-layer components must not call `ModbusMaster` (middleware) directly. `ModbusPoller` is the single Modbus bus gatekeeper for all application-layer callers."*
 
@@ -1636,8 +1636,8 @@ These are the cross-cutting decisions; each sub-diagram has its own decision tab
 |-----|---------------------------------------------------------------------------------------------------------|--------------------|--------------------------------------------------------------------------------|
 | Q1  | Chunk size for OTA download (adaptive or fixed)                                                         | SD-06b              | Depends on QSPI page size, MQTT message size limit, and broker constraints     |
 | Q2  | Per-channel alarm clearance flow with hysteresis (REQ-AM-010, REQ-AM-011)                                | SD-05 (out of scope)| Per-channel state machine deferred per state-machines.md open questions         |
-| Q3  | Buffer max capacity (REQ-BF-020 [TBD])                                                                  | SD-04a              | Depends on QSPI partition layout                                                |
-| Q4  | RTC sync interval (REQ-NF-210, REQ-NF-211 [TBD])                                                        | SD-09               | Depends on measured RTC drift during integration testing                        |
+| Q3  | Buffer max capacity (REQ-BF-020: 254)                                                                     | SD-04a              | Depends on QSPI partition layout                                                |
+| Q4  | RTC sync interval (REQ-NF-210/211: 3600 s)                                                        | SD-09               | Depends on measured RTC drift during integration testing                        |
 | Q5  | Self-check post-rollback final state (Idle vs Failed-with-operator-ack)                                  | SD-06d              | State-machine refinement                                                        |
 | Q6  | How does `LifecycleController` distinguish a clean boot from a post-update boot when no flags are set?  | SD-00c              | Negative-case state-machine design                                              |
 | Q7  | Modbus exception decoding internals                                                                     | SD-02               | Internal to `ModbusMaster` middleware                                           |

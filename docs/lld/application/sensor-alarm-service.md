@@ -604,7 +604,7 @@ Minimum test cases — AlarmService:
 
 | ID | Item | Resolution path | Status |
 |--------|------|-----------------|--------|
-| SS-O1 | IIR filter alpha value — [TBD] in REQ-SA-140. Provisional 0.1. Confirm with sensor characterisation data or customer spec. Must be validated to be in range (0, 1) exclusive at init. | Confirm IIR alpha with sensor characterisation data or customer spec before coding | Open |
-| SS-O2 | REQ-SA-090 "most recent [TBD] readings per sensor" — TBD not yet resolved. Decision: store only the latest reading (N=1) unless a specific requirement for historical access emerges. If N > 1 is required, add a static ring buffer per sensor inside SensorService. | Implement N=1 (latest reading only); revisit if historical access is required | Open |
+| SS-O1 | IIR filter alpha: REQ-SA-140 fixes α = 0.1 (the SRS no longer has a TBD); range (0, 1) exclusive validated at init. | Closed 2026-11 | Closed |
+| SS-O2 | REQ-SA-090 now reads "latest validated reading plus filter state" (SRS v1.3), which is the N=1 implementation. Stored history is REQ-SA-180..240 (unbuilt). | Closed 2026-11 | Closed |
 | SS-O3 | IMU and magnetometer alarm evaluation (GW) — deferred. Per-axis thresholds and magnitude thresholds have different physical interpretations. Design at coding time when customer threshold requirements are confirmed. | Design per-axis/magnitude thresholds at coding time once customer spec confirmed | Open |
 | SS-O4 | WCET measurement — the 3 ms (FD) / 5 ms (GW) budget must be verified by timing `sensor_service_run_cycle()` under debugger at target speed before sign-off. Record in `task-breakdown.md` §8 when measured. | Time sensor_service_run_cycle() on target under debugger; record in task-breakdown.md §8 | Open |
