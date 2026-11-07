@@ -10,9 +10,15 @@ It is owned by `LifecycleController` during Init, which drives it directly
 via `GraphicsLibrary`. `LcdUi` takes over once the system enters
 Operational.
 
-**Version:** 0.2
-**Date:** June 2026
-**Status:** Pass-H ready
+**Version:** 0.3
+**Date:** November 2026
+**Status:** Implemented; hardware-checked on the STM32F469I-DISCO on 2026-11-07 (section 18)
+
+> **v0.3 supersedes parts of v0.2.** The screen set grew from four to five (the Trend screen of SRS
+> v1.2, REQ-LD-160..195), the visual design is now the project design pack `docs/lcd-ui-design`, and
+> the Config screen no longer uses LVGL spinboxes. Section 18 is the authority wherever it differs
+> from sections 6 to 10 and 13 to 16; those sections keep their v0.2 text for the logic that did not
+> change (strategy dispatch, providers, ownership, error handling).
 
 **HLD anchor:** LcdUi in `components.md` (FD application layer)
 
@@ -22,7 +28,7 @@ Operational.
 
 ### 1.1 In scope
 
-- The **four runtime screens**: Sensor, Status, Alarm, Config.
+- The **five runtime screens**: Sensors, Trend, Status, Alarms, Config (v0.3; v0.2 had four).
 - The **Strategy pattern** screen dispatch model (`screen_t` interface).
 - Per-screen refresh logic (pull-on-tick from providers).
 - Touch routing model (LVGL widget-level + navigation tab bar).
@@ -946,3 +952,132 @@ aligned with direct-C decision (GL-D8), tick model corrected to
 GL-D7, error table expanded, init order clarified, principles list
 made consistent. Authored by Luca Agrippino; reviewed against the
 V-Model gate criteria for LLD.*
+
+---
+
+## 18. Design-pack alignment (v0.3)
+
+Authority for the visuals: `docs/lcd-ui-design/` (`style-guide.md`, the HTML mockups, the v9 screen
+specs in `_reference-v9-claude-design/03_SCREEN_SPECS.md`). Where the mockup of this project and the
+generic v9 spec differ, the mockup wins (it is the later, project-specific design): this concerns the
+Config screen (section 18.5). `00_PROJECT_OVERLAY.md` still decides library versions: LVGL 8.3.11.
+
+### 18.1 Screens and navigation
+
+| Index | Screen | Title | Tab icon (icon font) |
+|---|---|---|---|
+| 0 | Sensors | SENSOR READINGS | `ICON_SENSORS` U+E000 |
+| 1 | Trend | SENSOR TREND | `ICON_TREND` U+E008 |
+| 2 | Status | SYSTEM STATUS | `ICON_STATUS` U+E001 |
+| 3 | Alarms | ACTIVE ALARMS | `ICON_ALARMS` U+E002 |
+| 4 | Config | CONFIGURATION | `ICON_CONFIG` U+E003 |
+
+Five 160 px tab columns (REQ-LD-000). Navigation away from Config is refused while edits are pending
+or the confirm modal is open (toast "Save or cancel changes first."). `lcd_ui_select_screen(i)` asks
+for a screen from another task; the request is carried out by the next `lcd_ui_tick()` so LVGL stays
+owned by LcdUiTask.
+
+### 18.2 Modules
+
+| File | Role |
+|---|---|
+| `theme.[ch]` | Colour, spacing, layout and font tokens; every style; `theme_label_create`, `theme_box_create` |
+| `ui_format.[ch]` | Fixed-point and time text, keypad-entry parsing (pure, integer only) |
+| `ui_history.[ch]` | 5 min x 5 s sample ring, deltas (pure) |
+| `widgets/tab_bar`, `header_bar`, `footer_bar`, `status_pill` | Chrome |
+| `widgets/sensor_card` | Stripe, hero value, unit on the baseline, sparkline, status row |
+| `widgets/trend_panel` | Label column and autoscaled five-minute chart with gaps |
+| `widgets/status_row`, `alarm_card` | Rows of the Status and Alarms screens |
+| `widgets/config_field`, `numpad`, `button`, `confirm_modal` | Config screen |
+| `middleware/graphics_library/fonts/` | Generated Inter, JetBrains Mono and icon fonts (section 18.7) |
+
+### 18.3 Data bindings
+
+| Shown | Source |
+|---|---|
+| Hero value, status time | `isensor_service_t->get_snapshot()`: `value`, `valid`, `timestamp.epoch` |
+| Card state | WAIT: never valid. VALID: valid. STALE: valid but 10 s or more older than the newest reading. ERROR: invalid after having been valid (last value shown faded). ALARM: `ialarm_service_t->get_all_states()` not CLEAR |
+| Header clock | Timestamp of the temperature reading, `HH:MM:SS` (uptime seconds while unsynchronised) |
+| Header pill | INIT before the first valid reading; ALARM for an active alarm, a sensor error, a failed config write, or a Modbus link lost after it was up; else RUNNING |
+| Sparklines, deltas, Trend | `ui_history`: LcdUi samples the snapshot every 5 s (REQ-SA-200) into 60 slots (REQ-SA-190); invalid samples are gaps (REQ-LD-190). SensorService has no history API on the Field Device, so LcdUi owns this buffer |
+| Delta text | Newest minus oldest valid sample, window rounded to whole minutes, "—" until two samples exist; the label shows the real window ("/ 1m" to "/ 5m") |
+| Status rows | `ihealth_snapshot_t->get_snapshot()` (section 18.4) |
+| Alarm rows | Alarm state, current value from the snapshot, threshold from `iconfig_provider_t->get_params()`, "Triggered" = when the state was first seen |
+| Footer NEXT | `polling_interval_ms` minus the time since `cycle_count` last changed |
+
+### 18.4 Status screen content on the Field Device
+
+The design's example rows (CPU load, free heap, MCU temperature, WiFi RSSI, MQTT failures) are
+Gateway or unavailable data: `device_health_snapshot_t` has none of them on the Field Device. The
+screen shows what exists, in the design's layout (two columns, eyebrow sections, 30 px rows):
+
+| Section | Rows |
+|---|---|
+| SENSORS | Temperature, Humidity, Pressure sensor (valid / error); Sensor failures |
+| SYSTEM | Alarms raised; Active alarms; Config save (ok / FAILED) |
+| MODBUS | Slave link (online / offline); Valid frames; CRC errors; Exceptions |
+| DEVICE | Uptime; Firmware version; Stack margin (smallest non-zero task watermark, in bytes; warning below 256 B, error below 128 B) |
+
+A banner (error tint) appears above the columns for the most important soft fault. Refresh once a
+second. CPU load and MCU temperature stay open items (LCD-O3).
+
+### 18.5 Config screen (project mockup `configuration.html`)
+
+- Left: a scrolling list of the seven fields (touch drag), each an UPPERCASE label, an input box
+  (saved value muted, focused value with an accent border and a blinking caret) and the unit at the
+  right. Order: temperature HIGH and LOW, humidity HIGH and LOW, pressure HIGH and LOW, poll interval.
+  The poll interval is shown in seconds with one decimal (stored in ms).
+- Right: a 280 px numeric keypad, always visible, editing the focused field live (keys 0-9, `.`, a
+  red `DEL`). The design has no sign key although temperatures can be negative, so the keypad display
+  carries a small `+/-` toggle: an addition to the mockup.
+- Bottom bar: CANCEL (discard all edits) and APPLY (accent when at least one field changed and none
+  is invalid; dim otherwise, `APPLY x` while an entry is invalid).
+- Validation on every key: parse (at most one decimal digit), range (`k_fields`), and high above low.
+  An invalid entry shows its message under the box, blocks APPLY, and does not reach `pending`.
+- Footer left: `CONFIG . SAVED`, `UNSAVED`, `UNSAVED . VALIDATION ERROR`, `UNSAVED . PENDING CONFIRM`.
+- APPLY opens the modal "Apply Configuration?" with one line per change (`name: old -> new unit`).
+  CONFIRM writes the seven parameters (`apply_block_to_config`, order unchanged from v0.2) and on a
+  failure keeps the old values, raises `HEALTH_EVENT_LCD_FAIL` and shows a toast. The modal's CANCEL
+  returns to editing with the edits kept; the 30 s timeout and the bar CANCEL discard them.
+
+The sub-state machine of section 7.4 (Viewing, Editing, Confirming) is unchanged in meaning: Viewing
+means no edits, Editing means at least one edit or invalid entry, Confirming means the modal is open.
+
+### 18.6 Memory
+
+LVGL heap `LV_MEM_SIZE` is **96 KB** (was 32 KB: the five screens build about 600 objects). Measured
+on the board: 62.4 KB used after `lcd_ui_init` and 62.6 KB after a tour of every screen (64 %, 35 KB
+largest free block), so there is no growth. The image uses 163 KB of the 256 KB RAM and 524 KB of
+flash (fonts 190 KB).
+
+### 18.7 Fonts and icons
+
+Inter (Medium, SemiBold, Bold) and JetBrains Mono (Medium, SemiBold, Bold) at the sizes of
+`02_FONTS_AND_ICONS.md`, plus a line-icon font at 20, 24, 32 and 42 px, are generated by
+`scripts/gen-lvgl-fonts.py` (Pillow instead of `lv_font_conv`, which needs Node; same uncompressed 4 bpp
+format) into `middleware/graphics_library/fonts/`. The icons are the design's own SVG paths rendered
+with headless Chrome. Both families are SIL OFL 1.1 (licences in `docs/lcd-ui-design/fonts/`).
+The glyph table must be sorted by code point (LVGL bisects it); the generator sorts it.
+
+### 18.8 Build, simulator and tests
+
+- Firmware: `GUI=1 MAIN=<harness> scripts/build-fd-app.sh [--flash]` (LVGL, the BSP and the HAL are
+  not in CubeIDE's Debug configuration, which excludes the display modules).
+- Simulator: `simulator/lcd-ui` builds the same sources; `make native` and `make shots` render every
+  screen and state headless (`shots.sh`); screenshots are in `docs/lcd-ui-design/screenshots/`.
+- Host tests: `test_lcd_ui.c` (38 cases), `test_ui_format.c`, `test_ui_history.c` (the
+  pure functions), plus the driver tests. CI builds the GUI image and the simulator (job `fd-gui`).
+
+### 18.9 Decisions and open items
+
+| ID | Decision or item |
+|---|---|
+| LCD-D1 | Config follows the project mockup (inline keypad, bottom bar) rather than the v9 spec (spinboxes or a pop-up) |
+| LCD-D2 | LcdUi keeps the 5-minute history itself (no SensorService history on the FD) |
+| LCD-D3 | A lost Modbus link is a fault only after it was up once |
+| LCD-D4 | Fixed-point text uses integer arithmetic only (P9); the true minus U+2212 is used |
+| LCD-O1 | Splash and Firmware-update screens are not built (splash is owned by LifecycleController, section 1.2; firmware update is out of scope for the Field Device) |
+| LCD-O2 | The keypad's `+/-` toggle is not in the mockup: confirm or replace with a design for negative values |
+| LCD-O3 | CPU load, free heap and MCU temperature rows need new fields in `device_health_snapshot_t` |
+| LCD-O4 | Touch behaviour (tab taps, field taps, keypad, list drag) is covered by host tests and the simulator's scripted taps; it still needs a hands-on check on the board |
+| LCD-O5 | The sparkline and chart draw per pixel column; if a slower panel shows tearing, switch to a cached canvas |

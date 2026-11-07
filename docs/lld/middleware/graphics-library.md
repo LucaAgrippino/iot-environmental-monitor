@@ -395,7 +395,7 @@ Required settings:
 | `LV_HOR_RES_MAX` | `800` | Display width |
 | `LV_VER_RES_MAX` | `480` | Display height |
 | `LV_MEM_CUSTOM` | `0` | Static internal heap — no `malloc` |
-| `LV_MEM_SIZE` | `≥ 32768` | 32 KB static LVGL heap; tune at integration |
+| `LV_MEM_SIZE` | `98304` | 96 KB static LVGL heap (was 32 KB): the five-screen LcdUi uses 62 KB, measured on the board (LcdUi LLD section 18.6) |
 | `LV_USE_LOG` | `1` | Route LVGL log to `ILogger` |
 | `LV_LOG_PRINTF` | map to `log_debug(...)` | Forward via Logger |
 | `LV_TICK_CUSTOM` | `0` | Tick driven by `lv_tick_inc()` from timer callback |
