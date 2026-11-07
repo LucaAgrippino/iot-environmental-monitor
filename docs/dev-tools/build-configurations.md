@@ -24,9 +24,9 @@ harness at all), and a **check** that fails when a configuration would compile o
 | Gateway | Debug | the `cloud_publisher` harness; `Src/main.c` and four modules excluded; `-O0`, `DEBUG` | 1 |
 | Gateway | **Release** (repaired 2026-10-31) | the production image: `Src/main.c` and every module, no harness; `-Os`, no `DEBUG` | 1 (`Src/main.c`) |
 | Field Device | Debug | the `lifecycle_controller` harness | 1 |
-| Field Device | Release | `Src/main.c` excluded, no harness included | **0: no entry point** (section 7) |
+| Field Device | Release (repaired 2026-11-08) | the production image without the display: `Src/main.c` and every module except the display stack, no harness; `-Os`, no `DEBUG` | 1 (`Src/main.c`) |
 
-CI builds Gateway `Debug`, Gateway `Release` and Field Device `Debug`.
+CI builds `Debug` and `Release` of both projects.
 
 ## 3. The Gateway `Release` configuration (the production image)
 
@@ -138,6 +138,13 @@ The Field Device `Release` configuration was never maintained: it excludes `Src/
 has no entry point and could never link. The Field Device has no production `main()` yet, so it is not clear what
 `Release` should contain there. Either delete it from `.cproject`, or leave it until the Field Device has a production
 `main()`. Until then CI checks only the Field Device `Debug`.
+
+**Update 2026-11-08:** the Field Device now has a production `Src/main.c`. Its image is built by
+`scripts/build-fd-app.sh` (with `GUI=1` for the display stack, which CubeIDE's projects do not carry: LVGL, ST's BSP and HAL
+are not on their include paths); CI builds both variants. The CubeIDE `Release` is still stale and still needs the decision
+above.
+
+**Decided and done 2026-11-08 (project owner): repaired.** `Release` now compiles `Src/main.c` and every module except the display stack and the harnesses, with the include paths and defines of `Debug` (`STM32F469xx`, `BOARD_FIELD_DEVICE`) and `-Os`. Headless build: 0 errors; `check-build-exclusions` reports one `main()`; CI builds it (`f469-release`). The display variant stays with `scripts/build-fd-app.sh GUI=1`.
 
 ## 8. First run of the `Release` image on the board
 

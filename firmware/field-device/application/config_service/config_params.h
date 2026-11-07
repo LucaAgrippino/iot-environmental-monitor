@@ -40,7 +40,7 @@
 typedef struct __attribute__((packed))
 {
     /* ── Sensor acquisition (REQ-SA-070, SA-140) ── */
-    uint32_t polling_interval_ms; /**< ms; default 1000; range [100, 60000]           */
+    uint32_t polling_interval_ms; /**< ms; default 1000; range [100, 10000]           */
     uint16_t filter_alpha;        /**< ×1000 per-mille; default 100 (=0.100); (0,1000) excl. */
 
     /* ── Sensor physical ranges (REQ-SA-020, SA-120) ── */

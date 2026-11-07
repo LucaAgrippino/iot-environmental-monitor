@@ -86,7 +86,7 @@ static modbus_register_map_t s_mrm;
 #define PRESS_FIXED_MAX ((uint16_t) 11000U)
 #define PRESS_HYS_MAX ((uint16_t) 100U)
 #define SAMP_PERIOD_MIN ((uint16_t) 100U)
-#define SAMP_PERIOD_MAX ((uint16_t) 60000U)
+#define SAMP_PERIOD_MAX ((uint16_t) 10000U) /* REQ-NF-114 */
 #define LCD_BRIGHT_MAX ((uint16_t) 100U)
 #define LCD_TIMEOUT_MAX ((uint16_t) 3600U)
 #define SLAVE_ADDR_MIN ((uint16_t) 1U)

@@ -7,18 +7,22 @@
 
 #include "lcd_ui/ui_history.h"
 
+static const uint32_t k_stamp0[UI_CH_COUNT] = {0U, 0U, 0U};
+
 void setUp(void)
 {
     ui_history_reset();
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 static void push_all(int32_t t, int32_t h, int32_t p, bool ok)
 {
     const int32_t v[UI_CH_COUNT] = {t, h, p};
     const bool valid[UI_CH_COUNT] = {ok, ok, ok};
-    ui_history_push(v, valid);
+    ui_history_push(v, valid, k_stamp0);
 }
 
 void test_starts_empty(void)
@@ -81,10 +85,10 @@ void test_tick_samples_every_five_seconds(void)
     const int32_t v[UI_CH_COUNT] = {1, 2, 3};
     const bool ok[UI_CH_COUNT] = {true, true, true};
 
-    TEST_ASSERT_TRUE(ui_history_tick(1000U, v, ok));  /* first call always stores */
-    TEST_ASSERT_FALSE(ui_history_tick(3000U, v, ok)); /* 2 s later: too soon */
-    TEST_ASSERT_FALSE(ui_history_tick(5999U, v, ok));
-    TEST_ASSERT_TRUE(ui_history_tick(6000U, v, ok));
+    TEST_ASSERT_TRUE(ui_history_tick(1000U, v, ok, k_stamp0));  /* first call always stores */
+    TEST_ASSERT_FALSE(ui_history_tick(3000U, v, ok, k_stamp0)); /* 2 s later: too soon */
+    TEST_ASSERT_FALSE(ui_history_tick(5999U, v, ok, k_stamp0));
+    TEST_ASSERT_TRUE(ui_history_tick(6000U, v, ok, k_stamp0));
     TEST_ASSERT_EQUAL_UINT32(2U, ui_history_count());
 }
 
@@ -93,8 +97,9 @@ void test_tick_handles_the_millisecond_counter_wrapping(void)
     const int32_t v[UI_CH_COUNT] = {1, 2, 3};
     const bool ok[UI_CH_COUNT] = {true, true, true};
 
-    TEST_ASSERT_TRUE(ui_history_tick(0xFFFFFC00U, v, ok));
-    TEST_ASSERT_TRUE(ui_history_tick(0x00001000U, v, ok)); /* 5.1 s later across the wrap */
+    TEST_ASSERT_TRUE(ui_history_tick(0xFFFFFC00U, v, ok, k_stamp0));
+    TEST_ASSERT_TRUE(
+        ui_history_tick(0x00001000U, v, ok, k_stamp0)); /* 5.1 s later across the wrap */
 }
 
 void test_delta_needs_two_valid_samples(void)
@@ -144,4 +149,29 @@ void test_delta_rejects_null_outputs(void)
     uint32_t m;
     TEST_ASSERT_FALSE(ui_history_delta(UI_CH_TEMPERATURE, NULL, &m));
     TEST_ASSERT_FALSE(ui_history_delta(UI_CH_TEMPERATURE, &d, NULL));
+}
+
+void test_each_sample_keeps_the_acquisition_timestamp(void)
+{
+    const int32_t v[UI_CH_COUNT] = {1, 2, 3};
+    const bool ok[UI_CH_COUNT] = {true, true, true};
+    const uint32_t first[UI_CH_COUNT] = {100U, 101U, 102U};
+    const uint32_t second[UI_CH_COUNT] = {105U, 106U, 107U};
+    uint32_t t = 0U;
+
+    ui_history_push(v, ok, first);
+    ui_history_push(v, ok, second);
+
+    TEST_ASSERT_TRUE(ui_history_get_time(UI_CH_TEMPERATURE, 0U, &t));
+    TEST_ASSERT_EQUAL_UINT32(100U, t);
+    TEST_ASSERT_TRUE(ui_history_get_time(UI_CH_PRESSURE, 1U, &t));
+    TEST_ASSERT_EQUAL_UINT32(107U, t);
+}
+
+void test_timestamp_of_a_missing_sample_is_refused(void)
+{
+    uint32_t t = 0U;
+
+    TEST_ASSERT_FALSE(ui_history_get_time(UI_CH_TEMPERATURE, 0U, &t));
+    TEST_ASSERT_FALSE(ui_history_get_time(UI_CH_TEMPERATURE, 0U, NULL));
 }

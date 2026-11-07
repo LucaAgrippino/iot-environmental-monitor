@@ -227,6 +227,24 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 **PROVIDES (upward):** IRtc
 **USES (downward):** CMSIS
 
+**NAME:** AdcDriver
+**LAYER:** Driver
+**RESPONSIBILITY:** Reads the MCU's internal temperature sensor in tenths of a degree Celsius (REQ-CC-010, REQ-LD-070).
+**PROVIDES (upward):** direct API (`adc_init`, `adc_read_mcu_temp_deci_c`)
+**USES (downward):** CMSIS
+
+**NAME:** CpuDriver
+**LAYER:** Driver
+**RESPONSIBILITY:** Records the cause of a processor fault, assertion or stack overflow, reports it and restarts, and reports it again at the next start (REQ-NF-507).
+**PROVIDES (upward):** direct API (`cpu_init`, panic and soft-reset functions)
+**USES (downward):** CMSIS
+
+**NAME:** WatchdogDriver
+**LAYER:** Driver
+**RESPONSIBILITY:** Starts the independent watchdog and kicks it on behalf of LifecycleController (REQ-NF-109).
+**PROVIDES (upward):** direct API (`watchdog_start`, `watchdog_kick`)
+**USES (downward):** CMSIS
+
 **NAME:** I2cDriver
 **LAYER:** Driver
 **RESPONSIBILITY:** Serialises I2C bus transactions across multiple peripheral drivers (REQ-LD-050).
@@ -358,6 +376,9 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - LedDriver
 - RtcDriver
 - ResetDriver
+- AdcDriver *(internal temperature sensor; added 2026-11 for REQ-CC-010 / REQ-LD-070, docs/lld/drivers/adc-driver.md)*
+- CpuDriver *(fault capture, panic report, soft reset; REQ-NF-507, docs/lld/drivers/cpu-driver.md)*
+- WatchdogDriver *(independent watchdog; REQ-NF-109, docs/lld/drivers/watchdog-driver.md)*
 - I2cDriver
 - SpiDriver
 - GpioDriver
@@ -420,6 +441,9 @@ Top-level orchestrators (`LifecycleController`) may reference concrete component
 - LedDriver
 - RtcDriver
 - ResetDriver
+- AdcDriver *(internal temperature sensor; added 2026-11 for REQ-CC-010 / REQ-LD-070, docs/lld/drivers/adc-driver.md)*
+- CpuDriver *(fault capture, panic report, soft reset; REQ-NF-507, docs/lld/drivers/cpu-driver.md)*
+- WatchdogDriver *(independent watchdog; REQ-NF-109, docs/lld/drivers/watchdog-driver.md)*
 - I2cDriver
 - SpiDriver
 - GpioDriver

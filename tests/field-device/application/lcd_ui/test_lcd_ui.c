@@ -1015,3 +1015,34 @@ void test_TC_LCDUI_049_the_splash_footer_names_the_firmware_and_lvgl(void)
     TEST_ASSERT_NOT_NULL(ui->splash.root);
     TEST_ASSERT_NOT_NULL(ui->splash.logo);
 }
+
+/* ======================================================================= */
+/* History rules of the SRS (REQ-SA-220, REQ-SA-240)                       */
+/* ======================================================================= */
+
+void test_TC_LCDUI_050_a_history_sample_keeps_the_reading_timestamp(void)
+{
+    uint32_t t = 0U;
+    do_init();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE + 7U, 1U);
+    tick_at(200U);
+
+    TEST_ASSERT_TRUE(ui_history_get_time(UI_CH_TEMPERATURE, 0U, &t));
+    TEST_ASSERT_EQUAL_UINT32(EPOCH_BASE + 7U, t);
+}
+
+void test_TC_LCDUI_051_a_reading_older_than_the_history_interval_is_recorded_invalid(void)
+{
+    int32_t v = 0;
+    do_init();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U); /* fresh: stored valid */
+    TEST_ASSERT_TRUE(ui_history_get(UI_CH_TEMPERATURE, 0U, &v));
+
+    /* no new measurement (same cycle) when the next sample is due: the reading is 5.3 s old */
+    tick_at(5500U);
+    TEST_ASSERT_EQUAL_UINT32(2U, ui_history_count());
+    TEST_ASSERT_FALSE(ui_history_get(UI_CH_TEMPERATURE, 1U, &v));
+}

@@ -10,69 +10,21 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 
 | Evidence | Count |
 |---|---|
-| LLD + code | 63 |
-| LLD | 95 |
-| code | 1 |
-| HLD only | 11 |
-| No reference | 37 |
+| LLD + code | 79 |
+| LLD | 126 |
+| code | 2 |
+| HLD only | 0 |
+| No reference | 0 |
 
 ## Requirements with no reference
 
 | ID | Section | Requirement |
 |---|---|---|
-| REQ-SA-175 | 2.1 Sensor Acquisition [SA] | The system shall mark the sensor value as invalid if sensor reading fails. |
-| REQ-SA-190 | 2.1 Sensor Acquisition [SA] | The history shall span a window of 5 minutes |
-| REQ-SA-200 | 2.1 Sensor Acquisition [SA] | The history shall be sampled at a fixed interval of 5 seconds, independent of the configured polling rate |
-| REQ-SA-210 | 2.1 Sensor Acquisition [SA] | The history shall retain 60 entries per channel |
-| REQ-SA-220 | 2.1 Sensor Acquisition [SA] | Each history entry shall include the measurement value, its validity flag, and its acquisition timestamp |
-| REQ-SA-230 | 2.1 Sensor Acquisition [SA] | The history shall be stored in volatile memory only and shall be cleared on every reset |
-| REQ-SA-240 | 2.1 Sensor Acquisition [SA] | When the latest validated reading for a channel is older than the history sampling interval, the system shall  |
-| REQ-LD-020 | 2.3 Local Display — LCD [LD] | The system shall display the timestamp of the most recent reading on the LCD |
-| REQ-LD-120 | 2.3 Local Display — LCD [LD] | The system shall request confirmation from the Field Technician before applying changes |
-| REQ-LD-130 | 2.3 Local Display — LCD [LD] | The system shall apply the change if a confirmation is received |
-| REQ-LD-155 | 2.3 Local Display — LCD [LD] | The system shall discard all the input parameters if no confirmation is received. |
-| REQ-LD-150 | 2.3 Local Display — LCD [LD] | The system shall save the parameters to persistent memory when they are successfully applied. |
-| REQ-LD-160 | 2.3 Local Display — LCD [LD] | The system shall provide a sensor trend screen on the LCD displaying the rolling history for temperature, humi |
-| REQ-LD-170 | 2.3 Local Display — LCD [LD] | The trend screen shall span the full 5-minute history window on its time axis |
-| REQ-LD-180 | 2.3 Local Display — LCD [LD] | The trend screen shall refresh when a new history sample becomes available |
-| REQ-LD-190 | 2.3 Local Display — LCD [LD] | The trend screen shall indicate invalid history entries as gaps in the plotted series |
-| REQ-LD-195 | 2.3 Local Display — LCD [LD] | The trend screen shall display a "history accumulating" indicator until the buffer holds at least one valid en |
-| REQ-LD-260 | 2.3 Local Display — LCD [LD] | The green LED shall be illuminated when the system is in Operational state. |
-| REQ-LD-270 | 2.3 Local Display — LCD [LD] | The green LED shall not be illuminated when the system is in Error state. |
-| REQ-LD-280 | 2.3 Local Display — LCD [LD] | The red LED shall be illuminated when at least one alarm is active. *(Field Device only — the Gateway has no r |
-| REQ-LI-020 | 2.4 Local Interface — CLI [LI] | The system shall display the result of the diagnostic |
-| REQ-LI-170 | 2.4 Local Interface — CLI [LI] | The system shall display an error message if the diagnostic command fails. |
-| REQ-LI-180 | 2.4 Local Interface — CLI [LI] | The system shall display an error message with the problem if the input validation fails. |
-| REQ-LI-190 | 2.4 Local Interface — CLI [LI] | The system shall discard all the input parameters if no confirmation is received. |
-| REQ-TS-050 | 2.7 Time Synchronisation [TS] | The system shall retry to get the time update as soon as the internet connection is restored. |
-| REQ-TS-060 | 2.7 Time Synchronisation [TS] | The system shall retry writing the synchronised time to the field device via Modbus as soon as Modbus connecti |
-| REQ-NF-102 | 3.1 Performance | The system shall clear an alarm condition within one polling cycle of the measurement being in the range |
-| REQ-NF-114 | 3.1 Performance | The system shall use a polling rate within the range 0.1 Hz (minimum, 10 s period) and 10 Hz (maximum, 100 ms  |
-| REQ-NF-303 | 3.3 Security | The system shall restrict CLI access to physical serial connections only |
-| REQ-NF-307 | 3.3 Security | The system shall require a pre-execution confirmation response before executing potentially disruptive Tier 3  |
-| REQ-NF-400 | 3.4 Memory and Resource Constraints | The system shall operate within the 128 KB SRAM of the B-L475E-IOT01A |
-| REQ-NF-401 | 3.4 Memory and Resource Constraints | The system shall operate within the 1 MB FLASH of the B-L475E-IOT01A |
-| REQ-NF-406 | 3.4 Memory and Resource Constraints | The system shall allocate no more than 3 MB of non-volatile storage for diagnostic logs on the gateway (Circul |
-| REQ-NF-502 | 3.5 Maintainability | The system shall be implemented in conformance with the project's BARR-C:2018 subset coding standard. |
-| REQ-NF-505 | 3.5 Maintainability | The system shall include Doxygen-compatible documentation comments for all public API functions |
-| REQ-NF-506 | 3.5 Maintainability | The system shall expose vendor-neutral interfaces to the middleware and application layers |
-| REQ-NF-507 | 3.5 Maintainability | On a processor fault, a failed assertion or a task stack overflow the system shall record the cause and the pr |
 
 ## Requirements cited in the HLD only
 
 | ID | Section | HLD document |
 |---|---|---|
-| REQ-SA-110 | 2.1 Sensor Acquisition [SA] | sequence-diagrams |
-| REQ-SA-150 | 2.1 Sensor Acquisition [SA] | sequence-diagrams |
-| REQ-AM-011 | 2.2 Alarm Management [AM] | modbus-register-map, sequence-diagrams, state-machines |
-| REQ-CC-030 | 2.6 Cloud Communication [CC] | sequence-diagrams |
-| REQ-CC-040 | 2.6 Cloud Communication [CC] | sequence-diagrams |
-| REQ-CC-071 | 2.6 Cloud Communication [CC] | sequence-diagrams |
-| REQ-DM-021 | 2.8 Device Management [DM] | sequence-diagrams, state-machines |
-| REQ-DM-062 | 2.8 Device Management [DM] | sequence-diagrams |
-| REQ-NF-207 | 3.2 Reliability | sequence-diagrams |
-| REQ-NF-209 | 3.2 Reliability | hld, sequence-diagrams, state-machines |
-| REQ-NF-404 | 3.4 Memory and Resource Constraints | flash-partition-layout |
 
 ## Full matrix
 
@@ -91,60 +43,60 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-SA-080 | UC-07 | LLD | sequence-diagrams | fd-gw-sensor-alarm-service-lld, gw-sensor-drivers-group-a-lld, gw-sensor-drivers-group-b-lld, humidity-temp-barometer-drivers, lld, sensor-alarm-service | TC-SS-004 |
 | REQ-SA-090 | UC-07 | LLD | - | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | - |
 | REQ-SA-100 | UC-07 | LLD + code | sequence-diagrams | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | TC-SS-003 |
-| REQ-SA-110 | UC-07, UC-14 | HLD only | sequence-diagrams | - | - |
+| REQ-SA-110 | UC-07, UC-14 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
 | REQ-SA-120 | UC-07 | LLD + code | components, hld, sequence-diagrams | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | TC-SS-005 |
 | REQ-SA-130 | UC-07 | LLD + code | components, hld, sequence-diagrams | fd-gw-sensor-alarm-service-lld, sensor-alarm-service, simulated-sensor-drivers | TC-SS-006 |
 | REQ-SA-140 | UC-07 | LLD + code | components, hld, sequence-diagrams | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | TC-SS-007, TC-SS-008 |
-| REQ-SA-150 | UC-07 | HLD only | sequence-diagrams | - | - |
-| REQ-SA-175 | UC-07 | No reference | - | - | - |
+| REQ-SA-150 | UC-07 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
+| REQ-SA-175 | UC-07 | LLD | - | requirement-coverage-addendum | - |
 | REQ-SA-170 | UC-14 | LLD + code | - | cloud-publisher-lld, fd-gw-sensor-alarm-service-lld, sensor-alarm-service | TC-SS-012 |
-| REQ-SA-180 | UC-01 | LLD | - | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | - |
-| REQ-SA-190 | UC-01 | No reference | - | - | - |
-| REQ-SA-200 | UC-01 | No reference | - | - | - |
-| REQ-SA-210 | UC-01 | No reference | - | - | - |
-| REQ-SA-220 | UC-01 | No reference | - | - | - |
-| REQ-SA-230 | UC-01 | No reference | - | - | - |
-| REQ-SA-240 | UC-01 | No reference | - | - | - |
+| REQ-SA-180 | UC-01 | LLD + code | - | fd-gw-sensor-alarm-service-lld, sensor-alarm-service | - |
+| REQ-SA-190 | UC-01 | LLD + code | - | lcd-ui-lld | - |
+| REQ-SA-200 | UC-01 | LLD + code | - | lcd-ui-lld | - |
+| REQ-SA-210 | UC-01 | LLD | - | requirement-coverage-addendum | - |
+| REQ-SA-220 | UC-01 | LLD + code | - | requirement-coverage-addendum | TC-LCDUI-050 |
+| REQ-SA-230 | UC-01 | LLD | - | requirement-coverage-addendum | - |
+| REQ-SA-240 | UC-01 | LLD + code | - | requirement-coverage-addendum | TC-LCDUI-051 |
 | REQ-AM-000 | UC-08 | LLD + code | modbus-register-map, sequence-diagrams, state-machines | config-service-lld, fd-gw-sensor-alarm-service-lld, lld, sensor-alarm-service | - |
 | REQ-AM-010 | UC-08 | LLD | sequence-diagrams | fd-gw-sensor-alarm-service-lld | TC-AS-001, TC-AS-002 |
-| REQ-AM-011 | UC-08 | HLD only | modbus-register-map, sequence-diagrams, state-machines | - | - |
+| REQ-AM-011 | UC-08 | LLD | modbus-register-map, sequence-diagrams, state-machines | requirement-coverage-addendum | - |
 | REQ-AM-020 | UC-08, UC-09 | LLD | modbus-register-map, sequence-diagrams | fd-gw-sensor-alarm-service-lld, lld, modbus-register-map-lld | TC-AS-003, TC-AS-009 |
 | REQ-AM-030 | UC-09 | LLD | sequence-diagrams | fd-gw-sensor-alarm-service-lld | TC-AS-010 |
 | REQ-AM-040 | UC-09 | LLD + code | sequence-diagrams, state-machines | cloud-publisher-lld, fd-gw-sensor-alarm-service-lld, sensor-alarm-service | TC-AS-010 |
-| REQ-LD-000 | UC-01, UC-02, UC-03, UC-15 | LLD | components, hld, state-machines | graphics-library, lcd-driver, lcd-ui-lld, lifecycle-controller-lld, lld, sdram-driver, touchscreen-driver | - |
-| REQ-LD-010 | UC-01 | LLD | components | lcd-driver, lcd-ui-lld, lld, sdram-driver | - |
-| REQ-LD-020 | UC-01 | No reference | - | - | - |
+| REQ-LD-000 | UC-01, UC-02, UC-03, UC-15 | LLD + code | components, hld, state-machines | graphics-library, lcd-driver, lcd-ui-lld, lifecycle-controller-lld, lld, sdram-driver, touchscreen-driver | - |
+| REQ-LD-010 | UC-01 | LLD + code | components | lcd-driver, lcd-ui-lld, lld, sdram-driver | - |
+| REQ-LD-020 | UC-01 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LD-030 | UC-01 | LLD | - | lcd-ui-lld | - |
 | REQ-LD-040 | UC-01 | LLD | - | lcd-ui-lld | - |
-| REQ-LD-050 | UC-01 | LLD | components, modbus-register-map | graphics-library, i2c-driver, lcd-ui-lld, lld, touchscreen-driver | - |
-| REQ-LD-060 | UC-01 | LLD | - | lcd-ui-lld | - |
-| REQ-LD-070 | UC-02 | LLD | modbus-register-map | health-monitor-lld, lcd-ui-lld, lld, modbus-register-map-lld, modbus-slave | - |
+| REQ-LD-050 | UC-01 | LLD + code | components, modbus-register-map | graphics-library, i2c-driver, lcd-ui-lld, lld, touchscreen-driver | - |
+| REQ-LD-060 | UC-01 | LLD + code | - | lcd-ui-lld | - |
+| REQ-LD-070 | UC-02 | LLD + code | components, modbus-register-map | adc-driver, health-monitor-lld, lcd-ui-lld, lld, modbus-register-map-lld, modbus-slave | - |
 | REQ-LD-080 | UC-03 | LLD | - | lcd-ui-lld | - |
 | REQ-LD-090 | UC-03 | LLD | - | lcd-ui-lld | - |
 | REQ-LD-100 | UC-15 | LLD | components, modbus-register-map | lcd-ui-lld, lld, touchscreen-driver | - |
 | REQ-LD-110 | UC-15 | LLD | - | lcd-ui-lld | - |
-| REQ-LD-120 | UC-15 | No reference | - | - | - |
-| REQ-LD-130 | UC-15 | No reference | - | - | - |
+| REQ-LD-120 | UC-15 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LD-130 | UC-15 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LD-140 | UC-15 | LLD | - | lcd-ui-lld | - |
-| REQ-LD-155 | UC-15 | No reference | - | - | - |
-| REQ-LD-150 | UC-15 | No reference | - | - | - |
-| REQ-LD-160 | UC-01 | No reference | - | - | - |
-| REQ-LD-170 | UC-01 | No reference | - | - | - |
-| REQ-LD-180 | UC-01 | No reference | - | - | - |
-| REQ-LD-190 | UC-01 | No reference | - | - | - |
-| REQ-LD-195 | UC-01 | No reference | - | - | - |
-| REQ-LD-200 | UC-01 | LLD | components, hld, sequence-diagrams, state-machines | lcd-ui-lld, led-driver-lld, lifecycle-controller-lld, lld | TC-LC-038 |
-| REQ-LD-210 | UC-01 | LLD | sequence-diagrams | lifecycle-controller-lld | - |
+| REQ-LD-155 | UC-15 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LD-150 | UC-15 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LD-160 | UC-01 | LLD | - | lcd-ui-lld | - |
+| REQ-LD-170 | UC-01 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LD-180 | UC-01 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LD-190 | UC-01 | LLD + code | - | lcd-ui-lld | - |
+| REQ-LD-195 | UC-01 | code | - | - | - |
+| REQ-LD-200 | UC-01 | LLD + code | components, hld, sequence-diagrams, state-machines | lcd-ui-lld, led-driver-lld, lifecycle-controller-lld, lld | TC-LC-038 |
+| REQ-LD-210 | UC-01 | LLD + code | sequence-diagrams | lifecycle-controller-lld | - |
 | REQ-LD-220 | UC-01 | LLD | sequence-diagrams | lifecycle-controller-lld | TC-LC-039 |
 | REQ-LD-230 | UC-01 | LLD | sequence-diagrams | lifecycle-controller-lld | - |
 | REQ-LD-240 | UC-01 | LLD | sequence-diagrams | lifecycle-controller-lld | TC-LC-040 |
 | REQ-LD-250 | UC-04, UC-06 | LLD | components | lld | - |
-| REQ-LD-260 | UC-04, UC-06 | No reference | - | - | - |
-| REQ-LD-270 | UC-04, UC-06 | No reference | - | - | - |
-| REQ-LD-280 | UC-08 | No reference | - | - | - |
+| REQ-LD-260 | UC-04, UC-06 | LLD | - | requirement-coverage-addendum | TC-HM-003 |
+| REQ-LD-270 | UC-04, UC-06 | LLD | - | requirement-coverage-addendum | TC-HM-004 |
+| REQ-LD-280 | UC-08 | LLD | - | requirement-coverage-addendum | TC-HM-003, TC-HM-005 |
 | REQ-LI-000 | UC-04 | LLD + code | - | console-service-lld, debug-uart-driver, gw-console-service-lld, lld | TC-CS-011, TC-CS-170 |
 | REQ-LI-010 | UC-04 | LLD | components, task-breakdown | console-service-lld, debug-uart-driver, gw-console-service-lld, lld | TC-CS-044, TC-CS-045, TC-CS-046, TC-CS-047, TC-CS-048, TC-CS-049 (+15) |
-| REQ-LI-020 | UC-04 | No reference | - | - | - |
+| REQ-LI-020 | UC-04 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LI-030 | UC-16 | LLD + code | - | config-service-lld, console-service-lld, gw-console-service-lld, lld | - |
 | REQ-LI-040 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-080, TC-CS-100, TC-GCS-130, TC-GCS-133 |
 | REQ-LI-050 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-083, TC-GCS-136 |
@@ -159,9 +111,9 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-LI-140 | UC-04 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-111, TC-CS-112, TC-CS-113, TC-CS-114, TC-CS-115, TC-GCS-171 (+4) |
 | REQ-LI-150 | UC-04 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-043, TC-GCS-103 |
 | REQ-LI-160 | UC-04 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-110, TC-CS-117, TC-CS-118, TC-GCS-177, TC-GCS-178 |
-| REQ-LI-170 | UC-04 | No reference | - | - | - |
-| REQ-LI-180 | UC-16 | No reference | - | - | - |
-| REQ-LI-190 | UC-16 | No reference | - | - | - |
+| REQ-LI-170 | UC-04 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LI-180 | UC-16 | LLD | - | requirement-coverage-addendum | - |
+| REQ-LI-190 | UC-16 | LLD | - | requirement-coverage-addendum | - |
 | REQ-MB-000 | UC-07 | LLD | sequence-diagrams, state-machines | lld, modbus-register-map-lld, modbus-slave | - |
 | REQ-MB-010 | UC-10 | LLD | modbus-register-map, sequence-diagrams | lld, modbus-master-poller, modbus-poller-lld, modbus-uart-driver | - |
 | REQ-MB-020 | UC-13 | LLD | hld, state-machines | modbus-poller-lld, modbus-register-map-lld | - |
@@ -179,14 +131,14 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-MB-130 | UC-07, UC-10, UC-16 | LLD + code | hld, modbus-register-map, sequence-diagrams | device-profile-registry-lld, modbus-poller-lld | - |
 | REQ-MB-140 | UC-19 | LLD + code | - | cloud-publisher-lld | - |
 | REQ-CC-000 | UC-05, UC-10 | LLD | sequence-diagrams | cloud-publisher-lld, lld | - |
-| REQ-CC-010 | UC-06, UC-11 | LLD + code | sequence-diagrams | cloud-publisher-lld, health-monitor-lld, lld, store-and-forward-lld | - |
+| REQ-CC-010 | UC-06, UC-11 | LLD + code | components, sequence-diagrams | adc-driver, cloud-publisher-lld, health-monitor-lld, lld, store-and-forward-lld | - |
 | REQ-CC-020 | UC-09, UC-12 | LLD | - | cloud-publisher-lld, mqtt-client | - |
-| REQ-CC-030 | UC-10 | HLD only | sequence-diagrams | - | - |
-| REQ-CC-040 | UC-11 | HLD only | sequence-diagrams | - | - |
+| REQ-CC-030 | UC-10 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
+| REQ-CC-040 | UC-11 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
 | REQ-CC-050 | UC-10, UC-11, UC-12 | LLD | components, hld, sequence-diagrams, state-machines | cloud-publisher-lld, exti-driver, lld, mqtt-client, wifi-driver, wifi-task | - |
 | REQ-CC-060 | UC-10, UC-11, UC-12 | LLD | components, sequence-diagrams | lld, mqtt-client | - |
 | REQ-CC-070 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | cloud-publisher-lld, health-monitor-lld, lld | - |
-| REQ-CC-071 | UC-10, UC-11, UC-12 | HLD only | sequence-diagrams | - | - |
+| REQ-CC-071 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
 | REQ-CC-080 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | cloud-publisher-lld | - |
 | REQ-CC-090 | UC-06 | LLD | sequence-diagrams | health-monitor-lld, lld | - |
 | REQ-SA-160 | UC-07, UC-10 | LLD + code | sequence-diagrams | cloud-publisher-lld | - |
@@ -195,14 +147,14 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-TS-020 | UC-13 | LLD + code | sequence-diagrams | lld, rtc-driver, time-service-lld | - |
 | REQ-TS-030 | UC-13 | LLD + code | modbus-register-map, sequence-diagrams, state-machines | time-service-lld | - |
 | REQ-TS-040 | UC-13 | LLD + code | sequence-diagrams, state-machines | cloud-publisher-lld, cpu-driver, lld, rtc-driver, time-provider, time-service-lld | - |
-| REQ-TS-050 | UC-13 | No reference | - | - | - |
-| REQ-TS-060 | UC-13 | No reference | - | - | - |
+| REQ-TS-050 | UC-13 | LLD | - | requirement-coverage-addendum | - |
+| REQ-TS-060 | UC-13 | LLD | - | requirement-coverage-addendum | - |
 | REQ-DM-000 | UC-15 | LLD + code | sequence-diagrams | cloud-publisher-lld, config-service-lld, lld | - |
 | REQ-DM-001 | UC-15 | LLD + code | sequence-diagrams | config-service-lld | - |
 | REQ-DM-002 | UC-15 | LLD + code | sequence-diagrams | config-service-lld, mqtt-client | - |
 | REQ-DM-010 | UC-17 | LLD + code | components, sequence-diagrams, state-machines | lifecycle-controller-lld, lld, reset-driver | TC-LC-085, TC-LC-133 |
 | REQ-DM-020 | UC-17 | LLD + code | sequence-diagrams, state-machines | lifecycle-controller-lld, modbus-register-map-lld | TC-HW-LC-009, TC-LC-086, TC-LC-089 |
-| REQ-DM-021 | UC-17 | HLD only | sequence-diagrams, state-machines | - | - |
+| REQ-DM-021 | UC-17 | LLD | sequence-diagrams, state-machines | requirement-coverage-addendum | - |
 | REQ-DM-030 | UC-17 | LLD | sequence-diagrams, state-machines | lifecycle-controller-lld, reset-driver | TC-LC-087 |
 | REQ-DM-040 | UC-17 | LLD + code | sequence-diagrams, state-machines | lifecycle-controller-lld, lld, update-service-lld | TC-LC-053, TC-LC-054, TC-LC-055, TC-LC-056, TC-LC-062, TC-LC-070 (+1) |
 | REQ-DM-050 | UC-18 | LLD | flash-partition-layout, sequence-diagrams, state-machines, task-breakdown | firmware-store, lld, update-service-lld | - |
@@ -214,7 +166,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-DM-056 | UC-18 | LLD | sequence-diagrams | update-service-lld | TC-SYS-OTA-004 |
 | REQ-DM-060 | UC-18, UC-20 | LLD | components, sequence-diagrams, state-machines | firmware-store, update-service-lld | - |
 | REQ-DM-061 | UC-18 | LLD | sequence-diagrams | firmware-store, update-service-lld | - |
-| REQ-DM-062 | UC-18 | HLD only | sequence-diagrams | - | - |
+| REQ-DM-062 | UC-18 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
 | REQ-DM-070 | UC-18 | LLD | components, hld, sequence-diagrams, state-machines | bootloader, firmware-store, internal-flash-driver, update-service-lld | - |
 | REQ-DM-071 | UC-18 | LLD | sequence-diagrams, state-machines | firmware-store, lifecycle-controller-lld, lld, update-service-lld | TC-LC-051, TC-LC-057, TC-LC-058, TC-LC-097 |
 | REQ-DM-072 | UC-18 | LLD | sequence-diagrams | bootloader, firmware-store, lifecycle-controller-lld, update-service-lld | TC-LC-052, TC-LC-059, TC-LC-060, TC-LC-061, TC-LC-098 |
@@ -229,29 +181,29 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-BF-020 | UC-10, UC-11, UC-12 | LLD + code | sequence-diagrams, state-machines | circular-flash-log, lld, store-and-forward-lld | TC-HW-CP-011, TC-HW-SAF-011 |
 | REQ-NF-100 | UC-07 | LLD | sequence-diagrams, task-breakdown | i2c-driver, lld | - |
 | REQ-NF-101 | UC-08 | LLD | components, flash-partition-layout, hld, sequence-diagrams, task-breakdown | fd-gw-sensor-alarm-service-lld, lld, modbus-register-map-lld | TC-HW-SS-009 |
-| REQ-NF-102 | UC-08 | No reference | - | - | - |
+| REQ-NF-102 | UC-08 | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-103 | UC-07, UC-10 | LLD + code | hld, modbus-register-map, sequence-diagrams, state-machines, task-breakdown | lld, modbus-master-poller, modbus-poller-lld | - |
 | REQ-NF-104 | UC-07, UC-10 | LLD | sequence-diagrams, state-machines | modbus-master-poller, modbus-poller-lld | - |
 | REQ-NF-105 | UC-07, UC-10 | LLD | modbus-register-map, sequence-diagrams, state-machines | lld | - |
 | REQ-NF-106 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | lld | - |
 | REQ-NF-107 | UC-19 | LLD + code | - | update-service-lld | - |
-| REQ-NF-108 | UC-01 | LLD | components, task-breakdown | graphics-library, lcd-driver, lcd-ui-lld, lld | - |
-| REQ-NF-109 | — | LLD + code | - | cpu-driver, firmware-store, rtc-driver, watchdog-driver | - |
+| REQ-NF-108 | UC-01 | LLD + code | components, task-breakdown | graphics-library, lcd-driver, lcd-ui-lld, lld | - |
+| REQ-NF-109 | — | LLD + code | components | firmware-store, rtc-driver, watchdog-driver | - |
 | REQ-NF-110 | UC-07 | LLD + code | modbus-register-map, sequence-diagrams | modbus-master-poller, modbus-poller-lld | - |
 | REQ-NF-111 | UC-10 | LLD | sequence-diagrams | cloud-publisher-lld | - |
 | REQ-NF-112 | UC-11 | LLD | sequence-diagrams | cloud-publisher-lld | - |
 | REQ-NF-113 | UC-09, UC-12 | LLD + code | sequence-diagrams, task-breakdown | circular-flash-log, cloud-publisher-lld, mqtt-client, qspi-flash-driver, update-service-lld, wifi-task | TC-HW-CP-004, TC-HW-CP-010, TC-HW-CP-011, TC-HW-QSPI-010 |
-| REQ-NF-114 | UC-07 | No reference | - | - | - |
+| REQ-NF-114 | UC-07 | LLD + code | - | config-service-lld, requirement-coverage-addendum | - |
 | REQ-NF-200 | UC-07, UC-08 | LLD | hld, sequence-diagrams, state-machines | firmware-store | - |
 | REQ-NF-201 | UC-07, UC-10 | LLD + code | sequence-diagrams | lld, modbus-poller-lld, time-service-lld | - |
 | REQ-NF-202 | — | LLD | components, modbus-register-map, state-machines | bootloader, cpu-driver, gpio-driver, lifecycle-controller-lld, lld, reset-driver, watchdog-driver | TC-LC-105, TC-LC-106 |
-| REQ-NF-203 | UC-17 | LLD | hld, modbus-register-map, sequence-diagrams, state-machines | bootloader, cpu-driver, lifecycle-controller-lld, lld, reset-driver, update-service-lld | TC-HW-BL-009, TC-HW-BL-010, TC-LC-005, TC-LC-010, TC-LC-011, TC-LC-012 (+3) |
+| REQ-NF-203 | UC-17 | LLD | hld, modbus-register-map, sequence-diagrams, state-machines | bootloader, lifecycle-controller-lld, lld, reset-driver, update-service-lld | TC-HW-BL-009, TC-HW-BL-010, TC-LC-005, TC-LC-010, TC-LC-011, TC-LC-012 (+3) |
 | REQ-NF-204 | UC-18 | LLD + code | flash-partition-layout, hld, sequence-diagrams, state-machines | bootloader, firmware-store, lld, reset-driver, update-service-lld | TC-SYS-OTA-002 |
 | REQ-NF-205 | UC-07 | LLD + code | state-machines | i2c-driver, lld | TC-HW-SB-009, TC-IM-016, TC-MG-015 |
 | REQ-NF-206 | UC-10 | LLD | sequence-diagrams | lld, mqtt-client | - |
-| REQ-NF-207 | UC-09, UC-12 | HLD only | sequence-diagrams | - | - |
+| REQ-NF-207 | UC-09, UC-12 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
 | REQ-NF-208 | UC-07 | LLD | sequence-diagrams | health-monitor-lld, i2c-driver, lld | - |
-| REQ-NF-209 | UC-10, UC-11, UC-12 | HLD only | hld, sequence-diagrams, state-machines | - | - |
+| REQ-NF-209 | UC-10, UC-11, UC-12 | LLD | hld, sequence-diagrams, state-machines | requirement-coverage-addendum | - |
 | REQ-NF-210 | UC-13 | LLD | sequence-diagrams | lld, time-provider | - |
 | REQ-NF-211 | UC-13 | LLD | - | lld, time-provider | - |
 | REQ-NF-212 | UC-13 | LLD + code | sequence-diagrams | cloud-publisher-lld, cpu-driver, lld, rtc-driver, time-provider, time-service-lld | - |
@@ -262,26 +214,26 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-NF-300 | UC-10, UC-11, UC-12 | LLD + code | - | lld, mqtt-client, update-service-lld | - |
 | REQ-NF-301 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | lld, mqtt-client | - |
 | REQ-NF-302 | UC-16 | LLD + code | flash-partition-layout | lld, mqtt-client | - |
-| REQ-NF-303 | UC-04, UC-16 | No reference | - | - | - |
+| REQ-NF-303 | UC-04, UC-16 | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-304 | UC-18, UC-20 | LLD | sequence-diagrams | firmware-store, lld, qspi-flash-driver, update-service-lld | TC-SYS-OTA-005 |
 | REQ-NF-305 | UC-10, UC-11, UC-12 | LLD | - | lld, mqtt-client | - |
 | REQ-NF-306 | UC-16 | code | - | - | - |
-| REQ-NF-307 | UC-17 | No reference | - | - | - |
+| REQ-NF-307 | UC-17 | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-308 | UC-14 | LLD + code | - | cloud-publisher-lld | - |
-| REQ-NF-400 | — | No reference | - | - | - |
-| REQ-NF-401 | — | No reference | - | - | - |
+| REQ-NF-400 | — | LLD | - | requirement-coverage-addendum | - |
+| REQ-NF-401 | — | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-402 | — | LLD | - | lld, qspi-flash-driver | - |
 | REQ-NF-403 | — | LLD | - | lld | - |
-| REQ-NF-404 | — | HLD only | flash-partition-layout | - | - |
+| REQ-NF-404 | — | LLD | flash-partition-layout | requirement-coverage-addendum | - |
 | REQ-NF-405 | — | LLD | components, flash-partition-layout | lld, qspi-flash-driver | - |
-| REQ-NF-406 | — | No reference | - | - | - |
+| REQ-NF-406 | — | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-407 | — | LLD + code | flash-partition-layout | circular-flash-log, lld | - |
 | REQ-NF-408 | — | LLD + code | - | firmware-store, modbus-uart-driver, mqtt-client, simulated-sensor-drivers, update-service-lld | TC-HW-MQTT-014 |
 | REQ-NF-500 | UC-04 | LLD | components, flash-partition-layout, hld | logger, rtc-driver, store-and-forward-lld | - |
 | REQ-NF-501 | — | LLD | - | bootloader, firmware-store, internal-flash-driver | - |
-| REQ-NF-502 | — | No reference | - | - | - |
+| REQ-NF-502 | — | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-503 | UC-04, UC-06 | LLD + code | - | cloud-publisher-lld, update-service-lld | - |
-| REQ-NF-504 | UC-04 | LLD | - | logger | - |
-| REQ-NF-505 | — | No reference | - | - | - |
-| REQ-NF-506 | — | No reference | - | - | - |
-| REQ-NF-507 | — | No reference | - | - | - |
+| REQ-NF-504 | UC-04 | LLD | - | cpu-driver, logger | - |
+| REQ-NF-505 | — | LLD | - | requirement-coverage-addendum | - |
+| REQ-NF-506 | — | LLD | - | requirement-coverage-addendum | - |
+| REQ-NF-507 | — | LLD + code | components | cpu-driver | - |

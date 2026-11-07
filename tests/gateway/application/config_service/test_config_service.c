@@ -262,13 +262,13 @@ void test_poll_interval_boundaries_are_inclusive(void)
     uint32_t value = 100U;
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
                       config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
-    value = 60000U;
+    value = 10000U;
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
                       config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
-    value = 60001U;
+    value = 10001U;
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
                       config_service_set_param(CONFIG_PARAM_POLL_INTERVAL, &value));
-    TEST_ASSERT_EQUAL_UINT32(60000U, params()->polling_interval_ms);
+    TEST_ASSERT_EQUAL_UINT32(10000U, params()->polling_interval_ms);
 }
 
 /* TC-CFG-008 */
