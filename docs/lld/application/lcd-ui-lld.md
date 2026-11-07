@@ -5,14 +5,18 @@ design of the `LcdUi` Application component on the Field Device — screen
 model, navigation, per-screen logic, the configuration sub-state machine,
 pending-vs-committed value handling, concurrency, sizing, and test plan.
 
-The splash screen (REQ-LD-200..-240) is **explicitly out of scope** here.
-It is owned by `LifecycleController` during Init, which drives it directly
-via `GraphicsLibrary`. `LcdUi` takes over once the system enters
-Operational.
+The splash screen (REQ-LD-200..-240) is part of `LcdUi` since v0.4 (section 19.1);
+`LifecycleController` and `main.c` only report boot progress. The v0.2 statement that the splash
+is owned by `LifecycleController` is superseded.
 
-**Version:** 0.3
+**Version:** 0.4
 **Date:** November 2026
-**Status:** Implemented; hardware-checked on the STM32F469I-DISCO on 2026-11-07 (section 18)
+**Status:** Implemented; hardware-checked on the STM32F469I-DISCO on 2026-11-07 and 2026-11-08 (sections 18 and 19)
+
+> **v0.4 adds** the boot splash, the resource rows (CPU load, free RAM, MCU temperature), the
+> three-column Status screen, the touch axis mapping and the product firmware with the display
+> (section 19). Where section 19 differs from sections 18.4 (Status content), 18.9 (LCD-O1, O3, O4)
+> or 18.8 (build), section 19 is the authority.
 
 > **v0.3 supersedes parts of v0.2.** The screen set grew from four to five (the Trend screen of SRS
 > v1.2, REQ-LD-160..195), the visual design is now the project design pack `docs/lcd-ui-design`, and
@@ -1081,3 +1085,129 @@ The glyph table must be sorted by code point (LVGL bisects it); the generator so
 | LCD-O3 | CPU load, free heap and MCU temperature rows need new fields in `device_health_snapshot_t` |
 | LCD-O4 | Touch behaviour (tab taps, field taps, keypad, list drag) is covered by host tests and the simulator's scripted taps; it still needs a hands-on check on the board |
 | LCD-O5 | The sparkline and chart draw per pixel column; if a slower panel shows tearing, switch to a cached canvas |
+
+---
+
+## 19. v0.4: splash, resources, product build, touch
+
+### 19.1 Boot splash (REQ-LD-200..240)
+
+Design: `docs/lcd-ui-design/splash.html`. A full-screen overlay (`widgets/splash_view`), created last in
+`lcd_ui_init()` and hidden until requested, so it covers every screen.
+
+| API | Behaviour |
+|---|---|
+| `lcd_ui_show_splash()` | Requests the overlay; carried out by the next `lcd_ui_tick()` |
+| `lcd_ui_set_boot_progress(pct, step)` | Bar width, "62%" text and step name; 100 turns the BOOT badge into READY; `pct` above 100 is clamped; a NULL step keeps the name; names are cut at `SPLASH_STEP_MAX - 1` |
+| `lcd_ui_dismiss_splash()` | Requests removal |
+| `lcd_ui_splash_visible()` | State as of the last tick |
+
+LVGL stays owned by the UI task: the three calls only write a request, `lcd_ui_tick()` draws it (the
+step text is single-writer by contract; a torn name would last one frame).
+
+Content: the logo (drawn with the LVGL draw API: panel outline, rule, handle, dot, ECG trace), the product
+name "ENVMON" with the subtitle "FIELD DEVICE", a 420 px bar, the step name and percentage, the BOOT or READY
+badge at the top right, and the footer (firmware version, build date, LVGL version; "STM32F469 . 800x480").
+
+Sequencing, in `Src/main.c` (`FD_WITH_GUI` builds):
+
+| Step | Percent | Reached when |
+|---|---|---|
+| Initialising display | 10 | `gui_bring_up()` has started the UI task |
+| Loading configuration | 30 | configuration loaded |
+| Initialising sensor bus | 55 | LifecycleController asks for the sensors (`lc_sensors_init`) |
+| Sensors ready | 80 | the sensor task reports ready |
+| System ready | 100 | `lifecycle_controller->get_state()` is Operational |
+
+The real boot takes about a second, so the UI task walks the steps one at a time, each shown for at least
+`GUI_STEP_MS` (300 ms), also the 100 % step, and only then dismisses the splash: the screens appear after the
+100 %. The UI task ticks before it draws, so the splash is in the very first frame. A start-up fault (Faulted
+state) shows "Start-up fault" at the current percentage for 1.5 s, then dismisses the splash so the pill and
+banner can be read. Timing is counted from the request, not from the end of the draw: on a slow first frame
+a step may be on screen a little less.
+
+### 19.2 Status screen (supersedes 18.4)
+
+Three columns of 30 px rows, five sections:
+
+| Column | Section | Rows |
+|---|---|---|
+| 1 | SENSORS | Temperature, Humidity, Pressure sensor; Sensor failures |
+| 1 | SYSTEM | Alarms raised; Active alarms; Config save |
+| 2 | MODBUS | Slave link; Valid frames; CRC errors; Exceptions |
+| 2 | DEVICE | Uptime; Firmware (version without the build metadata after "+") |
+| 3 | RESOURCES | CPU load; Free RAM; MCU temperature |
+
+The stack-margin row of v0.3 is dropped: the watermarks are still in the snapshot and logged once at 30 s.
+
+| Row | Source | Colour rule |
+|---|---|---|
+| Sensor rows | live `get_snapshot()` of SensorService: "valid"; "error" if the sensor was valid before; "waiting" if never valid | ok, error, warning |
+| Slave link | `modbus_slave_ok` of HealthMonitor | online ok, offline error |
+| CPU load | `cpu_load_pct` | warning from 70 %, error from 90 % |
+| Free RAM | `free_ram_bytes`, shown in KB | warning below 16 KB, error below 4 KB |
+| MCU temperature | `mcu_temp_deci_c`, "45.1 degC"; a dash when `mcu_temp_valid` is false | warning from 70 degC, error from 85 degC |
+
+The sensor rows do not use `sensor_valid` of the health snapshot: HealthMonitor only learns of failures
+(`HEALTH_EVENT_SENSOR_FAIL`) and never of a recovery, so that field cannot say "valid again".
+
+### 19.3 New health fields (HealthMonitor, Field Device)
+
+`cpu_load_pct` (share of the run-time counter not spent in the idle task, sampled once a second by the
+housekeeping loop), `free_ram_bytes` (RAM no static object owns: top of RAM minus the end of `.bss`; the
+image has no heap, P5), `mcu_temp_valid` and `mcu_temp_deci_c` (AdcDriver,
+`docs/lld/drivers/adc-driver.md`). One setter, `health_monitor_update_resources()`. The housekeeping loop of
+`main.c` owns the sources, so HealthMonitor depends on none of FreeRTOS run-time stats, the linker or the ADC.
+
+`modbus_slave_ok` is now produced: HealthMonitor watches the slave's valid-frame counter at each
+`update_modbus_slave_stats()` call; the link is up while the counter changed within the last 10 s and has
+been seen at least once (the master polls continuously, so a stopped counter means the Gateway is gone).
+
+### 19.4 Product firmware with the display
+
+`GUI=1 scripts/build-fd-app.sh [--flash]` builds `Src/main.c` with the display stack and defines
+`FD_WITH_GUI`: SDRAM, LCD, touch controller, GraphicsLibrary and LcdUi are brought up before the scheduler,
+`LcdUiTask` (priority 1, 2048 words, 40 ms period) runs `lcd_ui_tick()` then `graphics_process()`. The task
+priority equals Lifecycle and Console: LVGL rendering is long and a higher priority starved the boot
+(measured). Without `GUI=1` the image has no display. RAM of the GUI image: 208 KB of 256 KB (79.5 %).
+
+LVGL is compiled at `-O2` by the script (the project sources stay at `-O0`): the first frame appeared 1.2 s
+after reset instead of 2.5 s.
+
+The touch controller and the sensors share I2C1. `i2c_bus_lock()` and `i2c_bus_unlock()` (weak no-ops in the
+driver) wrap every transfer; `main.c` supplies a mutex in the GUI image.
+
+### 19.5 Touch mapping
+
+The FT6x06 and the panel are natively portrait (480 x 800). The landscape UI needs a quarter-turn:
+`x = raw y`, `y = 479 - raw x`, clamped to the display (verified by hand on the board: a plain axis swap put
+the tab bar at the bottom). The first contact of every touch is logged: `touch raw=(x,y) -> (x,y)`. A release
+reports the last position, as LVGL expects.
+
+### 19.6 Modbus transmit (CPU load)
+
+The Modbus UART runs at 9600 baud, 1 ms per byte, and `modbus_uart_transmit()` polls TXE and TC. In a
+priority-4 task that kept the idle task from ever running (CPU load 100 %). `modbus_uart_wait_hook()` (weak
+no-op) is called on every wait pass; `main.c` defines it as a one-tick sleep once the scheduler runs. Load after
+the change: about 20 %.
+
+### 19.7 Tests
+
+LcdUi host tests: 49 (TC-LCDUI-039..049: resource rows, splash). HealthMonitor: resources and the link state.
+Graphics: the touch callback. Simulator: `splash show`, `splash hide`, `boot <pct> <step>`; `shots.sh` renders
+the splash (28, 62, 100 %). Hardware: splash and Status screenshots in `docs/lcd-ui-design/screenshots/hardware`;
+ADC harness TC-HW-ADC-001 (Field Device) passes.
+
+### 19.8 Decisions and open items (v0.4)
+
+| ID | Decision or item | Status |
+|---|---|---|
+| LCD-D5 | Splash is part of LcdUi; boot code only reports progress | Decided |
+| LCD-D6 | Status rows read the live sensor snapshot, not `sensor_valid` | Decided |
+| LCD-D7 | Link state is derived from the frame counter, timeout 10 s | Decided |
+| LCD-O1 | Splash built; the Firmware-update screen is not (out of scope for the Field Device) | Splash closed |
+| LCD-O3 | CPU load, free RAM, MCU temperature available | Closed |
+| LCD-O4 | Touch verified by hand (tabs); the keypad, list drag, APPLY and confirm modal are in the hardware test plan | Partly closed |
+| LCD-O6 | The lifecycle's `USE_GUI` hooks (`ilcd_ui_t` stub) are unused: the splash is driven from `main.c`. Align LifecycleController with `lcd_ui_set_boot_progress()` or delete the hooks | Open |
+| LCD-O7 | Free RAM includes the main stack area; it is a constant for a static image. A stack high-water mark would be more telling | Open |
+| LCD-O8 | On the bench board the readings are constant (22.1 degC, 50.0 %RH, 1013 hPa): check on the hardware test whether real sensors are attached and responding or the values come from a stub | Open |
