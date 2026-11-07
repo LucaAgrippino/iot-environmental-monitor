@@ -108,7 +108,7 @@ typedef struct
     uint32_t gen_seen;
 } trend_screen_t;
 
-#define STATUS_ROWS (17U) /* SENSORS 4, SYSTEM 3, MODBUS 4, DEVICE 2, RESOURCES 4 */
+#define STATUS_ROWS (16U) /* SENSORS 4, SYSTEM 3, MODBUS 4, DEVICE 2, RESOURCES 3 */
 #define STATUS_SECTIONS (5U)
 
 typedef struct

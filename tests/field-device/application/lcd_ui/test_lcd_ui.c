@@ -499,7 +499,6 @@ void test_TC_LCDUI_019_status_rows_show_the_health_counters(void)
     TEST_ASSERT_EQUAL_STRING("14829", ui->status_screen.row[8].value->stub_text);
     TEST_ASSERT_EQUAL_STRING("12", ui->status_screen.row[9].value->stub_text);
     TEST_ASSERT_EQUAL_STRING("3d 14:22", ui->status_screen.row[11].value->stub_text);
-    TEST_ASSERT_EQUAL_STRING("312 B", ui->status_screen.row[13].value->stub_text);
     TEST_ASSERT_EQUAL_STRING("online", ui->status_screen.row[7].value->stub_text);
 }
 
@@ -864,9 +863,9 @@ void test_TC_LCDUI_039_status_shows_cpu_load_free_ram_and_mcu_temperature(void)
     lcd_ui_test_fire_tab_change(SCR_STATUS);
     tick_at(2000U);
 
-    TEST_ASSERT_EQUAL_STRING("37%", ui->status_screen.row[14].value->stub_text);
-    TEST_ASSERT_EQUAL_STRING("94 KB", ui->status_screen.row[15].value->stub_text);
-    TEST_ASSERT_EQUAL_STRING("45.1 \xC2\xB0" "C", ui->status_screen.row[16].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("37%", ui->status_screen.row[13].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("94 KB", ui->status_screen.row[14].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("45.1 \xC2\xB0" "C", ui->status_screen.row[15].value->stub_text);
 }
 
 void test_TC_LCDUI_040_status_shows_a_negative_temperature_with_the_true_minus(void)
@@ -879,7 +878,7 @@ void test_TC_LCDUI_040_status_shows_a_negative_temperature_with_the_true_minus(v
     lcd_ui_test_fire_tab_change(SCR_STATUS);
     tick_at(2000U);
 
-    TEST_ASSERT_EQUAL_STRING(UI_MINUS "5.2 \xC2\xB0" "C", ui->status_screen.row[16].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING(UI_MINUS "5.2 \xC2\xB0" "C", ui->status_screen.row[15].value->stub_text);
 }
 
 void test_TC_LCDUI_041_status_shows_a_dash_when_the_temperature_is_unavailable(void)
@@ -892,7 +891,7 @@ void test_TC_LCDUI_041_status_shows_a_dash_when_the_temperature_is_unavailable(v
     lcd_ui_test_fire_tab_change(SCR_STATUS);
     tick_at(2000U);
 
-    TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->status_screen.row[16].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->status_screen.row[15].value->stub_text);
 }
 
 void test_TC_LCDUI_042_status_has_five_sections_in_three_columns(void)
@@ -904,7 +903,7 @@ void test_TC_LCDUI_042_status_has_five_sections_in_three_columns(void)
     tick_at(2000U);
 
     TEST_ASSERT_EQUAL_UINT32(5U, STATUS_SECTIONS);
-    TEST_ASSERT_EQUAL_UINT32(17U, STATUS_ROWS);
+    TEST_ASSERT_EQUAL_UINT32(16U, STATUS_ROWS);
     for (uint32_t r = 0U; r < STATUS_ROWS; r++)
     {
         TEST_ASSERT_NOT_NULL(ui->status_screen.row[r].value);

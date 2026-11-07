@@ -49,9 +49,6 @@
 #define LCD_CONFIRM_TIMEOUT_MS (30000U) /* confirm modal auto-dismiss */
 #define LCD_TOAST_MS (3000U)
 #define LCD_STALE_AFTER_S (10U)    /* a valid reading older than the newest by this is STALE */
-#define LCD_STACK_WARN_WORDS (64U) /* stack margin below this is a warning ... */
-#define LCD_STACK_ERR_WORDS (32U)  /* ... and below this an error (4-byte words) */
-#define LCD_WORD_BYTES (4U)
 #define LCD_KIB (1024U)
 #define LCD_FOOTER_TEXT_MAX (96U)
 #define LCD_VERSION_SHORT_MAX (16U)
@@ -663,13 +660,12 @@ static void build_trend_screen(trend_screen_t *scr, lv_obj_t *panel)
 #define STATUS_SECTION_GAP THEME_SP_6
 #define STATUS_TOP 18 /* content padding-top */
 #define STATUS_BANNER_H 36
-#define STATUS_ROW_STACK 13U /* Stack margin: shown last in the RESOURCES column */
 #define STATUS_BANNER_TOP THEME_SP_6
 
 static const char *const k_row_label[STATUS_ROWS] = {
     "Temperature sensor", "Humidity sensor", "Pressure sensor", "Sensor failures", "Alarms raised",
     "Active alarms",      "Config save",     "Slave link",      "Valid frames",    "CRC errors",
-    "Exceptions",         "Uptime",          "Firmware",        "Stack margin",
+    "Exceptions",         "Uptime",          "Firmware",
     "CPU load",           "Free RAM",        "MCU temperature",
 };
 
@@ -684,14 +680,13 @@ typedef struct
     uint8_t row_count;
 } status_section_t;
 
-/* Rows of a section are consecutive, except RESOURCES: CPU load, Free RAM, MCU temperature
- * (rows 14..16) are followed by the stack margin (row 13), see status_layout(). */
+/* Rows of a section are consecutive. */
 static const status_section_t k_section[STATUS_SECTIONS] = {
     {0U, 0U, 4U},  /* SENSORS:   rows 0..3   */
     {0U, 4U, 3U},  /* SYSTEM:    rows 4..6   */
     {1U, 7U, 4U},  /* MODBUS:    rows 7..10  */
     {1U, 11U, 2U}, /* DEVICE:    rows 11..12 */
-    {2U, 14U, 3U}, /* RESOURCES: rows 14..16, then 13 */
+    {2U, 13U, 3U}, /* RESOURCES: rows 13..15 */
 };
 
 static void status_layout(status_screen_t *scr, bool banner)
@@ -723,11 +718,6 @@ static void status_layout(status_screen_t *scr, bool banner)
         {
             lv_obj_set_pos(scr->row[sec->first_row + r].box, x, y[c]);
             y[c] = (lv_coord_t) (y[c] + STATUS_ROW_HEIGHT);
-        }
-        if (t == (STATUS_SECTIONS - 1U))
-        {
-            /* the stack margin closes the RESOURCES column */
-            lv_obj_set_pos(scr->row[STATUS_ROW_STACK].box, x, y[c]);
         }
     }
 }
@@ -765,7 +755,6 @@ static void status_screen_on_refresh(screen_t *self)
     device_health_snapshot_t h;
     char buf[32];
     uint32_t active = 0U;
-    uint32_t min_words = 0U;
 
     if ((s_ui.now_ms - scr->last_refresh_ms) < LCD_SLOW_REFRESH_MS)
     {
@@ -778,8 +767,23 @@ static void status_screen_on_refresh(screen_t *self)
 
     for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
     {
-        status_row_set(&scr->row[i], h.sensor_valid[k_display_sensor_ids[i]] ? ROW_OK : ROW_ERR,
-                       h.sensor_valid[k_display_sensor_ids[i]] ? "valid" : "error");
+        /* The live reading decides: the health snapshot only learns of failures, never of a
+         * recovery. Never valid yet is "waiting", not an error. */
+        const bool valid = s_ui.snap_ok && s_ui.snap.readings[k_display_sensor_ids[i]].valid;
+        const bool seen = s_ui.sensor_screen.ever_valid[i];
+
+        if (valid)
+        {
+            status_row_set(&scr->row[i], ROW_OK, "valid");
+        }
+        else if (seen)
+        {
+            status_row_set(&scr->row[i], ROW_ERR, "error");
+        }
+        else
+        {
+            status_row_set(&scr->row[i], ROW_WARN, "waiting");
+        }
         if (h.alarm_state[k_display_sensor_ids[i]] != ALARM_STATE_CLEAR)
         {
             active++;
@@ -821,36 +825,14 @@ static void status_screen_on_refresh(screen_t *self)
         ver[n] = '\0';
         status_row_set(&scr->row[12], ROW_OK, ver);
     }
-    for (uint32_t t = 0U; t < HEALTH_TASK_COUNT; t++)
-    {
-        const uint32_t w = h.stack_watermark_words[t];
-        if ((w != 0U) && ((min_words == 0U) || (w < min_words)))
-        {
-            min_words = w;
-        }
-    }
-    if (min_words == 0U)
-    {
-        status_row_set(&scr->row[STATUS_ROW_STACK], ROW_OK, S_DASH);
-    }
-    else
-    {
-        (void) snprintf(buf, sizeof(buf), "%lu B", (unsigned long) (min_words * LCD_WORD_BYTES));
-        status_row_set(&scr->row[STATUS_ROW_STACK],
-                       (min_words < LCD_STACK_ERR_WORDS)
-                           ? ROW_ERR
-                           : ((min_words < LCD_STACK_WARN_WORDS) ? ROW_WARN : ROW_OK),
-                       buf);
-    }
-
     (void) snprintf(buf, sizeof(buf), "%u%%", (unsigned) h.cpu_load_pct);
-    status_row_set(&scr->row[14],
+    status_row_set(&scr->row[13],
                    (h.cpu_load_pct >= LCD_CPU_ERR_PCT)
                        ? ROW_ERR
                        : ((h.cpu_load_pct >= LCD_CPU_WARN_PCT) ? ROW_WARN : ROW_OK),
                    buf);
     (void) snprintf(buf, sizeof(buf), "%lu KB", (unsigned long) (h.free_ram_bytes / LCD_KIB));
-    status_row_set(&scr->row[15],
+    status_row_set(&scr->row[14],
                    (h.free_ram_bytes < LCD_RAM_ERR_BYTES)
                        ? ROW_ERR
                        : ((h.free_ram_bytes < LCD_RAM_WARN_BYTES) ? ROW_WARN : ROW_OK),
@@ -860,7 +842,7 @@ static void status_screen_on_refresh(screen_t *self)
         char num[16];
         ui_fmt_fixed(num, sizeof(num), h.mcu_temp_deci_c, 10U, 1U);
         (void) snprintf(buf, sizeof(buf), "%s \xC2\xB0" "C", num);
-        status_row_set(&scr->row[16],
+        status_row_set(&scr->row[15],
                        (h.mcu_temp_deci_c >= LCD_TEMP_ERR_DECI_C)
                            ? ROW_ERR
                            : ((h.mcu_temp_deci_c >= LCD_TEMP_WARN_DECI_C) ? ROW_WARN : ROW_OK),
@@ -868,7 +850,7 @@ static void status_screen_on_refresh(screen_t *self)
     }
     else
     {
-        status_row_set(&scr->row[16], ROW_OK, S_DASH);
+        status_row_set(&scr->row[15], ROW_OK, S_DASH);
     }
 
     /* banner: the most important soft fault, in the error colour (03_SCREEN_SPECS.md "Degraded") */

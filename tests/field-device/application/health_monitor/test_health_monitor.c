@@ -483,3 +483,68 @@ void test_not_init_guard_update_resources(void)
     TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NOT_INIT,
                       health_monitor_update_resources(1U, 1U, true, 1));
 }
+
+/* ======================================================================= */
+/* Modbus link state, derived from the frame counter                       */
+/* ======================================================================= */
+
+static void feed_frames(uint32_t frames, uint32_t at_s)
+{
+    modbus_slave_stats_t st;
+
+    (void)memset(&st, 0, sizeof(st));
+    st.valid_frames = frames;
+    g_mock_tick_count = at_s * 1000U;
+    (void)health_monitor_update_modbus_slave_stats(&st);
+}
+
+void test_link_is_offline_until_a_frame_arrives(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    feed_frames(0U, 1U);
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_FALSE(snap.modbus_slave_ok);
+}
+
+void test_link_is_online_while_frames_keep_arriving(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    feed_frames(10U, 1U);
+    feed_frames(25U, 2U);
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_TRUE(snap.modbus_slave_ok);
+}
+
+void test_link_goes_offline_after_ten_seconds_without_frames(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    feed_frames(10U, 1U);
+    feed_frames(10U, 10U);
+    (void)health_monitor_get_snapshot(&snap);
+    TEST_ASSERT_TRUE(snap.modbus_slave_ok);
+
+    feed_frames(10U, 11U);
+    (void)health_monitor_get_snapshot(&snap);
+    TEST_ASSERT_FALSE(snap.modbus_slave_ok);
+}
+
+void test_link_recovers_when_frames_resume(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    feed_frames(10U, 1U);
+    feed_frames(10U, 30U);
+    feed_frames(11U, 31U);
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_TRUE(snap.modbus_slave_ok);
+}

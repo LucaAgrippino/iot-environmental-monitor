@@ -78,7 +78,13 @@ typedef struct
     void *task_handles[HEALTH_TASK_COUNT];
     char task_names[HEALTH_TASK_COUNT][TASK_NAME_MAX_LEN];
     uint8_t task_count;
+    uint32_t link_frames;   /**< valid_frames seen at the last change. */
+    uint32_t link_rx_s;     /**< Uptime second of that change. */
+    bool link_seen;         /**< A valid frame has arrived since boot. */
 } health_monitor_state_t;
+
+/** The Modbus link counts as up while a valid frame arrived within this many seconds. */
+#define HM_MODBUS_LINK_TIMEOUT_S 10U
 
 static health_monitor_state_t s_hm;
 
@@ -318,6 +324,21 @@ health_monitor_err_t health_monitor_update_modbus_slave_stats(const modbus_slave
     s_hm.snapshot.modbus_crc_errors = stats->crc_errors;
     s_hm.snapshot.modbus_addr_mismatches = stats->address_mismatches;
     s_hm.snapshot.modbus_exception_responses = stats->exception_responses;
+
+    /* Link state: the slave counts frames, it has no notion of a link. The master polls
+     * continuously, so a frame counter that stops moving means the Gateway is gone. */
+    {
+        const uint32_t now_s = (uint32_t) (xTaskGetTickCount() / configTICK_RATE_HZ);
+
+        if (stats->valid_frames != s_hm.link_frames)
+        {
+            s_hm.link_frames = stats->valid_frames;
+            s_hm.link_rx_s = now_s;
+            s_hm.link_seen = true;
+        }
+        s_hm.snapshot.modbus_slave_ok =
+            s_hm.link_seen && ((now_s - s_hm.link_rx_s) < HM_MODBUS_LINK_TIMEOUT_S);
+    }
 
     (void) xSemaphoreGive(s_hm.mutex);
     return HEALTH_MONITOR_ERR_OK;
