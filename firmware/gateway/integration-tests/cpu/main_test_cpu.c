@@ -22,9 +22,17 @@
  *   TC-HW-CPU-005  cpu_delay_us(1000) within 1 % of 80 000 DWT cycles
  *   TC-HW-CPU-006  cpu_delay_ms(100)  within 1 % of 8 000 000 DWT cycles
  *
- * Manual / destructive tests — see comments at the bottom of main():
- *   TC-HW-CPU-007  cpu_panic() — panic report on UART; post-mortem on next boot
- *   TC-HW-CPU-008  cpu_reset() — clean reset; no post-mortem expected on reboot
+ * Unattended fault sequence, run after the tests above (needs -UDEBUG so a panic resets):
+ *   build:  EXTRA_CFLAGS=-UDEBUG scripts/build-gateway-app.sh (MAIN=this file) --flash
+ *   step 0  read of a reserved address     expect BusFault, "Precise data bus error"
+ *   step 1  undefined instruction          expect UsageFault, "Undefined instruction"
+ *   step 2  divide by zero (trap enabled)  expect UsageFault, "Divide by zero"
+ *   step 3  cpu_panic(CPU_PANIC_USER, ...) expect User, no frame
+ *   step 4  cpu_reset()                    expect NO post-mortem on the next boot
+ *   TC-HW-CPU-007  steps 0 to 3 print a report and the next boot prints a post-mortem
+ *   TC-HW-CPU-008  step 4 leaves no post-mortem
+ *   TC-HW-CPU-011  backup register 0 (TimeProvider's sync flag) holds its sentinel after
+ *                  every panic reset
  */
 
 #include <stdbool.h>
@@ -211,6 +219,106 @@ static void bringup_fail(const char *label)
 }
 
 /* ---------------------------------------------------------------------- */
+/* Unattended fault sequence                                              */
+/* ---------------------------------------------------------------------- */
+
+#define STEP_BKP_IDX (31U)
+#define STEP_MARKER (0x57E90000U)
+#define SENTINEL_BKP_IDX (0U)
+#define SENTINEL (0xA5A50001U)
+#define RESERVED_ADDRESS (0x2FFF0000U)
+#define SCB_CCR_DIV_0_TRP (1UL << 4U)
+
+static volatile uint32_t *bringup_bkp(uint32_t idx)
+{
+    return &RTC->BKP0R + idx;
+}
+
+static void bringup_drain(void)
+{
+    while ((USART1->ISR & USART_ISR_TC) == 0U)
+    {
+    }
+}
+
+static void bringup_trigger(uint32_t step)
+{
+    switch (step)
+    {
+    case 0U:
+        bringup_puts("[EXPECT] BusFault, Precise data bus error\r\n");
+        bringup_drain();
+        {
+            volatile uint32_t v = *(volatile uint32_t *) RESERVED_ADDRESS;
+            (void) v;
+        }
+        break;
+    case 1U:
+        bringup_puts("[EXPECT] UsageFault, Undefined instruction\r\n");
+        bringup_drain();
+        __asm volatile("udf #0");
+        break;
+    case 2U:
+        bringup_puts("[EXPECT] UsageFault, Divide by zero\r\n");
+        bringup_drain();
+        SCB->CCR |= SCB_CCR_DIV_0_TRP;
+        {
+            volatile uint32_t d = 0U;
+            /* cppcheck-suppress zerodiv */ /* the divide trap is what this step tests */
+            volatile uint32_t r = 100U / d;
+            (void) r;
+        }
+        break;
+    case 3U:
+        bringup_puts("[EXPECT] User, harness panic, no frame\r\n");
+        bringup_drain();
+        cpu_panic(CPU_PANIC_USER, "TC-HW-CPU-007 harness panic");
+        break;
+    case 4U:
+        bringup_puts("[EXPECT] clean reset, NO post-mortem on the next boot\r\n");
+        bringup_drain();
+        cpu_reset();
+        break;
+    default:
+        break;
+    }
+    bringup_puts("[FAIL] step returned without a reset\r\n");
+}
+
+/** Runs the next step (it ends in a reset) or, after the last one, returns. */
+static void bringup_fault_sequence(void)
+{
+    uint32_t step = *bringup_bkp(STEP_BKP_IDX);
+
+    if ((step & 0xFFFF0000U) != STEP_MARKER)
+    {
+        step = 0U; /* first run */
+        *bringup_bkp(SENTINEL_BKP_IDX) = SENTINEL;
+    }
+    else
+    {
+        step &= 0xFFFFU;
+        bringup_puts((*bringup_bkp(SENTINEL_BKP_IDX) == SENTINEL)
+                         ? "[PASS] TC-HW-CPU-011  backup register 0 survived the reset\r\n"
+                         : "[FAIL] TC-HW-CPU-011  backup register 0 was overwritten\r\n");
+    }
+
+    bringup_puts("[STEP ");
+    bringup_put_dec(step);
+    bringup_puts("]\r\n");
+
+    if (step >= 5U)
+    {
+        *bringup_bkp(STEP_BKP_IDX) = 0U; /* arm the next run */
+        bringup_puts("[PASS] fault sequence complete, no operator action was needed\r\n");
+        return;
+    }
+
+    *bringup_bkp(STEP_BKP_IDX) = STEP_MARKER | (step + 1U);
+    bringup_trigger(step);
+}
+
+/* ---------------------------------------------------------------------- */
 /* main()                                                                  */
 /* ---------------------------------------------------------------------- */
 
@@ -366,28 +474,10 @@ int main(void)
     bringup_puts("[INFO] Heartbeat: LD2 PA5 toggles every 500 ms.\r\n\r\n");
 
     /*
-     * TC-HW-CPU-007 — cpu_panic() + post-mortem recovery (manual step)
-     *
-     * Procedure:
-     *   1. Uncomment the cpu_panic() call below and reflash.
-     *   2. Observe the PANIC banner on USART1 (source, CFSR, PC, LR ...).
-     *   3. In a DEBUG build, the debugger halts at __BKPT(0).
-     *   4. Reset or power-cycle the board.
-     *   5. On the next boot, cpu_init() detects the RTC backup magic
-     *      (0xDEADC0DE) and emits a POST-MORTEM banner before this
-     *      harness prints its own banner.
-     *   6. Re-comment the call and reflash to restore normal operation.
+     * TC-HW-CPU-007, 008, 011 — unattended fault sequence (see the file header). The step
+     * counter and the sentinel live in RTC backup registers, so each boot runs the next step.
      */
-    cpu_panic(CPU_PANIC_USER, "TC-HW-CPU-007: deliberate panic test");
-
-    /*
-     * TC-HW-CPU-008 — cpu_reset() (manual step)
-     *
-     * Uncomment to exercise the clean software reset path.
-     * On the subsequent boot, NO post-mortem record will appear because
-     * cpu_reset() does not write the RTC backup registers.
-     */
-    //     cpu_reset();
+    bringup_fault_sequence();
 
     /* Heartbeat -------------------------------------------------------- */
     for (;;)

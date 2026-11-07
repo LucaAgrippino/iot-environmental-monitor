@@ -13,8 +13,8 @@
 /**
  * @brief Panic source identifiers.
  *
- * Stored in RTC backup register BKP13R so the source survives a reset and
- * can be reported on the next boot.
+ * Stored in the post-mortem record (RTC backup registers, cpu-driver.md section 3.3) so the
+ * source survives a reset and can be reported on the next boot.
  */
 typedef enum
 {
@@ -186,10 +186,11 @@ const char *cpu_cfsr_cause_string_for_test(uint32_t cfsr);
  * Saves the Cortex-M4 stacked exception frame so cpu_panic() can include
  * PC, LR, and general-purpose registers in the post-mortem record.
  *
- * @param[in] frame  Pointer to the stacked exception frame pushed by hardware:
- *                   [R0, R1, R2, R3, R12, LR, PC, xPSR].
+ * @param[in] frame   Pointer to the stacked exception frame pushed by hardware:
+ *                    [R0, R1, R2, R3, R12, LR, PC, xPSR].
+ * @param[in] source  The vector that fired (HardFault, BusFault, MemManage, UsageFault).
  */
-void cpu_fault_entry(uint32_t *frame);
+void cpu_fault_entry(uint32_t *frame, cpu_panic_source_t source);
 #endif
 
 #endif /* CPU_H */

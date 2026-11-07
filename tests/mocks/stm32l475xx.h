@@ -312,7 +312,15 @@ typedef struct
     volatile uint32_t BFAR;  /**< Bus Fault Address Register.          */
     volatile uint32_t MMFAR; /**< MemManage Fault Address Register.    */
     volatile uint32_t VTOR;  /**< Vector Table Offset Register.        */
+    volatile uint32_t SHCSR; /**< System Handler Control and State.    */
 } SCB_TypeDef;
+
+#define SCB_SHCSR_MEMFAULTENA_Pos (16U)
+#define SCB_SHCSR_MEMFAULTENA_Msk (1UL << SCB_SHCSR_MEMFAULTENA_Pos)
+#define SCB_SHCSR_BUSFAULTENA_Pos (17U)
+#define SCB_SHCSR_BUSFAULTENA_Msk (1UL << SCB_SHCSR_BUSFAULTENA_Pos)
+#define SCB_SHCSR_USGFAULTENA_Pos (18U)
+#define SCB_SHCSR_USGFAULTENA_Msk (1UL << SCB_SHCSR_USGFAULTENA_Pos)
 
 extern SCB_TypeDef g_mock_scb;
 

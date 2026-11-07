@@ -30,6 +30,35 @@
 #define CPU_PCLK2_HZ (80000000U)
 
 #define CPU_PANIC_MAGIC (0xDEADC0DEU)
+
+/* SCB->CFSR bit 15: BFAR holds the faulting address. */
+#define CPU_CFSR_BFARVALID (1UL << 15U)
+
+/* Post-mortem record: CPU_PANIC_RECORD_WORDS consecutive RTC backup registers starting at
+ * CPU_PANIC_BKP_BASE. Register 0 is TimeProvider's sync flag (TIME_PROVIDER_BKUP_REG), so the
+ * record starts at 2 (cpu-driver.md section 3.3, CPU-D2). */
+#define CPU_PANIC_BKP_BASE (2U)
+#define CPU_PANIC_RECORD_WORDS (17U)
+enum
+{
+    REC_MAGIC = 0,
+    REC_CFSR = 1,
+    REC_HFSR = 2,
+    REC_BFAR = 3,
+    REC_PC = 4,
+    REC_LR = 5,
+    REC_SP = 6,
+    REC_XPSR = 7,
+    REC_R0 = 8,
+    REC_R1 = 9,
+    REC_R2 = 10,
+    REC_R3 = 11,
+    REC_R12 = 12,
+    REC_SOURCE = 13,
+    REC_REASON_HASH = 14,
+    REC_RESERVED = 15,
+    REC_UPTIME_MS = 16,
+};
 #define CPU_PANIC_UART_BAUD (115200U)
 
 /* BRR = PCLK2 / baud = 80 000 000 / 115 200 ≈ 694 */
@@ -59,6 +88,12 @@ static volatile bool g_panic_active;
 
 /* Stacked exception frame — set by cpu_fault_entry() before cpu_panic(). */
 static volatile uint32_t *s_fault_frame;
+
+/** Backup register holding word n of the post-mortem record. */
+static volatile uint32_t *panic_bkp(uint32_t n)
+{
+    return &RTC->BKP0R + (CPU_PANIC_BKP_BASE + n);
+}
 
 /* --------------------------------------------------------------------- */
 /* Private helpers — UART panic output                                    */
@@ -104,6 +139,19 @@ static void panic_uart_write_str(const char *s)
     {
         panic_uart_write_byte((uint8_t) *s);
         ++s;
+    }
+}
+
+/** Wait (bounded) until the last byte has left the shift register, so a reset does not cut it. */
+static void panic_uart_drain(void)
+{
+    uint32_t timeout = CPU_POLL_TIMEOUT;
+    while (!(USART1->ISR & USART_ISR_TC))
+    {
+        if (--timeout == 0U)
+        {
+            return;
+        }
     }
 }
 
@@ -266,43 +314,37 @@ static void write_panic_record(cpu_panic_source_t source, const char *reason, ui
     RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN;
     PWR->CR1 |= PWR_CR1_DBP;
 
-    /* Write fault registers and frame data (BKP1R–BKP16R). */
-    RTC->BKP1R = cfsr;
-    RTC->BKP2R = hfsr;
-    RTC->BKP3R = bfar;
+    *panic_bkp(REC_CFSR) = cfsr;
+    *panic_bkp(REC_HFSR) = hfsr;
+    *panic_bkp(REC_BFAR) = bfar;
 
     if (s_fault_frame != NULL)
     {
-        RTC->BKP4R = s_fault_frame[6];  /* PC  */
-        RTC->BKP5R = s_fault_frame[5];  /* LR  */
-        RTC->BKP6R = 0U;                /* SP: not recoverable here */
-        RTC->BKP7R = s_fault_frame[7];  /* xPSR */
-        RTC->BKP8R = s_fault_frame[0];  /* R0  */
-        RTC->BKP9R = s_fault_frame[1];  /* R1  */
-        RTC->BKP10R = s_fault_frame[2]; /* R2  */
-        RTC->BKP11R = s_fault_frame[3]; /* R3  */
-        RTC->BKP12R = s_fault_frame[4]; /* R12 */
+        *panic_bkp(REC_PC) = s_fault_frame[6];
+        *panic_bkp(REC_LR) = s_fault_frame[5];
+        *panic_bkp(REC_SP) = (uint32_t) (uintptr_t) s_fault_frame;
+        *panic_bkp(REC_XPSR) = s_fault_frame[7];
+        *panic_bkp(REC_R0) = s_fault_frame[0];
+        *panic_bkp(REC_R1) = s_fault_frame[1];
+        *panic_bkp(REC_R2) = s_fault_frame[2];
+        *panic_bkp(REC_R3) = s_fault_frame[3];
+        *panic_bkp(REC_R12) = s_fault_frame[4];
     }
     else
     {
-        RTC->BKP4R = 0U;
-        RTC->BKP5R = 0U;
-        RTC->BKP6R = 0U;
-        RTC->BKP7R = 0U;
-        RTC->BKP8R = 0U;
-        RTC->BKP9R = 0U;
-        RTC->BKP10R = 0U;
-        RTC->BKP11R = 0U;
-        RTC->BKP12R = 0U;
+        for (uint32_t n = REC_PC; n <= REC_R12; ++n)
+        {
+            *panic_bkp(n) = 0U;
+        }
     }
 
-    RTC->BKP13R = (uint32_t) source;
-    RTC->BKP14R = djb2_hash(reason);
-    RTC->BKP15R = 0U;
-    RTC->BKP16R = uptime_ms();
+    *panic_bkp(REC_SOURCE) = (uint32_t) source;
+    *panic_bkp(REC_REASON_HASH) = djb2_hash(reason);
+    *panic_bkp(REC_RESERVED) = 0U;
+    *panic_bkp(REC_UPTIME_MS) = uptime_ms();
 
-    /* Write magic last — atomic commit marker. */
-    RTC->BKP0R = CPU_PANIC_MAGIC;
+    /* Magic last: a partly written record is never reported. */
+    *panic_bkp(REC_MAGIC) = CPU_PANIC_MAGIC;
 }
 
 static void emit_panic_uart(cpu_panic_source_t source, const char *reason, uint32_t cfsr,
@@ -355,16 +397,16 @@ static void emit_panic_uart(cpu_panic_source_t source, const char *reason, uint3
 
 static void check_panic_record(void)
 {
-    if (RTC->BKP0R != CPU_PANIC_MAGIC)
+    if (*panic_bkp(REC_MAGIC) != CPU_PANIC_MAGIC)
     {
         return;
     }
 
     /* Valid record from previous boot: read and emit. */
-    uint32_t cfsr = RTC->BKP1R;
-    uint32_t hfsr = RTC->BKP2R;
-    uint32_t bfar = RTC->BKP3R;
-    uint32_t source = RTC->BKP13R;
+    uint32_t cfsr = *panic_bkp(REC_CFSR);
+    uint32_t hfsr = *panic_bkp(REC_HFSR);
+    uint32_t bfar = *panic_bkp(REC_BFAR);
+    uint32_t source = *panic_bkp(REC_SOURCE);
 
     panic_uart_init();
 
@@ -380,15 +422,16 @@ static void check_panic_record(void)
     panic_uart_write_str("\r\nBFAR:   ");
     panic_uart_write_hex32(bfar);
     panic_uart_write_str("\r\nPC:     ");
-    panic_uart_write_hex32(RTC->BKP4R);
-    panic_uart_write_symbol(RTC->BKP4R);
+    panic_uart_write_hex32(*panic_bkp(REC_PC));
+    panic_uart_write_symbol(*panic_bkp(REC_PC));
     panic_uart_write_str("\r\nLR:     ");
-    panic_uart_write_hex32(RTC->BKP5R);
-    panic_uart_write_symbol(RTC->BKP5R);
+    panic_uart_write_hex32(*panic_bkp(REC_LR));
+    panic_uart_write_symbol(*panic_bkp(REC_LR));
     panic_uart_write_str("\r\n-----------------------------------\r\n");
 
     /* Invalidate the record so it is not replayed on the next boot. */
-    RTC->BKP0R = 0U;
+    panic_uart_drain();
+    *panic_bkp(REC_MAGIC) = 0U;
 }
 
 /* ====================================================================== */
@@ -474,6 +517,10 @@ status_t cpu_init(void)
         return STATUS_ERR_HW; /* cycle counter not implemented on this core */
     }
 
+    /* Step 8b: Enable the Bus, Memory and Usage fault handlers, so each fault reaches its own
+     * vector (and its own panic source) instead of escalating to HardFault. */
+    SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk | SCB_SHCSR_BUSFAULTENA_Msk | SCB_SHCSR_USGFAULTENA_Msk;
+
     /* Step 9: Check for and report any panic record from the previous boot. */
     check_panic_record();
 
@@ -541,8 +588,11 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
 {
     if (g_panic_active)
     {
-        /* Recursive fault — skip all output and go directly to halt/reset. */
+        /* Recursive fault — skip all output and go directly to halt/reset. A BKPT with no
+         * debugger attached is itself a fault, so it is DEBUG-only. */
+#ifdef DEBUG
         CPU_HW_BREAKPOINT();
+#endif
         CPU_HW_SYSTEM_RESET();
 #ifdef TEST
         return;
@@ -555,19 +605,21 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
     /* Capture hardware fault status registers. */
     uint32_t cfsr = SCB->CFSR;
     uint32_t hfsr = SCB->HFSR;
-    uint32_t bfar = SCB->BFAR;
+    uint32_t bfar =
+        ((cfsr & CPU_CFSR_BFARVALID) != 0U) ? SCB->BFAR : 0U; /* BFAR is stale otherwise */
+
+    /* Persist the post-mortem record first: the UART is the part most likely to hang. */
+    write_panic_record(source, reason, cfsr, hfsr, bfar);
 
     /* Emit diagnostic output over the one-shot panic UART. */
     emit_panic_uart(source, reason, cfsr, hfsr, bfar);
-
-    /* Persist post-mortem record to RTC backup registers. */
-    write_panic_record(source, reason, cfsr, hfsr, bfar);
 
 #ifdef DEBUG
     CPU_HW_BREAKPOINT();
     for (;;)
         ;
 #else
+    panic_uart_drain(); /* do not cut the last bytes of the report */
     CPU_HW_SYSTEM_RESET();
 #endif
 }
@@ -576,10 +628,10 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
 /* Fault trampoline entry point (called from assembly in cpu_fault.c)     */
 /* --------------------------------------------------------------------- */
 
-void cpu_fault_entry(uint32_t *frame)
+void cpu_fault_entry(uint32_t *frame, cpu_panic_source_t source)
 {
     s_fault_frame = frame;
-    cpu_panic(CPU_PANIC_HARDFAULT, NULL);
+    cpu_panic(source, NULL);
 }
 
 /* ====================================================================== */

@@ -32,6 +32,9 @@
 /* Helpers                                                               */
 /* ===================================================================== */
 
+/** Word n of the post-mortem record: backup register 2 + n (cpu-driver.md section 3.3). */
+#define PANIC_REC(n) ((&g_mock_rtc.BKP0R)[2U + (n)])
+
 /** Pre-arrange happy-path PLL and SYSCLK-switch conditions. */
 static void arrange_pll_ready(void)
 {
@@ -312,17 +315,17 @@ void test_TC_CPU_021_panic_writes_magic_to_bkp0r(void)
     cpu_panic(CPU_PANIC_USER, "test");
 
     /* Assert: BKP0R holds the commit magic (written last). */
-    TEST_ASSERT_EQUAL_HEX32(0xDEADC0DEU, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0xDEADC0DEU, PANIC_REC(0));
 
     /* Other BKP registers were written before BKP0R (code order). */
     /* BKP13R = source = CPU_PANIC_USER = 0x09. */
-    TEST_ASSERT_EQUAL_UINT32((uint32_t) CPU_PANIC_USER, g_mock_rtc.BKP13R);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t) CPU_PANIC_USER, PANIC_REC(13));
 }
 
 void test_TC_CPU_022_panic_writes_cfsr_hfsr_bfar_to_bkp(void)
 {
     /* Arrange: pre-load SCB registers. */
-    g_mock_scb.CFSR = 0x00000400U; /* IMPRECISERR */
+    g_mock_scb.CFSR = 0x00008400U; /* IMPRECISERR + BFARVALID */
     g_mock_scb.HFSR = 0x40000000U; /* FORCED */
     g_mock_scb.BFAR = 0x60000000U;
 
@@ -330,9 +333,9 @@ void test_TC_CPU_022_panic_writes_cfsr_hfsr_bfar_to_bkp(void)
     cpu_panic(CPU_PANIC_BUSFAULT, NULL);
 
     /* Assert */
-    TEST_ASSERT_EQUAL_HEX32(0x00000400U, g_mock_rtc.BKP1R); /* CFSR */
-    TEST_ASSERT_EQUAL_HEX32(0x40000000U, g_mock_rtc.BKP2R); /* HFSR */
-    TEST_ASSERT_EQUAL_HEX32(0x60000000U, g_mock_rtc.BKP3R); /* BFAR */
+    TEST_ASSERT_EQUAL_HEX32(0x00008400U, PANIC_REC(1)); /* CFSR */
+    TEST_ASSERT_EQUAL_HEX32(0x40000000U, PANIC_REC(2)); /* HFSR */
+    TEST_ASSERT_EQUAL_HEX32(0x60000000U, PANIC_REC(3)); /* BFAR */
 }
 
 void test_TC_CPU_023_panic_via_fault_entry_writes_frame_pc_lr(void)
@@ -351,14 +354,14 @@ void test_TC_CPU_023_panic_via_fault_entry_writes_frame_pc_lr(void)
     };
 
     /* Act: call cpu_fault_entry directly (assembly trampoline skipped on host). */
-    cpu_fault_entry(frame);
+    cpu_fault_entry(frame, CPU_PANIC_HARDFAULT);
 
     /* Assert: PC → BKP4R, LR → BKP5R. */
-    TEST_ASSERT_EQUAL_HEX32(0x08001A34U, g_mock_rtc.BKP4R); /* PC  */
-    TEST_ASSERT_EQUAL_HEX32(0x08001A20U, g_mock_rtc.BKP5R); /* LR  */
-    TEST_ASSERT_EQUAL_HEX32(0x61000000U, g_mock_rtc.BKP7R); /* xPSR */
-    TEST_ASSERT_EQUAL_HEX32(0x00000001U, g_mock_rtc.BKP8R); /* R0  */
-    TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFU, g_mock_rtc.BKP11R);/* R3  */
+    TEST_ASSERT_EQUAL_HEX32(0x08001A34U, PANIC_REC(4)); /* PC  */
+    TEST_ASSERT_EQUAL_HEX32(0x08001A20U, PANIC_REC(5)); /* LR  */
+    TEST_ASSERT_EQUAL_HEX32(0x61000000U, PANIC_REC(7)); /* xPSR */
+    TEST_ASSERT_EQUAL_HEX32(0x00000001U, PANIC_REC(8)); /* R0  */
+    TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFU, PANIC_REC(11));/* R3  */
 }
 
 void test_TC_CPU_024_panic_sets_panic_active_flag(void)
@@ -367,7 +370,7 @@ void test_TC_CPU_024_panic_sets_panic_active_flag(void)
     cpu_panic(CPU_PANIC_ASSERT, "first entry");
 
     /* Assert: after returning (test build), BKP0R = magic confirms full path ran. */
-    TEST_ASSERT_EQUAL_HEX32(0xDEADC0DEU, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0xDEADC0DEU, PANIC_REC(0));
 
     /* The flag is private; verify indirectly: a second call takes the short path
      * (no BKP writes, no UART, only breakpoint/reset). Cleared by reset_for_test. */
@@ -376,7 +379,7 @@ void test_TC_CPU_024_panic_sets_panic_active_flag(void)
     cpu_panic(CPU_PANIC_ASSERT, "second entry");
 
     /* BKP0R must still be 0 — short path did not write BKP registers. */
-    TEST_ASSERT_EQUAL_HEX32(0U, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0U, PANIC_REC(0));
 }
 
 void test_TC_CPU_025_recursive_panic_takes_short_path(void)
@@ -391,7 +394,7 @@ void test_TC_CPU_025_recursive_panic_takes_short_path(void)
     cpu_panic(CPU_PANIC_USER, "recursive");
 
     /* Assert: BKP0R not written (short path). */
-    TEST_ASSERT_EQUAL_HEX32(0U, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0U, PANIC_REC(0));
 
     /* The disable_irq call count should NOT have increased (short path skips it). */
     TEST_ASSERT_EQUAL_UINT32(irq_count_before, g_cpu_hw_disable_irq_count);
@@ -400,7 +403,7 @@ void test_TC_CPU_025_recursive_panic_takes_short_path(void)
 void test_TC_CPU_026_panic_emits_uart_output_via_busy_wait_txe(void)
 {
     /* Arrange: pre-set TXE so the busy-wait loop exits on each byte. */
-    g_mock_usart1.ISR |= USART_ISR_TXE;
+    g_mock_usart1.ISR |= USART_ISR_TXE | USART_ISR_TC;
 
     /* Act */
     cpu_panic(CPU_PANIC_USER, "uart test");
@@ -455,9 +458,9 @@ void test_TC_CPU_027_cfsr_cause_table_decodes_all_17_fault_bits(void)
 void test_TC_CPU_030_init_detects_valid_panic_record_and_configures_uart(void)
 {
     /* Arrange: pre-load a valid panic record in the mock BKP registers. */
-    g_mock_rtc.BKP0R  = 0xDEADC0DEU; /* magic */
-    g_mock_rtc.BKP1R  = SCB_CFSR_IMPRECISERR;
-    g_mock_rtc.BKP13R = (uint32_t) CPU_PANIC_HARDFAULT;
+    PANIC_REC(0)  = 0xDEADC0DEU; /* magic */
+    PANIC_REC(1)  = SCB_CFSR_IMPRECISERR;
+    PANIC_REC(13) = (uint32_t) CPU_PANIC_HARDFAULT;
     g_mock_usart1.ISR |= USART_ISR_TXE; /* so output doesn't time out */
     arrange_lse_ready();
     arrange_pll_ready();
@@ -474,7 +477,7 @@ void test_TC_CPU_030_init_detects_valid_panic_record_and_configures_uart(void)
 void test_TC_CPU_031_init_clears_magic_after_reading_panic_record(void)
 {
     /* Arrange */
-    g_mock_rtc.BKP0R  = 0xDEADC0DEU;
+    PANIC_REC(0)  = 0xDEADC0DEU;
     g_mock_usart1.ISR |= USART_ISR_TXE;
     arrange_lse_ready();
     arrange_pll_ready();
@@ -483,13 +486,13 @@ void test_TC_CPU_031_init_clears_magic_after_reading_panic_record(void)
     (void) cpu_init();
 
     /* Assert: magic cleared so record is not replayed on the next boot. */
-    TEST_ASSERT_EQUAL_HEX32(0U, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0U, PANIC_REC(0));
 }
 
 void test_TC_CPU_032_init_ignores_invalid_magic(void)
 {
     /* Arrange: wrong magic — no valid record. */
-    g_mock_rtc.BKP0R = 0xCAFEBABEU;
+    PANIC_REC(0) = 0xCAFEBABEU;
     arrange_lse_ready();
     arrange_pll_ready();
 
@@ -505,8 +508,8 @@ void test_TC_CPU_032_init_ignores_invalid_magic(void)
 void test_TC_CPU_033_post_mortem_output_includes_decoded_cause_string(void)
 {
     /* Arrange: load CFSR with IMPRECISERR so the cause decoder is exercised. */
-    g_mock_rtc.BKP0R = 0xDEADC0DEU;
-    g_mock_rtc.BKP1R = SCB_CFSR_IMPRECISERR; /* CFSR in record */
+    PANIC_REC(0) = 0xDEADC0DEU;
+    PANIC_REC(1) = SCB_CFSR_IMPRECISERR; /* CFSR in record */
     g_mock_usart1.ISR |= USART_ISR_TXE;
     arrange_lse_ready();
     arrange_pll_ready();
@@ -524,14 +527,72 @@ void test_TC_CPU_033_post_mortem_output_includes_decoded_cause_string(void)
     TEST_ASSERT_EQUAL_STRING("Imprecise data bus error", cause);
 
     /* Magic was cleared. */
-    TEST_ASSERT_EQUAL_HEX32(0U, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0U, PANIC_REC(0));
+}
+
+void test_TC_CPU_022b_bfar_is_recorded_as_zero_when_not_valid(void)
+{
+    g_mock_scb.CFSR = 0x00010000U; /* UNDEFINSTR: BFARVALID clear */
+    g_mock_scb.BFAR = 0xE000ED38U; /* stale register content */
+
+    cpu_panic(CPU_PANIC_USAGEFAULT, NULL);
+
+    TEST_ASSERT_EQUAL_HEX32(0U, PANIC_REC(3));
+}
+
+/* ===================================================================== */
+/* §7.6 Record placement and fault sources — TC-CPU-034 through 036      */
+/* ===================================================================== */
+
+void test_TC_CPU_034_record_does_not_touch_backup_registers_0_and_1(void)
+{
+    /* Arrange: TimeProvider's sync flag lives in register 0. */
+    g_mock_rtc.BKP0R = 0x5A5A5A5AU;
+    g_mock_rtc.BKP1R = 0x12345678U;
+
+    /* Act */
+    cpu_panic(CPU_PANIC_USER, "placement");
+
+    /* Assert */
+    TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5AU, g_mock_rtc.BKP0R);
+    TEST_ASSERT_EQUAL_HEX32(0x12345678U, g_mock_rtc.BKP1R);
+    TEST_ASSERT_EQUAL_HEX32(0xDEADC0DEU, g_mock_rtc.BKP2R); /* magic is record word 0 */
+    TEST_ASSERT_EQUAL_HEX32(0xDEADC0DEU, PANIC_REC(0));
+}
+
+void test_TC_CPU_035_fault_entry_records_each_vector_source_and_the_frame_address(void)
+{
+    uint32_t frame[8] = {0U, 0U, 0U, 0U, 0U, 0x08000100U, 0x08000200U, 0x01000000U};
+    const cpu_panic_source_t sources[] = {CPU_PANIC_HARDFAULT, CPU_PANIC_BUSFAULT,
+                                          CPU_PANIC_MEMMANAGE, CPU_PANIC_USAGEFAULT};
+
+    for (uint32_t i = 0U; i < (sizeof(sources) / sizeof(sources[0])); ++i)
+    {
+        cpu_reset_for_test();
+        stm32l475_cmsis_mock_reset();
+
+        cpu_fault_entry(frame, sources[i]);
+
+        TEST_ASSERT_EQUAL_UINT32((uint32_t) sources[i], PANIC_REC(13));
+        TEST_ASSERT_EQUAL_HEX32(0x08000200U, PANIC_REC(4));
+        TEST_ASSERT_EQUAL_HEX32((uint32_t) (uintptr_t) frame, PANIC_REC(6)); /* SP = frame */
+    }
+}
+
+void test_TC_CPU_036_init_enables_the_configurable_fault_handlers(void)
+{
+    arrange_cpu_init_success();
+
+    TEST_ASSERT_BITS_HIGH(SCB_SHCSR_MEMFAULTENA_Msk | SCB_SHCSR_BUSFAULTENA_Msk |
+                              SCB_SHCSR_USGFAULTENA_Msk,
+                          g_mock_scb.SHCSR);
 }
 
 /* ===================================================================== */
 /* §7.5 Reset — TC-CPU-040                                              */
 /* ===================================================================== */
 
-void test_TC_CPU_040_cpu_reset_calls_nvic_system_reset(void)
+void test_TC_CPU_041_cpu_reset_calls_nvic_system_reset(void)
 {
     /* Arrange */
     TEST_ASSERT_EQUAL_UINT32(0U, g_cpu_hw_system_reset_count);
