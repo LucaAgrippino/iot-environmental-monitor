@@ -36,7 +36,7 @@
 #define DEFAULT_NTP_INTERVAL_MIN (60U)
 
 #define POLL_MS_MIN (100)
-#define POLL_MS_MAX (60000)
+#define POLL_MS_MAX (10000) /* REQ-NF-114: 0.1 Hz */
 #define ALPHA_MIN (1)
 #define ALPHA_MAX (999)
 #define SLAVE_ADDR_MIN (1)

@@ -57,7 +57,7 @@
 
 typedef struct
 {
-    uint32_t polling_interval_ms;     /**< [100, 60000] ms               */
+    uint32_t polling_interval_ms;     /**< [100, 10000] ms               */
     int16_t temp_alarm_hi_centi_c;    /**< centi-degC; default 4000      */
     int16_t temp_alarm_lo_centi_c;    /**< centi-degC; default 0         */
     uint16_t humidity_alarm_hi_centi; /**< centi-%RH; default 8000       */

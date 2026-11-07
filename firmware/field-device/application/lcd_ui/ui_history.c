@@ -11,6 +11,7 @@
 
 static int32_t s_value[UI_CH_COUNT][UI_HISTORY_LEN];
 static bool s_valid[UI_CH_COUNT][UI_HISTORY_LEN];
+static uint32_t s_stamp[UI_CH_COUNT][UI_HISTORY_LEN];
 static uint32_t s_head;  /* index of the next write */
 static uint32_t s_count; /* samples held */
 static uint32_t s_last_ms;
@@ -24,6 +25,7 @@ void ui_history_reset(void)
         {
             s_value[c][i] = 0;
             s_valid[c][i] = false;
+            s_stamp[c][i] = 0U;
         }
     }
     s_head = 0U;
@@ -32,12 +34,14 @@ void ui_history_reset(void)
     s_have_last = false;
 }
 
-void ui_history_push(const int32_t value[UI_CH_COUNT], const bool valid[UI_CH_COUNT])
+void ui_history_push(const int32_t value[UI_CH_COUNT], const bool valid[UI_CH_COUNT],
+                     const uint32_t stamp[UI_CH_COUNT])
 {
     for (uint32_t c = 0U; c < (uint32_t) UI_CH_COUNT; c++)
     {
         s_value[c][s_head] = value[c];
         s_valid[c][s_head] = valid[c];
+        s_stamp[c][s_head] = stamp[c];
     }
     s_head = (s_head + 1U) % UI_HISTORY_LEN;
     if (s_count < UI_HISTORY_LEN)
@@ -47,7 +51,7 @@ void ui_history_push(const int32_t value[UI_CH_COUNT], const bool valid[UI_CH_CO
 }
 
 bool ui_history_tick(uint32_t now_ms, const int32_t value[UI_CH_COUNT],
-                     const bool valid[UI_CH_COUNT])
+                     const bool valid[UI_CH_COUNT], const uint32_t stamp[UI_CH_COUNT])
 {
     if (s_have_last && ((uint32_t) (now_ms - s_last_ms) < UI_HISTORY_PERIOD_MS))
     {
@@ -55,7 +59,17 @@ bool ui_history_tick(uint32_t now_ms, const int32_t value[UI_CH_COUNT],
     }
     s_last_ms = now_ms;
     s_have_last = true;
-    ui_history_push(value, valid);
+    ui_history_push(value, valid, stamp);
+    return true;
+}
+
+bool ui_history_get_time(ui_channel_t ch, uint32_t index, uint32_t *stamp)
+{
+    if (((uint32_t) ch >= (uint32_t) UI_CH_COUNT) || (index >= s_count) || (stamp == NULL))
+    {
+        return false;
+    }
+    *stamp = s_stamp[ch][(s_head + UI_HISTORY_LEN - s_count + index) % UI_HISTORY_LEN];
     return true;
 }
 

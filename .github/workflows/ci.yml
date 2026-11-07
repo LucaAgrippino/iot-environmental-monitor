@@ -118,6 +118,9 @@ jobs:
           python3 scripts/check-build-exclusions.py --config Debug --config Release firmware/gateway
           python3 scripts/check-build-exclusions.py --config Debug firmware/field-device
 
+      - name: Check that HAL and BSP headers are included only by the LCD driver
+        run: bash scripts/check-hal-encapsulation.sh
+
   cppcheck:
     name: Static analysis (cppcheck)
     runs-on: ubuntu-latest

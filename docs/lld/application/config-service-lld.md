@@ -91,7 +91,7 @@ parameter identifiers used by CLI and Modbus register map.
 
 typedef struct {
     /* ── Sensor acquisition (REQ-SA-070, SA-140) ── */
-    uint32_t polling_interval_ms;        /* default 1000; range [100, 60000] */
+    uint32_t polling_interval_ms;        /* default 1000; range [100, 10000] */
     float    filter_alpha;               /* default 0.1f; range (0.0, 1.0) exclusive */
 
     /* ── Sensor physical ranges (REQ-SA-020, SA-120) ── */
@@ -671,7 +671,7 @@ array indexed by `config_param_id_t`.
 
 | Parameter | Type | Valid range / constraint |
 |-----------|------|--------------------------|
-| `polling_interval_ms` | `uint32_t` | [100, 60 000] |
+| `polling_interval_ms` | `uint32_t` | [100, 10 000] (REQ-NF-114) |
 | `filter_alpha` | `float` | (0.0, 1.0) exclusive |
 | `temp_range_min` | `float` | [−55.0, temp_range_max − 1.0] |
 | `temp_range_max` | `float` | [temp_range_min + 1.0, 125.0] |
@@ -751,7 +751,7 @@ additional parameters.
 | TC-CFG-004 | Set valid poll interval | `set_param(POLL_INTERVAL, &500)` | `params.polling_interval_ms == 500`; `config_store_save()` called |
 | TC-CFG-005 | Set invalid poll interval (below min) | `set_param(POLL_INTERVAL, &50)` | ERR_INVALID; params unchanged |
 | TC-CFG-006 | Set poll interval at min boundary | `set_param(POLL_INTERVAL, &100)` | OK; value accepted |
-| TC-CFG-007 | Set poll interval at max boundary | `set_param(POLL_INTERVAL, &60000)` | OK; value accepted |
+| TC-CFG-007 | Set poll interval at max boundary | `set_param(POLL_INTERVAL, &10000)` | OK; value accepted |
 | TC-CFG-008 | Cross-param: alarm_high below constraint | Set `temp_alarm_high` ≤ `temp_alarm_low + temp_hysteresis` | ERR_INVALID; params unchanged |
 | TC-CFG-009 | Cross-param: hysteresis too large | Set `temp_hysteresis` ≥ `(alarm_high − alarm_low) / 2` | ERR_INVALID; params unchanged |
 | TC-CFG-010 | Snapshot and restore | `snapshot()` → change param → `restore_snapshot()` | Original values restored; `config_store_save()` called |

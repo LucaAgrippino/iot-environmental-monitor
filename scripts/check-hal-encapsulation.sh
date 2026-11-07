@@ -18,10 +18,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FW_DIR="${REPO_ROOT}/firmware/field-device"
 
+# Only #include lines of sources count: comments, the CubeIDE project and build output do not.
 violations=$(grep -rEln \
-    "stm32f4xx_hal|stm32469i_discovery|otm8009a" \
+    '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^>"]*(stm32f4xx_hal|stm32469i_discovery|otm8009a)' \
     "${FW_DIR}" \
-    --exclude-dir=lcd_driver \
+    --include='*.c' --include='*.h' \
+    --exclude-dir=lcd_driver --exclude-dir=Debug --exclude-dir=Release \
     2>/dev/null || true)
 
 if [ -n "$violations" ]; then

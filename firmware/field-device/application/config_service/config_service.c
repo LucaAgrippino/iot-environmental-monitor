@@ -69,7 +69,7 @@ static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
 /* ========================================================================= */
 
 #define POLL_INTERVAL_MIN_MS 100U
-#define POLL_INTERVAL_MAX_MS 60000U
+#define POLL_INTERVAL_MAX_MS 10000U /* REQ-NF-114: 0.1 Hz */
 
 /* Temperature: int16_t ×100 centi-°C */
 #define TEMP_ABS_MIN (-5500)   /* −55.0 °C */

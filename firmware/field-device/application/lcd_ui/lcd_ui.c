@@ -151,7 +151,7 @@ static const cfg_field_def_t k_fields[N_EDITABLE_FIELDS] = {
      11000, 5, true},
     {"PRESSURE" S_MIDDOT "LOW ALARM", "Pressure" S_MIDDOT "Low Alarm", "hPa", 6U, 10U, 3000, 11000,
      4, false},
-    {"POLL INTERVAL", "Poll Interval", "s", 0U, 1000U, 100, 60000, -1, false},
+    {"POLL INTERVAL", "Poll Interval", "s", 0U, 1000U, 100, 10000, -1, false},
 };
 
 /* ===================================================================== */
@@ -1662,16 +1662,21 @@ void lcd_ui_tick(void)
     {
         int32_t v[UI_CH_COUNT];
         bool ok[UI_CH_COUNT];
+        uint32_t stamp[UI_CH_COUNT];
+        /* REQ-SA-240: a reading older than the history interval is recorded as invalid */
+        const bool fresh = (s_ui.now_ms - s_ui.last_cycle_ms) <= UI_HISTORY_PERIOD_MS;
         for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
         {
             v[i] = s_ui.snap.readings[k_display_sensor_ids[i]].value;
             ok[i] = s_ui.snap.readings[k_display_sensor_ids[i]].valid;
+            stamp[i] = s_ui.snap.readings[k_display_sensor_ids[i]].timestamp.epoch;
             if (ok[i])
             {
                 s_ui.sensor_screen.ever_valid[i] = true;
             }
+            ok[i] = ok[i] && fresh;
         }
-        if ((s_ui.snap.cycle_count != 0U) && ui_history_tick(s_ui.now_ms, v, ok))
+        if ((s_ui.snap.cycle_count != 0U) && ui_history_tick(s_ui.now_ms, v, ok, stamp))
         {
             s_ui.hist_gen++;
         }

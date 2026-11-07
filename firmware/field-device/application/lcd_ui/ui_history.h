@@ -27,8 +27,10 @@ void ui_history_reset(void);
  *
  * @param[in] value  Raw fixed-point value per channel.
  * @param[in] valid  Whether each channel's reading was valid.
+ * @param[in] stamp  Acquisition timestamp of each channel's reading, seconds (REQ-SA-220).
  */
-void ui_history_push(const int32_t value[UI_CH_COUNT], const bool valid[UI_CH_COUNT]);
+void ui_history_push(const int32_t value[UI_CH_COUNT], const bool valid[UI_CH_COUNT],
+                     const uint32_t stamp[UI_CH_COUNT]);
 
 /**
  * @brief Call from the UI tick with a millisecond clock; pushes a sample when the period elapsed.
@@ -36,10 +38,21 @@ void ui_history_push(const int32_t value[UI_CH_COUNT], const bool valid[UI_CH_CO
  * @param[in] now_ms  Monotonic milliseconds.
  * @param[in] value   Current raw value per channel.
  * @param[in] valid   Current validity per channel.
+ * @param[in] stamp   Acquisition timestamp per channel, seconds.
  * @return true when a sample was stored.
  */
 bool ui_history_tick(uint32_t now_ms, const int32_t value[UI_CH_COUNT],
-                     const bool valid[UI_CH_COUNT]);
+                     const bool valid[UI_CH_COUNT], const uint32_t stamp[UI_CH_COUNT]);
+
+/**
+ * @brief Acquisition timestamp of one stored sample (REQ-SA-220), valid or not.
+ *
+ * @param[in]  ch     Channel.
+ * @param[in]  index  0 is the oldest sample.
+ * @param[out] stamp  Timestamp of the reading that produced the sample, seconds.
+ * @return true when the sample exists.
+ */
+bool ui_history_get_time(ui_channel_t ch, uint32_t index, uint32_t *stamp);
 
 /** @return Number of samples held (0..UI_HISTORY_LEN). */
 uint32_t ui_history_count(void);

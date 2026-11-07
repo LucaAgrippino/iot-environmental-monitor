@@ -1,6 +1,6 @@
 # IoT Environmental Monitor — Module Implementation Status
 
-**As of:** 2026-10-28 · **Repo state:** `main` @ 5dbf9c6. Everything through PR #107 is in `main` and verified with `git merge-base --is-ancestor`: the lifecycle stack (#101), FirmwareStore, InternalFlashDriver and the QSPI mutex (#96–#100), the bootloader (#102), UpdateService (#103), the LifecycleController OTA events (#105) the CloudPublisher OTA flow (#106), the ECC NMI and `verify` heap bench results (#107) and the HLD amendments A1–A4 / B1–B4 (#104). **No PR is open.** The earlier 🔀 marker ("only on the `lifecycle_wiring` branch") no longer applies and has been removed.
+**As of:** 2026-11-08 · **Repo state:** `main` @ cf2fbdc. **The implementation phase is closed: see `docs/implementation-phase-closure.md`.** Sections 2 to 4 keep the per-module hardware notes from the bench work; sections 1 and 5 to 7 are current.
 **Source of truth:** `firmware/{gateway,field-device}/` trees, `docs/hld/components.md`, `docs/lld/**`.
 Hardware columns come from the bench results recorded during the project; where the record is silent it says so rather than guessing.
 
@@ -13,13 +13,14 @@ Hardware columns come from the bench results recorded during the project; where 
 | | Gateway (B-L475E-IOT01A) | Field Device (STM32F469I-DISCO) |
 |---|---|---|
 | HLD modules | 36 | 25 |
-| Implemented | 36 (incl. 1 placeholder), plus the bootloader (its own 16 KB image, not an HLD module) | 20 |
-| Not implemented | 0 | 5 |
-| Bring-up harnesses | 37 | 15 |
+| Implemented | 36, plus the bootloader (its own 16 KB image, not an HLD module) and AdcDriver, CpuDriver, WatchdogDriver (added by design notes, not HLD modules) | 25, plus AdcDriver, CpuDriver, WatchdogDriver |
+| Not implemented | 0 | 0 |
+| Production `main()` | `firmware/gateway/Src/main.c`, built by `scripts/build-gateway-app.sh` | `firmware/field-device/Src/main.c`, built by `scripts/build-fd-app.sh` (`GUI=1` adds the display stack) |
+| Image size | RAM 97 080 of 98 304 B (98.75 %), SRAM2 11 440 of 32 768 B, flash 336 608 B of 1 MB | RAM 209 168 B of 256 KB (GUI image; 63 272 B without the display), flash 490 772 B of 2 MB (GUI image) |
 
-**Host tests (baseline, measured 2026-10-28 on `main` @ 5dbf9c6, `ceedling test:all`):** default project 773 tested / 768 passed / 5 ignored / 0 failed; Gateway project 1312 tested / 1309 passed / 3 ignored / 0 failed. After WP2 (`test_tls_arena`, 15 tests): default 788 / 783 / 5 / 0, Gateway unchanged. Per-module counts recorded earlier: UpdateService 70, LifecycleController 114, lifecycle_wiring 55.
+**Host tests (2026-11-08, `ceedling test:all`):** default project and Gateway project both with 0 failed; counts are in the closure report. Per-module counts are in the module notes below.
 
-**The big gap on both boards:** neither has a real `main()` that creates the task set. Each firmware image is a single bring-up harness chosen through `.cproject` exclusions, so **a new harness or middleware module breaks the firmware build unless the exclusions are edited**. `lifecycle_wiring` is the first piece of production wiring, and the OTA flow is now complete up to that point (CloudPublisher → UpdateService → FirmwareStore → bootloader), but none of it is called from a `main()` (LC-O15). That is also why the **MQTT leg of OTA has never run on the board**: the download over the debug UART and every later step have.
+**Wiring:** both boards have a production `main()` that creates the task set. A new bring-up harness must still be added to the `excluding=` lists of the CubeIDE projects (`scripts/check-build-exclusions.sh` checks it).
 
 ---
 
@@ -102,37 +103,23 @@ Hardware status of the Field Device modules is **not tracked in my project notes
 
 Known deliberate details: the FD codebase contains planted bugs for the interview-exercise material (for example the single-byte `write_read` ACK in `i2c_driver_f4.c`). They must not be fixed or copied into Gateway code.
 
-## 5. Field Device — not implemented
+## 5. Field Device: display stack (implemented since 2026-11)
 
-| Module | LLD status | Notes |
+| Module | Status | Notes |
 |---|---|---|
-| **LcdDriver** | Draft | Gates the whole display stack |
-| **TouchscreenDriver** | LLD exists | Needs the LCD stack |
-| **SdramDriver** | LLD exists | Framebuffer memory for the LCD |
-| **GraphicsLibrary** | LLD exists | LVGL vendoring/simulator branch exists on the remote |
-| **LcdUi** | LLD exists | Depends on all four above |
+| SdramDriver, LcdDriver, TouchscreenDriver | ✅ hardware-validated | framebuffer cleared before the panel starts; touch axes mapped for landscape (LcdUi LLD §19.5) |
+| GraphicsLibrary | ✅ | LVGL v8.3.11, vendor sources built at `-O2` by the script |
+| LcdUi | ✅ LLD v0.4 | five screens, splash, Config with keypad and confirm modal, Trend history; touch checked by hand on the board |
+| AdcDriver, CpuDriver, WatchdogDriver | ✅ | `TC-HW-ADC-001` (FD) and `-002` (GW) pass; CPU panic report and watchdog hardware-validated |
 
-The FD side now handles the `CMD_SET_TIME_HI/LO` registers (0x0210/0x0211) that the Gateway's TimeService writes (TS-O5 closed 2026-10-31, `ModbusRegisterMap`, LLD-D16): host tests TC-MRM-028..034 pass; the harness phase that sets the RTC from simulated register writes is written and compiles, but was **not run on a board**.
+The Field Device handles the `CMD_SET_TIME` registers (TS-O5 closed). The display modules are excluded from CubeIDE's Debug configuration and built with `GUI=1 scripts/build-fd-app.sh`.
 
 ---
 
-## 6. Cross-cutting open items
+## 6. Open items at the close of the implementation phase
 
-| Area | Item |
-|---|---|
-| Merge state | Resolved: #91–#95 landed through #101; #103, #105, #106, #107 and #104 were merged on 2026-10-28 (stacked PRs retargeted to `main`, `main` merged into each branch to start CI, ancestry verified). No PR is open. The merged feature branches have not been deleted (WP0 hands over the delete commands). The Visual Paradigm model and PNG diagrams are not updated for A1–A4 / B1–B4 |
-| Wiring | **Gateway: `firmware/gateway/Src/main.c` exists (WP4 session 2, 2026-10-31)** and `scripts/build-gateway-app.sh` links it into a complete image (all modules, console included) that fits the chip. It is still excluded from the CubeIDE build (`.cproject`, not edited by Claude). Boots on the board to Operational: join on the first attempt, the broker name resolved (D-7), every module started. The cloud session is unstable once connected (send errors `err=6`, GM-O20), so end-to-end publishing is not yet validated. Field Device: `firmware/field-device/Src/main.c` exists since 2026-11-01 (`docs/lld/application/field-device-main.md`, built by `scripts/build-fd-app.sh`; links, **not yet run on the board**) |
-| OTA, not yet exercised | MQTT on the board (needs `main()`); `verify` arena peak with TLS open (FS-O4: measured, the verify adds 0 to the 46 280-byte handshake peak); real download rate (US-O1); US-O11. Bootloader: BL-O2 (lifetime rollback counter), BL-O3 (CRC only, no signature check), BL-O4 (no write protection) |
-| Lifecycle | LC-O10: FD file still has dead `BOARD_GATEWAY` code. LC-O14: blank vs corrupt ConfigStore indistinguishable |
-| Config | `IConfigProvider` still not consumed by TimeService (TS-O4) and ConfigService consumers are unwired (CFG-O8); SensorService half of SS-O6 closed |
-| Time | `trigger_retry()` on reconnect is wired in CloudPublisher (TS-O6 closed, CP-D23); TimeService is still never instantiated in production wiring (LC-O15) |
-| Telemetry | Invalid sensor channels are sent as 0 and listed in `invalid_channels`; cloud schema confirmation pending (CP-O4) |
-| RAM | WP4 option F, measured on the production image (2026-10-31): main bank 97 224 of 98 304 B (1 080 spare), SRAM2 30 928 of 32 768 B (1 840 spare), flash 323 KB of 1 MB. The link fails if the image does not fit (`build-gateway-app.sh`). MqttClient's pool lives in SRAM2 (MQTT-D19, `.bss.sram2`) |
-| Storage | CFL-O8 erase spin vs the 500 ms alarm budget (the QSPI mutex itself is merged and closed) |
-| Sensors | I2C TIMINGR, DRDY pins PC8/PD11 and real ODRs unmeasured; own harnesses for i2c and groups A/B never run |
-| Design | ConsoleService CS-O4..CS-O8 open under a "Pass H complete" status |
-| Two-board | Gateway-to-FD time push and register handling to be verified at the end of the project |
+All open items are triaged in `docs/implementation-phase-closure.md` section 5 (closed, deferred with a reason, or moved to the verification phase). The list that stood here on 2026-10-28 was obsolete: the production `main()` of both boards, the OTA flow on the board, the CloudPublisher reconciliation, TimeService wiring, the Field Device display stack and the two-board time push are all done.
 
 ## 7. Next steps
 
-The ordered plan is `remaining-work-plan.md` (WP0 to WP13). WP0 (this baseline) is done on branch `docs/status-baseline-2026-10`. The critical path is WP1 (CloudPublisher reconciliation) → WP4 (Gateway `main()`) → WP5 (OTA over MQTT on the board) → WP7 (two boards).
+The implementation phase is closed. Next: the verification phase (system test on two boards, requirement-by-requirement verification, operator console), see `docs/implementation-phase-closure.md` section 6.

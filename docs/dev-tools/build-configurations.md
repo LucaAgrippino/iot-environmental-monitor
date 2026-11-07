@@ -139,6 +139,11 @@ has no entry point and could never link. The Field Device has no production `mai
 `Release` should contain there. Either delete it from `.cproject`, or leave it until the Field Device has a production
 `main()`. Until then CI checks only the Field Device `Debug`.
 
+**Update 2026-11-08:** the Field Device now has a production `Src/main.c`. Its image is built by
+`scripts/build-fd-app.sh` (with `GUI=1` for the display stack, which CubeIDE's projects do not carry: LVGL, ST's BSP and HAL
+are not on their include paths); CI builds both variants. The CubeIDE `Release` is still stale and still needs the decision
+above: repair it into the no-display production image, or delete it.
+
 ## 8. First run of the `Release` image on the board
 
 Build `gateway/Release` (needs the real credential headers for a working image), flash `Release/gateway.elf`, and check:
