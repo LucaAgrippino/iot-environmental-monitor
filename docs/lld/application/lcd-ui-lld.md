@@ -17,7 +17,7 @@ is owned by `LifecycleController` is superseded.
 > three-column Status screen, the touch axis mapping and the product firmware with the display
 > (section 19). Where section 19 differs from sections 18.4 (Status content), 18.9 (LCD-O1, O3, O4)
 > or 18.8 (build), section 19 is the authority.
-
+>
 > **v0.3 supersedes parts of v0.2.** The screen set grew from four to five (the Trend screen of SRS
 > v1.2, REQ-LD-160..195), the visual design is now the project design pack `docs/lcd-ui-design`, and
 > the Config screen no longer uses LVGL spinboxes. Section 18 is the authority wherever it differs
