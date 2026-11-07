@@ -40,6 +40,9 @@
     - gateway/drivers/gpio/**
     - gateway/drivers/led/**
     - gateway/drivers/watchdog_driver/**
+    # cpu and reset_driver: the Field Device has a cpu driver with the same file names.
+    - gateway/drivers/cpu/**
+    - gateway/drivers/reset_driver/**
     - gateway/middleware/logger/**
     - gateway/drivers/wifi_driver/**
     - gateway/middleware/time_provider/**
@@ -153,6 +156,12 @@
     - *common_defines
     - TEST
   :test_watchdog_driver:
+    - STM32L475xx
+    - TEST
+  :test_reset_driver:
+    - STM32L475xx
+    - TEST
+  :test_cpu:
     - STM32L475xx
     - TEST
   :test_circular_flash_log:
