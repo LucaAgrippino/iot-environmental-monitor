@@ -85,8 +85,9 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colo
  * LVGL's pointer state. LVGL handles debounce and long-press internally.
  *
  * The 4" panel and its FT6x06 are natively portrait (480 x 800: raw x runs along the short side,
- * raw y along the long side), while the display runs in landscape (800 x 480). The axes are
- * swapped, as ST's BSP does for this board; the result is clamped to the display. */
+ * raw y along the long side), while the display runs in landscape (800 x 480). That is a
+ * quarter-turn: x follows raw y, and y runs the opposite way to raw x (measured on the board: with
+ * a plain swap a touch at the bottom hit the tab bar). The result is clamped to the display. */
 static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
     static lv_coord_t s_last_x;
@@ -98,7 +99,8 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
     if (pressed)
     {
         const uint32_t x = (pt.y < LCD_WIDTH) ? pt.y : (LCD_WIDTH - 1U);
-        const uint32_t y = (pt.x < LCD_HEIGHT) ? pt.x : (LCD_HEIGHT - 1U);
+        const uint32_t rx = (pt.x < LCD_HEIGHT) ? pt.x : (LCD_HEIGHT - 1U);
+        const uint32_t y = (LCD_HEIGHT - 1U) - rx;
 
         s_last_x = (lv_coord_t) x;
         s_last_y = (lv_coord_t) y;

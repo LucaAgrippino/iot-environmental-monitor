@@ -417,8 +417,8 @@ static TaskStatus_t s_load_status[LOAD_MAX_TASKS];
 #define GUI_PERIOD_MS (40U)
 /** Each splash step is shown at least this long (the first frames render slowly at -O0 too). */
 #define GUI_STEP_MS (300U)
-/** After the 100 % step the splash goes at once; one more pass draws the 100 % frame first. A
- *  start-up fault keeps it a little longer so the message can be read. */
+/** The 100 % step is shown for GUI_STEP_MS like the others before the screens appear. A start-up
+ *  fault keeps the splash a little longer so the message can be read. */
 #define GUI_FAULT_HOLD_MS (1500U)
 
 static StackType_t s_gui_stack[GUI_TASK_STACK_WORDS] __attribute__((aligned(8)));
@@ -490,7 +490,7 @@ static void gui_task(void *arg)
             if (shown == (BOOT_STEP_COUNT - 1U))
             {
                 ending = true;
-                hold_ms = GUI_PERIOD_MS; /* one pass: the 100 % frame is drawn, then the screens */
+                hold_ms = GUI_STEP_MS; /* the 100 % stays like any step, then the screens */
             }
         }
         if (ending)
