@@ -22,7 +22,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "task.h"
-#include "freertos_mock.h"   /* causes Ceedling to auto-link freertos_mock.c */
+#include "freertos_mock.h" /* causes Ceedling to auto-link freertos_mock.c */
 
 /* led_driver_stub.h provides led_id_t (LED_GREEN, LED_RED) needed by the
  * stub_led_set() spy below. health_monitor.h defines the UNIT_TEST macro
@@ -37,7 +37,7 @@
 /* LED spy                                                                 */
 /* ======================================================================= */
 
-#define LED_SPY_MAX_CALLS  (32U)
+#define LED_SPY_MAX_CALLS (32U)
 
 typedef struct
 {
@@ -46,7 +46,7 @@ typedef struct
 } led_spy_call_t;
 
 static led_spy_call_t g_led_calls[LED_SPY_MAX_CALLS];
-static uint8_t        g_led_call_count;
+static uint8_t g_led_call_count;
 
 /* Last recorded state per LED — used for simple "what is RED doing?" checks. */
 static uint32_t g_led_red_last_state;
@@ -56,26 +56,32 @@ void stub_led_set(uint32_t id, uint32_t state)
 {
     if (g_led_call_count < LED_SPY_MAX_CALLS)
     {
-        g_led_calls[g_led_call_count].id    = id;
+        g_led_calls[g_led_call_count].id = id;
         g_led_calls[g_led_call_count].state = state;
         g_led_call_count++;
     }
-    if (id == (uint32_t)LED_RED)   { g_led_red_last_state   = state; }
-    if (id == (uint32_t)LED_GREEN) { g_led_green_last_state = state; }
+    if (id == (uint32_t) LED_RED)
+    {
+        g_led_red_last_state = state;
+    }
+    if (id == (uint32_t) LED_GREEN)
+    {
+        g_led_green_last_state = state;
+    }
 }
 
 static void led_spy_reset(void)
 {
-    (void)memset(g_led_calls, 0, sizeof(g_led_calls));
-    g_led_call_count     = 0U;
-    g_led_red_last_state   = 0xFFU;  /* sentinel: not yet set */
+    (void) memset(g_led_calls, 0, sizeof(g_led_calls));
+    g_led_call_count = 0U;
+    g_led_red_last_state = 0xFFU; /* sentinel: not yet set */
     g_led_green_last_state = 0xFFU;
 }
 
 /* Helper: was LED_RED set to the ON state (== 1 == LED_STATE_ON) in any call? */
 static bool led_red_is_on(void)
 {
-    return g_led_red_last_state == 1U;  /* LED_STATE_ON */
+    return g_led_red_last_state == 1U; /* LED_STATE_ON */
 }
 
 static bool led_green_is_on(void)
@@ -85,7 +91,7 @@ static bool led_green_is_on(void)
 
 static bool led_red_is_off(void)
 {
-    return g_led_red_last_state == 0U;  /* LED_STATE_OFF */
+    return g_led_red_last_state == 0U; /* LED_STATE_OFF */
 }
 
 static bool led_green_is_off(void)
@@ -141,12 +147,12 @@ void test_TC_HM_002_push_config_write_fail_sets_flag(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
     TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
-        health_monitor_push_event(HEALTH_EVENT_CONFIG_WRITE_FAIL, 0U));
+                      health_monitor_push_event(HEALTH_EVENT_CONFIG_WRITE_FAIL, 0U));
 
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
     TEST_ASSERT_TRUE(snap.config_write_failed);
 }
 
@@ -158,14 +164,14 @@ void test_TC_HM_003_push_alarm_raised_updates_led_and_count(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
-    led_spy_reset();  /* clear init-time LED calls */
+    (void) health_monitor_init();
+    led_spy_reset(); /* clear init-time LED calls */
 
-    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
-        health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED,
-                                  (uint32_t)SENSOR_ID_TEMPERATURE));
+    TEST_ASSERT_EQUAL(
+        HEALTH_MONITOR_ERR_OK,
+        health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED, (uint32_t) SENSOR_ID_TEMPERATURE));
 
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     /* Alarm count incremented. */
     TEST_ASSERT_EQUAL_UINT32(1U, snap.alarm_raise_count);
@@ -175,8 +181,7 @@ void test_TC_HM_003_push_alarm_raised_updates_led_and_count(void)
     TEST_ASSERT_TRUE(led_green_is_on());
 
     /* Alarm state recorded for temperature sensor. */
-    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH,
-                      snap.alarm_state[SENSOR_ID_TEMPERATURE]);
+    TEST_ASSERT_EQUAL(ALARM_STATE_ACTIVE_HIGH, snap.alarm_state[SENSOR_ID_TEMPERATURE]);
 }
 
 /* ======================================================================= */
@@ -187,13 +192,12 @@ void test_TC_HM_004_push_fault_sets_red_led(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
     led_spy_reset();
 
-    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
-        health_monitor_push_event(HEALTH_EVENT_FAULT, 0U));
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_push_event(HEALTH_EVENT_FAULT, 0U));
 
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL(LIFECYCLE_STATE_FAULTED, snap.lifecycle_state);
     TEST_ASSERT_TRUE(led_red_is_on());
@@ -206,15 +210,14 @@ void test_TC_HM_004_push_fault_sets_red_led(void)
 
 void test_TC_HM_005_alarm_after_fault_led_stays_red(void)
 {
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
     /* Drive to Faulted first. */
-    (void)health_monitor_push_event(HEALTH_EVENT_FAULT, 0U);
-    led_spy_reset();  /* clear fault calls; only care about post-alarm LED */
+    (void) health_monitor_push_event(HEALTH_EVENT_FAULT, 0U);
+    led_spy_reset(); /* clear fault calls; only care about post-alarm LED */
 
     /* Now push an alarm — update_led_state() priority: Faulted > Alarm. */
-    (void)health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED,
-                                    (uint32_t)SENSOR_ID_HUMIDITY);
+    (void) health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED, (uint32_t) SENSOR_ID_HUMIDITY);
 
     /* LED must still show fault pattern: RED on, GREEN off. */
     TEST_ASSERT_TRUE(led_red_is_on());
@@ -227,31 +230,29 @@ void test_TC_HM_005_alarm_after_fault_led_stays_red(void)
 
 void test_TC_HM_006_update_modbus_slave_stats_copies_fields(void)
 {
-    modbus_slave_stats_t     stats;
+    modbus_slave_stats_t stats;
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
-    stats.valid_frames       = 1000U;
-    stats.crc_errors         = 5U;
+    stats.valid_frames = 1000U;
+    stats.crc_errors = 5U;
     stats.address_mismatches = 3U;
     stats.exception_responses = 2U;
-    stats.unsupported_fc     = 0U;
+    stats.unsupported_fc = 0U;
     stats.successful_responses = 995U;
 
-    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
-        health_monitor_update_modbus_slave_stats(&stats));
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_update_modbus_slave_stats(&stats));
 
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL_UINT32(1000U, snap.modbus_valid_frames);
-    TEST_ASSERT_EQUAL_UINT32(5U,    snap.modbus_crc_errors);
-    TEST_ASSERT_EQUAL_UINT32(3U,    snap.modbus_addr_mismatches);
-    TEST_ASSERT_EQUAL_UINT32(2U,    snap.modbus_exception_responses);
+    TEST_ASSERT_EQUAL_UINT32(5U, snap.modbus_crc_errors);
+    TEST_ASSERT_EQUAL_UINT32(3U, snap.modbus_addr_mismatches);
+    TEST_ASSERT_EQUAL_UINT32(2U, snap.modbus_exception_responses);
 
     /* Null guard. */
-    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_ARG,
-        health_monitor_update_modbus_slave_stats(NULL));
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_ARG, health_monitor_update_modbus_slave_stats(NULL));
 }
 
 /* ======================================================================= */
@@ -263,26 +264,24 @@ void test_TC_HM_007_get_snapshot_returns_value_copy(void)
     device_health_snapshot_t snap_before;
     device_health_snapshot_t snap_after;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
     /* Take snapshot before any alarm. */
-    (void)health_monitor_get_snapshot(&snap_before);
+    (void) health_monitor_get_snapshot(&snap_before);
     TEST_ASSERT_EQUAL_UINT32(0U, snap_before.alarm_raise_count);
 
     /* Push an event AFTER taking the copy. */
-    (void)health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED,
-                                    (uint32_t)SENSOR_ID_PRESSURE);
+    (void) health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED, (uint32_t) SENSOR_ID_PRESSURE);
 
     /* Original copy must be unaffected. */
     TEST_ASSERT_EQUAL_UINT32(0U, snap_before.alarm_raise_count);
 
     /* New copy sees the update. */
-    (void)health_monitor_get_snapshot(&snap_after);
+    (void) health_monitor_get_snapshot(&snap_after);
     TEST_ASSERT_EQUAL_UINT32(1U, snap_after.alarm_raise_count);
 
     /* Null guard. */
-    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_ARG,
-        health_monitor_get_snapshot(NULL));
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_ARG, health_monitor_get_snapshot(NULL));
 }
 
 /* ======================================================================= */
@@ -306,28 +305,26 @@ void test_not_init_guard_push_event(void)
 {
     /* health_monitor_reset_for_test() zeroes initialised flag. */
     TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NOT_INIT,
-        health_monitor_push_event(HEALTH_EVENT_CONFIG_WRITE_FAIL, 0U));
+                      health_monitor_push_event(HEALTH_EVENT_CONFIG_WRITE_FAIL, 0U));
 }
 
 void test_not_init_guard_get_snapshot(void)
 {
     device_health_snapshot_t snap;
-    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NOT_INIT,
-        health_monitor_get_snapshot(&snap));
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NOT_INIT, health_monitor_get_snapshot(&snap));
 }
 
 void test_not_init_guard_modbus_slave_stats(void)
 {
     modbus_slave_stats_t stats;
-    (void)memset(&stats, 0, sizeof(stats));
+    (void) memset(&stats, 0, sizeof(stats));
     TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NOT_INIT,
-        health_monitor_update_modbus_slave_stats(&stats));
+                      health_monitor_update_modbus_slave_stats(&stats));
 }
 
 void test_not_init_guard_reset_metrics(void)
 {
-    TEST_ASSERT_EQUAL(HEALTH_ADMIN_ERR_NOT_INIT,
-        health_monitor_reset_metrics());
+    TEST_ASSERT_EQUAL(HEALTH_ADMIN_ERR_NOT_INIT, health_monitor_reset_metrics());
 }
 
 /* ======================================================================= */
@@ -338,10 +335,10 @@ void test_time_sync_acquired_sets_sync_state(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
-    (void)health_monitor_push_event(HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_push_event(HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL(TIME_SYNC_SYNCHRONISED, snap.time_sync_state);
 }
@@ -350,11 +347,11 @@ void test_time_sync_lost_clears_sync_state(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
-    (void)health_monitor_push_event(HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
-    (void)health_monitor_push_event(HEALTH_EVENT_TIME_SYNC_LOST, 0U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_push_event(HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
+    (void) health_monitor_push_event(HEALTH_EVENT_TIME_SYNC_LOST, 0U);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL(TIME_SYNC_UNSYNCHRONISED, snap.time_sync_state);
 }
@@ -367,21 +364,19 @@ void test_alarm_cleared_restores_operational_led(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
     /* Raise alarm, then push operational lifecycle state. */
-    (void)health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED,
-                                    (uint32_t)SENSOR_ID_TEMPERATURE);
+    (void) health_monitor_push_event(HEALTH_EVENT_ALARM_RAISED, (uint32_t) SENSOR_ID_TEMPERATURE);
 
     /* Manually set operational state through snapshot (test only). */
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
     snap.lifecycle_state = LIFECYCLE_STATE_OPERATIONAL;
     /* There is no direct setter; push a fault then clear is the prod path.
      * For this unit test: clear the alarm only, check LED reverts. */
 
     /* Clear the alarm. */
-    (void)health_monitor_push_event(HEALTH_EVENT_ALARM_CLEARED,
-                                    (uint32_t)SENSOR_ID_TEMPERATURE);
+    (void) health_monitor_push_event(HEALTH_EVENT_ALARM_CLEARED, (uint32_t) SENSOR_ID_TEMPERATURE);
 
     /* With lifecycle == INIT and no active alarms: GREEN blink, RED off.
      * In the adaptation, BLINK maps to non-zero state (LED_STATE_BLINK_SLOW=2).
@@ -397,12 +392,11 @@ void test_sensor_fail_event_sets_flag_and_increments_count(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
-    (void)health_monitor_push_event(HEALTH_EVENT_SENSOR_FAIL,
-                                    (uint32_t)SENSOR_ID_HUMIDITY);
+    (void) health_monitor_push_event(HEALTH_EVENT_SENSOR_FAIL, (uint32_t) SENSOR_ID_HUMIDITY);
 
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_FALSE(snap.sensor_valid[SENSOR_ID_HUMIDITY]);
     TEST_ASSERT_EQUAL_UINT32(1U, snap.sensor_fail_count);
@@ -414,7 +408,7 @@ void test_sensor_fail_event_sets_flag_and_increments_count(void)
 
 void test_set_led_fault_drives_red_on_green_off(void)
 {
-    (void)health_monitor_init();
+    (void) health_monitor_init();
     led_spy_reset();
 
     health_monitor_set_led_fault();
@@ -431,11 +425,11 @@ void test_update_resources_stores_the_values(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
 
     TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
                       health_monitor_update_resources(37U, 91234U, true, 451));
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL_UINT8(37U, snap.cpu_load_pct);
     TEST_ASSERT_EQUAL_UINT32(91234U, snap.free_ram_bytes);
@@ -447,9 +441,9 @@ void test_update_resources_clamps_the_load_to_100(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
-    (void)health_monitor_update_resources(250U, 0U, true, 0);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_init();
+    (void) health_monitor_update_resources(250U, 0U, true, 0);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL_UINT8(100U, snap.cpu_load_pct);
 }
@@ -458,10 +452,10 @@ void test_update_resources_without_a_temperature_clears_the_flag_and_the_value(v
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
-    (void)health_monitor_update_resources(10U, 1U, true, -52);
-    (void)health_monitor_update_resources(10U, 1U, false, 999);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_init();
+    (void) health_monitor_update_resources(10U, 1U, true, -52);
+    (void) health_monitor_update_resources(10U, 1U, false, 999);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_FALSE(snap.mcu_temp_valid);
     TEST_ASSERT_EQUAL_INT16(0, snap.mcu_temp_deci_c);
@@ -471,9 +465,9 @@ void test_update_resources_keeps_a_negative_temperature(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
-    (void)health_monitor_update_resources(0U, 0U, true, -52);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_init();
+    (void) health_monitor_update_resources(0U, 0U, true, -52);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_EQUAL_INT16(-52, snap.mcu_temp_deci_c);
 }
@@ -492,19 +486,19 @@ static void feed_frames(uint32_t frames, uint32_t at_s)
 {
     modbus_slave_stats_t st;
 
-    (void)memset(&st, 0, sizeof(st));
+    (void) memset(&st, 0, sizeof(st));
     st.valid_frames = frames;
     g_mock_tick_count = at_s * 1000U;
-    (void)health_monitor_update_modbus_slave_stats(&st);
+    (void) health_monitor_update_modbus_slave_stats(&st);
 }
 
 void test_link_is_offline_until_a_frame_arrives(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
     feed_frames(0U, 1U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_FALSE(snap.modbus_slave_ok);
 }
@@ -513,10 +507,10 @@ void test_link_is_online_while_frames_keep_arriving(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
     feed_frames(10U, 1U);
     feed_frames(25U, 2U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_TRUE(snap.modbus_slave_ok);
 }
@@ -525,14 +519,14 @@ void test_link_goes_offline_after_ten_seconds_without_frames(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
     feed_frames(10U, 1U);
     feed_frames(10U, 10U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
     TEST_ASSERT_TRUE(snap.modbus_slave_ok);
 
     feed_frames(10U, 11U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
     TEST_ASSERT_FALSE(snap.modbus_slave_ok);
 }
 
@@ -540,11 +534,11 @@ void test_link_recovers_when_frames_resume(void)
 {
     device_health_snapshot_t snap;
 
-    (void)health_monitor_init();
+    (void) health_monitor_init();
     feed_frames(10U, 1U);
     feed_frames(10U, 30U);
     feed_frames(11U, 31U);
-    (void)health_monitor_get_snapshot(&snap);
+    (void) health_monitor_get_snapshot(&snap);
 
     TEST_ASSERT_TRUE(snap.modbus_slave_ok);
 }

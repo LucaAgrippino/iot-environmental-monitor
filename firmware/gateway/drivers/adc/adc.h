@@ -27,7 +27,8 @@ adc_err_t adc_init(void);
 /**
  * @brief Read the MCU die temperature.
  *
- * One polled conversion of ADC1 channels 0 (VREFINT) and 17 (temperature), a few tens of microseconds. One calling task only.
+ * One polled conversion of ADC1 channels 0 (VREFINT) and 17 (temperature), a few tens of
+ * microseconds. One calling task only.
  *
  * @param[out] deci_c  Temperature in tenths of a degree Celsius.
  * @return ADC_OK, ADC_ERR_NOT_INIT, ADC_ERR_NULL or ADC_ERR_TIMEOUT.

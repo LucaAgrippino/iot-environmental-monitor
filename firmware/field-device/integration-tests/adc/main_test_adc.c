@@ -9,7 +9,8 @@
  *   - a read before adc_init() and a NULL output are refused.
  * Output on USART3 (ST-LINK virtual COM port, 115200 8N1).
  *
- * Build: GUI=0 MAIN=firmware/field-device/integration-tests/adc/main_test_adc.c scripts/build-fd-app.sh --flash
+ * Build: GUI=0 MAIN=firmware/field-device/integration-tests/adc/main_test_adc.c
+ * scripts/build-fd-app.sh --flash
  */
 
 #include <stddef.h>
@@ -119,8 +120,9 @@ int main(void)
     puts_(((lo >= TEMP_MIN_DECI_C) && (hi <= TEMP_MAX_DECI_C))
               ? "[PASS] TC-HW-ADC-001e values are between 0 and 85 degC\r\n"
               : "[FAIL] TC-HW-ADC-001e a value is out of range\r\n");
-    puts_(((hi - lo) <= SPREAD_MAX_DECI_C) ? "[PASS] TC-HW-ADC-001f readings agree within 2 degC\r\n"
-                                           : "[FAIL] TC-HW-ADC-001f readings spread more than 2 degC\r\n");
+    puts_(((hi - lo) <= SPREAD_MAX_DECI_C)
+              ? "[PASS] TC-HW-ADC-001f readings agree within 2 degC\r\n"
+              : "[FAIL] TC-HW-ADC-001f readings spread more than 2 degC\r\n");
     puts_("[DONE]\r\n");
     for (;;)
     {

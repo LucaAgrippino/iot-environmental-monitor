@@ -215,9 +215,9 @@ typedef struct
     uint8_t cpu_load_pct;          /**< 0-100, share of run time not spent in the idle task. */
     uint32_t arena_min_free_bytes; /**< Least free space ever left in the static TLS arena; the
                                         Gateway has no other dynamic memory (REQ-NF-408).   */
-    uint32_t free_ram_bytes;       /**< Main RAM no static object owns (top of RAM minus .bss end). */
-    bool mcu_temp_valid;           /**< mcu_temp_deci_c holds a reading.                   */
-    int16_t mcu_temp_deci_c;       /**< MCU die temperature in 0.1 degC (AdcDriver).        */
+    uint32_t free_ram_bytes; /**< Main RAM no static object owns (top of RAM minus .bss end). */
+    bool mcu_temp_valid;     /**< mcu_temp_deci_c holds a reading.                   */
+    int16_t mcu_temp_deci_c; /**< MCU die temperature in 0.1 degC (AdcDriver).        */
 
     /* ── RTOS task stack watermarks ── */
     uint16_t stack_watermark_words[HEALTH_MONITOR_MAX_TASKS];

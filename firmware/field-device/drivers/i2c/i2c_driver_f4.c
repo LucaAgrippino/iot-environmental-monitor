@@ -383,8 +383,8 @@ static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
     return I2C_ERR_OK;
 }
 
-static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_len, uint8_t *rx_buf,
-                         uint16_t rx_len)
+static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_len,
+                                     uint8_t *rx_buf, uint16_t rx_len)
 {
     assert(s_i2c.initialised);
 

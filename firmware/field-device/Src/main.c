@@ -223,8 +223,10 @@ static const struct
     uint8_t percent;
     const char *name;
 } k_boot_steps[BOOT_STEP_COUNT] = {
-    {10U, "Initialising display..."},  {30U, "Loading configuration..."},
-    {55U, "Initialising sensor bus..."}, {80U, "Sensors ready"},
+    {10U, "Initialising display..."},
+    {30U, "Loading configuration..."},
+    {55U, "Initialising sensor bus..."},
+    {80U, "Sensors ready"},
     {100U, "System ready"},
 };
 
@@ -450,9 +452,9 @@ static void gui_task(void *arg)
 {
     (void) arg;
     TickType_t last_wake = xTaskGetTickCount();
-    uint32_t shown = 0U;       /* splash step on screen */
-    uint32_t step_ms = 0U;     /* time it has been on screen */
-    uint32_t hold_ms = 0U;     /* time left at 100 % or after a fault */
+    uint32_t shown = 0U;   /* splash step on screen */
+    uint32_t step_ms = 0U; /* time it has been on screen */
+    uint32_t hold_ms = 0U; /* time left at 100 % or after a fault */
     bool ending = false;
     bool dismissed = false;
 
@@ -566,8 +568,8 @@ static void feed_resources(void)
     }
 
     const bool temp_ok = (adc_read_mcu_temp_deci_c(&temp_deci_c) == ADC_OK);
-    (void) health_monitor_update_resources(load, (uint32_t) ((uintptr_t) &_estack - (uintptr_t) &_end),
-                                           temp_ok, temp_deci_c);
+    (void) health_monitor_update_resources(
+        load, (uint32_t) ((uintptr_t) &_estack - (uintptr_t) &_end), temp_ok, temp_deci_c);
 }
 
 static void report_task(void *arg)

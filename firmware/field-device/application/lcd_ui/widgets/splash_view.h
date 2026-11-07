@@ -36,7 +36,8 @@ typedef struct
 /**
  * @brief Build the overlay (hidden) under @p parent.
  *
- * @param[in] footer_left  Text at the bottom left, e.g. "FW v1.0.0 . build 20261107 . LVGL v8.3.11".
+ * @param[in] footer_left  Text at the bottom left, e.g. "FW v1.0.0 . build 20261107 . LVGL
+ * v8.3.11".
  * @param[in] footer_right Text at the bottom right, e.g. "STM32F469 . 800x480".
  */
 void splash_view_create(splash_view_t *s, lv_obj_t *parent, const char *footer_left,

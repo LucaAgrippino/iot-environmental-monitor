@@ -48,7 +48,7 @@
              */
 #define LCD_CONFIRM_TIMEOUT_MS (30000U) /* confirm modal auto-dismiss */
 #define LCD_TOAST_MS (3000U)
-#define LCD_STALE_AFTER_S (10U)    /* a valid reading older than the newest by this is STALE */
+#define LCD_STALE_AFTER_S (10U) /* a valid reading older than the newest by this is STALE */
 #define LCD_KIB (1024U)
 #define LCD_FOOTER_TEXT_MAX (96U)
 #define LCD_VERSION_SHORT_MAX (16U)
@@ -61,13 +61,13 @@
 #define LCD_LVGL_MINOR 3
 #define LCD_LVGL_PATCH 11
 #endif
-#define LCD_CPU_WARN_PCT (70U) /* CPU load from this is a warning ... */
-#define LCD_CPU_ERR_PCT (90U)  /* ... and from this an error */
+#define LCD_CPU_WARN_PCT (70U)             /* CPU load from this is a warning ... */
+#define LCD_CPU_ERR_PCT (90U)              /* ... and from this an error */
 #define LCD_RAM_WARN_BYTES (16U * LCD_KIB) /* free RAM below this is a warning ... */
 #define LCD_RAM_ERR_BYTES (4U * LCD_KIB)   /* ... and below this an error */
 #define LCD_TEMP_WARN_DECI_C (700)         /* MCU temperature (0.1 degC) from this: warning ... */
 #define LCD_TEMP_ERR_DECI_C (850)          /* ... and from this: error (85 degC, datasheet) */
-#define HISTORY_WINDOW_S (300U) /* REQ-SA-190: five minutes */
+#define HISTORY_WINDOW_S (300U)            /* REQ-SA-190: five minutes */
 #define POLL_MS_PER_S (1000U)
 
 #ifdef TEST
@@ -653,8 +653,8 @@ static void build_trend_screen(trend_screen_t *scr, lv_obj_t *panel)
 
 #define STATUS_COLUMNS 3
 #define STATUS_COL_GAP THEME_SP_10 /* 24 px between the columns */
-#define STATUS_COL_W \
-    ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - ((STATUS_COLUMNS - 1) * STATUS_COL_GAP)) / \
+#define STATUS_COL_W                                                                               \
+    ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - ((STATUS_COLUMNS - 1) * STATUS_COL_GAP)) /         \
      STATUS_COLUMNS)
 #define STATUS_EYEBROW_H 22 /* eyebrow line plus 6 px margin */
 #define STATUS_SECTION_GAP THEME_SP_6
@@ -663,14 +663,14 @@ static void build_trend_screen(trend_screen_t *scr, lv_obj_t *panel)
 #define STATUS_BANNER_TOP THEME_SP_6
 
 static const char *const k_row_label[STATUS_ROWS] = {
-    "Temperature sensor", "Humidity sensor", "Pressure sensor", "Sensor failures", "Alarms raised",
-    "Active alarms",      "Config save",     "Slave link",      "Valid frames",    "CRC errors",
-    "Exceptions",         "Uptime",          "Firmware",
-    "CPU load",           "Free RAM",        "MCU temperature",
+    "Temperature sensor", "Humidity sensor", "Pressure sensor", "Sensor failures",
+    "Alarms raised",      "Active alarms",   "Config save",     "Slave link",
+    "Valid frames",       "CRC errors",      "Exceptions",      "Uptime",
+    "Firmware",           "CPU load",        "Free RAM",        "MCU temperature",
 };
 
 static const char *const k_section_title[STATUS_SECTIONS] = {"SENSORS", "SYSTEM", "MODBUS",
-                                                             "DEVICE",  "RESOURCES"};
+                                                             "DEVICE", "RESOURCES"};
 
 /** One section of the Status screen: a column, its first row and how many rows. */
 typedef struct
@@ -705,8 +705,8 @@ static void status_layout(status_screen_t *scr, bool banner)
     {
         const status_section_t *sec = &k_section[t];
         const uint32_t c = sec->column;
-        const lv_coord_t x = (lv_coord_t) (THEME_SCREEN_PAD +
-                                           ((lv_coord_t) c * (STATUS_COL_W + STATUS_COL_GAP)));
+        const lv_coord_t x =
+            (lv_coord_t) (THEME_SCREEN_PAD + ((lv_coord_t) c * (STATUS_COL_W + STATUS_COL_GAP)));
 
         if (y[c] != top)
         {
@@ -841,7 +841,10 @@ static void status_screen_on_refresh(screen_t *self)
     {
         char num[16];
         ui_fmt_fixed(num, sizeof(num), h.mcu_temp_deci_c, 10U, 1U);
-        (void) snprintf(buf, sizeof(buf), "%s \xC2\xB0" "C", num);
+        (void) snprintf(buf, sizeof(buf),
+                        "%s \xC2\xB0"
+                        "C",
+                        num);
         status_row_set(&scr->row[15],
                        (h.mcu_temp_deci_c >= LCD_TEMP_ERR_DECI_C)
                            ? ROW_ERR
@@ -1762,7 +1765,9 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
         (void) snprintf(left, sizeof(left), "FW %s \xC2\xB7 %s \xC2\xB7 LVGL v%d.%d.%d",
                         FW_VERSION_STRING, FW_BUILD_DATE, LCD_LVGL_MAJOR, LCD_LVGL_MINOR,
                         LCD_LVGL_PATCH);
-        splash_view_create(&s_ui.splash, root, left, "STM32F469 \xC2\xB7 800\xC3\x97" "480");
+        splash_view_create(&s_ui.splash, root, left,
+                           "STM32F469 \xC2\xB7 800\xC3\x97"
+                           "480");
     }
 
     s_ui.screens[SCR_SENSOR] = (screen_t *) &s_ui.sensor_screen;

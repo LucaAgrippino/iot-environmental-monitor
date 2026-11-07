@@ -30,7 +30,7 @@
 static bool s_initialised;
 static adc_calibration_t s_cal;
 
-static bool wait_clear(volatile uint32_t *reg, uint32_t mask)
+static bool wait_clear(const volatile uint32_t *reg, uint32_t mask)
 {
     uint32_t guard = ADC_POLL_LIMIT;
     while (((*reg & mask) != 0U) && (guard > 0U))
@@ -40,7 +40,7 @@ static bool wait_clear(volatile uint32_t *reg, uint32_t mask)
     return guard > 0U;
 }
 
-static bool wait_set(volatile uint32_t *reg, uint32_t mask)
+static bool wait_set(const volatile uint32_t *reg, uint32_t mask)
 {
     uint32_t guard = ADC_POLL_LIMIT;
     while (((*reg & mask) == 0U) && (guard > 0U))
@@ -89,8 +89,8 @@ adc_err_t adc_init(void)
     }
 
     ADC1->SMPR1 = (ADC_SAMPLE_640_CYCLES << (ADC_CH_VREFINT * ADC_SMP_BITS));
-    ADC1->SMPR2 = (ADC_SAMPLE_640_CYCLES
-                   << ((ADC_CH_TEMP - ADC_SMPR2_FIRST_CHANNEL) * ADC_SMP_BITS));
+    ADC1->SMPR2 =
+        (ADC_SAMPLE_640_CYCLES << ((ADC_CH_TEMP - ADC_SMPR2_FIRST_CHANNEL) * ADC_SMP_BITS));
     ADC1->CFGR = 0U; /* single conversion, software trigger, 12 bit, right aligned */
 
     s_initialised = true;
@@ -129,5 +129,5 @@ adc_err_t adc_read_mcu_temp_deci_c(int16_t *deci_c)
     }
     /* a dead reference (raw 0) or unreadable calibration is a failed conversion */
     return (adc_mcu_temp_from_raw(&s_cal, raw_ts, raw_vref, deci_c) != 0) ? ADC_OK
-                                                                           : ADC_ERR_TIMEOUT;
+                                                                          : ADC_ERR_TIMEOUT;
 }

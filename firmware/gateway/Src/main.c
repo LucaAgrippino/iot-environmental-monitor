@@ -337,7 +337,8 @@ static void feed_resources(void)
     int16_t temp_deci_c = 0;
     const bool temp_ok = (adc_read_mcu_temp_deci_c(&temp_deci_c) == ADC_OK);
     (void) health_monitor_update_mcu_temp(s_hm, temp_ok, temp_deci_c);
-    (void) health_monitor_update_free_ram(s_hm, (uint32_t) ((uintptr_t) &_estack - (uintptr_t) &_end));
+    (void) health_monitor_update_free_ram(s_hm,
+                                          (uint32_t) ((uintptr_t) &_estack - (uintptr_t) &_end));
 }
 
 static void register_health_tasks(void)
@@ -698,7 +699,7 @@ int main(void)
         spin_forever();
     }
     (void) adc_init(); /* after the clock tree; a failure leaves the temperature unavailable */
-    tls_arena_init(); /* before any mbedTLS call (WP2) */
+    tls_arena_init();  /* before any mbedTLS call (WP2) */
 
     gpio_pin_config_t uart_tx_config = {.port = UART_TX_PORT,
                                         .pin = UART_TX_PIN,

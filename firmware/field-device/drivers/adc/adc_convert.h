@@ -5,8 +5,8 @@
  * @file adc_convert.h
  * @brief AdcDriver, Field Device: raw reading to temperature (pure integer functions).
  *
- * No register access, so the host tests exercise it directly. Design: docs/lld/drivers/adc-driver.md
- * section 3.1.
+ * No register access, so the host tests exercise it directly. Design:
+ * docs/lld/drivers/adc-driver.md section 3.1.
  */
 
 #include <stdint.h>

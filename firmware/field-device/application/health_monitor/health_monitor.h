@@ -112,9 +112,8 @@ health_monitor_update_stack_watermarks(const uint16_t watermarks[HEALTH_TASK_COU
  * @param  temp_deci_c     MCU temperature in 0.1 degC; ignored when temp_valid is false.
  * @return HEALTH_MONITOR_ERR_OK on success; HEALTH_MONITOR_ERR_NOT_INIT before init.
  */
-health_monitor_err_t health_monitor_update_resources(uint32_t cpu_load_pct,
-                                                     uint32_t free_ram_bytes, bool temp_valid,
-                                                     int16_t temp_deci_c);
+health_monitor_err_t health_monitor_update_resources(uint32_t cpu_load_pct, uint32_t free_ram_bytes,
+                                                     bool temp_valid, int16_t temp_deci_c);
 
 /**
  * @brief Get a copy of the current health snapshot.

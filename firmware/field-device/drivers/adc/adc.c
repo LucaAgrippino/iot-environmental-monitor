@@ -37,8 +37,7 @@ adc_err_t adc_init(void)
 
     ADC1->CR1 = 0U;
     ADC1->CR2 = ADC_CR2_ADON;
-    ADC1->SMPR1 = (ADC1->SMPR1 & ~ADC_SMPR1_SMP18) |
-                  (ADC_SAMPLE_480_CYCLES << ADC_SMPR1_SMP18_Pos);
+    ADC1->SMPR1 = (ADC1->SMPR1 & ~ADC_SMPR1_SMP18) | (ADC_SAMPLE_480_CYCLES << ADC_SMPR1_SMP18_Pos);
     ADC1->SQR1 = 0U; /* one conversion */
     ADC1->SQR3 = ADC_TEMP_CHANNEL;
 

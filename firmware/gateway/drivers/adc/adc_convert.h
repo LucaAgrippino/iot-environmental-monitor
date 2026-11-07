@@ -5,8 +5,8 @@
  * @file adc_convert.h
  * @brief AdcDriver, Gateway: raw readings to temperature (pure integer functions).
  *
- * No register access, so the host tests exercise it directly. Design: docs/lld/drivers/adc-driver.md
- * section 3.1.
+ * No register access, so the host tests exercise it directly. Design:
+ * docs/lld/drivers/adc-driver.md section 3.1.
  */
 
 #include <stdint.h>
@@ -19,8 +19,8 @@
  */
 typedef struct
 {
-    uint16_t ts_cal1;    /**< Sensor reading at 30 degC. */
-    uint16_t ts_cal2;    /**< Sensor reading at 130 degC. */
+    uint16_t ts_cal1;     /**< Sensor reading at 30 degC. */
+    uint16_t ts_cal2;     /**< Sensor reading at 130 degC. */
     uint16_t vrefint_cal; /**< Internal reference reading. */
 } adc_calibration_t;
 

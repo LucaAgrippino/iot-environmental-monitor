@@ -78,9 +78,9 @@ typedef struct
     void *task_handles[HEALTH_TASK_COUNT];
     char task_names[HEALTH_TASK_COUNT][TASK_NAME_MAX_LEN];
     uint8_t task_count;
-    uint32_t link_frames;   /**< valid_frames seen at the last change. */
-    uint32_t link_rx_s;     /**< Uptime second of that change. */
-    bool link_seen;         /**< A valid frame has arrived since boot. */
+    uint32_t link_frames; /**< valid_frames seen at the last change. */
+    uint32_t link_rx_s;   /**< Uptime second of that change. */
+    bool link_seen;       /**< A valid frame has arrived since boot. */
 } health_monitor_state_t;
 
 /** The Modbus link counts as up while a valid frame arrived within this many seconds. */
@@ -547,9 +547,8 @@ void health_monitor_poll(void)
     }
 }
 
-health_monitor_err_t health_monitor_update_resources(uint32_t cpu_load_pct,
-                                                     uint32_t free_ram_bytes, bool temp_valid,
-                                                     int16_t temp_deci_c)
+health_monitor_err_t health_monitor_update_resources(uint32_t cpu_load_pct, uint32_t free_ram_bytes,
+                                                     bool temp_valid, int16_t temp_deci_c)
 {
     if (!s_hm.initialised)
     {

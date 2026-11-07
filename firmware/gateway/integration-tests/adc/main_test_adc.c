@@ -121,8 +121,9 @@ int main(void)
     puts_(((lo >= TEMP_MIN_DECI_C) && (hi <= TEMP_MAX_DECI_C))
               ? "[PASS] TC-HW-ADC-002e values are between 0 and 85 degC\r\n"
               : "[FAIL] TC-HW-ADC-002e a value is out of range\r\n");
-    puts_(((hi - lo) <= SPREAD_MAX_DECI_C) ? "[PASS] TC-HW-ADC-002f readings agree within 2 degC\r\n"
-                                           : "[FAIL] TC-HW-ADC-002f readings spread more than 2 degC\r\n");
+    puts_(((hi - lo) <= SPREAD_MAX_DECI_C)
+              ? "[PASS] TC-HW-ADC-002f readings agree within 2 degC\r\n"
+              : "[FAIL] TC-HW-ADC-002f readings spread more than 2 degC\r\n");
     puts_("[DONE]\r\n");
     for (;;)
     {

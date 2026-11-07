@@ -13,20 +13,20 @@
 /* Layout of splash.html on the 800 x 480 canvas (the content is centred as a flex column) */
 #define SPLASH_LOGO_W 56
 #define SPLASH_LOGO_H 52
-#define SPLASH_BRAND_GAP 14        /* logo to text */
-#define SPLASH_BRAND_Y 172         /* top of the brand row */
-#define SPLASH_WORDMARK_DY 0       /* wordmark offset in the brand row */
-#define SPLASH_SUB_DY 36           /* subtitle offset in the brand row */
-#define SPLASH_BAR_Y 270           /* top of the progress track */
+#define SPLASH_BRAND_GAP 14  /* logo to text */
+#define SPLASH_BRAND_Y 172   /* top of the brand row */
+#define SPLASH_WORDMARK_DY 0 /* wordmark offset in the brand row */
+#define SPLASH_SUB_DY 36     /* subtitle offset in the brand row */
+#define SPLASH_BAR_Y 270     /* top of the progress track */
 #define SPLASH_BAR_H 4
-#define SPLASH_BAR_LABEL_DY 14     /* labels below the track */
-#define SPLASH_BADGE_INSET 24      /* badge from the top and right edges */
+#define SPLASH_BAR_LABEL_DY 14 /* labels below the track */
+#define SPLASH_BADGE_INSET 24  /* badge from the top and right edges */
 #define SPLASH_DOT_D 8
 #define SPLASH_FOOTER_INSET 24
 #define SPLASH_FOOTER_H 12
 #define SPLASH_PCT_MAX 100U
-#define SPLASH_PCT_TEXT_W 36       /* room for "100%" in the 11 px mono face */
-#define SPLASH_SUB_TRACK 2         /* letter spacing of the subtitle, 0.22 em at 11 px */
+#define SPLASH_PCT_TEXT_W 36 /* room for "100%" in the 11 px mono face */
+#define SPLASH_SUB_TRACK 2   /* letter spacing of the subtitle, 0.22 em at 11 px */
 #define SPLASH_FOOTER_TRACK 1
 
 #define SPLASH_PRODUCT "ENVMON"
@@ -36,12 +36,12 @@ static void set_badge(splash_view_t *s, bool ready)
 {
     lv_label_set_text(s->badge_lbl, ready ? "READY" : "BOOT");
     lv_obj_set_style_bg_color(s->dot, ready ? THEME_COL_OK : THEME_COL_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s->badge_lbl, ready ? THEME_COL_OK : THEME_COL_MUTED,
-                                LV_PART_MAIN);
+    lv_obj_set_style_text_color(s->badge_lbl, ready ? THEME_COL_OK : THEME_COL_MUTED, LV_PART_MAIN);
 }
 
 #ifndef TEST
-/* The logo of the design (a 64 x 64 viewBox) at 56 px: panel outline, rule, handle, dot and trace */
+/* The logo of the design (a 64 x 64 viewBox) at 56 px: panel outline, rule, handle, dot and trace
+ */
 static void logo_draw_cb(lv_event_t *e)
 {
     lv_obj_t *obj = lv_event_get_target(e);
@@ -65,8 +65,10 @@ static void logo_draw_cb(lv_event_t *e)
     rect.border_color = THEME_COL_ACCENT;
     rect.border_width = 2;
     rect.radius = 3;
-    const lv_area_t panel = {.x1 = (lv_coord_t) (ox + 4), .y1 = (lv_coord_t) (oy + 12),
-                             .x2 = (lv_coord_t) (ox + 52), .y2 = (lv_coord_t) (oy + 43)};
+    const lv_area_t panel = {.x1 = (lv_coord_t) (ox + 4),
+                             .y1 = (lv_coord_t) (oy + 12),
+                             .x2 = (lv_coord_t) (ox + 52),
+                             .y2 = (lv_coord_t) (oy + 43)};
     lv_draw_rect(ctx, &rect, &panel);
 
     const lv_point_t rule[2] = {{(lv_coord_t) (ox + 4), (lv_coord_t) (oy + 23)},
@@ -88,8 +90,10 @@ static void logo_draw_cb(lv_event_t *e)
     dot.bg_opa = LV_OPA_COVER;
     dot.border_width = 0;
     dot.radius = LV_RADIUS_CIRCLE;
-    const lv_area_t dot_area = {.x1 = (lv_coord_t) (ox + 10), .y1 = (lv_coord_t) (oy + 16),
-                                .x2 = (lv_coord_t) (ox + 12), .y2 = (lv_coord_t) (oy + 18)};
+    const lv_area_t dot_area = {.x1 = (lv_coord_t) (ox + 10),
+                                .y1 = (lv_coord_t) (oy + 16),
+                                .x2 = (lv_coord_t) (ox + 12),
+                                .y2 = (lv_coord_t) (oy + 18)};
     lv_draw_rect(ctx, &dot, &dot_area);
 
     line.color = THEME_COL_OK;
@@ -133,9 +137,9 @@ void splash_view_create(splash_view_t *s, lv_obj_t *parent, const char *footer_l
 #endif
     (void) theme_label_create(s->root, &theme_st_txt_title_lg, &theme_st_label_ink, text_x,
                               (lv_coord_t) (SPLASH_BRAND_Y + SPLASH_WORDMARK_DY), SPLASH_PRODUCT);
-    lv_obj_t *sub = theme_label_create(s->root, &theme_st_txt_caption_mono, &theme_st_label_muted,
-                                       text_x, (lv_coord_t) (SPLASH_BRAND_Y + SPLASH_SUB_DY),
-                                       SPLASH_PRODUCT_SUB);
+    lv_obj_t *sub =
+        theme_label_create(s->root, &theme_st_txt_caption_mono, &theme_st_label_muted, text_x,
+                           (lv_coord_t) (SPLASH_BRAND_Y + SPLASH_SUB_DY), SPLASH_PRODUCT_SUB);
     lv_obj_set_style_text_letter_space(sub, SPLASH_SUB_TRACK, LV_PART_MAIN);
 
     /* progress bar: 4 px track with a 1 px border, accent fill */
@@ -154,9 +158,9 @@ void splash_view_create(splash_view_t *s, lv_obj_t *parent, const char *footer_l
         (lv_coord_t) (SPLASH_BAR_Y + SPLASH_BAR_H + (2 * THEME_BORDER_W) + SPLASH_BAR_LABEL_DY);
     s->step_lbl = theme_label_create(s->root, &theme_st_txt_caption_mono, &theme_st_label_ink,
                                      bar_x, label_y, "");
-    s->pct_lbl = theme_label_create(
-        s->root, &theme_st_txt_caption_mono, &theme_st_label_muted,
-        (lv_coord_t) (bar_x + SPLASH_BAR_W - SPLASH_PCT_TEXT_W), label_y, "0%");
+    s->pct_lbl =
+        theme_label_create(s->root, &theme_st_txt_caption_mono, &theme_st_label_muted,
+                           (lv_coord_t) (bar_x + SPLASH_BAR_W - SPLASH_PCT_TEXT_W), label_y, "0%");
     lv_obj_set_width(s->pct_lbl, SPLASH_PCT_TEXT_W);
     lv_obj_set_style_text_align(s->pct_lbl, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
 
@@ -166,22 +170,21 @@ void splash_view_create(splash_view_t *s, lv_obj_t *parent, const char *footer_l
                                       SPLASH_BADGE_INSET, "BOOT");
     lv_obj_set_width(s->badge_lbl, 44);
     lv_obj_set_style_text_align(s->badge_lbl, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    s->dot = theme_box_create(s->root,
-                              (lv_coord_t) (THEME_CANVAS_W - SPLASH_BADGE_INSET - 44 -
-                                            THEME_SP_3 - SPLASH_DOT_D),
-                              (lv_coord_t) (SPLASH_BADGE_INSET + 3), SPLASH_DOT_D, SPLASH_DOT_D);
+    s->dot = theme_box_create(
+        s->root,
+        (lv_coord_t) (THEME_CANVAS_W - SPLASH_BADGE_INSET - 44 - THEME_SP_3 - SPLASH_DOT_D),
+        (lv_coord_t) (SPLASH_BADGE_INSET + 3), SPLASH_DOT_D, SPLASH_DOT_D);
     lv_obj_set_style_radius(s->dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s->dot, LV_OPA_COVER, LV_PART_MAIN);
     set_badge(s, false);
 
     /* footer */
-    const lv_coord_t foot_y =
-        (lv_coord_t) (THEME_CANVAS_H - SPLASH_FOOTER_INSET - SPLASH_FOOTER_H);
+    const lv_coord_t foot_y = (lv_coord_t) (THEME_CANVAS_H - SPLASH_FOOTER_INSET - SPLASH_FOOTER_H);
     lv_obj_t *fl = theme_label_create(s->root, &theme_st_txt_pill, &theme_st_label_muted,
                                       SPLASH_FOOTER_INSET, foot_y, footer_left);
     lv_obj_set_style_text_letter_space(fl, SPLASH_FOOTER_TRACK, LV_PART_MAIN);
-    lv_obj_t *fr = theme_label_create(s->root, &theme_st_txt_pill, &theme_st_label_muted, 0,
-                                      foot_y, footer_right);
+    lv_obj_t *fr = theme_label_create(s->root, &theme_st_txt_pill, &theme_st_label_muted, 0, foot_y,
+                                      footer_right);
     lv_obj_set_style_text_letter_space(fr, SPLASH_FOOTER_TRACK, LV_PART_MAIN);
     const lv_coord_t fr_w =
         lv_txt_get_width(footer_right, (uint32_t) strlen(footer_right), THEME_FONT_PILL,
