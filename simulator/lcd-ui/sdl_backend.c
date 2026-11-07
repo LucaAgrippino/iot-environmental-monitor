@@ -34,6 +34,15 @@ static lv_color_t s_buf[RENDER_BUF_PIXELS];
 
 static bool s_quit_requested;
 
+/* Shadow copy of the whole frame, for screenshots (the render buffer is only a strip). */
+static uint32_t s_frame[WINDOW_W * WINDOW_H];
+
+/* Pointer injection for scripted runs. */
+static bool s_inject;
+static int s_inject_x;
+static int s_inject_y;
+static bool s_inject_pressed;
+
 /* ---------- LVGL display flush callback ---------------------------------- */
 
 static void sdl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area,
@@ -48,6 +57,13 @@ static void sdl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area,
         .w = w,
         .h = h,
     };
+    for (int32_t y = 0; y < h; y++)
+    {
+        for (int32_t x = 0; x < w; x++)
+        {
+            s_frame[((area->y1 + y) * WINDOW_W) + area->x1 + x] = color_p[(y * w) + x].full;
+        }
+    }
     SDL_UpdateTexture(s_texture, &rect, color_p,
                       (int)(w * sizeof(lv_color_t)));
     SDL_RenderClear(s_renderer);
@@ -65,6 +81,13 @@ static void sdl_mouse_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 
     int mx, my;
     uint32_t buttons = SDL_GetMouseState(&mx, &my);
+    if (s_inject)
+    {
+        data->point.x = (lv_coord_t)s_inject_x;
+        data->point.y = (lv_coord_t)s_inject_y;
+        data->state   = s_inject_pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+        return;
+    }
 
     data->point.x = (lv_coord_t)(mx / (int)SDL_SCALE);
     data->point.y = (lv_coord_t)(my / (int)SDL_SCALE);
@@ -152,4 +175,35 @@ void sdl_pump(void)
 uint32_t sdl_backend_get_ticks_ms(void)
 {
     return (uint32_t)SDL_GetTicks();
+}
+
+void sdl_backend_inject_pointer(int x, int y, bool pressed)
+{
+    s_inject = true;
+    s_inject_x = x;
+    s_inject_y = y;
+    s_inject_pressed = pressed;
+}
+
+void sdl_backend_clear_injection(void)
+{
+    s_inject = false;
+}
+
+bool sdl_backend_save_ppm(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == NULL)
+    {
+        return false;
+    }
+    (void)fprintf(f, "P6\n%d %d\n255\n", WINDOW_W, WINDOW_H);
+    for (int i = 0; i < (WINDOW_W * WINDOW_H); i++)
+    {
+        const uint32_t px = s_frame[i];
+        const uint8_t rgb[3] = {(uint8_t)(px >> 16), (uint8_t)(px >> 8), (uint8_t)px};
+        (void)fwrite(rgb, 1, 3, f);
+    }
+    (void)fclose(f);
+    return true;
 }

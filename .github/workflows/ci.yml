@@ -78,6 +78,33 @@ jobs:
           project-path: ${{ matrix.project_path }}
           project-target: ${{ matrix.project_target }}
 
+  # The display stack is outside CubeIDE's Debug configuration (it needs LVGL, the BSP and the HAL),
+  # so it is built here with the same script the bench uses, and the simulator renders every state.
+  fd-gui:
+    name: Field Device GUI (firmware build and simulator)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install toolchain and SDL2
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build libsdl2-dev python3-pil
+
+      - name: Generate firmware_version.h
+        run: python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h
+
+      - name: Build the LcdUi bring-up image (GUI=1)
+        run: GUI=1 MAIN="$PWD/firmware/field-device/integration-tests/lcd_ui/test_lcd_ui_main.c" bash scripts/build-fd-app.sh
+
+      - name: Build the simulator and render every screen and state
+        working-directory: simulator/lcd-ui
+        run: |
+          cmake -S . -B build-native -G Ninja
+          cmake --build build-native
+          ./shots.sh build-native/lcd_sim shots
+          test "$(ls shots/*.png | wc -l)" -ge 15
+
   build-exclusions:
     name: Build configurations (one main() each)
     runs-on: ubuntu-latest

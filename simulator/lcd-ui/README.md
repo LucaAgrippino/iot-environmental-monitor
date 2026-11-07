@@ -69,3 +69,27 @@ outside Docker, install it manually:
 ```bash
 sudo apt-get install libsdl2-dev
 ```
+
+## Rendering every screen without a display
+
+```bash
+make native      # build with the host's SDL2, CMake and Ninja (no Docker)
+make shots       # render every screen and state of the design pack into shots/
+```
+
+`shots.sh` runs the simulator headless (`SDL_VIDEODRIVER=dummy`) with a script. The same options work
+by hand:
+
+```bash
+SDL_VIDEODRIVER=dummy build-native/lcd_sim --script "scenario alarm; warp 30; tap 560 32; shot alarms.ppm"
+```
+
+| Command | Effect |
+|---|---|
+| `scenario <name>` | `normal`, `waiting`, `stale`, `error`, `alarm`, `degraded`, `gap` |
+| `warp <s>` | advance the virtual clock quickly (the 5-minute history needs `warp 310`) |
+| `tap <x> <y>` | a 120 ms touch at logical coordinates (tab i is at x = 80 + 160 i, y = 32) |
+| `shot <file.ppm>` | save the current frame |
+
+The simulator builds the firmware's own LcdUi sources and generated fonts; only the services
+(`sim_providers.c`) are synthetic. Screenshots of the result are in `docs/lcd-ui-design/screenshots/`.

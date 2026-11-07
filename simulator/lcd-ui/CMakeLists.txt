@@ -30,22 +30,25 @@ set(APP_ROOT   ${FW_ROOT}/application)
 set(MW_ROOT    ${FW_ROOT}/middleware)
 set(SHARED_ROOT ${CMAKE_SOURCE_DIR}/../../firmware/shared)
 
+# LcdUi sources: the module, its widgets and the generated fonts, exactly as the firmware builds them
+file(GLOB LCD_UI_WIDGETS ${APP_ROOT}/lcd_ui/widgets/*.c)
+file(GLOB LCD_UI_FONTS ${MW_ROOT}/graphics_library/fonts/*.c)
+
 add_executable(lcd_sim
     main.c
     sdl_backend.c
     sim_providers.c
 
-    # LcdUi application module
     ${APP_ROOT}/lcd_ui/lcd_ui.c
     ${APP_ROOT}/lcd_ui/theme.c
-    ${APP_ROOT}/lcd_ui/widgets/tab_bar.c
-    ${APP_ROOT}/lcd_ui/widgets/header_bar.c
-    ${APP_ROOT}/lcd_ui/widgets/footer_bar.c
-    ${APP_ROOT}/lcd_ui/widgets/status_pill.c
-    ${APP_ROOT}/lcd_ui/widgets/sensor_card.c
+    ${APP_ROOT}/lcd_ui/ui_format.c
+    ${APP_ROOT}/lcd_ui/ui_history.c
+    ${LCD_UI_WIDGETS}
+    ${LCD_UI_FONTS}
 )
 
 target_include_directories(lcd_sim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     # LVGL config header
     ${MW_ROOT}/graphics_library
 

@@ -1,32 +1,32 @@
 /**
  * @file main.c
- * @brief Desktop simulator entry-point for LcdUi.
+ * @brief Desktop simulator entry point for LcdUi.
  *
- * Start-up sequence:
- *   1. lv_init()
- *   2. sdl_backend_init()     — creates 800×480 SDL2 window + LVGL display
- *   3. theme_init()           — initialises all design-token LVGL styles
- *   4. lcd_ui_init()          — builds four-screen widget hierarchy
- *   5. LVGL timer (200 ms)    — drives lcd_ui_tick() instead of FreeRTOS task
- *   6. Event loop             — lv_timer_handler() + sdl_pump() + 5 ms sleep
+ * Interactive: `lcd_sim` opens an 800 x 480 window (2x upscale) and runs on real time.
  *
- * All provider vtables are defined in sim_providers.c.
+ * Scripted (headless-capable): `lcd_sim --script "<commands>"`, commands separated by ';':
+ *
+ *   scenario <name>   normal | waiting | stale | error | alarm | degraded | gap
+ *   warp <seconds>    advance the virtual clock quickly, running every UI timer
+ *   tap <x> <y>       a 120 ms touch at logical coordinates
+ *   shot <file.ppm>   save the current frame (binary PPM)
+ *
+ * Example (no display needed):
+ *   SDL_VIDEODRIVER=dummy lcd_sim --script "warp 310; shot sensors.ppm; tap 240 32; warp 1; shot trend.ppm"
+ *
+ * Start-up: lv_init, the SDL backend, then lcd_ui_init() (which initialises the theme).
  */
 
 #include <stdio.h>
-#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "lvgl.h"
 #include "sdl_backend.h"
+#include "sim_providers.h"
 
-/* Bring in the firmware API headers — no TEST define so real types are used. */
 #include "lcd_ui/lcd_ui.h"
-#include "lcd_ui/theme.h"
-
-/* ===================================================================== */
-/* Provider vtable handles (defined in sim_providers.c)                 */
-/* ===================================================================== */
 
 extern const isensor_service_t  sim_sensor_svc;
 extern const ialarm_service_t   sim_alarm_svc;
@@ -35,94 +35,140 @@ extern const iconfig_manager_t  sim_cfg_write;
 extern const ihealth_snapshot_t sim_health_snap;
 extern const ihealth_report_t   sim_health_report;
 
-/* ===================================================================== */
-/* LVGL log → stderr                                                     */
-/* ===================================================================== */
+#define SIM_STEP_MS 20U      /* virtual time step of the scripted mode */
+#define SIM_UI_TICK_MS 200U  /* lcd_ui_tick period, like the firmware task */
+#define SIM_TAP_MS 120U      /* a tap is held this long */
 
 static void sim_lv_log_cb(const char *buf)
 {
     (void)fprintf(stderr, "[LVGL] %s\n", buf);
 }
 
-/* ===================================================================== */
-/* UI refresh timer callback                                             */
-/* ===================================================================== */
+static uint32_t s_virtual_ms;
+static uint32_t s_next_ui_tick_ms;
 
-static void ui_tick_timer_cb(lv_timer_t *t)
+/** Advance the virtual clock by ms, running LVGL and the UI tick. */
+static void sim_advance(uint32_t ms)
 {
-    (void)t;
-    lcd_ui_tick();
+    uint32_t left = ms;
+    while (left > 0U)
+    {
+        const uint32_t step = (left < SIM_STEP_MS) ? left : SIM_STEP_MS;
+        s_virtual_ms += step;
+        sim_set_time_ms(s_virtual_ms);
+        lv_tick_inc(step);
+        if (s_virtual_ms >= s_next_ui_tick_ms)
+        {
+            lcd_ui_tick();
+            s_next_ui_tick_ms += SIM_UI_TICK_MS;
+        }
+        (void)lv_timer_handler();
+        left -= step;
+    }
 }
 
-/* ===================================================================== */
-/* main                                                                  */
-/* ===================================================================== */
-
-int main(void)
+static void sim_run_script(char *script)
 {
+    for (char *cmd = strtok(script, ";"); cmd != NULL; cmd = strtok(NULL, ";"))
+    {
+        char arg1[512];
+        int a = 0;
+        int b = 0;
+        while (*cmd == ' ')
+        {
+            cmd++;
+        }
+        if (sscanf(cmd, "scenario %511s", arg1) == 1)
+        {
+            sim_set_scenario(sim_scenario_from_name(arg1));
+        }
+        else if (sscanf(cmd, "warp %d", &a) == 1)
+        {
+            sim_advance((uint32_t)a * 1000U);
+        }
+        else if (sscanf(cmd, "tap %d %d", &a, &b) == 2)
+        {
+            sdl_backend_inject_pointer(a, b, true);
+            sim_advance(SIM_TAP_MS);
+            sdl_backend_inject_pointer(a, b, false);
+            sim_advance(SIM_TAP_MS);
+            sdl_backend_clear_injection();
+            sim_advance(SIM_UI_TICK_MS); /* let the tick show the result */
+        }
+        else if (sscanf(cmd, "shot %511s", arg1) == 1)
+        {
+            sim_advance(SIM_UI_TICK_MS);
+            if (!sdl_backend_save_ppm(arg1))
+            {
+                (void)fprintf(stderr, "[sim] cannot write %s\n", arg1);
+            }
+        }
+        else if (*cmd != '\0')
+        {
+            (void)fprintf(stderr, "[sim] unknown command: %s\n", cmd);
+        }
+    }
+}
+
+int main(int argc, char **argv)
+{
+    char *script = NULL;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if ((strcmp(argv[i], "--script") == 0) && ((i + 1) < argc))
+        {
+            script = strdup(argv[++i]);
+        }
+    }
+
     lv_init();
-    lv_log_register_print_cb(sim_lv_log_cb);   /* route LVGL warnings to stderr */
-
-    (void)fprintf(stderr, "[sim] lv_init OK\n");
-
+    lv_log_register_print_cb(sim_lv_log_cb);
     sdl_backend_init();
-    (void)fprintf(stderr, "[sim] sdl_backend_init OK — display: %p\n",
-                  (void *)lv_disp_get_default());
 
-    /* Report heap before building the widget tree */
-    {
-        lv_mem_monitor_t mon;
-        lv_mem_monitor(&mon);
-        (void)fprintf(stderr,
-                      "[sim] heap before theme_init: total=%u free=%u frag=%u%%\n",
-                      (unsigned)mon.total_size,
-                      (unsigned)mon.free_size,
-                      (unsigned)mon.frag_pct);
-    }
-
-    theme_init();
-    (void)fprintf(stderr, "[sim] theme_init OK\n");
-
-    lcd_ui_err_t err = lcd_ui_init(&sim_sensor_svc, &sim_alarm_svc,
-                                   &sim_cfg_read, &sim_cfg_write,
+    lcd_ui_err_t err = lcd_ui_init(&sim_sensor_svc, &sim_alarm_svc, &sim_cfg_read, &sim_cfg_write,
                                    &sim_health_snap, &sim_health_report);
-
-    /* Report heap after building the widget tree */
-    {
-        lv_mem_monitor_t mon;
-        lv_mem_monitor(&mon);
-        (void)fprintf(stderr,
-                      "[sim] heap after lcd_ui_init:  total=%u free=%u frag=%u%%\n",
-                      (unsigned)mon.total_size,
-                      (unsigned)mon.free_size,
-                      (unsigned)mon.frag_pct);
-    }
-
     if (err != LCD_UI_ERR_OK)
     {
         (void)fprintf(stderr, "[sim] lcd_ui_init FAILED: err=%d\n", (int)err);
         return 1;
     }
-    (void)fprintf(stderr, "[sim] lcd_ui_init OK\n");
 
-    /* Drive lcd_ui_tick every 200 ms via LVGL timer — replaces FreeRTOS task */
-    (void)lv_timer_create(ui_tick_timer_cb, 200U, NULL);
+    {
+        lv_mem_monitor_t mon;
+        lv_mem_monitor(&mon);
+        (void)fprintf(stderr, "[sim] LVGL heap after lcd_ui_init: used %u of %u bytes (%u%%), %u objects' worth\n",
+                      (unsigned)(mon.total_size - mon.free_size), (unsigned)mon.total_size,
+                      (unsigned)mon.used_pct, (unsigned)0U);
+    }
 
-    (void)fprintf(stderr, "[sim] entering event loop\n");
+    if (script != NULL)
+    {
+        s_next_ui_tick_ms = SIM_UI_TICK_MS;
+        sim_run_script(script);
+        free(script);
+        return 0;
+    }
 
+    /* interactive: real time */
     uint32_t last_ms = sdl_backend_get_ticks_ms();
-
+    uint32_t since_ui = 0U;
     for (;;)
     {
-        uint32_t now_ms  = sdl_backend_get_ticks_ms();
-        uint32_t elapsed = now_ms - last_ms;
+        const uint32_t now_ms = sdl_backend_get_ticks_ms();
+        const uint32_t elapsed = now_ms - last_ms;
         last_ms = now_ms;
-        lv_tick_inc(elapsed);          /* feed real time into LVGL timer system */
-
+        s_virtual_ms += elapsed;
+        sim_set_time_ms(s_virtual_ms);
+        lv_tick_inc(elapsed);
+        since_ui += elapsed;
+        if (since_ui >= SIM_UI_TICK_MS)
+        {
+            since_ui = 0U;
+            lcd_ui_tick();
+        }
         (void)lv_timer_handler();
         sdl_pump();
         usleep(5U * 1000U);
     }
-
-    return 0;
 }
