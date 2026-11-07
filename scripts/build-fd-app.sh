@@ -12,10 +12,12 @@
 #   MAIN      source file to use instead of Src/main.c, e.g. an integration-tests/<module>/*main.c bring-up
 #             harness (it is built with all product sources; output stays in Debug/app)
 #   GUI       1 = also build the display stack: LcdUi, LcdDriver, SdramDriver, TouchscreenDriver and
-#             GraphicsLibrary, with LVGL (vendor/lvgl, a submodule), ST's BSP/HAL and the fonts. The
-#             product Src/main.c does not use them yet, so the default image is built without them,
-#             and CubeIDE's Debug configuration excludes them too. Pair it with MAIN=
-#             firmware/field-device/integration-tests/<module>/test_<module>_main.c.
+#             GraphicsLibrary, with LVGL (vendor/lvgl, a submodule), ST's BSP/HAL and the fonts, and
+#             defines FD_WITH_GUI: the product Src/main.c then brings the display up, shows the boot
+#             splash and runs the UI task (the touch controller shares I2C1, a mutex serialises it).
+#             Without GUI the image has no display, and CubeIDE's Debug configuration excludes the
+#             display modules too. With MAIN=firmware/field-device/integration-tests/<module>/
+#             test_<module>_main.c the harness replaces Src/main.c (FD_WITH_GUI is then unused).
 #   ST_SERIAL ST-LINK serial number to use when several boards are attached (ls /dev/serial/by-id)
 set -euo pipefail
 
@@ -77,7 +79,7 @@ if [[ "${GUI:-0}" == 1 ]]; then
       echo "$f4/Drivers/BSP/Components/otm8009a/otm8009a.c"
       echo "$f4/Drivers/BSP/Components/nt35510/nt35510.c")
     # The fonts (Utilities/Fonts/font*.c) are #included by stm32469i_discovery_lcd.c itself.
-    common+=("${gui_inc[@]}")
+    common+=("${gui_inc[@]}" -DFD_WITH_GUI)
 fi
 vendor_flags=()
 for f in "${common[@]}"; do [[ "$f" == -pedantic || "$f" == -pedantic-errors ]] || vendor_flags+=("$f"); done
@@ -88,7 +90,9 @@ for src in "${project_srcs[@]}" "${vendor_srcs[@]}"; do
     obj="$out/$(echo "${src#"$root"/}" | tr '/' '_').o"
     flags=("${common[@]}")
     [[ "$src" == "$v"/* && "$src" != "$v/freertos-kernel/"* && "$src" != "$cmsis"/* ]] && flags=("${vendor_flags[@]}")
-    ( arm-none-eabi-gcc "${flags[@]}" -O0 -c "$src" -o "$obj" 2> "$obj.log" \
+    opt=-O0
+    [[ "$src" == "$v/lvgl/"* ]] && opt=-O2 # LVGL renders a frame in a fraction of the time at -O2
+    ( arm-none-eabi-gcc "${flags[@]}" $opt -c "$src" -o "$obj" 2> "$obj.log" \
         || { cat "$obj.log" >&2; echo "FAILED: $src" >&2; exit 1; } ) &
     pids+=($!)
     if (( ${#pids[@]} >= $(nproc) )); then

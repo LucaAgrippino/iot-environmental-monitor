@@ -33,6 +33,7 @@
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
 #include "config_store/config_store.h"
+#include "adc/adc.h"
 #include "cpu/cpu.h"
 #include "console_service/console_service.h"
 #include "debug-uart/debug_uart_driver.h"
@@ -52,6 +53,15 @@
 #include "firmware_version.h"
 #include "system_clock.h"
 #include "time_provider/time_provider.h"
+
+#ifdef FD_WITH_GUI
+#include "graphics_library/graphics_library.h"
+#include "lcd_driver/lcd_driver.h"
+#include "lcd_ui/lcd_ui.h"
+#include "sdram_driver/sdram_driver.h"
+#include "semphr.h"
+#include "touchscreen_driver/touchscreen_driver.h"
+#endif
 
 #define MODULE_TAG "Main"
 
@@ -79,6 +89,9 @@
 #define SENSOR_READY_WAIT_MS (2000U)
 /** Delay before the one-shot stack report, long enough for boot and a few Modbus requests. */
 #define STACK_REPORT_DELAY_MS (30000U)
+/** Upper bound of tasks the CPU-load sampling reads (sensor, modbus, console, lifecycle, report,
+ *  idle, timer, graphics, and room to grow). */
+#define LOAD_MAX_TASKS (16U)
 
 static StackType_t s_sensor_stack[SENSOR_TASK_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_sensor_tcb;
@@ -188,6 +201,46 @@ static void sensor_task(void *arg)
     }
 }
 
+/* ----------------------------------------------------------------------- */
+/* Boot progress for the splash (a no-op in images without the display stack)  */
+/* ----------------------------------------------------------------------- */
+
+/* Boot steps shown on the splash (splash.html: the bar advances per sub-step, with the name).
+ * The boot reaches them in this order; the UI task shows each for at least GUI_STEP_MS, so the
+ * steps stay readable even though the real boot takes about a second. */
+typedef enum
+{
+    BOOT_STEP_DISPLAY = 0,
+    BOOT_STEP_CONFIG,
+    BOOT_STEP_SENSORS,
+    BOOT_STEP_SENSORS_DONE,
+    BOOT_STEP_READY,
+    BOOT_STEP_COUNT
+} boot_step_t;
+
+static const struct
+{
+    uint8_t percent;
+    const char *name;
+} k_boot_steps[BOOT_STEP_COUNT] = {
+    {10U, "Initialising display..."},
+    {30U, "Loading configuration..."},
+    {55U, "Initialising sensor bus..."},
+    {80U, "Sensors ready"},
+    {100U, "System ready"},
+};
+
+/** Highest step the real boot has reached (written by the boot code, read by the UI task). */
+static volatile uint32_t s_boot_reached;
+
+static void boot_reached(boot_step_t step)
+{
+    if ((uint32_t) step > s_boot_reached)
+    {
+        s_boot_reached = (uint32_t) step;
+    }
+}
+
 static bool wait_sensors_ready(void)
 {
     for (uint32_t waited = 0U; waited < SENSOR_READY_WAIT_MS; waited += 10U)
@@ -203,7 +256,10 @@ static bool wait_sensors_ready(void)
 
 static sensor_service_err_t lc_sensors_init(void)
 {
-    return wait_sensors_ready() ? SENSOR_SERVICE_ERR_OK : SENSOR_SERVICE_ERR_NOT_INIT;
+    boot_reached(BOOT_STEP_SENSORS);
+    const bool ok = wait_sensors_ready();
+    boot_reached(BOOT_STEP_SENSORS_DONE);
+    return ok ? SENSOR_SERVICE_ERR_OK : SENSOR_SERVICE_ERR_NOT_INIT;
 }
 
 static alarm_service_err_t lc_alarms_init(void)
@@ -296,6 +352,16 @@ static const IModbusRegisterMap s_legacy_map = {
 /* ModbusTask: two-phase Modbus slave init                                  */
 /* ======================================================================= */
 
+/* The Modbus transmit waits for each byte (1 ms at 9600 baud): sleep one tick instead of spinning,
+ * which kept the idle task from ever running (CPU load read 100 %). */
+void modbus_uart_wait_hook(void)
+{
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+    {
+        vTaskDelay(1U);
+    }
+}
+
 static void modbus_task(void *arg)
 {
     (void) arg;
@@ -329,24 +395,211 @@ static void report_stack(const char *name, TaskHandle_t t, uint32_t words)
              (unsigned long) uxTaskGetStackHighWaterMark(t), (unsigned long) words);
 }
 
+/* ----------------------------------------------------------------------- */
+/* Resources: CPU load, free RAM, MCU temperature (REQ-CC-010)              */
+/* ----------------------------------------------------------------------- */
+
+/** End of .bss and top of RAM, from the linker script. */
+extern uint32_t _end;
+extern uint32_t _estack;
+
+static TaskStatus_t s_load_status[LOAD_MAX_TASKS];
+
+/* ======================================================================= */
+/* Display (GUI=1 builds): bus lock, boot splash, LcdUi task                */
+/* ======================================================================= */
+
+#ifdef FD_WITH_GUI
+
+/** Same level as Lifecycle, Console and the report task: LVGL rendering is long, and a higher
+ *  priority would starve the boot sequence (measured on the board at -O0). */
+#define GUI_TASK_PRIORITY (1U)
+#define GUI_TASK_STACK_WORDS (2048U)
+/** Period of graphics_process() plus lcd_ui_tick(): the touch response and the blink phases. */
+#define GUI_PERIOD_MS (40U)
+/** Each splash step is shown at least this long (the first frames render slowly at -O0 too). */
+#define GUI_STEP_MS (300U)
+/** The 100 % step is shown for GUI_STEP_MS like the others before the screens appear. A start-up
+ *  fault keeps the splash a little longer so the message can be read. */
+#define GUI_FAULT_HOLD_MS (1500U)
+
+static StackType_t s_gui_stack[GUI_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StaticTask_t s_gui_tcb;
+static StaticSemaphore_t s_i2c_mutex_buf;
+static SemaphoreHandle_t s_i2c_mutex;
+
+/* The touch controller shares I2C1 with the sensors: one transfer at a time (i2c_driver.h). Before
+ * the scheduler runs there is one thread, so the lock is skipped. */
+void i2c_bus_lock(void)
+{
+    if ((s_i2c_mutex != NULL) && (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
+    {
+        (void) xSemaphoreTake(s_i2c_mutex, portMAX_DELAY);
+    }
+}
+
+void i2c_bus_unlock(void)
+{
+    if ((s_i2c_mutex != NULL) && (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
+    {
+        (void) xSemaphoreGive(s_i2c_mutex);
+    }
+}
+
+/** The UI task: drives LVGL and walks the splash through the boot steps. The screens appear only
+ *  after the splash has shown 100 %; a start-up fault ends it early to show the status. */
+static void gui_task(void *arg)
+{
+    (void) arg;
+    TickType_t last_wake = xTaskGetTickCount();
+    uint32_t shown = 0U;   /* splash step on screen */
+    uint32_t step_ms = 0U; /* time it has been on screen */
+    uint32_t hold_ms = 0U; /* time left at 100 % or after a fault */
+    bool ending = false;
+    bool dismissed = false;
+
+    lcd_ui_set_boot_progress(k_boot_steps[0].percent, k_boot_steps[0].name);
+
+    for (;;)
+    {
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(GUI_PERIOD_MS));
+        /* tick first: the splash request is carried out before the first frame is drawn */
+        lcd_ui_tick();
+        (void) graphics_process();
+
+        if (dismissed)
+        {
+            continue;
+        }
+        step_ms += GUI_PERIOD_MS;
+
+        if (lifecycle_controller->get_state() == LIFECYCLE_STATE_OPERATIONAL)
+        {
+            boot_reached(BOOT_STEP_READY);
+        }
+        if (!ending && (lifecycle_controller->get_state() == LIFECYCLE_STATE_FAULTED))
+        {
+            lcd_ui_set_boot_progress(k_boot_steps[shown].percent, "Start-up fault");
+            ending = true;
+            hold_ms = GUI_FAULT_HOLD_MS;
+        }
+
+        if (!ending && (shown < s_boot_reached) && (step_ms >= GUI_STEP_MS))
+        {
+            shown++;
+            step_ms = 0U;
+            lcd_ui_set_boot_progress(k_boot_steps[shown].percent, k_boot_steps[shown].name);
+            if (shown == (BOOT_STEP_COUNT - 1U))
+            {
+                ending = true;
+                hold_ms = GUI_STEP_MS; /* the 100 % stays like any step, then the screens */
+            }
+        }
+        if (ending)
+        {
+            if (hold_ms > GUI_PERIOD_MS)
+            {
+                hold_ms -= GUI_PERIOD_MS;
+            }
+            else
+            {
+                lcd_ui_dismiss_splash();
+                dismissed = true;
+            }
+        }
+    }
+}
+
+/** Display hardware, LVGL and LcdUi; the splash is requested at once and drawn by gui_task. */
+static void gui_bring_up(void)
+{
+    s_i2c_mutex = xSemaphoreCreateMutexStatic(&s_i2c_mutex_buf);
+
+    if ((sdram_init() != SDRAM_ERR_OK) || (lcd_init() != LCD_ERR_OK) ||
+        (touchscreen_init() != TS_ERR_OK) || (graphics_init() != GRAPHICS_ERR_OK) ||
+        (lcd_ui_init(sensor_service, alarm_service, config_provider, config_manager,
+                     health_snapshot, health_report) != LCD_UI_ERR_OK))
+    {
+        LOG_ERROR(MODULE_TAG, "display bring-up failed: the Field Device runs without the GUI");
+        (void) health_report->push_event(HEALTH_EVENT_LCD_FAIL, 0U);
+        return;
+    }
+    lcd_ui_show_splash();
+    (void) xTaskCreateStatic(gui_task, "LcdUiTask", GUI_TASK_STACK_WORDS, NULL, GUI_TASK_PRIORITY,
+                             s_gui_stack, &s_gui_tcb);
+}
+
+#endif /* FD_WITH_GUI */
+
+/**
+ * @brief Sample the CPU load, the free RAM and the MCU temperature and hand them to HealthMonitor.
+ *
+ * The load is the share of the run-time counter (DWT cycle counter) not spent in the idle task
+ * over the time since the previous call; unsigned deltas make the 23 s wrap of the counter
+ * harmless. The image has no heap, so the free RAM is what no static object owns: top of RAM
+ * minus the end of .bss (the main stack grows down from the top).
+ */
+static void feed_resources(void)
+{
+    static uint32_t s_prev_idle;
+    static uint32_t s_prev_total;
+    uint32_t total = 0U;
+    uint32_t idle = 0U;
+    uint32_t load = 0U;
+    int16_t temp_deci_c = 0;
+
+    const UBaseType_t n = uxTaskGetSystemState(s_load_status, LOAD_MAX_TASKS, &total);
+    for (UBaseType_t i = 0U; i < n; i++)
+    {
+        if (strcmp(s_load_status[i].pcTaskName, "IDLE") == 0)
+        {
+            idle = s_load_status[i].ulRunTimeCounter;
+        }
+    }
+
+    const uint32_t d_total = total - s_prev_total;
+    const uint32_t d_idle = idle - s_prev_idle;
+    s_prev_total = total;
+    s_prev_idle = idle;
+    if (d_total >= 100U)
+    {
+        const uint32_t idle_pct = d_idle / (d_total / 100U);
+        load = (idle_pct >= 100U) ? 0U : (100U - idle_pct);
+    }
+
+    const bool temp_ok = (adc_read_mcu_temp_deci_c(&temp_deci_c) == ADC_OK);
+    (void) health_monitor_update_resources(
+        load, (uint32_t) ((uintptr_t) &_estack - (uintptr_t) &_end), temp_ok, temp_deci_c);
+}
+
 static void report_task(void *arg)
 {
     (void) arg;
-    vTaskDelay(pdMS_TO_TICKS(STACK_REPORT_DELAY_MS));
-    report_stack("sensor", s_sensor_task, SENSOR_TASK_STACK_WORDS);
-    report_stack("modbus", s_modbus_task, MODBUS_TASK_STACK_WORDS);
-    report_stack("console", s_console_task, CONSOLE_TASK_STACK_WORDS);
-    report_stack("lifecycle", s_lc_task, LC_TASK_STACK_WORDS);
 
-    /* Housekeeping, once a second: the Modbus slave counters and the uptime reach HealthMonitor
-     * (console `status`, register map); nothing else calls these two. */
+    /* Housekeeping, once a second from boot: the Modbus slave counters, the uptime and the
+     * resources reach HealthMonitor (console `status`, register map, LCD Status screen). */
     modbus_register_map_t *mrm = modbus_register_map_instance();
+    uint32_t elapsed_ms = 0U;
+    bool stacks_reported = false;
 
     for (;;)
     {
         (void) modbus_register_map_poll_stats(mrm);
         health_monitor_poll();
+        feed_resources();
+
+        /* One-shot stack report, after boot and a few Modbus requests. */
+        if (!stacks_reported && (elapsed_ms >= STACK_REPORT_DELAY_MS))
+        {
+            report_stack("sensor", s_sensor_task, SENSOR_TASK_STACK_WORDS);
+            report_stack("modbus", s_modbus_task, MODBUS_TASK_STACK_WORDS);
+            report_stack("console", s_console_task, CONSOLE_TASK_STACK_WORDS);
+            report_stack("lifecycle", s_lc_task, LC_TASK_STACK_WORDS);
+            stacks_reported = true;
+        }
+
         vTaskDelay(pdMS_TO_TICKS(1000U));
+        elapsed_ms += 1000U;
     }
 }
 
@@ -364,6 +617,7 @@ int main(void)
     /* Fault diagnostics and the previous boot's panic report; before rtc_init() so the backup
      * registers are read as the last boot left them. */
     (void) cpu_init();
+    (void) adc_init();
     NVIC_SetPriority(USART6_IRQn, MODBUS_UART_IRQ_PRIORITY);
     NVIC_SetPriority(USART3_IRQn, DEBUG_UART_IRQ_PRIORITY);
     (void) gpio_init();
@@ -384,6 +638,10 @@ int main(void)
     /* 3. Configuration: defaults, then the stored values, so the Modbus task sees the stored
      *    slave address when it starts. LifecycleController loads and applies them again. */
     (void) config_service_init(config_store);
+#ifdef FD_WITH_GUI
+    gui_bring_up();
+#endif
+    boot_reached(BOOT_STEP_CONFIG);
     {
         config_blob_t blob;
         uint32_t len = 0U;

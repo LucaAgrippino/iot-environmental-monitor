@@ -48,11 +48,26 @@
              */
 #define LCD_CONFIRM_TIMEOUT_MS (30000U) /* confirm modal auto-dismiss */
 #define LCD_TOAST_MS (3000U)
-#define LCD_STALE_AFTER_S (10U)    /* a valid reading older than the newest by this is STALE */
-#define LCD_STACK_WARN_WORDS (64U) /* stack margin below this is a warning ... */
-#define LCD_STACK_ERR_WORDS (32U)  /* ... and below this an error (4-byte words) */
-#define LCD_WORD_BYTES (4U)
-#define HISTORY_WINDOW_S (300U) /* REQ-SA-190: five minutes */
+#define LCD_STALE_AFTER_S (10U) /* a valid reading older than the newest by this is STALE */
+#define LCD_KIB (1024U)
+#define LCD_FOOTER_TEXT_MAX (96U)
+#define LCD_VERSION_SHORT_MAX (16U)
+#ifdef LVGL_VERSION_MAJOR
+#define LCD_LVGL_MAJOR LVGL_VERSION_MAJOR
+#define LCD_LVGL_MINOR LVGL_VERSION_MINOR
+#define LCD_LVGL_PATCH LVGL_VERSION_PATCH
+#else /* host tests */
+#define LCD_LVGL_MAJOR 8
+#define LCD_LVGL_MINOR 3
+#define LCD_LVGL_PATCH 11
+#endif
+#define LCD_CPU_WARN_PCT (70U)             /* CPU load from this is a warning ... */
+#define LCD_CPU_ERR_PCT (90U)              /* ... and from this an error */
+#define LCD_RAM_WARN_BYTES (16U * LCD_KIB) /* free RAM below this is a warning ... */
+#define LCD_RAM_ERR_BYTES (4U * LCD_KIB)   /* ... and below this an error */
+#define LCD_TEMP_WARN_DECI_C (700)         /* MCU temperature (0.1 degC) from this: warning ... */
+#define LCD_TEMP_ERR_DECI_C (850)          /* ... and from this: error (85 degC, datasheet) */
+#define HISTORY_WINDOW_S (300U)            /* REQ-SA-190: five minutes */
 #define POLL_MS_PER_S (1000U)
 
 #ifdef TEST
@@ -636,8 +651,11 @@ static void build_trend_screen(trend_screen_t *scr, lv_obj_t *panel)
 /* Status screen                                                          */
 /* ===================================================================== */
 
-#define STATUS_COL_GAP THEME_SP_12 /* 36 px between the two columns */
-#define STATUS_COL_W ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - STATUS_COL_GAP) / 2)
+#define STATUS_COLUMNS 3
+#define STATUS_COL_GAP THEME_SP_10 /* 24 px between the columns */
+#define STATUS_COL_W                                                                               \
+    ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - ((STATUS_COLUMNS - 1) * STATUS_COL_GAP)) /         \
+     STATUS_COLUMNS)
 #define STATUS_EYEBROW_H 22 /* eyebrow line plus 6 px margin */
 #define STATUS_SECTION_GAP THEME_SP_6
 #define STATUS_TOP 18 /* content padding-top */
@@ -645,55 +663,62 @@ static void build_trend_screen(trend_screen_t *scr, lv_obj_t *panel)
 #define STATUS_BANNER_TOP THEME_SP_6
 
 static const char *const k_row_label[STATUS_ROWS] = {
-    "Temperature sensor", "Humidity sensor", "Pressure sensor", "Sensor failures", "Alarms raised",
-    "Active alarms",      "Config save",     "Slave link",      "Valid frames",    "CRC errors",
-    "Exceptions",         "Uptime",          "Firmware",        "Stack margin",
+    "Temperature sensor", "Humidity sensor", "Pressure sensor", "Sensor failures",
+    "Alarms raised",      "Active alarms",   "Config save",     "Slave link",
+    "Valid frames",       "CRC errors",      "Exceptions",      "Uptime",
+    "Firmware",           "CPU load",        "Free RAM",        "MCU temperature",
 };
 
 static const char *const k_section_title[STATUS_SECTIONS] = {"SENSORS", "SYSTEM", "MODBUS",
-                                                             "DEVICE"};
+                                                             "DEVICE", "RESOURCES"};
+
+/** One section of the Status screen: a column, its first row and how many rows. */
+typedef struct
+{
+    uint8_t column;
+    uint8_t first_row;
+    uint8_t row_count;
+} status_section_t;
+
+/* Rows of a section are consecutive. */
+static const status_section_t k_section[STATUS_SECTIONS] = {
+    {0U, 0U, 4U},  /* SENSORS:   rows 0..3   */
+    {0U, 4U, 3U},  /* SYSTEM:    rows 4..6   */
+    {1U, 7U, 4U},  /* MODBUS:    rows 7..10  */
+    {1U, 11U, 2U}, /* DEVICE:    rows 11..12 */
+    {2U, 13U, 3U}, /* RESOURCES: rows 13..15 */
+};
 
 static void status_layout(status_screen_t *scr, bool banner)
 {
-    /* Left: SENSORS (rows 0..3), SYSTEM (4..6). Right: MODBUS (7..10), DEVICE (11..13). */
     const lv_coord_t top =
         (lv_coord_t) (banner ? (STATUS_BANNER_TOP + STATUS_BANNER_H + STATUS_BANNER_TOP)
                              : STATUS_TOP);
-    const lv_coord_t lx = THEME_SCREEN_PAD;
-    const lv_coord_t rx = (lv_coord_t) (THEME_SCREEN_PAD + STATUS_COL_W + STATUS_COL_GAP);
-    lv_coord_t y = top;
+    lv_coord_t y[STATUS_COLUMNS];
 
-    lv_obj_set_pos(scr->eyebrow[0], lx, y);
-    y = (lv_coord_t) (y + STATUS_EYEBROW_H);
-    for (uint32_t r = 0U; r < 4U; r++)
+    for (uint32_t c = 0U; c < STATUS_COLUMNS; c++)
     {
-        lv_obj_set_pos(scr->row[r].box, lx, y);
-        y = (lv_coord_t) (y + STATUS_ROW_HEIGHT);
-    }
-    y = (lv_coord_t) (y + STATUS_SECTION_GAP);
-    lv_obj_set_pos(scr->eyebrow[1], lx, y);
-    y = (lv_coord_t) (y + STATUS_EYEBROW_H);
-    for (uint32_t r = 4U; r < 7U; r++)
-    {
-        lv_obj_set_pos(scr->row[r].box, lx, y);
-        y = (lv_coord_t) (y + STATUS_ROW_HEIGHT);
+        y[c] = top;
     }
 
-    y = top;
-    lv_obj_set_pos(scr->eyebrow[2], rx, y);
-    y = (lv_coord_t) (y + STATUS_EYEBROW_H);
-    for (uint32_t r = 7U; r < 11U; r++)
+    for (uint32_t t = 0U; t < STATUS_SECTIONS; t++)
     {
-        lv_obj_set_pos(scr->row[r].box, rx, y);
-        y = (lv_coord_t) (y + STATUS_ROW_HEIGHT);
-    }
-    y = (lv_coord_t) (y + STATUS_SECTION_GAP);
-    lv_obj_set_pos(scr->eyebrow[3], rx, y);
-    y = (lv_coord_t) (y + STATUS_EYEBROW_H);
-    for (uint32_t r = 11U; r < 14U; r++)
-    {
-        lv_obj_set_pos(scr->row[r].box, rx, y);
-        y = (lv_coord_t) (y + STATUS_ROW_HEIGHT);
+        const status_section_t *sec = &k_section[t];
+        const uint32_t c = sec->column;
+        const lv_coord_t x =
+            (lv_coord_t) (THEME_SCREEN_PAD + ((lv_coord_t) c * (STATUS_COL_W + STATUS_COL_GAP)));
+
+        if (y[c] != top)
+        {
+            y[c] = (lv_coord_t) (y[c] + STATUS_SECTION_GAP);
+        }
+        lv_obj_set_pos(scr->eyebrow[t], x, y[c]);
+        y[c] = (lv_coord_t) (y[c] + STATUS_EYEBROW_H);
+        for (uint32_t r = 0U; r < sec->row_count; r++)
+        {
+            lv_obj_set_pos(scr->row[sec->first_row + r].box, x, y[c]);
+            y[c] = (lv_coord_t) (y[c] + STATUS_ROW_HEIGHT);
+        }
     }
 }
 
@@ -730,7 +755,6 @@ static void status_screen_on_refresh(screen_t *self)
     device_health_snapshot_t h;
     char buf[32];
     uint32_t active = 0U;
-    uint32_t min_words = 0U;
 
     if ((s_ui.now_ms - scr->last_refresh_ms) < LCD_SLOW_REFRESH_MS)
     {
@@ -743,8 +767,23 @@ static void status_screen_on_refresh(screen_t *self)
 
     for (uint32_t i = 0U; i < SENSOR_DISPLAY_COUNT; i++)
     {
-        status_row_set(&scr->row[i], h.sensor_valid[k_display_sensor_ids[i]] ? ROW_OK : ROW_ERR,
-                       h.sensor_valid[k_display_sensor_ids[i]] ? "valid" : "error");
+        /* The live reading decides: the health snapshot only learns of failures, never of a
+         * recovery. Never valid yet is "waiting", not an error. */
+        const bool valid = s_ui.snap_ok && s_ui.snap.readings[k_display_sensor_ids[i]].valid;
+        const bool seen = s_ui.sensor_screen.ever_valid[i];
+
+        if (valid)
+        {
+            status_row_set(&scr->row[i], ROW_OK, "valid");
+        }
+        else if (seen)
+        {
+            status_row_set(&scr->row[i], ROW_ERR, "error");
+        }
+        else
+        {
+            status_row_set(&scr->row[i], ROW_WARN, "waiting");
+        }
         if (h.alarm_state[k_display_sensor_ids[i]] != ALARM_STATE_CLEAR)
         {
             active++;
@@ -768,30 +807,53 @@ static void status_screen_on_refresh(screen_t *self)
     (void) snprintf(buf, sizeof(buf), "%lu", (unsigned long) h.modbus_exception_responses);
     status_row_set(&scr->row[10], (h.modbus_exception_responses == 0U) ? ROW_OK : ROW_WARN, buf);
 
-    /* DEVICE: uptime, firmware, smallest stack margin of the reporting tasks */
+    /* DEVICE: uptime and firmware; RESOURCES: smallest stack margin of the reporting tasks, CPU
+     * load, free RAM and MCU temperature (REQ-CC-010, REQ-LD-070) */
     ui_fmt_uptime(buf, sizeof(buf), h.uptime_s);
     status_row_set(&scr->row[11], ROW_OK, buf);
-    status_row_set(&scr->row[12], ROW_OK, FW_VERSION_STRING);
-    for (uint32_t t = 0U; t < HEALTH_TASK_COUNT; t++)
     {
-        const uint32_t w = h.stack_watermark_words[t];
-        if ((w != 0U) && ((min_words == 0U) || (w < min_words)))
+        /* the version without the "+commit-dirty" build metadata, which does not fit the column;
+         * the splash footer carries the full string */
+        char ver[LCD_VERSION_SHORT_MAX];
+        uint32_t n = 0U;
+        while ((FW_VERSION_STRING[n] != '\0') && (FW_VERSION_STRING[n] != '+') &&
+               (n < (LCD_VERSION_SHORT_MAX - 1U)))
         {
-            min_words = w;
+            ver[n] = FW_VERSION_STRING[n];
+            n++;
         }
+        ver[n] = '\0';
+        status_row_set(&scr->row[12], ROW_OK, ver);
     }
-    if (min_words == 0U)
+    (void) snprintf(buf, sizeof(buf), "%u%%", (unsigned) h.cpu_load_pct);
+    status_row_set(&scr->row[13],
+                   (h.cpu_load_pct >= LCD_CPU_ERR_PCT)
+                       ? ROW_ERR
+                       : ((h.cpu_load_pct >= LCD_CPU_WARN_PCT) ? ROW_WARN : ROW_OK),
+                   buf);
+    (void) snprintf(buf, sizeof(buf), "%lu KB", (unsigned long) (h.free_ram_bytes / LCD_KIB));
+    status_row_set(&scr->row[14],
+                   (h.free_ram_bytes < LCD_RAM_ERR_BYTES)
+                       ? ROW_ERR
+                       : ((h.free_ram_bytes < LCD_RAM_WARN_BYTES) ? ROW_WARN : ROW_OK),
+                   buf);
+    if (h.mcu_temp_valid)
     {
-        status_row_set(&scr->row[13], ROW_OK, S_DASH);
+        char num[16];
+        ui_fmt_fixed(num, sizeof(num), h.mcu_temp_deci_c, 10U, 1U);
+        (void) snprintf(buf, sizeof(buf),
+                        "%s \xC2\xB0"
+                        "C",
+                        num);
+        status_row_set(&scr->row[15],
+                       (h.mcu_temp_deci_c >= LCD_TEMP_ERR_DECI_C)
+                           ? ROW_ERR
+                           : ((h.mcu_temp_deci_c >= LCD_TEMP_WARN_DECI_C) ? ROW_WARN : ROW_OK),
+                       buf);
     }
     else
     {
-        (void) snprintf(buf, sizeof(buf), "%lu B", (unsigned long) (min_words * LCD_WORD_BYTES));
-        status_row_set(&scr->row[13],
-                       (min_words < LCD_STACK_ERR_WORDS)
-                           ? ROW_ERR
-                           : ((min_words < LCD_STACK_WARN_WORDS) ? ROW_WARN : ROW_OK),
-                       buf);
+        status_row_set(&scr->row[15], ROW_OK, S_DASH);
     }
 
     /* banner: the most important soft fault, in the error colour (03_SCREEN_SPECS.md "Degraded") */
@@ -1519,6 +1581,57 @@ static void on_tab_bar_change(uint16_t new_idx)
 /* Public API                                                             */
 /* ===================================================================== */
 
+/* ===================================================================== */
+/* Boot splash (REQ-LD-200..240)                                          */
+/* ===================================================================== */
+
+static void splash_process(void)
+{
+    const uint32_t seq = s_ui.boot_seq;
+
+    if (seq != s_ui.boot_seq_seen)
+    {
+        s_ui.boot_seq_seen = seq;
+        splash_view_set(&s_ui.splash, s_ui.boot_pct, s_ui.boot_step);
+    }
+    if (s_ui.splash_req == SPLASH_REQ_SHOW)
+    {
+        s_ui.splash_req = SPLASH_REQ_NONE;
+        splash_view_show(&s_ui.splash, true);
+    }
+    else if (s_ui.splash_req == SPLASH_REQ_HIDE)
+    {
+        s_ui.splash_req = SPLASH_REQ_NONE;
+        splash_view_show(&s_ui.splash, false);
+    }
+}
+
+void lcd_ui_show_splash(void)
+{
+    s_ui.splash_req = SPLASH_REQ_SHOW;
+}
+
+void lcd_ui_dismiss_splash(void)
+{
+    s_ui.splash_req = SPLASH_REQ_HIDE;
+}
+
+void lcd_ui_set_boot_progress(uint8_t percent, const char *step)
+{
+    if (step != NULL)
+    {
+        (void) strncpy(s_ui.boot_step, step, SPLASH_STEP_MAX - 1U);
+        s_ui.boot_step[SPLASH_STEP_MAX - 1U] = '\0';
+    }
+    s_ui.boot_pct = (percent > 100U) ? 100U : percent;
+    s_ui.boot_seq++;
+}
+
+bool lcd_ui_splash_visible(void)
+{
+    return s_ui.initialised && splash_view_visible(&s_ui.splash);
+}
+
 void lcd_ui_tick(void)
 {
     char clock[12];
@@ -1534,6 +1647,7 @@ void lcd_ui_tick(void)
         s_ui.requested_screen = 0U;
         lcd_ui_goto_tab(wanted);
     }
+    splash_process();
     (void) memset(&s_ui.snap, 0, sizeof(s_ui.snap));
     s_ui.snap_ok = (s_ui.sensors->get_snapshot(&s_ui.snap) == SENSOR_SERVICE_ERR_OK);
 
@@ -1644,6 +1758,17 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
         theme_label_create(root, &theme_st_txt_label, &theme_st_label_warn, THEME_HEADER_INSET,
                            (lv_coord_t) (THEME_CONTENT_Y + THEME_SP_2), "");
     lv_obj_add_flag(s_ui.toast_label, LV_OBJ_FLAG_HIDDEN);
+
+    /* splash last: it covers everything while it is shown */
+    {
+        char left[LCD_FOOTER_TEXT_MAX];
+        (void) snprintf(left, sizeof(left), "FW %s \xC2\xB7 %s \xC2\xB7 LVGL v%d.%d.%d",
+                        FW_VERSION_STRING, FW_BUILD_DATE, LCD_LVGL_MAJOR, LCD_LVGL_MINOR,
+                        LCD_LVGL_PATCH);
+        splash_view_create(&s_ui.splash, root, left,
+                           "STM32F469 \xC2\xB7 800\xC3\x97"
+                           "480");
+    }
 
     s_ui.screens[SCR_SENSOR] = (screen_t *) &s_ui.sensor_screen;
     s_ui.screens[SCR_TREND] = (screen_t *) &s_ui.trend_screen;

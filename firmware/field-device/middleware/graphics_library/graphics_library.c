@@ -10,7 +10,9 @@
  */
 
 #include "graphics_library/graphics_library.h"
+#include "logger/logger.h"
 
+#include "logger/logger.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
@@ -80,14 +82,38 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colo
 }
 
 /* §6.3 — touch read callback: polls the FT6x06 and maps the result into
- * LVGL's pointer state. LVGL handles debounce and long-press internally. */
+ * LVGL's pointer state. LVGL handles debounce and long-press internally.
+ *
+ * The 4" panel and its FT6x06 are natively portrait (480 x 800: raw x runs along the short side,
+ * raw y along the long side), while the display runs in landscape (800 x 480). That is a
+ * quarter-turn: x follows raw y, and y runs the opposite way to raw x (measured on the board: with
+ * a plain swap a touch at the bottom hit the tab bar). The result is clamped to the display. */
 static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
-    ts_touch_t pt;
-    bool pressed = (touchscreen_read(&pt) == TS_ERR_OK);
+    static lv_coord_t s_last_x;
+    static lv_coord_t s_last_y;
+    static bool s_was_pressed;
+    ts_touch_t pt = {0};
+    const bool pressed = (touchscreen_read(&pt) == TS_ERR_OK);
 
-    data->point.x = (lv_coord_t) pt.x;
-    data->point.y = (lv_coord_t) pt.y;
+    if (pressed)
+    {
+        const uint32_t x = (pt.y < LCD_WIDTH) ? pt.y : (LCD_WIDTH - 1U);
+        const uint32_t rx = (pt.x < LCD_HEIGHT) ? pt.x : (LCD_HEIGHT - 1U);
+        const uint32_t y = (LCD_HEIGHT - 1U) - rx;
+
+        s_last_x = (lv_coord_t) x;
+        s_last_y = (lv_coord_t) y;
+        if (!s_was_pressed)
+        {
+            LOG_INFO("TS", "touch raw=(%u,%u) -> (%u,%u)", (unsigned) pt.x, (unsigned) pt.y,
+                     (unsigned) x, (unsigned) y);
+        }
+    }
+    s_was_pressed = pressed;
+
+    data->point.x = s_last_x; /* a release reports the last position, as LVGL expects */
+    data->point.y = s_last_y;
     data->state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
     (void) drv;
 }

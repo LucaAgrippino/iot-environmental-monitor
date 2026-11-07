@@ -177,7 +177,7 @@ i2c_err_t i2c_init(void)
     return I2C_ERR_OK;
 }
 
-i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len)
+static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t len)
 {
     assert(s_i2c.initialised);
 
@@ -277,7 +277,7 @@ i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len)
     return I2C_ERR_OK;
 }
 
-i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
+static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
 {
     assert(s_i2c.initialised);
 
@@ -383,8 +383,8 @@ i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
     return I2C_ERR_OK;
 }
 
-i2c_err_t i2c_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_len, uint8_t *rx_buf,
-                         uint16_t rx_len)
+static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_len,
+                                     uint8_t *rx_buf, uint16_t rx_len)
 {
     assert(s_i2c.initialised);
 
@@ -592,6 +592,46 @@ static const ii2c_t s_i2c_vtable = {
 };
 
 const ii2c_t *const i2c_driver = &s_i2c_vtable;
+
+/* ======================================================================= */
+/* Bus lock: the sensor task and the touch controller share I2C1             */
+/* ======================================================================= */
+
+/** Default hooks do nothing (one task uses the bus, or the host tests). main.c overrides them
+ *  with a mutex when the display stack is built in, because the touch controller sits on the
+ *  same bus as the sensors. */
+__attribute__((weak)) void i2c_bus_lock(void)
+{
+}
+
+__attribute__((weak)) void i2c_bus_unlock(void)
+{
+}
+
+i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len)
+{
+    i2c_bus_lock();
+    const i2c_err_t err = transfer_write(dev_addr, data, len);
+    i2c_bus_unlock();
+    return err;
+}
+
+i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
+{
+    i2c_bus_lock();
+    const i2c_err_t err = transfer_read(dev_addr, buf, len);
+    i2c_bus_unlock();
+    return err;
+}
+
+i2c_err_t i2c_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_len, uint8_t *rx_buf,
+                         uint16_t rx_len)
+{
+    i2c_bus_lock();
+    const i2c_err_t err = transfer_write_read(dev_addr, tx_data, tx_len, rx_buf, rx_len);
+    i2c_bus_unlock();
+    return err;
+}
 
 /* --------------------------------------------------------------------- */
 /* Test-only hooks                                                        */

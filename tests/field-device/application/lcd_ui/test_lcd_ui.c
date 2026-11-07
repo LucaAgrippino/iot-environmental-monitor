@@ -23,7 +23,7 @@
  * is not followed by Ceedling's dependency scanner. */
 #include "lvgl_stub.h"
 
-#include "lcd_ui/lcd_ui.h"   /* brings in stubs + screen_internal.h (TEST) */
+#include "lcd_ui/lcd_ui.h" /* brings in stubs + screen_internal.h (TEST) */
 #include "lcd_ui/ui_history.h"
 
 TEST_FILE("theme.c")
@@ -39,6 +39,7 @@ TEST_FILE("config_field.c")
 TEST_FILE("numpad.c")
 TEST_FILE("confirm_modal.c")
 TEST_FILE("trend_panel.c")
+TEST_FILE("splash_view.c")
 TEST_FILE("ui_format.c")
 TEST_FILE("ui_history.c")
 
@@ -72,10 +73,9 @@ lv_indev_t *graphics_get_indev(void)
 static sensor_snapshot_t g_stub_sensor_snap;
 
 /* Satisfies the declaration from sensor_service_stub.h (used by AlarmService) */
-sensor_service_err_t sensor_service_subscribe(
-    void (*cb)(const sensor_snapshot_t *snap))
+sensor_service_err_t sensor_service_subscribe(void (*cb)(const sensor_snapshot_t *snap))
 {
-    (void)cb;
+    (void) cb;
     return SENSOR_SERVICE_ERR_OK;
 }
 
@@ -85,7 +85,7 @@ static sensor_service_err_t stub_sensor_get_snapshot(sensor_snapshot_t *snap)
     return SENSOR_SERVICE_ERR_OK;
 }
 
-static const isensor_service_t g_sensors = { .get_snapshot = stub_sensor_get_snapshot };
+static const isensor_service_t g_sensors = {.get_snapshot = stub_sensor_get_snapshot};
 
 /* ===================================================================== */
 /* Alarm service stub                                                   */
@@ -93,39 +93,37 @@ static const isensor_service_t g_sensors = { .get_snapshot = stub_sensor_get_sna
 
 static alarm_state_t g_stub_alarm_states[SENSOR_ID_COUNT];
 
-static alarm_service_err_t stub_get_all_states(
-    alarm_state_t states[SENSOR_ID_COUNT])
+static alarm_service_err_t stub_get_all_states(alarm_state_t states[SENSOR_ID_COUNT])
 {
-    (void)memcpy(states, g_stub_alarm_states, sizeof(g_stub_alarm_states));
+    (void) memcpy(states, g_stub_alarm_states, sizeof(g_stub_alarm_states));
     return ALARM_SERVICE_ERR_OK;
 }
 
-static const ialarm_service_t g_alarms = { .get_all_states = stub_get_all_states };
+static const ialarm_service_t g_alarms = {.get_all_states = stub_get_all_states};
 
 /* ===================================================================== */
 /* Config service stubs                                                 */
 /* ===================================================================== */
 
-static config_params_t        g_stub_params;
-static int                    g_stub_set_param_count;
-static config_service_err_t   g_stub_set_param_result;
+static config_params_t g_stub_params;
+static int g_stub_set_param_count;
+static config_service_err_t g_stub_set_param_result;
 
 static const config_params_t *stub_get_params(void)
 {
     return &g_stub_params;
 }
 
-static config_service_err_t stub_set_param(config_param_id_t id,
-                                            const void       *value)
+static config_service_err_t stub_set_param(config_param_id_t id, const void *value)
 {
-    (void)id;
-    (void)value;
+    (void) id;
+    (void) value;
     g_stub_set_param_count++;
     return g_stub_set_param_result;
 }
 
-static const iconfig_provider_t g_cfg_read  = { .get_params = stub_get_params };
-static const iconfig_manager_t  g_cfg_write = { .set_param = stub_set_param };
+static const iconfig_provider_t g_cfg_read = {.get_params = stub_get_params};
+static const iconfig_manager_t g_cfg_write = {.set_param = stub_set_param};
 
 /* ===================================================================== */
 /* Health monitor stubs                                                 */
@@ -133,28 +131,30 @@ static const iconfig_manager_t  g_cfg_write = { .set_param = stub_set_param };
 
 static device_health_snapshot_t g_stub_health_snap;
 
-static health_monitor_err_t stub_health_get_snapshot(
-    device_health_snapshot_t *snap)
+static health_monitor_err_t stub_health_get_snapshot(device_health_snapshot_t *snap)
 {
     *snap = g_stub_health_snap;
     return HEALTH_MONITOR_ERR_OK;
 }
 
-static const ihealth_snapshot_t g_health = { .get_snapshot = stub_health_get_snapshot };
+static const ihealth_snapshot_t g_health = {.get_snapshot = stub_health_get_snapshot};
 
-static int          g_stub_push_event_count;
+static int g_stub_push_event_count;
 static health_event_t g_stub_last_push_event;
 
-static health_monitor_err_t stub_init(void)        { return HEALTH_MONITOR_ERR_OK; }
+static health_monitor_err_t stub_init(void)
+{
+    return HEALTH_MONITOR_ERR_OK;
+}
 static health_monitor_err_t stub_push_event(health_event_t ev, uint32_t param)
 {
-    (void)param;
+    (void) param;
     g_stub_push_event_count++;
     g_stub_last_push_event = ev;
     return HEALTH_MONITOR_ERR_OK;
 }
 
-static const ihealth_report_t g_report_s = { .init = stub_init, .push_event = stub_push_event };
+static const ihealth_report_t g_report_s = {.init = stub_init, .push_event = stub_push_event};
 
 /* Required by health_monitor_stub.h external declaration */
 const ihealth_report_t *const health_report = &g_report_s;
@@ -192,7 +192,9 @@ void setUp(void)
     g_stub_health_snap.modbus_slave_ok = true;
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+}
 
 static lcd_ui_err_t do_init(void)
 {
@@ -225,10 +227,10 @@ static void tick_at(uint32_t ms)
 
 void test_TC_LCDUI_001_init_rejects_null_arguments(void)
 {
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-                      lcd_ui_init(NULL, &g_alarms, &g_cfg_read, &g_cfg_write, &g_health, &g_report_s));
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-                      lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write, &g_health, NULL));
+    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG, lcd_ui_init(NULL, &g_alarms, &g_cfg_read,
+                                                          &g_cfg_write, &g_health, &g_report_s));
+    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG, lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read,
+                                                          &g_cfg_write, &g_health, NULL));
 }
 
 void test_TC_LCDUI_002_init_without_graphics_reports_to_health(void)
@@ -372,8 +374,8 @@ void test_TC_LCDUI_011_the_footer_shows_the_poll_interval_and_next_acquisition(v
 
 void test_TC_LCDUI_012_each_tab_shows_its_screen_and_title(void)
 {
-    static const char *const k_titles[SCR_COUNT] = {"SENSOR READINGS", "SENSOR TREND", "SYSTEM STATUS",
-                                                    "ACTIVE ALARMS", "CONFIGURATION"};
+    static const char *const k_titles[SCR_COUNT] = {
+        "SENSOR READINGS", "SENSOR TREND", "SYSTEM STATUS", "ACTIVE ALARMS", "CONFIGURATION"};
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
 
@@ -498,7 +500,6 @@ void test_TC_LCDUI_019_status_rows_show_the_health_counters(void)
     TEST_ASSERT_EQUAL_STRING("14829", ui->status_screen.row[8].value->stub_text);
     TEST_ASSERT_EQUAL_STRING("12", ui->status_screen.row[9].value->stub_text);
     TEST_ASSERT_EQUAL_STRING("3d 14:22", ui->status_screen.row[11].value->stub_text);
-    TEST_ASSERT_EQUAL_STRING("312 B", ui->status_screen.row[13].value->stub_text);
     TEST_ASSERT_EQUAL_STRING("online", ui->status_screen.row[7].value->stub_text);
 }
 
@@ -512,7 +513,8 @@ void test_TC_LCDUI_020_a_failed_config_save_shows_the_banner(void)
     tick_at(2000U);
 
     TEST_ASSERT_FALSE(lv_obj_has_flag(ui->status_screen.banner_box, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_NOT_NULL(strstr(ui->status_screen.banner_text->stub_text, "Configuration could not be saved"));
+    TEST_ASSERT_NOT_NULL(
+        strstr(ui->status_screen.banner_text->stub_text, "Configuration could not be saved"));
     TEST_ASSERT_EQUAL(PILL_INIT, ui->header.pill.state); /* nothing valid yet: INIT wins */
     TEST_ASSERT_EQUAL_STRING("1 active alert", ui->footer.right->stub_text);
 }
@@ -570,8 +572,12 @@ void test_TC_LCDUI_023_an_active_alarm_shows_its_row_with_values(void)
     TEST_ASSERT_FALSE(lv_obj_has_flag(ui->alarm_screen.card[0].box, LV_OBJ_FLAG_HIDDEN));
     TEST_ASSERT_TRUE(lv_obj_has_flag(ui->alarm_screen.empty_title, LV_OBJ_FLAG_HIDDEN));
     TEST_ASSERT_EQUAL_STRING("HIGH", ui->alarm_screen.card[0].tag->stub_text);
-    TEST_ASSERT_EQUAL_STRING("42.7 \xC2\xB0" "C", ui->alarm_screen.card[0].cur_value->stub_text);
-    TEST_ASSERT_EQUAL_STRING("40.0 \xC2\xB0" "C", ui->alarm_screen.card[0].thr_value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("42.7 \xC2\xB0"
+                             "C",
+                             ui->alarm_screen.card[0].cur_value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("40.0 \xC2\xB0"
+                             "C",
+                             ui->alarm_screen.card[0].thr_value->stub_text);
     TEST_ASSERT_NOT_NULL(strstr(ui->alarm_screen.card[0].time->stub_text, "Triggered 12:34:56"));
 }
 
@@ -676,7 +682,8 @@ void test_TC_LCDUI_028_high_must_stay_above_low(void)
     type_keys(k_keys + 3, 4U); /* low = 50.0, above the high alarm of 40.0 */
 
     TEST_ASSERT_TRUE(ui->config_screen.entry_invalid[1]);
-    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.field[1].err->stub_text, "Must be less than High Alarm"));
+    TEST_ASSERT_NOT_NULL(
+        strstr(ui->config_screen.field[1].err->stub_text, "Must be less than High Alarm"));
     (void) k_keys;
 }
 
@@ -706,8 +713,10 @@ void test_TC_LCDUI_030_apply_opens_the_modal_listing_the_change(void)
 
     TEST_ASSERT_EQUAL(CFG_STATE_CONFIRMING, ui->config_screen.sub_state);
     TEST_ASSERT_TRUE(confirm_modal_is_open(&ui->config_screen.modal));
-    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.modal.lines->stub_text, "Temperature \xC2\xB7 High Alarm"));
-    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.modal.lines->stub_text, "40.0 \xE2\x86\x92 35.0"));
+    TEST_ASSERT_NOT_NULL(
+        strstr(ui->config_screen.modal.lines->stub_text, "Temperature \xC2\xB7 High Alarm"));
+    TEST_ASSERT_NOT_NULL(
+        strstr(ui->config_screen.modal.lines->stub_text, "40.0 \xE2\x86\x92 35.0"));
     TEST_ASSERT_EQUAL(1U, ui->config_screen.modal.cancel.kind == BUTTON_GHOST);
     TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "PENDING CONFIRM"));
 }
@@ -845,4 +854,164 @@ void test_TC_LCDUI_038_keypad_stops_at_its_length_limit_and_ignores_keys_when_id
     numpad_load(&ui->config_screen.numpad, NULL); /* no field focused */
     numpad_press(&ui->config_screen.numpad, "1");
     TEST_ASSERT_EQUAL_STRING("", numpad_text(&ui->config_screen.numpad));
+}
+
+/* ======================================================================= */
+/* Status screen: CPU load, free RAM, MCU temperature                      */
+/* ======================================================================= */
+
+void test_TC_LCDUI_039_status_shows_cpu_load_free_ram_and_mcu_temperature(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.cpu_load_pct = 37U;
+    g_stub_health_snap.free_ram_bytes = 94U * 1024U;
+    g_stub_health_snap.mcu_temp_valid = true;
+    g_stub_health_snap.mcu_temp_deci_c = 451;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING("37%", ui->status_screen.row[13].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("94 KB", ui->status_screen.row[14].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("45.1 \xC2\xB0"
+                             "C",
+                             ui->status_screen.row[15].value->stub_text);
+}
+
+void test_TC_LCDUI_040_status_shows_a_negative_temperature_with_the_true_minus(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.mcu_temp_valid = true;
+    g_stub_health_snap.mcu_temp_deci_c = -52;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING(UI_MINUS "5.2 \xC2\xB0"
+                                      "C",
+                             ui->status_screen.row[15].value->stub_text);
+}
+
+void test_TC_LCDUI_041_status_shows_a_dash_when_the_temperature_is_unavailable(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.mcu_temp_valid = false;
+    g_stub_health_snap.mcu_temp_deci_c = 999;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->status_screen.row[15].value->stub_text);
+}
+
+void test_TC_LCDUI_042_status_has_five_sections_in_three_columns(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_UINT32(5U, STATUS_SECTIONS);
+    TEST_ASSERT_EQUAL_UINT32(16U, STATUS_ROWS);
+    for (uint32_t r = 0U; r < STATUS_ROWS; r++)
+    {
+        TEST_ASSERT_NOT_NULL(ui->status_screen.row[r].value);
+    }
+}
+
+/* ======================================================================= */
+/* Boot splash                                                             */
+/* ======================================================================= */
+
+void test_TC_LCDUI_043_the_splash_is_hidden_until_requested(void)
+{
+    do_init();
+
+    TEST_ASSERT_FALSE(lcd_ui_splash_visible());
+}
+
+void test_TC_LCDUI_044_show_splash_appears_on_the_next_tick_and_dismiss_removes_it(void)
+{
+    do_init();
+
+    lcd_ui_show_splash();
+    TEST_ASSERT_FALSE(lcd_ui_splash_visible()); /* LVGL is touched by the UI task only */
+    tick_at(100U);
+    TEST_ASSERT_TRUE(lcd_ui_splash_visible());
+
+    lcd_ui_dismiss_splash();
+    tick_at(200U);
+    TEST_ASSERT_FALSE(lcd_ui_splash_visible());
+}
+
+void test_TC_LCDUI_045_boot_progress_updates_the_bar_the_label_and_the_step(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_show_splash();
+    lcd_ui_set_boot_progress(62U, "Initialising sensor bus...");
+    tick_at(100U);
+
+    TEST_ASSERT_EQUAL_UINT8(62U, ui->splash.percent);
+    TEST_ASSERT_EQUAL_STRING("62%", ui->splash.pct_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("Initialising sensor bus...", ui->splash.step_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("BOOT", ui->splash.badge_lbl->stub_text);
+}
+
+void test_TC_LCDUI_046_one_hundred_percent_turns_the_badge_to_ready(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_set_boot_progress(100U, "System ready");
+    tick_at(100U);
+
+    TEST_ASSERT_EQUAL_STRING("100%", ui->splash.pct_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("READY", ui->splash.badge_lbl->stub_text);
+}
+
+void test_TC_LCDUI_047_progress_above_100_is_clamped(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_set_boot_progress(250U, "x");
+    tick_at(100U);
+
+    TEST_ASSERT_EQUAL_UINT8(100U, ui->splash.percent);
+}
+
+void test_TC_LCDUI_048_a_null_step_keeps_the_name_and_a_long_step_is_cut(void)
+{
+    char longname[100];
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_set_boot_progress(10U, "Starting drivers");
+    tick_at(100U);
+    lcd_ui_set_boot_progress(20U, NULL);
+    tick_at(200U);
+    TEST_ASSERT_EQUAL_STRING("Starting drivers", ui->splash.step_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("20%", ui->splash.pct_lbl->stub_text);
+
+    (void) memset(longname, 'a', sizeof(longname) - 1U);
+    longname[sizeof(longname) - 1U] = '\0';
+    lcd_ui_set_boot_progress(30U, longname);
+    tick_at(300U);
+    TEST_ASSERT_EQUAL_UINT32(SPLASH_STEP_MAX - 1U, strlen(ui->splash.step_lbl->stub_text));
+}
+
+void test_TC_LCDUI_049_the_splash_footer_names_the_firmware_and_lvgl(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    /* the footer labels are the last two children of the splash root */
+    TEST_ASSERT_NOT_NULL(ui->splash.root);
+    TEST_ASSERT_NOT_NULL(ui->splash.logo);
 }

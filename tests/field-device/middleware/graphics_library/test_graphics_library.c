@@ -51,19 +51,18 @@
 /* Inline stubs — LCD driver                                             */
 /* ===================================================================== */
 
-static lcd_err_t g_stub_lcd_blit_return  = LCD_ERR_OK;
-static int       g_stub_lcd_blit_calls   = 0;
+static lcd_err_t g_stub_lcd_blit_return = LCD_ERR_OK;
+static int g_stub_lcd_blit_calls = 0;
 static lcd_err_t g_stub_lcd_flush_return = LCD_ERR_OK;
-static int       g_stub_lcd_flush_calls  = 0;
+static int g_stub_lcd_flush_calls = 0;
 
-lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                   const uint32_t *src)
+lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint32_t *src)
 {
-    (void)x;
-    (void)y;
-    (void)w;
-    (void)h;
-    (void)src;
+    (void) x;
+    (void) y;
+    (void) w;
+    (void) h;
+    (void) src;
     g_stub_lcd_blit_calls++;
     return g_stub_lcd_blit_return;
 }
@@ -78,9 +77,17 @@ lcd_err_t lcd_flush(void)
 /* Inline stubs — TouchscreenDriver                                      */
 /* ===================================================================== */
 
-static ts_err_t  g_stub_ts_read_return = TS_ERR_NO_DATA;
-static uint16_t  g_stub_ts_x           = 0U;
-static uint16_t  g_stub_ts_y           = 0U;
+static ts_err_t g_stub_ts_read_return = TS_ERR_NO_DATA;
+static uint16_t g_stub_ts_x = 0U;
+static uint16_t g_stub_ts_y = 0U;
+
+/* The touch callback logs the first contact; the text is not checked here. */
+void logger_log(int level, const char *module, const char *msg)
+{
+    (void) level;
+    (void) module;
+    (void) msg;
+}
 
 ts_err_t touchscreen_read(ts_touch_t *touch)
 {
@@ -102,14 +109,14 @@ void setUp(void)
     lvgl_stub_reset();
     graphics_reset_for_test();
 
-    g_stub_lcd_blit_return  = LCD_ERR_OK;
-    g_stub_lcd_blit_calls   = 0;
+    g_stub_lcd_blit_return = LCD_ERR_OK;
+    g_stub_lcd_blit_calls = 0;
     g_stub_lcd_flush_return = LCD_ERR_OK;
-    g_stub_lcd_flush_calls  = 0;
+    g_stub_lcd_flush_calls = 0;
 
     g_stub_ts_read_return = TS_ERR_NO_DATA;
-    g_stub_ts_x           = 0U;
-    g_stub_ts_y           = 0U;
+    g_stub_ts_x = 0U;
+    g_stub_ts_y = 0U;
 }
 
 void tearDown(void)
@@ -182,7 +189,7 @@ void test_TC_GFX_004_get_indev_before_init(void)
 
 void test_TC_GFX_005_process_after_init(void)
 {
-    (void)graphics_init();
+    (void) graphics_init();
 
     graphics_err_t err = graphics_process();
 
@@ -196,7 +203,7 @@ void test_TC_GFX_005_process_after_init(void)
 
 void test_TC_GFX_006_tick_increment_forwards_elapsed_ms(void)
 {
-    (void)graphics_init();
+    (void) graphics_init();
 
     graphics_tick_increment(5U);
 
@@ -225,7 +232,7 @@ void test_TC_GFX_007_init_lvgl_registration_failure(void)
 
 void test_TC_GFX_008_process_mutex_exclusivity(void)
 {
-    (void)graphics_init();
+    (void) graphics_init();
 
     graphics_err_t err1 = graphics_process();
     graphics_err_t err2 = graphics_process();
