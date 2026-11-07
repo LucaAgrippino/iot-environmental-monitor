@@ -190,9 +190,11 @@ void test_data_that_is_not_der_is_refused_and_changes_nothing(void)
     make_der(good, sizeof(good), 9U);
     TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_item(CERT_STORE_CA, good, sizeof(good)));
 
-    TEST_ASSERT_EQUAL(CERT_STORE_ERR_FORMAT, cert_store_set_item(CERT_STORE_CA, text, sizeof(text)));
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_FORMAT,
+                      cert_store_set_item(CERT_STORE_CA, text, sizeof(text)));
     good[1] = (uint8_t) (good[1] + 1U); /* the length no longer matches */
-    TEST_ASSERT_EQUAL(CERT_STORE_ERR_FORMAT, cert_store_set_item(CERT_STORE_CA, good, sizeof(good)));
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_FORMAT,
+                      cert_store_set_item(CERT_STORE_CA, good, sizeof(good)));
     uint32_t len = 0U;
     (void) cert_store_item(CERT_STORE_CA, &len);
     TEST_ASSERT_EQUAL_UINT32(50U, len);
@@ -294,6 +296,7 @@ void test_replacing_the_passphrase_uses_a_new_keystream(void)
 
 void test_the_calls_before_init_are_refused(void)
 {
-    /* a fresh module state is not reachable after setUp, so use a null re-init to check the guard */
+    /* a fresh module state is not reachable after setUp, so use a null re-init to check the guard
+     */
     TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_init(NULL, NULL));
 }

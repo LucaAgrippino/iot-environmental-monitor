@@ -242,6 +242,7 @@ static console_deps_t spy_deps(void)
     d.prof_read = &g_spy_prof_read;
     d.prof_write = &g_spy_prof_write;
     d.on_profile_changed = spy_profile_changed;
+    d.prov_store = NULL; /* tests that need a store set it on their copy of the deps */
     return d;
 }
 

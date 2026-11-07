@@ -31,7 +31,7 @@ typedef struct
 {
     uint32_t magic;
     uint32_t sequence;
-    uint32_t crc;      /* over the body as stored (pass and key encrypted) */
+    uint32_t crc; /* over the body as stored (pass and key encrypted) */
     uint16_t version;
     uint16_t reserved; /* zero */
 } slot_header_t;
@@ -64,11 +64,12 @@ static bool s_inited;
 /* Encryption of the secret fields                                            */
 /* ------------------------------------------------------------------------- */
 
-/* Stream cipher from SHA-256 in counter mode: block j = SHA256(key || sequence || field || j), key =
- * SHA256(salt || unique ID). The sequence changes on every write, so a keystream is never used twice.
- * Symmetric: the same call encrypts and decrypts. The key is bound to the chip, not secret: reading the
- * flash of another device (or by a probe without the ID) does not reveal the fields; a local attacker
- * with code execution on this chip can derive the key (the limit is recorded in the LLD). */
+/* Stream cipher from SHA-256 in counter mode: block j = SHA256(key || sequence || field || j), key
+ * = SHA256(salt || unique ID). The sequence changes on every write, so a keystream is never used
+ * twice. Symmetric: the same call encrypts and decrypts. The key is bound to the chip, not secret:
+ * reading the flash of another device (or by a probe without the ID) does not reveal the fields; a
+ * local attacker with code execution on this chip can derive the key (the limit is recorded in the
+ * LLD). */
 static void crypt_field(uint8_t *data, uint32_t len, uint32_t sequence, uint8_t field)
 {
     uint8_t seed[sizeof(KEY_SALT) - 1U + CERT_STORE_UID_BYTES];
@@ -122,10 +123,11 @@ static uint32_t body_crc(const slot_body_t *body)
 
 static bool read_slot(uint32_t slot, slot_header_t *hdr, slot_body_t *body)
 {
-    if ((s_flash->read(slot_addr(slot), (uint8_t *) hdr, (uint32_t) sizeof(*hdr)) != QSPI_FLASH_OK) ||
+    if ((s_flash->read(slot_addr(slot), (uint8_t *) hdr, (uint32_t) sizeof(*hdr)) !=
+         QSPI_FLASH_OK) ||
         (hdr->magic != MAGIC) || (hdr->version != FORMAT_VERSION) ||
-        (s_flash->read(slot_addr(slot) + sizeof(*hdr), (uint8_t *) body, (uint32_t) sizeof(*body)) !=
-         QSPI_FLASH_OK))
+        (s_flash->read(slot_addr(slot) + sizeof(*hdr), (uint8_t *) body,
+                       (uint32_t) sizeof(*body)) != QSPI_FLASH_OK))
     {
         return false;
     }
@@ -155,9 +157,11 @@ static cert_store_err_t save(void)
 {
     const uint32_t target = (s_active + 1U) % SLOT_COUNT;
     const uint32_t seq = s_seq + 1U;
-    slot_header_t hdr = {.magic = MAGIC, .sequence = seq, .version = FORMAT_VERSION, .reserved = 0U};
+    slot_header_t hdr = {
+        .magic = MAGIC, .sequence = seq, .version = FORMAT_VERSION, .reserved = 0U};
 
-    crypt_secrets(seq); /* the RAM copy is encrypted in place for the write and decrypted after it */
+    crypt_secrets(
+        seq); /* the RAM copy is encrypted in place for the write and decrypted after it */
     hdr.crc = body_crc(&s_body);
 
     const bool ok = (s_flash->erase_sector(slot_addr(target)) == QSPI_FLASH_OK) &&
@@ -179,7 +183,8 @@ static cert_store_err_t save(void)
 /* Public API                                                                  */
 /* ------------------------------------------------------------------------- */
 
-cert_store_err_t cert_store_init(const iqspi_flash_t *flash, const uint8_t uid[CERT_STORE_UID_BYTES])
+cert_store_err_t cert_store_init(const iqspi_flash_t *flash,
+                                 const uint8_t uid[CERT_STORE_UID_BYTES])
 {
     if ((flash == NULL) || (uid == NULL))
     {

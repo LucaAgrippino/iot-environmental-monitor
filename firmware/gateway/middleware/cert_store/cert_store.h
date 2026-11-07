@@ -5,14 +5,14 @@
  * @file cert_store.h
  * @brief CertStore (Gateway): the WiFi credentials and the X.509 identity, kept in QSPI flash.
  *
- * Provisioned from the console (REQ-LI-040, REQ-LI-060). The WiFi passphrase and the private key are
- * stored encrypted (REQ-NF-302); the certificates are public data and stored as they are. Two 4 KB
- * slots in the CertStore partition (`flash-partition-layout.md`: device offset 0x1_0000) are written
- * alternately, each with a sequence number and a CRC, so a power cut during a write leaves the previous
- * copy valid. Design: docs/lld/middleware/cert-store.md.
+ * Provisioned from the console (REQ-LI-040, REQ-LI-060). The WiFi passphrase and the private key
+ * are stored encrypted (REQ-NF-302); the certificates are public data and stored as they are. Two 4
+ * KB slots in the CertStore partition (`flash-partition-layout.md`: device offset 0x1_0000) are
+ * written alternately, each with a sequence number and a CRC, so a power cut during a write leaves
+ * the previous copy valid. Design: docs/lld/middleware/cert-store.md.
  *
- * The decrypted copy lives in RAM (the caller places it in SRAM2): WifiTask and MqttClient read their
- * credentials from it, so nothing is copied again.
+ * The decrypted copy lives in RAM (the caller places it in SRAM2): WifiTask and MqttClient read
+ * their credentials from it, so nothing is copied again.
  */
 
 #include <stdbool.h>
@@ -20,7 +20,7 @@
 
 #include "qspi_flash/qspi_flash.h"
 
-#define CERT_STORE_SSID_MAX (63U)  /**< Characters, without the terminator. */
+#define CERT_STORE_SSID_MAX (63U) /**< Characters, without the terminator. */
 #define CERT_STORE_PASS_MAX (63U)
 #define CERT_STORE_CERT_MAX (1536U) /**< DER bytes of a certificate. */
 #define CERT_STORE_KEY_MAX (512U)   /**< DER bytes of a private key. */
@@ -47,13 +47,15 @@ typedef enum
 } cert_store_item_t;
 
 /**
- * @brief Load the newest valid slot. An empty or damaged store is not an error: it reads as "nothing provisioned".
+ * @brief Load the newest valid slot. An empty or damaged store is not an error: it reads as
+ * "nothing provisioned".
  *
  * @param[in] flash  QSPI flash interface (the real driver, or a fake in tests).
  * @param[in] uid    CERT_STORE_UID_BYTES bytes of the MCU unique ID.
  * @return CERT_STORE_OK, or CERT_STORE_ERR_ARG for a NULL argument.
  */
-cert_store_err_t cert_store_init(const iqspi_flash_t *flash, const uint8_t uid[CERT_STORE_UID_BYTES]);
+cert_store_err_t cert_store_init(const iqspi_flash_t *flash,
+                                 const uint8_t uid[CERT_STORE_UID_BYTES]);
 
 /** @return true when a WiFi SSID is stored. */
 bool cert_store_has_wifi(void);
