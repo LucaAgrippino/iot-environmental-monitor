@@ -99,10 +99,6 @@ static const ialarm_service_t *s_alarms;
 static const iconsole_service_t *s_console;
 static const ihealth_report_t *s_health_report;
 
-#ifdef USE_GUI
-static const igraphics_library_t *s_graphics;
-static const ilcd_ui_t *s_lcd_ui;
-#endif
 static const imodbus_slave_t *s_modbus_slave;
 
 /* State machine */
@@ -270,27 +266,6 @@ static void fd_run_init_sequence(void)
         return;
     }
 
-#ifdef USE_GUI
-    /* Sub-state 4: BringingUpLCD (FD only) */
-    if (s_graphics->init() != GRAPHICS_ERR_OK)
-    {
-        LOG_ERROR("LC: BringingUpLCD graphics init failed");
-        enter_faulted(6U);
-        return;
-    }
-    if (s_lcd_ui->init() != LCD_UI_ERR_OK)
-    {
-        LOG_ERROR("LC: BringingUpLCD lcd_ui init failed");
-        enter_faulted(7U);
-        return;
-    }
-    (void) s_lcd_ui->show_splash();
-    if (poll_for_abort())
-    {
-        return;
-    }
-#endif
-
     /* Sub-state 5: StartingMiddleware */
     {
         const config_params_t *cfg = s_cfg_read->get_params();
@@ -312,10 +287,6 @@ static void fd_run_init_sequence(void)
     {
         LOG_WARN("LC: watchdog did not start");
     }
-
-#ifdef USE_GUI
-    (void) s_lcd_ui->dismiss_splash();
-#endif
 
     (void) xEventGroupSetBits(s_start_gate, LIFECYCLE_START_GATE_BIT);
 }
@@ -521,9 +492,6 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
                           const iconfig_provider_t *cfg_read, const iconfig_manager_t *cfg_write,
                           const isensor_service_t *sensors, const ialarm_service_t *alarms,
                           const iconsole_service_t *console, const ihealth_report_t *health_report,
-#ifdef USE_GUI
-                          const igraphics_library_t *graphics, const ilcd_ui_t *lcd_ui,
-#endif /* USE_GUI */
 
                           const imodbus_slave_t *modbus_slave)
 {
@@ -533,13 +501,6 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     {
         return LIFECYCLE_ERR_NULL_ARG;
     }
-
-#ifdef USE_GUI
-    if ((graphics == NULL) || (lcd_ui == NULL))
-    {
-        return LIFECYCLE_ERR_NULL_ARG;
-    }
-#endif /* USE_GUI */
 
     if (modbus_slave == NULL)
     {
@@ -554,11 +515,6 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
     s_alarms = alarms;
     s_console = console;
     s_health_report = health_report;
-
-#ifdef USE_GUI
-    s_graphics = graphics;
-    s_lcd_ui = lcd_ui;
-#endif
 
     s_modbus_slave = modbus_slave;
 
@@ -635,11 +591,6 @@ void lifecycle_controller_reset_for_test(void)
     s_alarms = NULL;
     s_console = NULL;
     s_health_report = NULL;
-
-#ifdef USE_GUI
-    s_graphics = NULL;
-    s_lcd_ui = NULL;
-#endif
 
     s_modbus_slave = NULL;
 

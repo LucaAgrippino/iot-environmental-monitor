@@ -1,6 +1,6 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.6
+**Version:** 1.7
 **Date:** November 2026
 **Status:** Approved — baselined for HLD
 
@@ -12,6 +12,7 @@
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
 | 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
+| 1.7     | November 2026 | Closure of the implementation phase. REQ-LD-100: "display settings" removed from the configuration screen parameters (the Field Device has no display setting to configure); the screen lists the polling rate and the alarm thresholds. REQ-CC-030 and REQ-CC-040: the local adjustment of the telemetry and health intervals is by the serial console (the Gateway has no LCD), not by the LCD configuration screen. 207 requirements. |
 | 1.6     | November 2026 | Added REQ-NF-507 (fault diagnosis: record the cause of a processor fault, assertion or stack overflow, report it, restart, and report it again at the next start), implemented by CpuDriver on both boards. 207 requirements. |
 | 1.5     | November 2026 | "Free heap" in REQ-LD-070 and REQ-CC-010 replaced by the free TLS arena: the firmware has no heap (static allocation only). MCU temperature stays required; it needs an ADC driver that does not exist yet (HM-D13). |
 | 1.4     | November 2026 | REQ-NF-209 changed from a fixed 1 Hz to a 2 s start interval doubling to 60 s (the implemented and benched behaviour, CP-D13); a fixed 1 Hz re-associates the Wi-Fi module too often. |
@@ -166,7 +167,7 @@ polling interval
 <!-- Traces to: HLD §5.3 -->
 <!-- Traces to: UC-15 -->
 <!-- Tier 2: LCD + remote; display settings accessible via LCD only per vision §10 -->
-- [REQ-LD-100] The system shall display a configuration screen which lists these user configurable parameters: polling rate, alarm thresholds, display settings
+- [REQ-LD-100] The system shall display a configuration screen which lists these user configurable parameters: polling rate and alarm thresholds
 - [REQ-LD-110] The system shall validate each input value against a configurable acceptable range
 <!-- Traces to: HLD §5.6 (FD config/persistence — ConfigService validation on write) -->
 - [REQ-LD-120] The system shall request confirmation from the Field Technician before applying changes
@@ -307,8 +308,8 @@ polling interval
 <!-- Traces to: UC-10 -->
 <!-- Traces to: UC-11 -->
 <!-- Traces to: UC-12 -->
-- [REQ-CC-030] The system shall publish sensor telemetry at a configurable interval, adjustable locally via the LCD configuration screen and remotely via cloud command.
-- [REQ-CC-040] The system shall publish device health data at a configurable interval, adjustable locally via the LCD configuration screen and remotely via cloud command.
+- [REQ-CC-030] The system shall publish sensor telemetry at a configurable interval, adjustable locally via the serial console and remotely via cloud command.
+- [REQ-CC-040] The system shall publish device health data at a configurable interval, adjustable locally via the serial console and remotely via cloud command.
 - [REQ-CC-050] The system shall connect to AWS IoT Core using MQTT over TLS with X.509 certificate authentication
 - [REQ-CC-060] The system shall reconnect automatically if the MQTT connection is lost
 - [REQ-CC-070] The system shall use JSON format for all MQTT payloads

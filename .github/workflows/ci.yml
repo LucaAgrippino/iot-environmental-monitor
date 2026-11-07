@@ -51,6 +51,11 @@ jobs:
           - target: f469
             project_path: firmware/field-device
             project_target: field-device/Debug
+          # The Field Device production image without the display (the display stack is built by
+          # scripts/build-fd-app.sh GUI=1, see the fd-gui job).
+          - target: f469-release
+            project_path: firmware/field-device
+            project_target: field-device/Release
           - target: l475
             project_path: firmware/gateway
             project_target: gateway/Debug
@@ -111,12 +116,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The configurations CI builds: Debug and Release on the Gateway, Debug on the Field Device
-      # (its Release is stale: build-configurations.md section 7).
+      # The configurations CI builds: Debug and Release on both boards.
       - name: Check that each configuration compiles exactly one main()
         run: |
           python3 scripts/check-build-exclusions.py --config Debug --config Release firmware/gateway
-          python3 scripts/check-build-exclusions.py --config Debug firmware/field-device
+          python3 scripts/check-build-exclusions.py --config Debug --config Release firmware/field-device
 
       - name: Check that HAL and BSP headers are included only by the LCD driver
         run: bash scripts/check-hal-encapsulation.sh

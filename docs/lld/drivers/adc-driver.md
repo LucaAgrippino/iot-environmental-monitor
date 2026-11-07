@@ -143,7 +143,7 @@ they are between 0 and 85 degC and stable within 2 degC; the Gateway also prints
 
 | ID | Item | Status |
 |---|---|---|
-| ADC-O1 | `components.md` does not list AdcDriver | Open: add on the next HLD revision |
+| ADC-O1 | `components.md` does not list AdcDriver | Closed 2026-11-08: listed in `components.md` |
 | ADC-O2 | The Field Device sensor is uncalibrated (several degrees of part-to-part offset) | Accepted; calibrate against a reference at 25 degC if a precise value is ever needed |
 | ADC-O3 | A second consumer (VBAT, VREFINT on the Field Device) would need a function each | Closed as not needed now |
 

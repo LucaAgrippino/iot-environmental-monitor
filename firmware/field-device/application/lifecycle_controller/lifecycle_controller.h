@@ -34,9 +34,6 @@
 #include "console_service/console_service.h"
 #include "health_monitor/ihealth_report.h"
 #include "health_monitor/ihealth_admin.h"
-#ifdef USE_GUI
-/* GUI module includes reinstated here when graphics_library and lcd_ui land. */
-#endif /* USE_GUI */
 #ifdef BOARD_FIELD_DEVICE
 #include "modbus_slave/modbus_slave.h"
 #else  /* BOARD_GATEWAY */
@@ -59,10 +56,6 @@ typedef struct ireset_driver_s ireset_driver_t;
 #include "alarm_service_stub.h"
 #include "console_service_stub.h"
 #include "health_monitor_stub.h"
-#ifdef USE_GUI
-#include "graphics_library_stub.h"
-#include "lcd_ui_stub.h"
-#endif /* USE_GUI */
 #ifdef BOARD_FIELD_DEVICE
 #include "modbus_slave_iface_stub.h"
 #else /* BOARD_GATEWAY */
@@ -105,9 +98,6 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
                           const isensor_service_t *sensors, const ialarm_service_t *alarms,
                           const iconsole_service_t *console, const ihealth_report_t *health_report,
 #ifdef BOARD_FIELD_DEVICE
-#ifdef USE_GUI
-                          const igraphics_library_t *graphics, const ilcd_ui_t *lcd_ui,
-#endif /* USE_GUI */
                           const imodbus_slave_t *modbus_slave
 #else  /* BOARD_GATEWAY */
                           const icloud_publisher_t *cloud, const imodbus_poller_t *modbus_poller,

@@ -70,7 +70,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-LD-040 | UC-01 | LLD | - | lcd-ui-lld | - |
 | REQ-LD-050 | UC-01 | LLD + code | components, modbus-register-map | graphics-library, i2c-driver, lcd-ui-lld, lld, touchscreen-driver | - |
 | REQ-LD-060 | UC-01 | LLD + code | - | lcd-ui-lld | - |
-| REQ-LD-070 | UC-02 | LLD + code | modbus-register-map | adc-driver, health-monitor-lld, lcd-ui-lld, lld, modbus-register-map-lld, modbus-slave | - |
+| REQ-LD-070 | UC-02 | LLD + code | components, modbus-register-map | adc-driver, health-monitor-lld, lcd-ui-lld, lld, modbus-register-map-lld, modbus-slave | - |
 | REQ-LD-080 | UC-03 | LLD | - | lcd-ui-lld | - |
 | REQ-LD-090 | UC-03 | LLD | - | lcd-ui-lld | - |
 | REQ-LD-100 | UC-15 | LLD | components, modbus-register-map | lcd-ui-lld, lld, touchscreen-driver | - |
@@ -131,7 +131,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-MB-130 | UC-07, UC-10, UC-16 | LLD + code | hld, modbus-register-map, sequence-diagrams | device-profile-registry-lld, modbus-poller-lld | - |
 | REQ-MB-140 | UC-19 | LLD + code | - | cloud-publisher-lld | - |
 | REQ-CC-000 | UC-05, UC-10 | LLD | sequence-diagrams | cloud-publisher-lld, lld | - |
-| REQ-CC-010 | UC-06, UC-11 | LLD + code | sequence-diagrams | adc-driver, cloud-publisher-lld, health-monitor-lld, lld, store-and-forward-lld | - |
+| REQ-CC-010 | UC-06, UC-11 | LLD + code | components, sequence-diagrams | adc-driver, cloud-publisher-lld, health-monitor-lld, lld, store-and-forward-lld | - |
 | REQ-CC-020 | UC-09, UC-12 | LLD | - | cloud-publisher-lld, mqtt-client | - |
 | REQ-CC-030 | UC-10 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
 | REQ-CC-040 | UC-11 | LLD | sequence-diagrams | requirement-coverage-addendum | - |
@@ -188,12 +188,12 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-NF-106 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | lld | - |
 | REQ-NF-107 | UC-19 | LLD + code | - | update-service-lld | - |
 | REQ-NF-108 | UC-01 | LLD + code | components, task-breakdown | graphics-library, lcd-driver, lcd-ui-lld, lld | - |
-| REQ-NF-109 | — | LLD + code | - | firmware-store, rtc-driver, watchdog-driver | - |
+| REQ-NF-109 | — | LLD + code | components | firmware-store, rtc-driver, watchdog-driver | - |
 | REQ-NF-110 | UC-07 | LLD + code | modbus-register-map, sequence-diagrams | modbus-master-poller, modbus-poller-lld | - |
 | REQ-NF-111 | UC-10 | LLD | sequence-diagrams | cloud-publisher-lld | - |
 | REQ-NF-112 | UC-11 | LLD | sequence-diagrams | cloud-publisher-lld | - |
 | REQ-NF-113 | UC-09, UC-12 | LLD + code | sequence-diagrams, task-breakdown | circular-flash-log, cloud-publisher-lld, mqtt-client, qspi-flash-driver, update-service-lld, wifi-task | TC-HW-CP-004, TC-HW-CP-010, TC-HW-CP-011, TC-HW-QSPI-010 |
-| REQ-NF-114 | UC-07 | LLD + code | - | requirement-coverage-addendum | - |
+| REQ-NF-114 | UC-07 | LLD + code | - | config-service-lld, requirement-coverage-addendum | - |
 | REQ-NF-200 | UC-07, UC-08 | LLD | hld, sequence-diagrams, state-machines | firmware-store | - |
 | REQ-NF-201 | UC-07, UC-10 | LLD + code | sequence-diagrams | lld, modbus-poller-lld, time-service-lld | - |
 | REQ-NF-202 | — | LLD | components, modbus-register-map, state-machines | bootloader, cpu-driver, gpio-driver, lifecycle-controller-lld, lld, reset-driver, watchdog-driver | TC-LC-105, TC-LC-106 |
@@ -236,4 +236,4 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-NF-504 | UC-04 | LLD | - | cpu-driver, logger | - |
 | REQ-NF-505 | — | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-506 | — | LLD | - | requirement-coverage-addendum | - |
-| REQ-NF-507 | — | LLD + code | - | cpu-driver | - |
+| REQ-NF-507 | — | LLD + code | components | cpu-driver | - |

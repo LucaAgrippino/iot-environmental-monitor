@@ -1516,7 +1516,7 @@ ST-Link VCP at 115200 8N1.
 | **GCS-O13** | The Firmware "Check for update" action has no back-end. | A FirmwareStore / update-source module (Gateway) is needed; the panel then shows the result in the same line. | Open |
 | **GCS-O12** | ConsoleTask is the lowest-priority task by design, so during WiFi association and the TLS handshake (about the first 15 s after boot) it can answer about 2 s late. At 921600 baud the receive path is unreliable while those run (GCS-D15); a more robust path (DMA receive into the ring) would allow it. | Consider UART DMA RX when a Gateway `main()` fixes the task set. | Open |
 | **GCS-O11** | Logger and ConsoleTask both write to USART1. The bench image leaves the Logger uninitialised so its messages are dropped; in a production image Logger output would be interleaved with the TUI. | Route log lines into the console scrollback, or give the Logger a different sink, when the Gateway `main()` is built. | Open |
-| **GCS-O10** | Nothing creates ConsoleTask in a production image (no Gateway `main()`); `console_service` and `sensor_service` / `alarm_service` stay excluded from the default `.cproject` image only because the `cloud_publisher` harness stubs the latter two. | Gateway entry point. | Open |
+| **GCS-O10** | Nothing creates ConsoleTask in a production image (no Gateway `main()`); `console_service` and `sensor_service` / `alarm_service` stay excluded from the default `.cproject` image only because the `cloud_publisher` harness stubs the latter two. | Gateway entry point. **Closed 2026-10-31 (WP4):** the Gateway `main()` creates ConsoleTask. | Closed |
 | **GW-CS-O3** | Host simulator `main_host.c` placement | Placed in `tools/console_simulator/` (with `build.sh`). | Closed |
 
 ---
