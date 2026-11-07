@@ -350,6 +350,16 @@ static const IModbusRegisterMap s_legacy_map = {
 /* ModbusTask: two-phase Modbus slave init                                  */
 /* ======================================================================= */
 
+/* The Modbus transmit waits for each byte (1 ms at 9600 baud): sleep one tick instead of spinning,
+ * which kept the idle task from ever running (CPU load read 100 %). */
+void modbus_uart_wait_hook(void)
+{
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+    {
+        vTaskDelay(1U);
+    }
+}
+
 static void modbus_task(void *arg)
 {
     (void) arg;
@@ -406,9 +416,10 @@ static TaskStatus_t s_load_status[LOAD_MAX_TASKS];
 /** Period of graphics_process() plus lcd_ui_tick(): the touch response and the blink phases. */
 #define GUI_PERIOD_MS (40U)
 /** Each splash step is shown at least this long (the first frames render slowly at -O0 too). */
-#define GUI_STEP_MS (700U)
-/** The splash stays this long at 100 % before the screens appear. */
-#define GUI_SPLASH_HOLD_MS (800U)
+#define GUI_STEP_MS (300U)
+/** After the 100 % step the splash goes at once; one more pass draws the 100 % frame first. A
+ *  start-up fault keeps it a little longer so the message can be read. */
+#define GUI_FAULT_HOLD_MS (1500U)
 
 static StackType_t s_gui_stack[GUI_TASK_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_gui_tcb;
@@ -468,7 +479,7 @@ static void gui_task(void *arg)
         {
             lcd_ui_set_boot_progress(k_boot_steps[shown].percent, "Start-up fault");
             ending = true;
-            hold_ms = GUI_SPLASH_HOLD_MS;
+            hold_ms = GUI_FAULT_HOLD_MS;
         }
 
         if (!ending && (shown < s_boot_reached) && (step_ms >= GUI_STEP_MS))
@@ -479,7 +490,7 @@ static void gui_task(void *arg)
             if (shown == (BOOT_STEP_COUNT - 1U))
             {
                 ending = true;
-                hold_ms = GUI_SPLASH_HOLD_MS + GUI_STEP_MS; /* the 100 % is seen first */
+                hold_ms = GUI_PERIOD_MS; /* one pass: the 100 % frame is drawn, then the screens */
             }
         }
         if (ending)

@@ -210,4 +210,13 @@ void modbus_uart_set_tick_source(uint32_t (*get_ms)(void));
 void modbus_uart_reset_for_test(void);
 #endif /* TEST */
 
+/**
+ * @brief Called on every pass of the transmit wait loops (TXE per byte, then TC).
+ *
+ * At 9600 baud one byte takes about 1 ms, so a long response spins for tens of milliseconds in the
+ * calling task. The default (weak) does nothing. An image with a scheduler defines it as a sleep of
+ * one tick, so lower-priority tasks and the idle task run while the frame goes out.
+ */
+void modbus_uart_wait_hook(void);
+
 #endif /* MODBUS_UART_DRIVER_H */

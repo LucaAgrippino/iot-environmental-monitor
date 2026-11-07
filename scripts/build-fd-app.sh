@@ -90,7 +90,9 @@ for src in "${project_srcs[@]}" "${vendor_srcs[@]}"; do
     obj="$out/$(echo "${src#"$root"/}" | tr '/' '_').o"
     flags=("${common[@]}")
     [[ "$src" == "$v"/* && "$src" != "$v/freertos-kernel/"* && "$src" != "$cmsis"/* ]] && flags=("${vendor_flags[@]}")
-    ( arm-none-eabi-gcc "${flags[@]}" -O0 -c "$src" -o "$obj" 2> "$obj.log" \
+    opt=-O0
+    [[ "$src" == "$v/lvgl/"* ]] && opt=-O2 # LVGL renders a frame in a fraction of the time at -O2
+    ( arm-none-eabi-gcc "${flags[@]}" $opt -c "$src" -o "$obj" 2> "$obj.log" \
         || { cat "$obj.log" >&2; echo "FAILED: $src" >&2; exit 1; } ) &
     pids+=($!)
     if (( ${#pids[@]} >= $(nproc) )); then

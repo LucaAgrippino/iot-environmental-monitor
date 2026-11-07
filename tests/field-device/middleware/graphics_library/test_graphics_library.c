@@ -82,6 +82,14 @@ static ts_err_t  g_stub_ts_read_return = TS_ERR_NO_DATA;
 static uint16_t  g_stub_ts_x           = 0U;
 static uint16_t  g_stub_ts_y           = 0U;
 
+/* The touch callback logs the first contact; the text is not checked here. */
+void logger_log(int level, const char *module, const char *msg)
+{
+    (void) level;
+    (void) module;
+    (void) msg;
+}
+
 ts_err_t touchscreen_read(ts_touch_t *touch)
 {
     if (touch != NULL)
