@@ -2434,6 +2434,8 @@ void test_CP_T95_health_1_1_carries_every_field(void)
     g_spy_health_snapshot.mqtt_reconnect_count = 2u;
     g_spy_health_snapshot.cloud_connected = true;
     g_spy_health_snapshot.wifi_rssi_dbm = -61;
+    g_spy_health_snapshot.cpu_load_pct = 23u;
+    g_spy_health_snapshot.arena_min_free_bytes = 7992u;
     g_spy_health_snapshot.buffer_entry_count = 4u;
     g_spy_health_snapshot.stack_watermark_words[0] = 120u;
     g_spy_health_snapshot.stack_watermark_words[1] = 65u;
@@ -2448,6 +2450,7 @@ void test_CP_T95_health_1_1_carries_every_field(void)
     TEST_ASSERT_NOT_NULL(strstr(p, "\"lifecycle_state\":\"operational\""));
     TEST_ASSERT_NOT_NULL(strstr(p, "\"last_reset_cause\":\"soft\""));
     TEST_ASSERT_NOT_NULL(strstr(p, "\"wifi_rssi_dbm\":-61"));
+    TEST_ASSERT_NOT_NULL(strstr(p, "\"cpu_load_pct\":23,\"arena_min_free_bytes\":7992"));
     TEST_ASSERT_NOT_NULL(strstr(p, "\"cloud_connected\":true"));
     TEST_ASSERT_NOT_NULL(strstr(p, "\"buffer_entry_count\":4"));
     TEST_ASSERT_NOT_NULL(

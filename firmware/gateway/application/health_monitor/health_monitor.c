@@ -530,6 +530,25 @@ health_monitor_err_t health_monitor_update_wifi_rssi(health_monitor_handle_t han
     return HEALTH_MONITOR_ERR_OK;
 }
 
+health_monitor_err_t health_monitor_update_resources(health_monitor_handle_t handle,
+                                                     uint32_t cpu_load_pct,
+                                                     uint32_t arena_min_free_bytes)
+{
+    health_monitor_err_t err = hm_check_handle(handle);
+
+    if (err != HEALTH_MONITOR_ERR_OK)
+    {
+        return err;
+    }
+
+    hm_lock(handle);
+    handle->snapshot.cpu_load_pct = (uint8_t) ((cpu_load_pct > 100U) ? 100U : cpu_load_pct);
+    handle->snapshot.arena_min_free_bytes = arena_min_free_bytes;
+    hm_unlock(handle);
+
+    return HEALTH_MONITOR_ERR_OK;
+}
+
 /* ====================================================================== */
 /* IHealthSnapshot                                                        */
 /* ====================================================================== */

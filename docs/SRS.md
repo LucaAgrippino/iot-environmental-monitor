@@ -1,6 +1,6 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.4
+**Version:** 1.5
 **Date:** November 2026
 **Status:** Approved — baselined for HLD
 
@@ -12,6 +12,7 @@
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
 | 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
+| 1.5     | November 2026 | "Free heap" in REQ-LD-070 and REQ-CC-010 replaced by the free TLS arena: the firmware has no heap (static allocation only). MCU temperature stays required; it needs an ADC driver that does not exist yet (HM-D13). |
 | 1.4     | November 2026 | REQ-NF-209 changed from a fixed 1 Hz to a 2 s start interval doubling to 60 s (the implemented and benched behaviour, CP-D13); a fixed 1 Hz re-associates the Wi-Fi module too often. |
 | 1.3     | November 2026 | Removed two duplicate IDs: "mark sensor value invalid" is now REQ-SA-175 (REQ-SA-180 stays the history requirement); "discard input on no confirmation" is now REQ-LD-155 (REQ-LD-250 stays the status-LED requirement, as cited by components.md). Corrected section counts (206 requirements). Resolved the open values from the implemented firmware (REQ-TS-000, NF-210, NF-211, BF-020, LI-010 command set, DM-020 30 s, LI-000 gateway baud, SA-090 wording). |
 ---
@@ -155,7 +156,7 @@ polling interval
 - [REQ-LD-060] The system shall display a "waiting for data" message on the LCD until the first sensor reading is available
 <!-- Traces to: HLD §5.2 (FD data flow — LcdUi pre-data display state) -->
 <!-- Traces to: UC-02 -->
-- [REQ-LD-070] The system shall display a system status screen which lists: stack high watermarks, free heap, CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy
+- [REQ-LD-070] The system shall display a system status screen which lists: stack high watermarks, free TLS arena (the only dynamic memory, REQ-NF-408), CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy
 <!-- Traces to: HLD §5.5 (FD health/telemetry pipeline — HealthMonitor exposes IHealthSnapshot consumed by LcdUi) -->
 <!-- Traces to: UC-03 -->
 - [REQ-LD-080] The system shall display an alarm screen which lists all active alarms with their timestamp
@@ -298,7 +299,7 @@ polling interval
 <!-- Traces to: UC-05 -->
 - [REQ-CC-000] The system shall publish periodically to the cloud the most recent sensor measurements (temperature, humidity, pressure, accelerometer, gyroscope, magnetometer) with timestamps
 <!-- Traces to: UC-06 -->
-- [REQ-CC-010] The system shall publish to the cloud the most recent device health metrics: stack high watermarks, free heap, CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy
+- [REQ-CC-010] The system shall publish to the cloud the most recent device health metrics: stack high watermarks, free TLS arena (the only dynamic memory, REQ-NF-408), CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy
 <!-- Traces to: UC-09 -->
 - [REQ-CC-020] The system shall publish to the cloud the alarm notification
 <!-- Traces to: HLD §6.5 (GW alarm pipeline), §7.3 (Cloud connectivity — alarm publish path), §10.3 (SD-05 alarm propagation) -->
