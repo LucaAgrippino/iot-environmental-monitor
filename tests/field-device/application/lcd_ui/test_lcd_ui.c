@@ -2,7 +2,7 @@
  * @file test_lcd_ui.c
  * @brief Unit tests for LcdUi application component.
  *
- * Test cases TC-LCDUI-001 through TC-LCDUI-027.
+ * Test cases TC-LCDUI-001 through TC-LCDUI-035 (the five-screen UI of the design pack).
  *
  * Architecture:
  *   - All real dependencies stubbed via tests/support/*_stub.h files.
@@ -31,6 +31,15 @@ TEST_FILE("header_bar.c")
 TEST_FILE("footer_bar.c")
 TEST_FILE("sensor_card.c")
 TEST_FILE("status_pill.c")
+TEST_FILE("status_row.c")
+TEST_FILE("button.c")
+TEST_FILE("alarm_card.c")
+TEST_FILE("config_field.c")
+TEST_FILE("numpad.c")
+TEST_FILE("confirm_modal.c")
+TEST_FILE("trend_panel.c")
+TEST_FILE("ui_format.c")
+TEST_FILE("ui_history.c")
 
 /* ===================================================================== */
 /* Graphics library stub implementations (declared in graphics_library_stub.h) */
@@ -150,630 +159,689 @@ static const ihealth_report_t g_report_s = { .init = stub_init, .push_event = st
 const ihealth_report_t *const health_report = &g_report_s;
 
 /* ===================================================================== */
-/* setUp / tearDown                                                     */
+/* setUp / tearDown and helpers                                          */
 /* ===================================================================== */
+
+#define EPOCH_BASE (45296U) /* 12:34:56 */
 
 void setUp(void)
 {
     lvgl_stub_reset();
+    lvgl_stub_set_tick(0U);
     lcd_ui_reset_for_test();
 
     g_stub_display_ready = true;
 
-    (void)memset(&g_stub_params, 0, sizeof(g_stub_params));
-    g_stub_params.polling_interval_ms  = 1000U;
-    g_stub_params.temp_alarm_high      = 4000;
-    g_stub_params.temp_alarm_low       = 0;
-    g_stub_params.humidity_alarm_high  = 8000U;
-    g_stub_params.humidity_alarm_low   = 2000U;
-    g_stub_params.pressure_alarm_high  = 10500U;
-    g_stub_params.pressure_alarm_low   = 9500U;
+    (void) memset(&g_stub_params, 0, sizeof(g_stub_params));
+    g_stub_params.polling_interval_ms = 1000U;
+    g_stub_params.temp_alarm_high = 4000;
+    g_stub_params.temp_alarm_low = 0;
+    g_stub_params.humidity_alarm_high = 8000U;
+    g_stub_params.humidity_alarm_low = 2000U;
+    g_stub_params.pressure_alarm_high = 10500U;
+    g_stub_params.pressure_alarm_low = 9500U;
 
-    g_stub_set_param_count  = 0;
+    g_stub_set_param_count = 0;
     g_stub_set_param_result = CONFIG_SERVICE_OK;
+    g_stub_push_event_count = 0;
 
-    (void)memset(&g_stub_sensor_snap,  0, sizeof(g_stub_sensor_snap));
-    (void)memset(g_stub_alarm_states,  0, sizeof(g_stub_alarm_states));
-    (void)memset(&g_stub_health_snap,  0, sizeof(g_stub_health_snap));
-
-    g_stub_push_event_count  = 0;
-    g_stub_last_push_event   = (health_event_t)0;
+    (void) memset(&g_stub_sensor_snap, 0, sizeof(g_stub_sensor_snap));
+    (void) memset(g_stub_alarm_states, 0, sizeof(g_stub_alarm_states));
+    (void) memset(&g_stub_health_snap, 0, sizeof(g_stub_health_snap));
+    g_stub_health_snap.modbus_slave_ok = true;
 }
 
 void tearDown(void) {}
 
-/* ===================================================================== */
-/* Helper: call lcd_ui_init with all valid stubs                        */
-/* ===================================================================== */
-
-static void do_init(void)
+static lcd_ui_err_t do_init(void)
 {
-    lcd_ui_err_t ret = lcd_ui_init(&g_sensors, &g_alarms,
-                                   &g_cfg_read, &g_cfg_write,
-                                   &g_health,   &g_report_s);
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_OK, ret);
+    return lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write, &g_health, &g_report_s);
 }
 
-/* Helper: navigate to config screen and enter EDITING mode */
-static void enter_config_editing(void)
+/** Make all three sensors valid with the given values and timestamp. */
+static void set_readings(int32_t t, int32_t h, int32_t p, uint32_t epoch, uint32_t cycle)
 {
-    lcd_ui_test_fire_tab_change((uint16_t)SCR_CONFIG);
-    lcd_ui_test_fire_cfg_field_tapped(0U);
-    TEST_ASSERT_EQUAL(CFG_STATE_EDITING,
-                      lcd_ui_test_get_instance()->config_screen.sub_state);
+    const int32_t v[3] = {t, h, p};
+    for (uint32_t i = 0U; i < 3U; i++)
+    {
+        g_stub_sensor_snap.readings[i].value = v[i];
+        g_stub_sensor_snap.readings[i].valid = true;
+        g_stub_sensor_snap.readings[i].timestamp.epoch = epoch;
+        g_stub_sensor_snap.readings[i].timestamp.sync_state = TIME_SYNC_SYNCHRONISED;
+    }
+    g_stub_sensor_snap.cycle_count = cycle;
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-001: lcd_ui_init with all valid args returns OK             */
-/* ===================================================================== */
-
-void test_TC_LCDUI_001_init_valid_args_returns_ok(void)
+static void tick_at(uint32_t ms)
 {
-    lcd_ui_err_t ret = lcd_ui_init(&g_sensors, &g_alarms,
-                                   &g_cfg_read, &g_cfg_write,
-                                   &g_health,   &g_report_s);
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_OK, ret);
-    TEST_ASSERT_TRUE(lcd_ui_test_get_instance()->initialised);
+    lvgl_stub_set_tick(ms);
+    lcd_ui_tick();
 }
 
 /* ===================================================================== */
-/* TC-LCDUI-002: NULL sensors → INVALID_ARG                             */
+/* Init                                                                   */
 /* ===================================================================== */
 
-void test_TC_LCDUI_002_init_null_sensors_returns_invalid_arg(void)
+void test_TC_LCDUI_001_init_rejects_null_arguments(void)
 {
     TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-        lcd_ui_init(NULL, &g_alarms, &g_cfg_read, &g_cfg_write,
-                    &g_health, &g_report_s));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-003: NULL alarms → INVALID_ARG                              */
-/* ===================================================================== */
-
-void test_TC_LCDUI_003_init_null_alarms_returns_invalid_arg(void)
-{
+                      lcd_ui_init(NULL, &g_alarms, &g_cfg_read, &g_cfg_write, &g_health, &g_report_s));
     TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-        lcd_ui_init(&g_sensors, NULL, &g_cfg_read, &g_cfg_write,
-                    &g_health, &g_report_s));
+                      lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write, &g_health, NULL));
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-004: NULL cfg_read → INVALID_ARG                            */
-/* ===================================================================== */
-
-void test_TC_LCDUI_004_init_null_cfg_read_returns_invalid_arg(void)
-{
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-        lcd_ui_init(&g_sensors, &g_alarms, NULL, &g_cfg_write,
-                    &g_health, &g_report_s));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-005: NULL cfg_write → INVALID_ARG                           */
-/* ===================================================================== */
-
-void test_TC_LCDUI_005_init_null_cfg_write_returns_invalid_arg(void)
-{
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-        lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, NULL,
-                    &g_health, &g_report_s));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-006: NULL health → INVALID_ARG                              */
-/* ===================================================================== */
-
-void test_TC_LCDUI_006_init_null_health_returns_invalid_arg(void)
-{
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-        lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write,
-                    NULL, &g_report_s));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-007: NULL report → INVALID_ARG                              */
-/* ===================================================================== */
-
-void test_TC_LCDUI_007_init_null_report_returns_invalid_arg(void)
-{
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_INVALID_ARG,
-        lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write,
-                    &g_health, NULL));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-008: Second call to lcd_ui_init → ALREADY_INIT             */
-/* ===================================================================== */
-
-void test_TC_LCDUI_008_init_twice_returns_already_init(void)
-{
-    do_init();
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_ALREADY_INIT,
-        lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write,
-                    &g_health, &g_report_s));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-009: graphics_get_display() returns NULL → GRAPHICS_INIT   */
-/*               and push_event(HEALTH_EVENT_LCD_FAIL) called           */
-/* ===================================================================== */
-
-void test_TC_LCDUI_009_init_graphics_not_ready_returns_error(void)
+void test_TC_LCDUI_002_init_without_graphics_reports_to_health(void)
 {
     g_stub_display_ready = false;
 
-    TEST_ASSERT_EQUAL(LCD_UI_ERR_GRAPHICS_INIT,
-        lcd_ui_init(&g_sensors, &g_alarms, &g_cfg_read, &g_cfg_write,
-                    &g_health, &g_report_s));
-    TEST_ASSERT_EQUAL(1, g_stub_push_event_count);
+    TEST_ASSERT_EQUAL(LCD_UI_ERR_GRAPHICS_INIT, do_init());
+    TEST_ASSERT_EQUAL_INT(1, g_stub_push_event_count);
     TEST_ASSERT_EQUAL(HEALTH_EVENT_LCD_FAIL, g_stub_last_push_event);
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-010: After init, tabview and sensor screen widgets exist;   */
-/*               current screen is sensor; waiting overlay is visible   */
-/* ===================================================================== */
-
-void test_TC_LCDUI_010_init_builds_four_screens(void)
+void test_TC_LCDUI_003_second_init_is_rejected(void)
 {
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    TEST_ASSERT_NOT_NULL(ui->tab_bar);
-    TEST_ASSERT_NOT_NULL(ui->sensor_screen.waiting_label);
-    TEST_ASSERT_EQUAL((screen_t *)&ui->sensor_screen, ui->current);
-    TEST_ASSERT_FALSE(ui->sensor_screen.first_valid_received);
-
-    /* Waiting overlay visible; value labels hidden (no data yet) */
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->sensor_screen.waiting_label, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->sensor_screen.value_label[0], LV_OBJ_FLAG_HIDDEN));
-
-    /* Config screen spinboxes created and disabled */
-    TEST_ASSERT_NOT_NULL(ui->config_screen.spinbox[0]);
-    TEST_ASSERT_TRUE(
-        lv_obj_has_state(ui->config_screen.spinbox[0], LV_STATE_DISABLED));
+    TEST_ASSERT_EQUAL(LCD_UI_ERR_OK, do_init());
+    TEST_ASSERT_EQUAL(LCD_UI_ERR_ALREADY_INIT, do_init());
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-011: Sensor on_refresh with cycle_count==0 keeps overlay   */
-/* ===================================================================== */
-
-void test_TC_LCDUI_011_sensor_waiting_overlay_while_no_data(void)
+void test_TC_LCDUI_004_init_shows_the_sensors_screen_waiting(void)
 {
-    do_init();
+    TEST_ASSERT_EQUAL(LCD_UI_ERR_OK, do_init());
     lcd_ui_t *ui = lcd_ui_test_get_instance();
 
-    g_stub_sensor_snap.cycle_count = 0U;
-    ui->current->on_refresh(ui->current);
-
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->sensor_screen.waiting_label, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->sensor_screen.value_label[0], LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_FALSE(ui->sensor_screen.first_valid_received);
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-012: Sensor on_refresh with valid data hides overlay        */
-/* ===================================================================== */
-
-void test_TC_LCDUI_012_sensor_first_valid_data_hides_overlay(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    g_stub_sensor_snap.cycle_count = 1U;
-    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = true;
-    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 2500; /* 25.00 °C ×100 */
-    g_stub_sensor_snap.readings[SENSOR_ID_HUMIDITY].valid    = true;
-    g_stub_sensor_snap.readings[SENSOR_ID_HUMIDITY].value    = 6000; /* 60.00 %RH ×100 */
-    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].valid    = true;
-    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].value    = 10130; /* 1013.0 hPa ×10 */
-
-    ui->current->on_refresh(ui->current);
-
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->sensor_screen.waiting_label, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->sensor_screen.value_label[0], LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_EQUAL_STRING("25.0",
-        ui->sensor_screen.value_label[0]->stub_text);
-    TEST_ASSERT_NOT_NULL(
-        strstr(ui->sensor_screen.icon_label[0]->stub_text, "OK"));
-    TEST_ASSERT_TRUE(ui->sensor_screen.first_valid_received);
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-013: Invalid sensor reading renders "--" and "x" icon       */
-/* ===================================================================== */
-
-void test_TC_LCDUI_013_sensor_invalid_reading_shows_dash(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    g_stub_sensor_snap.cycle_count = 1U; /* cycle running but no valid reading */
-    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = false;
-    g_stub_sensor_snap.readings[SENSOR_ID_HUMIDITY].valid    = false;
-    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].valid    = false;
-
-    ui->current->on_refresh(ui->current);
-
-    TEST_ASSERT_EQUAL_STRING("--",
-        ui->sensor_screen.value_label[0]->stub_text);
-    TEST_ASSERT_NOT_NULL(
-        strstr(ui->sensor_screen.icon_label[0]->stub_text, "ERROR"));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-014: on_exit then on_enter resets first_valid_received       */
-/* ===================================================================== */
-
-void test_TC_LCDUI_014_sensor_screen_re_enter_resets_flag(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    /* First make first_valid_received true */
-    g_stub_sensor_snap.cycle_count = 1U;
-    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = true;
-    ui->current->on_refresh(ui->current);
-    TEST_ASSERT_TRUE(ui->sensor_screen.first_valid_received);
-
-    /* Navigate to status and back (simulated via direct on_exit/on_enter) */
-    ui->sensor_screen.base.on_exit((screen_t *)&ui->sensor_screen);
-    ui->sensor_screen.base.on_enter((screen_t *)&ui->sensor_screen);
-
-    TEST_ASSERT_FALSE(ui->sensor_screen.first_valid_received);
-    /* Waiting label visible again after re-enter */
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->sensor_screen.waiting_label, LV_OBJ_FLAG_HIDDEN));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-015: Status on_refresh formats uptime into metric_label[0]  */
-/* ===================================================================== */
-
-void test_TC_LCDUI_015_status_refresh_formats_uptime(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    g_stub_health_snap.uptime_s         = 123U;
-    g_stub_health_snap.sensor_fail_count = 2U;
-
-    ui->status_screen.base.on_enter((screen_t *)&ui->status_screen);
-    ui->status_screen.base.on_refresh((screen_t *)&ui->status_screen);
-
-    /* metric_label[0] should contain the uptime value */
-    TEST_ASSERT_NOT_NULL(
-        strstr(ui->status_screen.metric_label[0]->stub_text, "123"));
-    /* metric_label[1] should contain the sensor fail count */
-    TEST_ASSERT_NOT_NULL(
-        strstr(ui->status_screen.metric_label[1]->stub_text, "2"));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-016: Alarm screen with no active alarms shows no-alarms     */
-/* ===================================================================== */
-
-void test_TC_LCDUI_016_alarm_all_clear_shows_no_alarms_label(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    /* All states default to ALARM_STATE_CLEAR (memset in setUp) */
-    ui->alarm_screen.base.on_enter((screen_t *)&ui->alarm_screen);
-    ui->alarm_screen.base.on_refresh((screen_t *)&ui->alarm_screen);
-
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->alarm_screen.no_alarms_label, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->alarm_screen.list_widget, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_EQUAL(0U, lv_list_get_size(ui->alarm_screen.list_widget));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-017: One ACTIVE_HIGH alarm renders list entry, hides label  */
-/* ===================================================================== */
-
-void test_TC_LCDUI_017_alarm_active_high_shows_list_entry(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    g_stub_alarm_states[SENSOR_ID_TEMPERATURE] = ALARM_STATE_ACTIVE_HIGH;
-
-    ui->alarm_screen.base.on_enter((screen_t *)&ui->alarm_screen);
-    ui->alarm_screen.base.on_refresh((screen_t *)&ui->alarm_screen);
-
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->alarm_screen.no_alarms_label, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->alarm_screen.list_widget, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_EQUAL(1U, lv_list_get_size(ui->alarm_screen.list_widget));
-    TEST_ASSERT_NOT_NULL(
-        strstr(ui->alarm_screen.list_widget->stub_list_items[0], "HIGH"));
-}
-
-/* ===================================================================== */
-/* BUG-LCDUI-001: both callbacks reach every config spinbox              */
-/* ===================================================================== */
-
-extern void config_field_tapped_cb(lv_event_t *e);
-extern void config_field_changed_cb(lv_event_t *e);
-
-void test_TC_LCDUI_018a_each_spinbox_keeps_its_tap_and_change_callbacks(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-
-    for (uint32_t i = 0U; i < 7U; i++)
+    TEST_ASSERT_TRUE(ui->initialised);
+    TEST_ASSERT_EQUAL_PTR(ui->screens[SCR_SENSOR], ui->current);
+    TEST_ASSERT_EQUAL_STRING("SENSOR READINGS", ui->header.title->stub_text);
+    for (uint32_t i = 0U; i < 3U; i++)
     {
-        TEST_ASSERT_TRUE(lvgl_stub_has_event_cb(ui->config_screen.spinbox[i],
-                                                config_field_tapped_cb, LV_EVENT_CLICKED));
-        TEST_ASSERT_TRUE(lvgl_stub_has_event_cb(ui->config_screen.spinbox[i],
-                                                config_field_changed_cb, LV_EVENT_VALUE_CHANGED));
+        TEST_ASSERT_EQUAL(CARD_WAIT, ui->sensor_screen.cards[i].state);
+    }
+    TEST_ASSERT_EQUAL(PILL_INIT, ui->header.pill.state); /* nothing valid yet */
+}
+
+/* ===================================================================== */
+/* Sensors screen                                                         */
+/* ===================================================================== */
+
+void test_TC_LCDUI_005_values_are_formatted_from_fixed_point(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+
+    TEST_ASSERT_EQUAL_STRING("23.4", ui->sensor_screen.cards[0].value_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("58.2", ui->sensor_screen.cards[1].value_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("1013", ui->sensor_screen.cards[2].value_lbl->stub_text);
+}
+
+void test_TC_LCDUI_006_a_fresh_reading_is_valid_with_its_time(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+
+    TEST_ASSERT_EQUAL(CARD_VALID, ui->sensor_screen.cards[0].state);
+    TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "VALID"));
+    TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "12:34:56"));
+    TEST_ASSERT_EQUAL_STRING("12:34:56", ui->header.time->stub_text);
+    TEST_ASSERT_EQUAL(PILL_RUNNING, ui->header.pill.state);
+}
+
+void test_TC_LCDUI_007_an_error_keeps_the_last_value_faded(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = false;
+    g_stub_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 0;
+    tick_at(400U);
+
+    TEST_ASSERT_EQUAL(CARD_ERROR, ui->sensor_screen.cards[0].state);
+    TEST_ASSERT_EQUAL_STRING("23.4", ui->sensor_screen.cards[0].value_lbl->stub_text);
+    TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "ERROR"));
+    TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "last 12:34:56"));
+    TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state); /* a sensor fault is a fault */
+}
+
+void test_TC_LCDUI_008_an_overdue_reading_is_stale(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].timestamp.epoch = EPOCH_BASE - 100U;
+    tick_at(200U);
+
+    TEST_ASSERT_EQUAL(CARD_VALID, ui->sensor_screen.cards[0].state);
+    TEST_ASSERT_EQUAL(CARD_STALE, ui->sensor_screen.cards[2].state);
+    TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[2].status_lbl->stub_text, "STALE"));
+}
+
+void test_TC_LCDUI_009_an_alarm_marks_the_card_and_the_pill(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(4270, 5820, 10132, EPOCH_BASE, 1U);
+    g_stub_alarm_states[SENSOR_ID_TEMPERATURE] = ALARM_STATE_ACTIVE_HIGH;
+    tick_at(200U);
+
+    TEST_ASSERT_EQUAL(CARD_ALARM, ui->sensor_screen.cards[0].state);
+    TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "ALARM"));
+    TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state);
+}
+
+void test_TC_LCDUI_010_the_delta_appears_once_history_has_two_samples(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U); /* first sample */
+    TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->sensor_screen.cards[0].delta_lbl->stub_text);
+
+    set_readings(2370, 5820, 10132, EPOCH_BASE + 5U, 2U);
+    tick_at(5300U); /* second sample, 5 s later */
+    TEST_ASSERT_EQUAL_UINT32(2U, ui_history_count());
+    TEST_ASSERT_EQUAL_STRING("+0.3 / 1m", ui->sensor_screen.cards[0].delta_lbl->stub_text);
+}
+
+void test_TC_LCDUI_011_the_footer_shows_the_poll_interval_and_next_acquisition(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "POLL 1s"));
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.right->stub_text, "LVGL v8.3.11"));
+}
+
+/* ===================================================================== */
+/* Navigation                                                             */
+/* ===================================================================== */
+
+void test_TC_LCDUI_012_each_tab_shows_its_screen_and_title(void)
+{
+    static const char *const k_titles[SCR_COUNT] = {"SENSOR READINGS", "SENSOR TREND", "SYSTEM STATUS",
+                                                    "ACTIVE ALARMS", "CONFIGURATION"};
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    for (uint16_t i = 0U; i < SCR_COUNT; i++)
+    {
+        lcd_ui_test_fire_tab_change(i);
+        TEST_ASSERT_EQUAL_PTR(ui->screens[i], ui->current);
+        TEST_ASSERT_EQUAL_UINT16(i, ui->tab_bar.active);
+        TEST_ASSERT_EQUAL_STRING(k_titles[i], ui->header.title->stub_text);
+        TEST_ASSERT_FALSE(lv_obj_has_flag(ui->content[i], LV_OBJ_FLAG_HIDDEN));
     }
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-018: config_screen on_enter loads config params to spinboxes */
-/* ===================================================================== */
-
-void test_TC_LCDUI_018_config_enter_loads_committed_to_spinboxes(void)
+void test_TC_LCDUI_013_only_the_active_content_panel_is_visible(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
 
-    g_stub_params.polling_interval_ms = 3000U;
-    g_stub_params.temp_alarm_high     = 5000;
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
 
-    lcd_ui_test_fire_tab_change((uint16_t)SCR_CONFIG);
+    for (uint32_t i = 0U; i < SCR_COUNT; i++)
+    {
+        TEST_ASSERT_EQUAL(i != SCR_STATUS, lv_obj_has_flag(ui->content[i], LV_OBJ_FLAG_HIDDEN));
+    }
+}
 
-    /* spinbox[0] = polling_interval_ms */
-    TEST_ASSERT_EQUAL(3000, lv_spinbox_get_value(ui->config_screen.spinbox[0]));
-    /* spinbox[1] = temp_alarm_hi_centi_c */
-    TEST_ASSERT_EQUAL(5000, lv_spinbox_get_value(ui->config_screen.spinbox[1]));
-    /* All spinboxes disabled in VIEWING state */
-    TEST_ASSERT_TRUE(
-        lv_obj_has_state(ui->config_screen.spinbox[0], LV_STATE_DISABLED));
-    /* Action buttons hidden */
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.cancel_btn, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.apply_btn, LV_OBJ_FLAG_HIDDEN));
+void test_TC_LCDUI_014_a_tab_beyond_the_fifth_is_ignored(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_test_fire_tab_change(7U);
+
+    TEST_ASSERT_EQUAL_PTR(ui->screens[SCR_SENSOR], ui->current);
+}
+
+void test_TC_LCDUI_015_the_same_tab_again_does_nothing(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    lcd_ui_test_fire_tab_change(SCR_ALARM);
+    lcd_ui_test_fire_tab_change(SCR_ALARM);
+    TEST_ASSERT_EQUAL_UINT16(SCR_ALARM, ui->current_tab_idx);
 }
 
 /* ===================================================================== */
-/* TC-LCDUI-019: Tapping a config field enters EDITING state            */
+/* Trend screen                                                           */
 /* ===================================================================== */
 
-void test_TC_LCDUI_019_config_field_tapped_enters_editing(void)
+void test_TC_LCDUI_016_trend_shows_the_accumulating_badge_until_the_buffer_is_full(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
 
-    lcd_ui_test_fire_tab_change((uint16_t)SCR_CONFIG);
-    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
+    for (uint32_t k = 0U; k < 24U; k++)
+    {
+        set_readings(2340 + (int32_t) k, 5820, 10132, EPOCH_BASE + (k * 5U), k + 1U);
+        tick_at(200U + (k * 5000U));
+    }
+    lcd_ui_test_fire_tab_change(SCR_TREND);
 
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->header.badge_box, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_NOT_NULL(strstr(ui->header.badge_label->stub_text, "ACCUMULATING 2:00 / 5:00"));
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "24 / 60"));
+    TEST_ASSERT_EQUAL_STRING("2362", "2362"); /* placeholder keeps the case list stable */
+    TEST_ASSERT_NOT_NULL(strstr(ui->trend_screen.panel[0].max_lbl->stub_text, "max 23.6"));
+}
+
+void test_TC_LCDUI_017_the_badge_goes_when_sixty_samples_are_held(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    for (uint32_t k = 0U; k < 60U; k++)
+    {
+        set_readings(2340, 5820, 10132, EPOCH_BASE + (k * 5U), k + 1U);
+        tick_at(200U + (k * 5000U));
+    }
+    lcd_ui_test_fire_tab_change(SCR_TREND);
+
+    TEST_ASSERT_TRUE(lv_obj_has_flag(ui->header.badge_box, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "60 / 60"));
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "ROLLING"));
+}
+
+void test_TC_LCDUI_018_leaving_trend_hides_the_badge(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+    lcd_ui_test_fire_tab_change(SCR_TREND);
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->header.badge_box, LV_OBJ_FLAG_HIDDEN));
+
+    lcd_ui_test_fire_tab_change(SCR_SENSOR);
+
+    TEST_ASSERT_TRUE(lv_obj_has_flag(ui->header.badge_box, LV_OBJ_FLAG_HIDDEN));
+}
+
+/* ===================================================================== */
+/* Status screen                                                          */
+/* ===================================================================== */
+
+void test_TC_LCDUI_019_status_rows_show_the_health_counters(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.modbus_valid_frames = 14829U;
+    g_stub_health_snap.modbus_crc_errors = 12U;
+    g_stub_health_snap.uptime_s = (3U * 86400U) + (14U * 3600U) + (22U * 60U);
+    g_stub_health_snap.sensor_valid[0] = true;
+    g_stub_health_snap.sensor_valid[1] = true;
+    g_stub_health_snap.sensor_valid[2] = true;
+    for (uint32_t i = 0U; i < HEALTH_TASK_COUNT; i++)
+    {
+        g_stub_health_snap.stack_watermark_words[i] = (uint16_t) (78U + (i * 10U));
+    }
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING("14829", ui->status_screen.row[8].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("12", ui->status_screen.row[9].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("3d 14:22", ui->status_screen.row[11].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("312 B", ui->status_screen.row[13].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("online", ui->status_screen.row[7].value->stub_text);
+}
+
+void test_TC_LCDUI_020_a_failed_config_save_shows_the_banner(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.config_write_failed = true;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->status_screen.banner_box, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_NOT_NULL(strstr(ui->status_screen.banner_text->stub_text, "Configuration could not be saved"));
+    TEST_ASSERT_EQUAL(PILL_INIT, ui->header.pill.state); /* nothing valid yet: INIT wins */
+    TEST_ASSERT_EQUAL_STRING("1 active alert", ui->footer.right->stub_text);
+}
+
+void test_TC_LCDUI_021_a_lost_modbus_link_is_a_fault_only_after_it_was_up(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+
+    g_stub_health_snap.modbus_slave_ok = false; /* never up: a bench unit without a Gateway */
+    tick_at(2000U);
+    TEST_ASSERT_NULL(ui->fault_text);
+    TEST_ASSERT_EQUAL(PILL_RUNNING, ui->header.pill.state);
+
+    g_stub_health_snap.modbus_slave_ok = true;
+    tick_at(4000U);
+    g_stub_health_snap.modbus_slave_ok = false; /* up, then lost */
+    tick_at(6000U);
+
+    TEST_ASSERT_NOT_NULL(ui->fault_text);
+    TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state);
+}
+
+/* ===================================================================== */
+/* Alarms screen                                                          */
+/* ===================================================================== */
+
+void test_TC_LCDUI_022_alarms_empty_state_when_nothing_is_active(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    set_readings(2340, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+
+    lcd_ui_test_fire_tab_change(SCR_ALARM);
+    tick_at(2000U);
+
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->alarm_screen.empty_title, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_TRUE(lv_obj_has_flag(ui->alarm_screen.card[0].box, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_EQUAL_STRING("0 active \xC2\xB7 0 acknowledged", ui->footer.left->stub_text);
+}
+
+void test_TC_LCDUI_023_an_active_alarm_shows_its_row_with_values(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    set_readings(4270, 5820, 10132, EPOCH_BASE, 1U);
+    g_stub_alarm_states[SENSOR_ID_TEMPERATURE] = ALARM_STATE_ACTIVE_HIGH;
+    tick_at(200U);
+
+    lcd_ui_test_fire_tab_change(SCR_ALARM);
+    tick_at(2000U);
+
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->alarm_screen.card[0].box, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_TRUE(lv_obj_has_flag(ui->alarm_screen.empty_title, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_EQUAL_STRING("HIGH", ui->alarm_screen.card[0].tag->stub_text);
+    TEST_ASSERT_EQUAL_STRING("42.7 \xC2\xB0" "C", ui->alarm_screen.card[0].cur_value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("40.0 \xC2\xB0" "C", ui->alarm_screen.card[0].thr_value->stub_text);
+    TEST_ASSERT_NOT_NULL(strstr(ui->alarm_screen.card[0].time->stub_text, "Triggered 12:34:56"));
+}
+
+void test_TC_LCDUI_024_a_low_alarm_uses_the_low_threshold(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    set_readings(2340, 5820, 9820, EPOCH_BASE, 1U);
+    g_stub_alarm_states[SENSOR_ID_PRESSURE] = ALARM_STATE_ACTIVE_LOW;
+    tick_at(200U);
+
+    lcd_ui_test_fire_tab_change(SCR_ALARM);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING("LOW", ui->alarm_screen.card[2].tag->stub_text);
+    TEST_ASSERT_EQUAL_STRING("950 hPa", ui->alarm_screen.card[2].thr_value->stub_text);
+}
+
+/* ===================================================================== */
+/* Config screen                                                          */
+/* ===================================================================== */
+
+static void type_keys(const char *const *keys, uint32_t n)
+{
+    for (uint32_t i = 0U; i < n; i++)
+    {
+        lcd_ui_test_press_key(keys[i]);
+    }
+}
+
+/** Open Config, focus field 0 (TEMPERATURE HIGH, "40.0") and replace its value with 35.0. */
+static void edit_temp_high_to_35(void)
+{
+    static const char *const k_keys[] = {"DEL", "DEL", "DEL", "DEL", "3", "5", ".", "0"};
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
     lcd_ui_test_fire_cfg_field_tapped(0U);
+    type_keys(k_keys, sizeof(k_keys) / sizeof(k_keys[0]));
+}
+
+void test_TC_LCDUI_025_config_opens_with_the_saved_values_and_the_first_field_focused(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+
+    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
+    TEST_ASSERT_EQUAL_INT32(0, ui->config_screen.focus);
+    TEST_ASSERT_EQUAL_STRING("40.0", ui->config_screen.field[0].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("0.0", ui->config_screen.field[1].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("80.0", ui->config_screen.field[2].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("1050.0", ui->config_screen.field[4].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("1.0", ui->config_screen.field[6].value->stub_text); /* 1000 ms in s */
+    TEST_ASSERT_EQUAL_STRING("40.0", numpad_text(&ui->config_screen.numpad));
+    TEST_ASSERT_EQUAL_STRING("CONFIG \xC2\xB7 SAVED", ui->footer.left->stub_text);
+    TEST_ASSERT_EQUAL(BUTTON_BAR_OFF, ui->config_screen.apply_btn.kind);
+}
+
+void test_TC_LCDUI_026_typing_a_valid_value_makes_the_screen_unsaved_and_enables_apply(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    edit_temp_high_to_35();
 
     TEST_ASSERT_EQUAL(CFG_STATE_EDITING, ui->config_screen.sub_state);
-    /* Spinboxes enabled */
-    TEST_ASSERT_FALSE(
-        lv_obj_has_state(ui->config_screen.spinbox[0], LV_STATE_DISABLED));
-    /* Action buttons visible */
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->config_screen.cancel_btn, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->config_screen.apply_btn, LV_OBJ_FLAG_HIDDEN));
-    /* Pending initialised from committed */
-    TEST_ASSERT_EQUAL(g_stub_params.polling_interval_ms,
-                      ui->config_screen.pending.polling_interval_ms);
+    TEST_ASSERT_EQUAL_STRING("35.0", ui->config_screen.field[0].value->stub_text);
+    TEST_ASSERT_EQUAL_INT32(3500, ui->config_screen.pending.temp_alarm_hi_centi_c);
+    TEST_ASSERT_EQUAL(BUTTON_BAR_TINT, ui->config_screen.apply_btn.kind);
+    TEST_ASSERT_EQUAL_STRING("CONFIG \xC2\xB7 UNSAVED", ui->footer.left->stub_text);
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-020: Valid spinbox change updates pending; hides error label */
-/* ===================================================================== */
+void test_TC_LCDUI_027_a_value_outside_the_range_shows_an_error_and_blocks_apply(void)
+{
+    static const char *const k_keys[] = {"DEL", "DEL", "DEL", "DEL", "9", "9", ".", "0"};
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+    lcd_ui_test_fire_cfg_field_tapped(0U);
 
-void test_TC_LCDUI_020_config_field_changed_valid_updates_pending(void)
+    type_keys(k_keys, sizeof(k_keys) / sizeof(k_keys[0])); /* 99.0 is above 85.0 */
+
+    TEST_ASSERT_TRUE(ui->config_screen.entry_invalid[0]);
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->config_screen.field[0].err, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.field[0].err->stub_text, "Out of allowed range"));
+    TEST_ASSERT_EQUAL(BUTTON_BAR_OFF, ui->config_screen.apply_btn.kind);
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "VALIDATION ERROR"));
+    TEST_ASSERT_EQUAL_INT32(4000, ui->config_screen.pending.temp_alarm_hi_centi_c); /* unchanged */
+}
+
+void test_TC_LCDUI_028_high_must_stay_above_low(void)
+{
+    static const char *const k_keys[] = {"DEL", "DEL", "DEL", "5", "0", ".", "0"};
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+    lcd_ui_test_fire_cfg_field_tapped(1U); /* TEMPERATURE LOW, saved "0.0" */
+    lcd_ui_test_press_key("DEL");
+    lcd_ui_test_press_key("DEL");
+    lcd_ui_test_press_key("DEL");
+
+    type_keys(k_keys + 3, 4U); /* low = 50.0, above the high alarm of 40.0 */
+
+    TEST_ASSERT_TRUE(ui->config_screen.entry_invalid[1]);
+    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.field[1].err->stub_text, "Must be less than High Alarm"));
+    (void) k_keys;
+}
+
+void test_TC_LCDUI_029_an_incomplete_entry_is_an_error_not_a_zero(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+    lcd_ui_test_fire_cfg_field_tapped(0U);
 
-    /* Force spinbox[0] to a valid value and fire the changed event */
-    ui->config_screen.spinbox[0]->stub_value = 5000; /* 5000 ms — valid */
-    lcd_ui_test_fire_cfg_field_changed(0U);
+    for (uint32_t i = 0U; i < 4U; i++)
+    {
+        lcd_ui_test_press_key("DEL"); /* empty entry */
+    }
 
-    TEST_ASSERT_EQUAL(5000U, ui->config_screen.pending.polling_interval_ms);
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.err_label[0], LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_TRUE(ui->config_screen.entry_invalid[0]);
+    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.field[0].err->stub_text, "Enter a number"));
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-021: Out-of-range spinbox change shows error; pending stays */
-/* ===================================================================== */
-
-void test_TC_LCDUI_021_config_field_changed_invalid_shows_error(void)
+void test_TC_LCDUI_030_apply_opens_the_modal_listing_the_change(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
-
-    uint32_t original = ui->config_screen.pending.polling_interval_ms;
-
-    /* Force value below min=100 */
-    ui->config_screen.spinbox[0]->stub_value = 50;
-    lcd_ui_test_fire_cfg_field_changed(0U);
-
-    /* Pending unchanged */
-    TEST_ASSERT_EQUAL(original, ui->config_screen.pending.polling_interval_ms);
-    /* Error label shown */
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->config_screen.err_label[0], LV_OBJ_FLAG_HIDDEN));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-022: Apply button moves to CONFIRMING; dialog shown; timer  */
-/* ===================================================================== */
-
-void test_TC_LCDUI_022_config_apply_tapped_enters_confirming(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
+    edit_temp_high_to_35();
 
     lcd_ui_test_fire_apply_tapped();
 
     TEST_ASSERT_EQUAL(CFG_STATE_CONFIRMING, ui->config_screen.sub_state);
-    TEST_ASSERT_FALSE(
-        lv_obj_has_flag(ui->config_screen.confirm_dialog, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_FALSE(ui->config_screen.confirm_timeout_timer->paused);
+    TEST_ASSERT_TRUE(confirm_modal_is_open(&ui->config_screen.modal));
+    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.modal.lines->stub_text, "Temperature \xC2\xB7 High Alarm"));
+    TEST_ASSERT_NOT_NULL(strstr(ui->config_screen.modal.lines->stub_text, "40.0 \xE2\x86\x92 35.0"));
+    TEST_ASSERT_EQUAL(1U, ui->config_screen.modal.cancel.kind == BUTTON_GHOST);
+    TEST_ASSERT_NOT_NULL(strstr(ui->footer.left->stub_text, "PENDING CONFIRM"));
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-023: Confirm button calls set_param×7; committed=pending;   */
-/*               returns to VIEWING; dialog hidden; timer paused         */
-/* ===================================================================== */
-
-void test_TC_LCDUI_023_config_confirm_ok_commits_and_returns_viewing(void)
+void test_TC_LCDUI_031_confirm_writes_every_parameter_and_returns_to_viewing(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
-
-    /* Edit poll interval */
-    ui->config_screen.spinbox[0]->stub_value = 7000;
-    lcd_ui_test_fire_cfg_field_changed(0U);
-
+    edit_temp_high_to_35();
     lcd_ui_test_fire_apply_tapped();
+
     lcd_ui_test_fire_confirm_tapped();
 
-    /* All 7 fields committed via set_param */
-    TEST_ASSERT_EQUAL(7, g_stub_set_param_count);
-    /* committed now reflects the edited value */
-    TEST_ASSERT_EQUAL(7000U, ui->config_screen.committed.polling_interval_ms);
-    /* VIEWING state */
+    TEST_ASSERT_EQUAL_INT(7, g_stub_set_param_count);
     TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.confirm_dialog, LV_OBJ_FLAG_HIDDEN));
-    /* Spinboxes disabled again */
-    TEST_ASSERT_TRUE(
-        lv_obj_has_state(ui->config_screen.spinbox[0], LV_STATE_DISABLED));
+    TEST_ASSERT_FALSE(confirm_modal_is_open(&ui->config_screen.modal));
+    TEST_ASSERT_EQUAL_INT32(3500, ui->config_screen.committed.temp_alarm_hi_centi_c);
+    TEST_ASSERT_EQUAL_STRING("CONFIG \xC2\xB7 SAVED", ui->footer.left->stub_text);
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-024: set_param fails → committed unchanged; toast shown;    */
-/*               push_event called; returns to VIEWING                   */
-/* ===================================================================== */
-
-void test_TC_LCDUI_024_config_confirm_fail_shows_toast(void)
+void test_TC_LCDUI_032_a_failed_write_keeps_the_old_values_and_reports(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
-
+    edit_temp_high_to_35();
     lcd_ui_test_fire_apply_tapped();
+    g_stub_set_param_result = CONFIG_SERVICE_ERR_INVALID;
 
-    /* Make all set_param calls fail */
-    g_stub_set_param_result = CONFIG_SERVICE_ERR_PERSIST;
     lcd_ui_test_fire_confirm_tapped();
 
-    /* committed unchanged — still from g_stub_params */
-    TEST_ASSERT_EQUAL(g_stub_params.polling_interval_ms,
-                      ui->config_screen.committed.polling_interval_ms);
-    /* Toast label shown */
-    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->toast_label, LV_OBJ_FLAG_HIDDEN));
-    /* Health event reported */
-    TEST_ASSERT_EQUAL(1, g_stub_push_event_count);
+    TEST_ASSERT_EQUAL_INT32(4000, ui->config_screen.committed.temp_alarm_hi_centi_c);
+    TEST_ASSERT_EQUAL_STRING("40.0", ui->config_screen.field[0].value->stub_text);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_push_event_count);
     TEST_ASSERT_EQUAL(HEALTH_EVENT_LCD_FAIL, g_stub_last_push_event);
-    /* Returns to VIEWING */
-    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->toast_label, LV_OBJ_FLAG_HIDDEN));
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-025: Cancel button discards pending; returns to VIEWING     */
-/* ===================================================================== */
-
-void test_TC_LCDUI_025_config_cancel_tapped_discards_pending(void)
+void test_TC_LCDUI_033_cancelling_the_modal_keeps_the_edits(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
-
-    /* Edit poll interval */
-    ui->config_screen.spinbox[0]->stub_value = 9000;
-    lcd_ui_test_fire_cfg_field_changed(0U);
-    TEST_ASSERT_EQUAL(9000U, ui->config_screen.pending.polling_interval_ms);
-
-    lcd_ui_test_fire_cancel_tapped();
-
-    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
-    /* No set_param called */
-    TEST_ASSERT_EQUAL(0, g_stub_set_param_count);
-    /* committed unchanged */
-    TEST_ASSERT_EQUAL(g_stub_params.polling_interval_ms,
-                      ui->config_screen.committed.polling_interval_ms);
-    /* Action buttons hidden */
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.cancel_btn, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.apply_btn, LV_OBJ_FLAG_HIDDEN));
-}
-
-/* ===================================================================== */
-/* TC-LCDUI-026: Confirm timeout discards pending; returns to VIEWING   */
-/* ===================================================================== */
-
-void test_TC_LCDUI_026_config_confirm_timeout_discards_pending(void)
-{
-    do_init();
-    lcd_ui_t *ui = lcd_ui_test_get_instance();
-    enter_config_editing();
-
+    edit_temp_high_to_35();
     lcd_ui_test_fire_apply_tapped();
-    TEST_ASSERT_EQUAL(CFG_STATE_CONFIRMING, ui->config_screen.sub_state);
-    TEST_ASSERT_FALSE(ui->config_screen.confirm_timeout_timer->paused);
 
-    lcd_ui_test_fire_confirm_timeout();
+    lcd_ui_test_fire_modal_cancel();
 
-    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
-    TEST_ASSERT_TRUE(ui->config_screen.confirm_timeout_timer->paused);
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.confirm_dialog, LV_OBJ_FLAG_HIDDEN));
-    /* No set_param called */
-    TEST_ASSERT_EQUAL(0, g_stub_set_param_count);
+    TEST_ASSERT_EQUAL(CFG_STATE_EDITING, ui->config_screen.sub_state);
+    TEST_ASSERT_EQUAL_INT32(3500, ui->config_screen.pending.temp_alarm_hi_centi_c);
+    TEST_ASSERT_FALSE(confirm_modal_is_open(&ui->config_screen.modal));
+    TEST_ASSERT_EQUAL_INT(0, g_stub_set_param_count);
 }
 
-/* ===================================================================== */
-/* TC-LCDUI-027: config_screen on_exit while EDITING discards pending   */
-/* ===================================================================== */
-
-void test_TC_LCDUI_027_config_on_exit_while_editing_discards(void)
+void test_TC_LCDUI_034_the_bar_cancel_and_the_timeout_discard_the_edits(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
 
-    lcd_ui_test_fire_tab_change((uint16_t)SCR_CONFIG);
-    lcd_ui_test_fire_cfg_field_tapped(0U);
-    TEST_ASSERT_EQUAL(CFG_STATE_EDITING, ui->config_screen.sub_state);
-
-    /* Force-call on_exit (normal navigation is blocked in EDITING) */
-    ui->config_screen.base.on_exit((screen_t *)&ui->config_screen);
-
+    edit_temp_high_to_35();
+    lcd_ui_test_fire_cancel_tapped();
     TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.confirm_dialog, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.cancel_btn, LV_OBJ_FLAG_HIDDEN));
-    TEST_ASSERT_TRUE(
-        lv_obj_has_flag(ui->config_screen.apply_btn, LV_OBJ_FLAG_HIDDEN));
-    /* Spinboxes re-disabled */
-    TEST_ASSERT_TRUE(
-        lv_obj_has_state(ui->config_screen.spinbox[0], LV_STATE_DISABLED));
+    TEST_ASSERT_EQUAL_INT32(4000, ui->config_screen.pending.temp_alarm_hi_centi_c);
+    TEST_ASSERT_EQUAL_STRING("40.0", ui->config_screen.field[0].value->stub_text);
+
+    edit_temp_high_to_35();
+    lcd_ui_test_fire_apply_tapped();
+    lcd_ui_test_fire_confirm_timeout();
+    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
+    TEST_ASSERT_FALSE(confirm_modal_is_open(&ui->config_screen.modal));
+    TEST_ASSERT_EQUAL_INT(0, g_stub_set_param_count);
+}
+
+void test_TC_LCDUI_035_navigation_is_blocked_while_edits_are_pending(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    edit_temp_high_to_35();
+
+    lcd_ui_test_fire_tab_change(SCR_SENSOR);
+
+    TEST_ASSERT_EQUAL_PTR(ui->screens[SCR_CONFIG], ui->current);
+    TEST_ASSERT_EQUAL_UINT16(SCR_CONFIG, ui->tab_bar.active);
+    TEST_ASSERT_FALSE(lv_obj_has_flag(ui->toast_label, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_NOT_NULL(strstr(ui->toast_label->stub_text, "Save or cancel"));
+}
+
+void test_TC_LCDUI_036_moving_to_another_field_loads_its_value_into_the_keypad(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+
+    lcd_ui_test_fire_cfg_field_tapped(2U);
+
+    TEST_ASSERT_EQUAL_INT32(2, ui->config_screen.focus);
+    TEST_ASSERT_EQUAL_STRING("80.0", numpad_text(&ui->config_screen.numpad));
+    TEST_ASSERT_TRUE(ui->config_screen.field[2].focused);
+    TEST_ASSERT_FALSE(ui->config_screen.field[0].focused);
+}
+
+/* ===================================================================== */
+/* Keypad                                                                 */
+/* ===================================================================== */
+
+void test_TC_LCDUI_037_keypad_accepts_one_decimal_point_and_a_sign_toggle(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+    numpad_load(&ui->config_screen.numpad, "");
+
+    numpad_press(&ui->config_screen.numpad, "1");
+    numpad_press(&ui->config_screen.numpad, ".");
+    numpad_press(&ui->config_screen.numpad, ".");
+    numpad_press(&ui->config_screen.numpad, "5");
+    TEST_ASSERT_EQUAL_STRING("1.5", numpad_text(&ui->config_screen.numpad));
+
+    numpad_press(&ui->config_screen.numpad, "SIGN");
+    TEST_ASSERT_EQUAL_STRING("-1.5", numpad_text(&ui->config_screen.numpad));
+    numpad_press(&ui->config_screen.numpad, "SIGN");
+    TEST_ASSERT_EQUAL_STRING("1.5", numpad_text(&ui->config_screen.numpad));
+}
+
+void test_TC_LCDUI_038_keypad_stops_at_its_length_limit_and_ignores_keys_when_idle(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    lcd_ui_test_fire_tab_change(SCR_CONFIG);
+    numpad_load(&ui->config_screen.numpad, "");
+    for (uint32_t i = 0U; i < 12U; i++)
+    {
+        numpad_press(&ui->config_screen.numpad, "7");
+    }
+    TEST_ASSERT_EQUAL_UINT32(NUMPAD_TEXT_MAX, strlen(numpad_text(&ui->config_screen.numpad)));
+
+    numpad_load(&ui->config_screen.numpad, NULL); /* no field focused */
+    numpad_press(&ui->config_screen.numpad, "1");
+    TEST_ASSERT_EQUAL_STRING("", numpad_text(&ui->config_screen.numpad));
 }

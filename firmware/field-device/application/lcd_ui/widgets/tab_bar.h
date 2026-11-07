@@ -1,20 +1,16 @@
-/**
- * @file tab_bar.h
- * @brief Custom four-column tab bar widget for LcdUi.
- *
- * Replaces lv_tabview (forbidden — overlay §9).  Provides a 64 px tall
- * strip at the canvas top with one 200 px-wide button per screen.
- * The active column shows a 3 px COL_ACCENT top stripe and a
- * COL_ACCENT_TINT background.  Inactive columns use COL_HEADER_BG.
- *
- * Navigation is driven by lcd_ui_goto_tab(); tab_bar_set_active() is the
- * visual side-effect that follows a goto call.
- *
- * @see docs/lcd-ui-design/_reference-v9-claude-design/03_SCREEN_SPECS.md §Tab bar
- */
-
 #ifndef TAB_BAR_H
 #define TAB_BAR_H
+
+/**
+ * @file tab_bar.h
+ * @brief 64 px tab bar with five 160 px touch columns, each an icon above an UPPERCASE label.
+ *
+ * Replaces lv_tabview (forbidden, 00_PROJECT_OVERLAY.md section 9). 03_SCREEN_SPECS.md "Tab bar"
+ * and style-guide.md section 5: COL_HEADER_BG fill, 1 px dividers, the active tab has a 3 px
+ * COL_ACCENT top stripe and the pre-blended accent tint, icon in COL_ACCENT and label in COL_INK;
+ * inactive tabs are #888888. Five tabs since SRS v1.2 (REQ-LD-000): SENSORS, TREND, STATUS, ALARMS,
+ * CONFIG.
+ */
 
 #include <stdint.h>
 
@@ -24,26 +20,39 @@
 #include "lvgl.h"
 #endif
 
-/**
- * @brief Create the tab bar and wire up touch callbacks.
- *
- * @param parent      Parent object (normally lv_scr_act()).
- * @param active_idx  Initially active tab index [0, THEME_TAB_COL_COUNT).
- * @param on_change   Called with the new tab index on a short-click.
- *                    Must not be NULL.
- * @return Pointer to the created tab bar lv_obj_t.
- */
-lv_obj_t *tab_bar_create(lv_obj_t *parent, uint16_t active_idx, void (*on_change)(uint16_t idx));
+#include "lcd_ui/theme.h"
+
+/** Called with the tab index when a tab is tapped. */
+typedef void (*tab_bar_change_cb_t)(uint16_t new_idx);
+
+typedef struct
+{
+    lv_obj_t *box;
+    lv_obj_t *column[THEME_TAB_COL_COUNT]; /**< Touch area and fill of each tab. */
+    lv_obj_t *stripe[THEME_TAB_COL_COUNT]; /**< 3 px top accent, shown on the active tab only. */
+    lv_obj_t *icon[THEME_TAB_COL_COUNT];
+    lv_obj_t *label[THEME_TAB_COL_COUNT];
+    uint16_t active;
+    tab_bar_change_cb_t on_change;
+} tab_bar_t;
 
 /**
- * @brief Update the visual highlight to reflect a new active tab.
+ * @brief Create the tab bar at the top of the canvas.
  *
- * Safe to call from any context after tab_bar_create() succeeds.
- *
- * @param tab_bar_obj  Object returned by tab_bar_create() (unused internally;
- *                     kept for API symmetry with lv_obj ownership).
- * @param idx          New active tab index [0, THEME_TAB_COL_COUNT).
+ * @param[out] bar        Tab bar instance (caller-owned, static).
+ * @param[in]  parent     Parent (the screen).
+ * @param[in]  active     Initially active tab.
+ * @param[in]  on_change  Callback for taps (may be NULL).
  */
-void tab_bar_set_active(lv_obj_t *tab_bar_obj, uint16_t idx);
+void tab_bar_create(tab_bar_t *bar, lv_obj_t *parent, uint16_t active,
+                    tab_bar_change_cb_t on_change);
+
+/**
+ * @brief Show a tab as active (does not call the callback).
+ *
+ * @param[in,out] bar  Tab bar instance.
+ * @param[in]     idx  Tab index, 0..THEME_TAB_COL_COUNT-1; out-of-range values are ignored.
+ */
+void tab_bar_set_active(tab_bar_t *bar, uint16_t idx);
 
 #endif /* TAB_BAR_H */

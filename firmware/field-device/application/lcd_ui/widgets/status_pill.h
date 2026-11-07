@@ -1,18 +1,17 @@
-/**
- * @file status_pill.h
- * @brief System-status pill widget shown in the header bar.
- *
- * Displays a coloured label badge with one of four states:
- *   PILL_RUNNING — COL_OK  "RUNNING"
- *   PILL_INIT    — COL_DIM "INIT"
- *   PILL_ALARM   — COL_ERR "ALARM" (blinks via lv_anim_path_step)
- *   PILL_UPDATE  — COL_WARN "UPDATE"
- *
- * @see docs/lcd-ui-design/_reference-v9-claude-design/03_SCREEN_SPECS.md §Status pill
- */
-
 #ifndef STATUS_PILL_H
 #define STATUS_PILL_H
+
+/**
+ * @file status_pill.h
+ * @brief Rectangular state chip: RUNNING, INIT, ALARM (blinking) and UPDATE.
+ *
+ * 03_SCREEN_SPECS.md "Status pill": 1 px border and text in the state colour, pre-blended tint
+ * fill, padding 3 px / 10 px, FONT_PILL, no radius. The ALARM pill blinks at 1 Hz, 50 % duty
+ * (style-guide.md section 8).
+ */
+
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef TEST
 #include "lvgl_stub.h"
@@ -20,40 +19,51 @@
 #include "lvgl.h"
 #endif
 
-/* ===================================================================== */
-/* State enum                                                            */
-/* ===================================================================== */
-
 typedef enum
 {
-    PILL_RUNNING = 0, /**< Normal operation — COL_OK   */
-    PILL_INIT = 1,    /**< Startup / not ready — COL_DIM */
-    PILL_ALARM = 2,   /**< Active alarm — COL_ERR, blinks */
-    PILL_UPDATE = 3,  /**< Firmware update — COL_WARN  */
-    PILL_STATE_MAX,
+    PILL_RUNNING = 0, /**< "● RUNNING", COL_OK     */
+    PILL_INIT = 1,    /**< "● INIT",    COL_ACCENT */
+    PILL_ALARM = 2,   /**< "■ ALARM",   COL_ERR, blinking */
+    PILL_UPDATE = 3   /**< "⇪ UPDATE",  COL_ACCENT */
 } pill_state_t;
 
-/* ===================================================================== */
-/* Public API                                                            */
-/* ===================================================================== */
+typedef struct
+{
+    lv_obj_t *box;   /**< Bordered chip. */
+    lv_obj_t *label; /**< Text inside the chip. */
+    pill_state_t state;
+    lv_coord_t
+        right_edge; /**< x of the chip's right edge in the parent (the chip grows leftwards). */
+    lv_coord_t
+        w; /**< Current chip size, kept here because LVGL reports 0 before the first layout. */
+    lv_coord_t h;
+    bool visible_phase; /**< Current blink phase. */
+} status_pill_t;
 
 /**
- * @brief Create the status pill.
+ * @brief Create a pill whose right edge sits at x_right.
  *
- * @param parent  Parent object (normally the header bar container).
- * @param state   Initial pill state.
- * @return Pointer to the created pill lv_obj_t.
+ * @param[out] pill     Pill instance (caller-owned, static).
+ * @param[in]  parent   Parent object.
+ * @param[in]  x_right  Right edge in the parent.
+ * @param[in]  y        Top edge in the parent.
  */
-lv_obj_t *status_pill_create(lv_obj_t *parent, pill_state_t state);
+void status_pill_create(status_pill_t *pill, lv_obj_t *parent, lv_coord_t x_right, lv_coord_t y);
 
 /**
- * @brief Transition the pill to a new state.
+ * @brief Change the state: text, colours and width follow.
  *
- * Stops any running blink animation before updating colour and text.
- *
- * @param pill_obj  Object returned by status_pill_create().
- * @param state     New state.
+ * @param[in,out] pill   Pill instance.
+ * @param[in]     state  New state.
  */
-void status_pill_set_state(lv_obj_t *pill_obj, pill_state_t state);
+void status_pill_set_state(status_pill_t *pill, pill_state_t state);
+
+/**
+ * @brief Drive the ALARM blink; call from the UI tick.
+ *
+ * @param[in,out] pill    Pill instance.
+ * @param[in]     now_ms  Monotonic milliseconds.
+ */
+void status_pill_blink_tick(status_pill_t *pill, uint32_t now_ms);
 
 #endif /* STATUS_PILL_H */

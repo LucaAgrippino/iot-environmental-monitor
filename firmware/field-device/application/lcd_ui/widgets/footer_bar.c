@@ -1,61 +1,36 @@
 /**
  * @file footer_bar.c
- * @brief Footer bar widget — implementation.
- *
- * @see firmware/field-device/application/lcd_ui/widgets/footer_bar.h
+ * @brief Footer bar widget (see footer_bar.h).
  */
 
 #include "lcd_ui/widgets/footer_bar.h"
+
+#include <string.h>
+
 #include "lcd_ui/theme.h"
 
-/* ===================================================================== */
-/* File-scope state                                                     */
-/* ===================================================================== */
-
-static lv_obj_t *s_left_lbl;
-static lv_obj_t *s_right_lbl;
-
-/* ===================================================================== */
-/* footer_bar_create                                                    */
-/* ===================================================================== */
-
-lv_obj_t *footer_bar_create(lv_obj_t *parent, const char *left, const char *right)
+void footer_bar_create(footer_bar_t *ftr, lv_obj_t *parent)
 {
-    lv_obj_t *bar = lv_obj_create(parent);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_pos(bar, 0, THEME_FOOTER_BAR_Y);
-    lv_obj_set_size(bar, THEME_CANVAS_W, THEME_FOOTER_BAR_H);
-    lv_obj_add_style(bar, &theme_st_footer, LV_PART_MAIN);
-    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    ftr->box = theme_box_create(parent, 0, THEME_FOOTER_BAR_Y, THEME_CANVAS_W, THEME_FOOTER_BAR_H);
+    lv_obj_add_style(ftr->box, &theme_st_footer, LV_PART_MAIN);
+    lv_obj_t *line = theme_box_create(ftr->box, 0, 0, THEME_CANVAS_W, THEME_BORDER_W);
+    lv_obj_set_style_bg_color(line, THEME_COL_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, LV_PART_MAIN);
 
-    s_left_lbl = lv_label_create(bar);
-    lv_obj_remove_style_all(s_left_lbl);
-    lv_obj_add_style(s_left_lbl, &theme_st_label_dim, LV_PART_MAIN);
-    lv_obj_align(s_left_lbl, LV_ALIGN_LEFT_MID, THEME_SP_7, 0);
-    lv_label_set_text(s_left_lbl, (left != NULL) ? left : "");
-
-    s_right_lbl = lv_label_create(bar);
-    lv_obj_remove_style_all(s_right_lbl);
-    lv_obj_add_style(s_right_lbl, &theme_st_label_dim, LV_PART_MAIN);
-    lv_obj_align(s_right_lbl, LV_ALIGN_RIGHT_MID, -THEME_SP_7, 0);
-    lv_label_set_text(s_right_lbl, (right != NULL) ? right : "");
-
-    return bar;
+    const lv_font_t *font = THEME_FONT_CAPTION_MONO;
+    const lv_coord_t y = (lv_coord_t) ((THEME_FOOTER_BAR_H - font->line_height) / 2);
+    ftr->left = theme_label_create(ftr->box, &theme_st_txt_caption_mono, &theme_st_label_muted,
+                                   THEME_HEADER_INSET, y, "");
+    ftr->right = theme_label_create(ftr->box, &theme_st_txt_caption_mono, &theme_st_label_muted,
+                                    THEME_HEADER_INSET, y, "");
 }
 
-/* ===================================================================== */
-/* footer_bar_set_text                                                  */
-/* ===================================================================== */
-
-void footer_bar_set_text(lv_obj_t *footer_obj, const char *left, const char *right)
+void footer_bar_set(footer_bar_t *ftr, const char *left, const char *right)
 {
-    (void) footer_obj;
-    if (left != NULL)
-    {
-        lv_label_set_text(s_left_lbl, left);
-    }
-    if (right != NULL)
-    {
-        lv_label_set_text(s_right_lbl, right);
-    }
+    const lv_font_t *font = THEME_FONT_CAPTION_MONO;
+    lv_label_set_text(ftr->left, left);
+    lv_label_set_text(ftr->right, right);
+    const lv_coord_t w =
+        lv_txt_get_width(right, (uint32_t) strlen(right), font, 0, LV_TEXT_FLAG_NONE);
+    lv_obj_set_x(ftr->right, (lv_coord_t) (THEME_CANVAS_W - THEME_HEADER_INSET - w));
 }

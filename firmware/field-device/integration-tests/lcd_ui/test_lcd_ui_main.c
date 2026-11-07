@@ -85,7 +85,9 @@ static void led_green_off(void)
 
 #define IT_TASK_STACK_WORDS (2048U)
 #define IT_TASK_TAG "LCDUI-IT"
+#ifndef IT_PHASE_DELAY_MS
 #define IT_PHASE_DELAY_MS (3000U)
+#endif
 
 /* ===================================================================== */
 /* Synthetic provider data                                              */
@@ -173,6 +175,46 @@ static void fail(const char *msg)
     }
 }
 
+/** LVGL heap use: the five-screen UI must fit LV_MEM_SIZE with room to spare. */
+static void log_lvgl_heap(const char *when)
+{
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    LOG_INFO(IT_TASK_TAG, "LVGL heap %s: used %lu of %lu bytes (%u%%), largest free block %lu",
+             when, (unsigned long) (mon.total_size - mon.free_size), (unsigned long) mon.total_size,
+             (unsigned) mon.used_pct, (unsigned long) mon.free_biggest_size);
+}
+
+/* ===================================================================== */
+/* Synthetic acquisition: one cycle per second, values drifting a little */
+/* ===================================================================== */
+
+static uint32_t s_cycle;
+
+/** Run `seconds` acquisition cycles, one per second, updating the synthetic snapshot. */
+static void feed_sensors(uint32_t seconds)
+{
+    for (uint32_t i = 0U; i < seconds; i++)
+    {
+        s_cycle++;
+        s_sensor_snap.cycle_count = s_cycle;
+        for (uint32_t k = 0U; k < (uint32_t) SENSOR_ID_COUNT; k++)
+        {
+            s_sensor_snap.readings[k].valid = true;
+            s_sensor_snap.readings[k].timestamp.epoch = 45296U + s_cycle; /* 12:34:56 + n */
+            s_sensor_snap.readings[k].timestamp.sync_state = TIME_SYNC_SYNCHRONISED;
+        }
+        if (s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value == 0)
+        {
+            s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 2350;
+            s_sensor_snap.readings[SENSOR_ID_HUMIDITY].value = 5500;
+            s_sensor_snap.readings[SENSOR_ID_PRESSURE].value = 10130;
+        }
+        s_health_snap.uptime_s++;
+        vTaskDelay(pdMS_TO_TICKS(1000U));
+    }
+}
+
 /* ===================================================================== */
 /* Integration test task                                                */
 /* ===================================================================== */
@@ -194,62 +236,56 @@ static void it_task(void *arg)
         fail("lcd_ui_init");
     }
     LOG_INFO(IT_TASK_TAG, "lcd_ui_init: OK");
+    log_lvgl_heap("after init");
 
     /* ------------------------------------------------------------------ */
-    /* Step 2: Verify sensor screen shows "Waiting for data"              */
-    /* (cycle_count=0; waiting overlay should be visible on panel)        */
+    /* The harness walks through every screen and state of the design pack. */
+    /* Each phase waits IT_PHASE_DELAY_MS so the panel can be looked at.    */
     /* ------------------------------------------------------------------ */
-    LOG_INFO(IT_TASK_TAG, "Phase 1: sensor screen with no data — check waiting overlay");
+    LOG_INFO(IT_TASK_TAG, "Phase 1: Sensors with no data: WAITING cards, pill INIT");
     vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
 
-    /* ------------------------------------------------------------------ */
-    /* Step 3: Feed valid sensor readings — overlay should disappear      */
-    /* ------------------------------------------------------------------ */
-    s_sensor_snap.cycle_count = 1U;
-    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].valid = true;
-    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 2350; /* 23.50 °C ×100  */
-    s_sensor_snap.readings[SENSOR_ID_HUMIDITY].valid = true;
-    s_sensor_snap.readings[SENSOR_ID_HUMIDITY].value = 5500; /* 55.00 %RH ×100 */
-    s_sensor_snap.readings[SENSOR_ID_PRESSURE].valid = true;
-    s_sensor_snap.readings[SENSOR_ID_PRESSURE].value = 10130; /* 1013.0 hPa ×10 */
-    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].timestamp.epoch = 1718000000UL;
+    LOG_INFO(IT_TASK_TAG, "Phase 2: Sensors with data: 23.5 C, 55.0 %%RH, 1013 hPa, pill RUNNING");
+    feed_sensors(IT_PHASE_DELAY_MS / 1000U);
 
-    LOG_INFO(IT_TASK_TAG, "Phase 2: sensor data injected — check values on panel (T=23.5)");
-    vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
-
-    /* ------------------------------------------------------------------ */
-    /* Step 4: Populate status metrics and log                            */
-    /* ------------------------------------------------------------------ */
     s_health_snap.uptime_s = 42U;
-    s_health_snap.sensor_fail_count = 0U;
-    s_health_snap.alarm_raise_count = 0U;
-    s_health_snap.config_write_failed = false;
+    s_health_snap.sensor_valid[SENSOR_ID_TEMPERATURE] = true;
+    s_health_snap.sensor_valid[SENSOR_ID_HUMIDITY] = true;
+    s_health_snap.sensor_valid[SENSOR_ID_PRESSURE] = true;
+    s_health_snap.modbus_slave_ok = true;
     s_health_snap.modbus_valid_frames = 100U;
     s_health_snap.modbus_crc_errors = 1U;
-    s_health_snap.modbus_exception_responses = 0U;
-    LOG_INFO(IT_TASK_TAG, "Phase 3: navigate to Status tab and verify 14 metric rows");
-    vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
+    for (uint32_t i = 0U; i < HEALTH_TASK_COUNT; i++)
+    {
+        s_health_snap.stack_watermark_words[i] = (uint16_t) (120U + (i * 20U));
+    }
+    LOG_INFO(IT_TASK_TAG, "Phase 3: Trend (accumulating)");
+    lcd_ui_select_screen(1U);
+    feed_sensors(IT_PHASE_DELAY_MS / 1000U);
 
-    /* ------------------------------------------------------------------ */
-    /* Step 5: Inject ACTIVE_HIGH alarm for temperature                   */
-    /* ------------------------------------------------------------------ */
+    LOG_INFO(IT_TASK_TAG, "Phase 4: Status (14 rows in four sections)");
+    lcd_ui_select_screen(2U);
+    feed_sensors(IT_PHASE_DELAY_MS / 1000U);
+
     s_alarm_states[SENSOR_ID_TEMPERATURE] = ALARM_STATE_ACTIVE_HIGH;
-    LOG_INFO(IT_TASK_TAG, "Phase 4: navigate to Alarms tab — Temp HIGH entry expected");
-    vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
+    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 4270;
+    LOG_INFO(IT_TASK_TAG, "Phase 5: Alarms: Temperature HIGH, pill ALARM");
+    lcd_ui_select_screen(3U);
+    feed_sensors(IT_PHASE_DELAY_MS / 1000U);
 
-    /* ------------------------------------------------------------------ */
-    /* Step 6: Clear alarm                                                */
-    /* ------------------------------------------------------------------ */
     s_alarm_states[SENSOR_ID_TEMPERATURE] = ALARM_STATE_CLEAR;
-    LOG_INFO(IT_TASK_TAG, "Phase 5: alarm cleared — 'No active alarms' expected on panel");
-    vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS));
+    s_sensor_snap.readings[SENSOR_ID_TEMPERATURE].value = 2350;
+    LOG_INFO(IT_TASK_TAG, "Phase 6: Alarms cleared: No active alarms");
+    feed_sensors(IT_PHASE_DELAY_MS / 1000U);
 
-    /* ------------------------------------------------------------------ */
-    /* Step 7: Log Config tab inspection note (tap interaction is manual) */
-    /* ------------------------------------------------------------------ */
-    LOG_INFO(IT_TASK_TAG, "Phase 6: navigate to Config tab — spinboxes should be disabled");
-    LOG_INFO(IT_TASK_TAG, "Tap any spinbox on the panel to enter EDITING mode");
-    vTaskDelay(pdMS_TO_TICKS(IT_PHASE_DELAY_MS * 2U));
+    LOG_INFO(IT_TASK_TAG, "Phase 7: Config: tap a field, use the keypad, APPLY, CONFIRM");
+    lcd_ui_select_screen(4U);
+    feed_sensors((IT_PHASE_DELAY_MS * 2U) / 1000U);
+
+    LOG_INFO(IT_TASK_TAG, "Phase 8: back to Sensors");
+    lcd_ui_select_screen(0U);
+    feed_sensors(IT_PHASE_DELAY_MS / 1000U);
+    log_lvgl_heap("after the tour");
 
     /* ------------------------------------------------------------------ */
     /* All checks passed                                                  */

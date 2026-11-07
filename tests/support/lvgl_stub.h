@@ -63,7 +63,7 @@ typedef uint32_t lv_event_code_t;
 /* Widget pool sizing constants                                          */
 /* ===================================================================== */
 
-#define LVGL_STUB_OBJ_POOL_SIZE (128U)
+#define LVGL_STUB_OBJ_POOL_SIZE (768U) /* the five-screen LcdUi builds about 600 objects */
 #define LVGL_STUB_TIMER_POOL_SIZE (8U)
 #define LVGL_STUB_TEXT_MAX (256U)
 #define LVGL_STUB_LIST_MAX (20U)
@@ -243,6 +243,9 @@ void lvgl_stub_reset(void);
 /** Fire a widget event: invokes obj's registered callback if filter matches. */
 void lvgl_stub_fire_event(lv_obj_t *obj, lv_event_code_t code, void *user_data_override);
 
+/* Millisecond clock behind lv_tick_get(); tests set it. */
+void lvgl_stub_set_tick(uint32_t ms);
+
 /** Number of event callbacks registered on obj (all filters). */
 uint32_t lvgl_stub_event_cb_count(const lv_obj_t *obj);
 
@@ -363,6 +366,8 @@ typedef struct lv_style_s
 typedef struct lv_font_s
 {
     int _dummy;
+    int16_t line_height; /**< Used by the widgets for layout; set for the project fonts below. */
+    int16_t base_line;
 } lv_font_t;
 
 extern lv_font_t lv_font_montserrat_10; /* defined in lvgl_stub.c */
@@ -650,5 +655,44 @@ void lv_anim_set_path_cb(lv_anim_t *a, lv_anim_path_cb_t path_cb);
 void lv_anim_start(lv_anim_t *a);
 void lv_anim_del(void *var, lv_anim_exec_xcb_t exec_cb);
 lv_anim_value_t lv_anim_path_step(const lv_anim_t *a);
+
+
+/* --- Additions for the five-screen LcdUi (layout, scrolling, clock) ------ */
+
+#define LV_TEXT_FLAG_NONE (0U)
+#define LV_DIR_VER ((lv_dir_t) 0x0CU)
+#define LV_SCROLLBAR_MODE_OFF (0)
+#define LV_EVENT_DRAW_MAIN ((lv_event_code_t) 30U)
+
+typedef uint32_t lv_text_flag_t;
+
+lv_coord_t lv_txt_get_width(const char *text, uint32_t length, const lv_font_t *font,
+                            lv_coord_t letter_space, lv_text_flag_t flag);
+uint32_t lv_tick_get(void);
+
+static inline void lv_obj_set_x(lv_obj_t *o, lv_coord_t x)
+{
+    (void) o;
+    (void) x;
+}
+static inline void lv_obj_set_y(lv_obj_t *o, lv_coord_t y)
+{
+    (void) o;
+    (void) y;
+}
+static inline void lv_obj_invalidate(lv_obj_t *o)
+{
+    (void) o;
+}
+static inline void lv_obj_set_scroll_dir(lv_obj_t *o, lv_dir_t d)
+{
+    (void) o;
+    (void) d;
+}
+static inline void lv_obj_set_scrollbar_mode(lv_obj_t *o, int mode)
+{
+    (void) o;
+    (void) mode;
+}
 
 #endif /* LVGL_STUB_H */

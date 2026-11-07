@@ -2,7 +2,7 @@
  * @file lcd_ui.h
  * @brief LcdUi Application component — display management for the F469 LCD.
  *
- * Manages four runtime screens (Sensor, Status, Alarm, Config) via the
+ * Manages five runtime screens (Sensors, Trend, Status, Alarms, Config) via the
  * Strategy pattern. Pulls data from provider interfaces on each 200 ms
  * tick. Config screen owns a pending/committed split and drives persistence
  * through IConfigManager on user confirmation.
@@ -76,7 +76,7 @@ typedef enum
 /* ===================================================================== */
 
 /**
- * @brief Initialise LcdUi: wire providers, build four screen widget
+ * @brief Initialise LcdUi: wire providers, build five screen widget
  *        hierarchies, register LVGL event callbacks, enter SCR_SENSOR
  *        with the "Waiting for data" overlay shown.
  *
@@ -106,6 +106,17 @@ lcd_ui_err_t lcd_ui_init(const isensor_service_t *sensors, const ialarm_service_
 void lcd_ui_tick(void);
 
 /**
+ * @brief Ask the UI to show a screen (0 Sensors, 1 Trend, 2 Status, 3 Alarms, 4 Config).
+ *
+ * Safe from any task: the request is stored and carried out by the next lcd_ui_tick(), so LVGL is
+ * only touched from LcdUiTask. Ignored for an unknown screen, and refused while the Config screen
+ * has edits pending, like a tap on the tab bar.
+ *
+ * @param[in] screen  Screen index (the tab bar order).
+ */
+void lcd_ui_select_screen(uint16_t screen);
+
+/**
  * @brief LcdUiTask entry point — 200 ms refresh loop.
  *
  * Loop: vTaskDelayUntil → graphics_process() → lcd_ui_tick().
@@ -131,24 +142,20 @@ lcd_ui_t *lcd_ui_test_get_instance(void);
 /** Invoke the tab-change callback as if the user tapped tab new_idx. */
 void lcd_ui_test_fire_tab_change(uint16_t new_idx);
 
-/** Invoke the Config field-tapped callback (VIEWING→EDITING transition). */
+/** Tap the Config field at display index (focus it and load the keypad). */
 void lcd_ui_test_fire_cfg_field_tapped(uint32_t field_idx);
-
-/** Invoke the Config field-changed callback for the given spinbox index. */
-void lcd_ui_test_fire_cfg_field_changed(uint32_t field_idx);
-
-/** Invoke the Apply button callback. */
+/** Press a keypad key on the Config screen: "0".."9", ".", "DEL", "SIGN". */
+void lcd_ui_test_press_key(const char *key);
+/** Invoke the APPLY button handler. */
 void lcd_ui_test_fire_apply_tapped(void);
-
-/** Invoke the Confirm button callback. */
+/** Invoke the modal CONFIRM handler. */
 void lcd_ui_test_fire_confirm_tapped(void);
-
-/** Invoke the Cancel button callback. */
+/** Invoke the action-bar CANCEL handler (discard all edits). */
 void lcd_ui_test_fire_cancel_tapped(void);
-
-/** Invoke the confirm-timeout timer callback. */
+/** Invoke the modal CANCEL handler (back to editing). */
+void lcd_ui_test_fire_modal_cancel(void);
+/** Invoke the confirm-timeout timer handler. */
 void lcd_ui_test_fire_confirm_timeout(void);
-
 #else
 #define LCD_UI_TEST_VISIBLE static
 #endif /* TEST */

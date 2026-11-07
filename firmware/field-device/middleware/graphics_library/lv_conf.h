@@ -38,9 +38,9 @@
 
 /* Use LVGL's internal static heap (no malloc). */
 #define LV_MEM_CUSTOM 0
-/* 32 KB — simulator overrides to 512 KB via -DLV_MEM_SIZE=524288. */
+/* 96 KB on the target; the simulator overrides it to 512 KB via -DLV_MEM_SIZE=524288. */
 #ifndef LV_MEM_SIZE
-#define LV_MEM_SIZE (32768U)
+#define LV_MEM_SIZE (98304U) /* 96 KB: the five-screen LcdUi builds about 600 objects */
 #endif
 
 /* ===================================================================== */

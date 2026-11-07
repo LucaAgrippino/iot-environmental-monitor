@@ -1,15 +1,13 @@
-/**
- * @file footer_bar.h
- * @brief 36 px footer bar widget — left and right caption text.
- *
- * Positioned at y=444 (bottom of canvas).  Background is COL_HEADER_BG
- * with a top 1 px COL_BORDER border.
- *
- * @see docs/lcd-ui-design/_reference-v9-claude-design/03_SCREEN_SPECS.md §Footer bar
- */
-
 #ifndef FOOTER_BAR_H
 #define FOOTER_BAR_H
+
+/**
+ * @file footer_bar.h
+ * @brief 36 px footer: left and right caption, FONT_CAPTION_MONO COL_MUTED, inset 22 px.
+ *
+ * 03_SCREEN_SPECS.md "Footer bar": COL_HEADER_BG fill, 1 px top border. The text differs per
+ * screen.
+ */
 
 #ifdef TEST
 #include "lvgl_stub.h"
@@ -17,25 +15,28 @@
 #include "lvgl.h"
 #endif
 
-/**
- * @brief Create the footer bar.
- *
- * @param parent  Parent object (normally lv_scr_act()).
- * @param left    Initial left-side caption string.
- * @param right   Initial right-side caption string.
- * @return Pointer to the created footer bar lv_obj_t.
- */
-lv_obj_t *footer_bar_create(lv_obj_t *parent, const char *left, const char *right);
+typedef struct
+{
+    lv_obj_t *box;
+    lv_obj_t *left;
+    lv_obj_t *right;
+} footer_bar_t;
 
 /**
- * @brief Update left and / or right caption text.
+ * @brief Create the footer bar at y = 444.
  *
- * Pass NULL for either argument to leave that side unchanged.
- *
- * @param footer_obj  Object returned by footer_bar_create().
- * @param left        New left-side text, or NULL.
- * @param right       New right-side text, or NULL.
+ * @param[out] ftr     Footer instance (caller-owned, static).
+ * @param[in]  parent  Parent (the screen).
  */
-void footer_bar_set_text(lv_obj_t *footer_obj, const char *left, const char *right);
+void footer_bar_create(footer_bar_t *ftr, lv_obj_t *parent);
+
+/**
+ * @brief Set both captions; the right one stays right-aligned.
+ *
+ * @param[in] ftr    Footer instance.
+ * @param[in] left   Left text.
+ * @param[in] right  Right text.
+ */
+void footer_bar_set(footer_bar_t *ftr, const char *left, const char *right);
 
 #endif /* FOOTER_BAR_H */

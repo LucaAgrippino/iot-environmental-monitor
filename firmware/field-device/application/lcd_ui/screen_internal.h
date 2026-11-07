@@ -1,12 +1,11 @@
 /**
  * @file screen_internal.h
- * @brief Private types for LcdUi — screen strategy interface and concrete
- *        screen context structs. Not to be included by other components.
+ * @brief Private types of LcdUi: the screen strategy interface and the five screen contexts.
  *
- * Included by lcd_ui.c in all builds and by lcd_ui.h in TEST builds
- * (so test_lcd_ui.c can access widget handles for assertion).
+ * Included by lcd_ui.c in every build and by lcd_ui.h in TEST builds, so the unit tests can reach
+ * widget handles. Not for other components.
  *
- * @see docs/lld/application/lcd-ui-lld.md §5, §6, §7
+ * @see docs/lld/application/lcd-ui-lld.md
  */
 
 #ifndef SCREEN_INTERNAL_H
@@ -15,47 +14,51 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "lcd_ui/ui_format.h"
+#include "lcd_ui/widgets/alarm_card.h"
+#include "lcd_ui/widgets/button.h"
+#include "lcd_ui/widgets/config_field.h"
+#include "lcd_ui/widgets/confirm_modal.h"
+#include "lcd_ui/widgets/footer_bar.h"
+#include "lcd_ui/widgets/header_bar.h"
+#include "lcd_ui/widgets/numpad.h"
 #include "lcd_ui/widgets/sensor_card.h"
+#include "lcd_ui/widgets/status_row.h"
+#include "lcd_ui/widgets/tab_bar.h"
+#include "lcd_ui/widgets/trend_panel.h"
 
 /* ===================================================================== */
-/* Screen identifiers and count                                         */
+/* Screen identifiers: the order of the tab bar (style-guide.md section 5) */
 /* ===================================================================== */
 
 #define SCR_SENSOR (0U)
-#define SCR_STATUS (1U)
-#define SCR_ALARM (2U)
-#define SCR_CONFIG (3U)
-#define SCR_COUNT (4U)
+#define SCR_TREND (1U)
+#define SCR_STATUS (2U)
+#define SCR_ALARM (3U)
+#define SCR_CONFIG (4U)
+#define SCR_COUNT (5U)
 
-/* ===================================================================== */
-/* Display sensor indexing (Sensor screen only — 3 physical sensors)   */
-/* ===================================================================== */
-
+/** Physical sensors shown on the Sensors, Trend and Alarms screens (03_SCREEN_SPECS.md: S1..S3). */
 #define SENSOR_DISPLAY_COUNT (3U)
 
 /* ===================================================================== */
-/* Editable config parameters (companion §7.4 — 7 of 9 original fields) */
-/* DEVIATION: display_brightness_pct and screen_timeout_s dropped       */
-/* (no corresponding entries in config_params_t / iconfig_manager_t).  */
+/* Editable configuration parameters                                      */
 /* ===================================================================== */
 
 #define N_EDITABLE_FIELDS (7U)
 
 typedef struct
 {
-    uint32_t polling_interval_ms;     /**< [100, 60000] ms              */
-    int16_t temp_alarm_hi_centi_c;    /**< centi-°C ×100; default 4000  */
-    int16_t temp_alarm_lo_centi_c;    /**< centi-°C ×100; default 0     */
-    uint16_t humidity_alarm_hi_centi; /**< centi-%RH ×100; default 8000 */
-    uint16_t humidity_alarm_lo_centi; /**< centi-%RH ×100; default 2000 */
-    uint16_t pressure_alarm_hi_deci;  /**< deci-hPa ×10; default 10500  */
-    uint16_t pressure_alarm_lo_deci;  /**< deci-hPa ×10; default 9500   */
+    uint32_t polling_interval_ms;     /**< [100, 60000] ms               */
+    int16_t temp_alarm_hi_centi_c;    /**< centi-degC; default 4000      */
+    int16_t temp_alarm_lo_centi_c;    /**< centi-degC; default 0         */
+    uint16_t humidity_alarm_hi_centi; /**< centi-%RH; default 8000       */
+    uint16_t humidity_alarm_lo_centi; /**< centi-%RH; default 2000       */
+    uint16_t pressure_alarm_hi_deci;  /**< deci-hPa; default 10500       */
+    uint16_t pressure_alarm_lo_deci;  /**< deci-hPa; default 9500        */
 } lcd_ui_editable_params_t;
 
-/* ===================================================================== */
-/* Config sub-state machine                                             */
-/* ===================================================================== */
-
+/** Config screen state: no edits, edits pending, or the confirm modal open. */
 typedef enum
 {
     CFG_STATE_VIEWING = 0,
@@ -64,21 +67,12 @@ typedef enum
 } cfg_screen_state_t;
 
 /* ===================================================================== */
-/* Status screen metric label count                                     */
+/* screen_t: strategy interface                                           */
 /* ===================================================================== */
 
-/* The HealthMonitor stub now pulls in the real interface headers, so the constant is the same in
- * production and in the host tests. */
-#define LCD_UI_STATUS_STACK_LABELS HEALTH_TASK_COUNT
-#define STATUS_METRIC_COUNT (7U + LCD_UI_STATUS_STACK_LABELS)
+typedef struct screen_s screen_t;
 
-/* ===================================================================== */
-/* screen_t — Strategy interface (companion §5)                         */
-/* ===================================================================== */
-
-typedef struct screen screen_t;
-
-struct screen
+struct screen_s
 {
     void (*on_enter)(screen_t *self);
     void (*on_exit)(screen_t *self);
@@ -86,51 +80,73 @@ struct screen
 };
 
 /* ===================================================================== */
-/* Concrete screen context structs (base is always the first member)    */
+/* Screen contexts                                                        */
 /* ===================================================================== */
 
 typedef struct
 {
     screen_t base;
     sensor_card_t cards[SENSOR_DISPLAY_COUNT];
-    /* Convenience alias pointers — assigned in build_sensor_screen().
-     * These preserve the public-test assertion surface
-     * (TC-011, TC-012, TC-013, TC-014) without requiring test-file edits. */
-    lv_obj_t *waiting_label;                     /* = cards[0].waiting_lbl */
-    lv_obj_t *value_label[SENSOR_DISPLAY_COUNT]; /* = cards[i].value_lbl   */
-    lv_obj_t *unit_label[SENSOR_DISPLAY_COUNT];  /* = cards[i].unit_lbl    */
-    lv_obj_t *icon_label[SENSOR_DISPLAY_COUNT];  /* = cards[i].status_lbl  */
-    bool first_valid_received;
-    const isensor_service_t *sensors;
+    bool ever_valid[SENSOR_DISPLAY_COUNT];    /**< A valid reading was seen since boot. */
+    int32_t last_value[SENSOR_DISPLAY_COUNT]; /**< Last valid reading, shown faded on error. */
+    uint32_t last_valid_epoch[SENSOR_DISPLAY_COUNT]; /**< Its timestamp. */
+    uint32_t spark_gen_seen;                         /**< History generation drawn last. */
 } sensor_screen_t;
 
 typedef struct
 {
     screen_t base;
-    lv_obj_t *metric_label[STATUS_METRIC_COUNT];
-    const ihealth_snapshot_t *health;
+    trend_panel_t panel[SENSOR_DISPLAY_COUNT];
+    uint32_t gen_seen;
+} trend_screen_t;
+
+#define STATUS_ROWS (14U) /* left: 4 + 3; right: MODBUS 4 + DEVICE 3 */
+#define STATUS_SECTIONS (4U)
+
+typedef struct
+{
+    screen_t base;
+    lv_obj_t *eyebrow[STATUS_SECTIONS];
+    status_row_t row[STATUS_ROWS];
+    lv_obj_t *banner_box;
+    lv_obj_t *banner_text;
+    lv_obj_t *banner_time;
+    bool banner_shown;
+    uint32_t last_refresh_ms;
 } status_screen_t;
 
 typedef struct
 {
     screen_t base;
-    lv_obj_t *list_widget;
-    lv_obj_t *no_alarms_label;
-    const ialarm_service_t *alarms;
+    alarm_card_t card[SENSOR_DISPLAY_COUNT];
+    lv_obj_t *empty_circle;
+    lv_obj_t *empty_icon;
+    lv_obj_t *empty_title;
+    lv_obj_t *empty_sub;
+    lv_obj_t *empty_last;
+    uint32_t triggered_epoch[SENSOR_DISPLAY_COUNT]; /**< When the alarm was first seen active. */
+    int32_t prev_state[SENSOR_DISPLAY_COUNT];       /**< alarm_state_t last seen, -1 unknown. */
+    uint32_t last_clear_epoch;                      /**< When the last alarm went away; 0 never. */
+    uint32_t active_count;
+    uint32_t last_refresh_ms;
 } alarm_screen_t;
 
 typedef struct
 {
     screen_t base;
+    lv_obj_t *list;                          /**< Scrolling list of the fields. */
+    config_field_t field[N_EDITABLE_FIELDS]; /**< In display order. */
+    numpad_t numpad;
+    button_t cancel_btn;
+    button_t apply_btn;
+    confirm_modal_t modal;
     cfg_screen_state_t sub_state;
     lcd_ui_editable_params_t committed;
     lcd_ui_editable_params_t pending;
-    lv_obj_t *spinbox[N_EDITABLE_FIELDS];
-    lv_obj_t *err_label[N_EDITABLE_FIELDS];
-    lv_obj_t *field_label[N_EDITABLE_FIELDS];
-    lv_obj_t *cancel_btn;
-    lv_obj_t *apply_btn;
-    lv_obj_t *confirm_dialog;
+    bool entry_invalid[N_EDITABLE_FIELDS]; /**< Display order. */
+    bool entry_edited[N_EDITABLE_FIELDS];
+    char entry_text[N_EDITABLE_FIELDS][NUMPAD_TEXT_MAX + 1U];
+    int32_t focus; /**< Display index of the focused field, -1 none. */
     lv_timer_t *confirm_timeout_timer;
     const iconfig_provider_t *cfg_read;
     const iconfig_manager_t *cfg_write;
@@ -138,21 +154,23 @@ typedef struct
 } config_screen_t;
 
 /* ===================================================================== */
-/* lcd_ui_t — top-level module context                                  */
+/* lcd_ui_t: module context                                               */
 /* ===================================================================== */
 
 typedef struct lcd_ui
 {
     bool initialised;
-    lv_obj_t *tab_bar;            /* Custom tab bar (replaces lv_tabview)      */
-    lv_obj_t *header_bar;         /* 40 px header beneath the tab bar          */
-    lv_obj_t *footer_bar;         /* 36 px footer at bottom of canvas          */
-    lv_obj_t *content[SCR_COUNT]; /* Per-screen content panels (y=104, h=340)  */
+    tab_bar_t tab_bar;
+    header_bar_t header;
+    footer_bar_t footer;
+    lv_obj_t *content[SCR_COUNT]; /* per-screen panels: y = 104, h = 340 */
     lv_obj_t *toast_label;
+    uint32_t toast_until_ms;
     screen_t *current;
     uint16_t current_tab_idx;
     screen_t *screens[SCR_COUNT];
     sensor_screen_t sensor_screen;
+    trend_screen_t trend_screen;
     status_screen_t status_screen;
     alarm_screen_t alarm_screen;
     config_screen_t config_screen;
@@ -162,6 +180,19 @@ typedef struct lcd_ui
     const iconfig_manager_t *cfg_write;
     const ihealth_snapshot_t *health;
     const ihealth_report_t *report;
+    sensor_snapshot_t snap; /**< Snapshot taken at the start of the current tick. */
+    bool snap_ok;
+    uint32_t now_ms;        /**< Millisecond clock of the current tick. */
+    uint32_t hist_gen;      /**< Increments whenever the history stores a sample. */
+    uint32_t last_cycle;    /**< sensor cycle_count seen last. */
+    uint32_t last_cycle_ms; /**< When it changed. */
+    const char
+        *fault_text;     /**< Most important soft fault, NULL when none (banner and ALARM pill). */
+    bool modbus_seen_ok; /**< The Modbus link was up once: only then is "down" a fault. */
+    bool config_failed;  /**< The last configuration write to flash failed. */
+    bool link_down;      /**< The Modbus link was up and is lost. */
+    uint32_t fault_ms;   /**< When the faults were last evaluated. */
+    volatile uint16_t requested_screen; /**< lcd_ui_select_screen(): screen + 1, 0 for none. */
 } lcd_ui_t;
 
 #endif /* SCREEN_INTERNAL_H */

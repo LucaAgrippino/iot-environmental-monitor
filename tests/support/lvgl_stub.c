@@ -626,3 +626,52 @@ lv_anim_value_t lv_anim_path_step(const lv_anim_t *a)
     (void) a;
     return 0;
 }
+
+/* ===================================================================== */
+/* Additions for the five-screen LcdUi                                    */
+/* ===================================================================== */
+
+static uint32_t s_stub_tick;
+
+void lvgl_stub_set_tick(uint32_t ms)
+{
+    s_stub_tick = ms;
+}
+
+uint32_t lv_tick_get(void)
+{
+    return s_stub_tick;
+}
+
+lv_coord_t lv_txt_get_width(const char *text, uint32_t length, const lv_font_t *font,
+                            lv_coord_t letter_space, lv_text_flag_t flag)
+{
+    (void) text;
+    (void) flag;
+    /* A fixed advance of half the line height: the tests never depend on exact widths. */
+    return (lv_coord_t) (length * ((uint32_t) (font->line_height / 2) + (uint32_t) letter_space));
+}
+
+/* The generated project fonts (fonts.h), with line metrics close to the real files. */
+#define STUB_FONT(name, lh, bl) const lv_font_t name = {._dummy = 0, .line_height = (lh), .base_line = (bl)}
+STUB_FONT(font_inter_sb_30, 37, 7);
+STUB_FONT(font_inter_sb_22, 27, 5);
+STUB_FONT(font_inter_sb_18, 22, 4);
+STUB_FONT(font_inter_md_14, 17, 3);
+STUB_FONT(font_inter_sb_14, 17, 3);
+STUB_FONT(font_inter_md_13, 16, 3);
+STUB_FONT(font_inter_md_11, 13, 3);
+STUB_FONT(font_inter_sb_11, 13, 3);
+STUB_FONT(font_inter_b_10, 12, 3);
+STUB_FONT(font_inter_sb_9, 11, 2);
+STUB_FONT(font_jb_sb_54, 71, 16);
+STUB_FONT(font_jb_sb_18, 24, 5);
+STUB_FONT(font_jb_md_14, 19, 4);
+STUB_FONT(font_jb_md_13, 18, 4);
+STUB_FONT(font_jb_md_12, 16, 4);
+STUB_FONT(font_jb_md_11, 15, 4);
+STUB_FONT(font_jb_b_10, 13, 3);
+STUB_FONT(font_icons_20, 20, 0);
+STUB_FONT(font_icons_24, 24, 0);
+STUB_FONT(font_icons_32, 32, 0);
+STUB_FONT(font_icons_42, 42, 0);
