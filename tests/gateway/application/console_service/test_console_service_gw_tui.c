@@ -1505,3 +1505,13 @@ void test_prov_cert_commands_are_not_available_without_a_store(void)
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov cert add ca Zm9v"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov cert status"));
 }
+
+void test_the_wifi_passphrase_is_not_kept_in_the_scrollback(void)
+{
+    use_store();
+
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set wifi-pass correct-horse"));
+
+    TEST_ASSERT_FALSE(has_line("correct-horse"));
+    TEST_ASSERT_TRUE(has_line("prov set wifi-pass ********"));
+}

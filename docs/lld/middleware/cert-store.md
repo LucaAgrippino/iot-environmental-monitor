@@ -80,6 +80,6 @@ and connects to the broker over mutual TLS (52 messages published, 0 failed).
 | ID | Item |
 |---|---|
 | CST-O1 | RSA keys above 2048 bits do not fit (1 280 bytes); raise the slot or store the key in its own sector if needed |
-| CST-O2 | The console echoes what is typed, so the passphrase appears in the log panel's scrollback; mask the value of `wifi-pass` in `repl` |
+| CST-O2 | **Closed 2026-11-08:** `repl_execute` echoes `prov set wifi-pass ********`, so the passphrase is not kept in the scrollback (the live prompt line still shows the keystrokes while they are typed) |
 | CST-O3 | The key is derived from the unique ID alone; read-out protection level 1 and a per-device secret in the option bytes would raise the bar |
 | CST-O4 | The MQTT endpoint name used for the certificate check (`tls_server_name`) is still the build-time one; only the address comes from the configuration |
