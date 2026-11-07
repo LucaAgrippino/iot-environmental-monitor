@@ -34,6 +34,14 @@ jobs:
         working-directory: tests
         run: ceedling test:all
 
+      # Gateway modules whose file names collide with a Field Device module (cpu, reset_driver,
+      # wifi_driver, health_monitor, ...) are tested from their own project file.
+      - name: Run Gateway tests (project_gateway.yml)
+        working-directory: tests
+        env:
+          CEEDLING_MAIN_PROJECT_FILE: project_gateway.yml
+        run: ceedling test:all
+
   firmware-build:
     name: Firmware build (${{ matrix.target }})
     runs-on: ubuntu-latest

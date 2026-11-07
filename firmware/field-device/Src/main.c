@@ -33,6 +33,7 @@
 #include "alarm_service/alarm_service.h"
 #include "config_service/config_service.h"
 #include "config_store/config_store.h"
+#include "cpu/cpu.h"
 #include "console_service/console_service.h"
 #include "debug-uart/debug_uart_driver.h"
 #include "gpio/gpio_driver.h"
@@ -360,6 +361,9 @@ int main(void)
 
     /* 1. Clock tree (180 MHz) and drivers with no dependencies on each other. */
     system_clock_init();
+    /* Fault diagnostics and the previous boot's panic report; before rtc_init() so the backup
+     * registers are read as the last boot left them. */
+    (void) cpu_init();
     NVIC_SetPriority(USART6_IRQn, MODBUS_UART_IRQ_PRIORITY);
     NVIC_SetPriority(USART3_IRQn, DEBUG_UART_IRQ_PRIORITY);
     (void) gpio_init();

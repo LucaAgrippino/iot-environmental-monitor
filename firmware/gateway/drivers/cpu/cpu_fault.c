@@ -5,7 +5,11 @@
  * Each handler determines whether the faulting code was using the Main Stack
  * Pointer (MSP) or the Process Stack Pointer (PSP) by inspecting bit 2 of
  * EXC_RETURN in LR, then branches to cpu_fault_entry() with the stacked
- * exception frame as the argument.
+ * exception frame in R0 and the vector's panic source in R1.
+ *
+ * The handlers are naked: with a compiler prologue (at -O0 a "push {r7}") MSP would already be
+ * 4 bytes below the frame the hardware stacked and the report would show the stacked LR as the PC
+ * (cpu-driver.md CPU-D5).
  *
  * cpu_fault_entry() is defined in cpu.c and saves the frame before calling
  * cpu_panic().  These assembly stubs are intentionally kept in a separate
@@ -26,54 +30,19 @@
 /*   [SP+28] xPSR                                                         */
 /* --------------------------------------------------------------------- */
 
-/* --------------------------------------------------------------------- */
-/* HardFault handler                                                       */
-/* --------------------------------------------------------------------- */
+/* Source ids equal cpu_panic_source_t: HardFault 1, BusFault 2, MemManage 3, UsageFault 4. */
+#define CPU_FAULT_STUB(name, source)                                                               \
+    __attribute__((naked)) void name(void)                                                         \
+    {                                                                                              \
+        __asm volatile("tst   lr, #4      \n" /* EXC_RETURN bit 2: 0 = MSP, 1 = PSP */             \
+                       "ite   eq          \n"                                                      \
+                       "mrseq r0, msp     \n"                                                      \
+                       "mrsne r0, psp     \n"                                                      \
+                       "movs  r1, #" #source " \n"                                                 \
+                       "b     cpu_fault_entry \n");                                                \
+    }
 
-void HardFault_Handler(void)
-{
-    __asm volatile("tst   lr, #4      \n" /* test EXC_RETURN bit 2: 0 = MSP, 1 = PSP */
-                   "ite   eq          \n"
-                   "mrseq r0, msp     \n" /* MSP path: pass MSP as frame pointer */
-                   "mrsne r0, psp     \n" /* PSP path: pass PSP as frame pointer */
-                   "b     cpu_fault_entry \n");
-}
-
-/* --------------------------------------------------------------------- */
-/* BusFault handler                                                        */
-/* --------------------------------------------------------------------- */
-
-void BusFault_Handler(void)
-{
-    __asm volatile("tst   lr, #4      \n"
-                   "ite   eq          \n"
-                   "mrseq r0, msp     \n"
-                   "mrsne r0, psp     \n"
-                   "b     cpu_fault_entry \n");
-}
-
-/* --------------------------------------------------------------------- */
-/* MemManage handler                                                       */
-/* --------------------------------------------------------------------- */
-
-void MemManage_Handler(void)
-{
-    __asm volatile("tst   lr, #4      \n"
-                   "ite   eq          \n"
-                   "mrseq r0, msp     \n"
-                   "mrsne r0, psp     \n"
-                   "b     cpu_fault_entry \n");
-}
-
-/* --------------------------------------------------------------------- */
-/* UsageFault handler                                                      */
-/* --------------------------------------------------------------------- */
-
-void UsageFault_Handler(void)
-{
-    __asm volatile("tst   lr, #4      \n"
-                   "ite   eq          \n"
-                   "mrseq r0, msp     \n"
-                   "mrsne r0, psp     \n"
-                   "b     cpu_fault_entry \n");
-}
+CPU_FAULT_STUB(HardFault_Handler, 1)
+CPU_FAULT_STUB(BusFault_Handler, 2)
+CPU_FAULT_STUB(MemManage_Handler, 3)
+CPU_FAULT_STUB(UsageFault_Handler, 4)

@@ -1,6 +1,6 @@
 # System Requirements Specification — IoT Environmental Monitoring Gateway
 
-**Version:** 1.5
+**Version:** 1.6
 **Date:** November 2026
 **Status:** Approved — baselined for HLD
 
@@ -12,6 +12,7 @@
 | 1.0     | April 2026 | Phase 1 gate review passed; baselined for HLD |
 | 1.1     | May 2026   | Phase 2→3 gate review remediation: resolved all 17 B-class and 17 F-class audit defects (SRS-001–SRS-046); added HLD traceability annotations for 65 orphan requirements; 6 deferred to LLD; added section requirement counts and traceability matrix TOTAL row |
 | 1.2     | June 2026  | Added sensor history buffer (REQ-SA-180..-240) and trend screen (REQ-LD-160..-195) |
+| 1.6     | November 2026 | Added REQ-NF-507 (fault diagnosis: record the cause of a processor fault, assertion or stack overflow, report it, restart, and report it again at the next start), implemented by CpuDriver on both boards. 207 requirements. |
 | 1.5     | November 2026 | "Free heap" in REQ-LD-070 and REQ-CC-010 replaced by the free TLS arena: the firmware has no heap (static allocation only). MCU temperature stays required; it needs an ADC driver that does not exist yet (HM-D13). |
 | 1.4     | November 2026 | REQ-NF-209 changed from a fixed 1 Hz to a 2 s start interval doubling to 60 s (the implemented and benched behaviour, CP-D13); a fixed 1 Hz re-associates the Wi-Fi module too often. |
 | 1.3     | November 2026 | Removed two duplicate IDs: "mark sensor value invalid" is now REQ-SA-175 (REQ-SA-180 stays the history requirement); "discard input on no confirmation" is now REQ-LD-155 (REQ-LD-250 stays the status-LED requirement, as cited by components.md). Corrected section counts (206 requirements). Resolved the open values from the implemented firmware (REQ-TS-000, NF-210, NF-211, BF-020, LI-010 command set, DM-020 30 s, LI-000 gateway baud, SA-090 wording). |
@@ -466,7 +467,7 @@ polling interval
 - [REQ-NF-408] The system shall not use dynamic memory allocation (malloc/free) after initialisation completes
 <!-- Traces to: HLD §11 (task design — fixed stack sizes; static execution model) -->
 
-### 3.5 Maintainability — 7 requirements
+### 3.5 Maintainability — 8 requirements
 - [REQ-NF-500] The system shall log diagnostic events with severity level, timestamp, and source module identifier
 - [REQ-NF-501] The system shall enforce a layered architecture where no module above the driver layer imports vendor-specific headers
 <!-- Traces to: HLD §8.1 (Layered architecture with strict directional dependency), §9 (Hardware abstraction strategy) -->
@@ -480,6 +481,8 @@ polling interval
 <!-- HLD coverage: NONE — to be addressed in LLD (API documentation is a development-process requirement) -->
 - [REQ-NF-506] The system shall expose vendor-neutral interfaces to the middleware and application layers
 <!-- Traces to: HLD §8.1 (Layered architecture), §9 (Hardware abstraction — "No vendor library is imported above the driver layer") -->
+- [REQ-NF-507] On a processor fault, a failed assertion or a task stack overflow the system shall record the cause and the processor state in memory that survives a reset, write a report on the diagnostic output, and restart; the next start shall report the recorded cause once. Restart time is bound by REQ-NF-203.
+<!-- Traces to: CpuDriver LLD (cpu-driver.md); diagnostic output channel REQ-NF-504 -->
 
 ---
 
@@ -721,9 +724,10 @@ polling interval
 | REQ-NF-504 | UC-04 | §5.6 |
 | REQ-NF-505 | — | §11 |
 | REQ-NF-506 | — | §9 |
+| REQ-NF-507 | — | §11 |
 | **TOTAL** | — | — |
 
-**206 requirements** across 14 functional and non-functional sections (27 SA + 6 AM + 31 LD + 20 LI + 16 MB + 12 CC + 7 TS + 27 DM + 3 BF + 15 NF-Performance + 17 NF-Reliability + 9 NF-Security + 9 NF-Memory + 7 NF-Maintainability). REQ-SA-160 is counted under CC, where its text lives.
+**207 requirements** across 14 functional and non-functional sections (27 SA + 6 AM + 31 LD + 20 LI + 16 MB + 12 CC + 7 TS + 27 DM + 3 BF + 15 NF-Performance + 17 NF-Reliability + 9 NF-Security + 9 NF-Memory + 8 NF-Maintainability). REQ-SA-160 is counted under CC, where its text lives.
 
 ---
 

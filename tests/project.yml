@@ -38,6 +38,9 @@
     - -:gateway/drivers/imu_driver/**
     - -:gateway/drivers/bootloader/**
     - -:gateway/drivers/watchdog_driver/**
+    - -:gateway/drivers/cpu/**
+    - -:gateway/drivers/reset_driver/**
+    - -:gateway/drivers/wifi_driver/**
     - gateway/middleware/mqtt_client/**
     - gateway/middleware/wifi_task/**
   :source:
@@ -56,6 +59,9 @@
     - -:../firmware/gateway/drivers/magnetometer_driver/**
     - -:../firmware/gateway/drivers/imu_driver/**
     - -:../firmware/gateway/drivers/watchdog_driver/**
+    - -:../firmware/gateway/drivers/cpu/**
+    - -:../firmware/gateway/drivers/reset_driver/**
+    - -:../firmware/gateway/drivers/wifi_driver/**
     - -:../firmware/**/Debug/**
     - ../firmware/gateway/middleware/mqtt_client/**
     - ../firmware/gateway/middleware/wifi_task/**
@@ -158,12 +164,13 @@
   :test_watchdog_driver_fd:
     - STM32F469xx
     - TEST
-  :test_reset_driver:
-    - STM32L475xx
+  :test_cpu_fd:
+    - STM32F469xx
     - TEST
-  :test_cpu:
-    - STM32L475xx
+  :test_cpu_debug_fd:
+    - STM32F469xx
     - TEST
+    - DEBUG
   :test_spi_driver:
     - STM32L475xx
     - TEST

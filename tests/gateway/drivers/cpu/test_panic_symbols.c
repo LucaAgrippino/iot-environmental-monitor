@@ -100,3 +100,29 @@ void test_lookup_garbage_address_returns_null_not_crash(void)
      * must resolve cleanly to "unknown", not misbehave. */
     TEST_ASSERT_NULL(panic_symbol_lookup(s_fixture, s_fixture_count, 0xFFFFFFEEu));
 }
+
+/* ---- panic_symbols_match(): is the generated table the one for the running image? ---- */
+
+void test_match_requires_equal_anchor_ignoring_the_thumb_bit(void)
+{
+    TEST_ASSERT_TRUE(panic_symbols_match(0x08001230u, 0x08001231u, 0x08003200u, 0x08003200u, 10u));
+    TEST_ASSERT_TRUE(panic_symbols_match(0x08001230u, 0x08001230u, 0x08003200u, 0x08003200u, 10u));
+}
+
+void test_match_rejects_a_table_from_another_build(void)
+{
+    TEST_ASSERT_FALSE(panic_symbols_match(0x08001230u, 0x08001330u, 0x08003200u, 0x08003200u, 10u));
+}
+
+void test_match_rejects_an_image_whose_code_size_changed(void)
+{
+    /* cpu_panic did not move but code after it did: the end of the code differs. */
+    TEST_ASSERT_FALSE(panic_symbols_match(0x08001230u, 0x08001231u, 0x08003200u, 0x08003240u, 10u));
+}
+
+void test_match_rejects_an_empty_table_and_missing_anchors(void)
+{
+    TEST_ASSERT_FALSE(panic_symbols_match(0x08001230u, 0x08001231u, 0x08003200u, 0x08003200u, 0u));
+    TEST_ASSERT_FALSE(panic_symbols_match(0u, 0u, 0x08003200u, 0x08003200u, 10u));
+    TEST_ASSERT_FALSE(panic_symbols_match(0x08001230u, 0x08001231u, 0u, 0u, 10u));
+}

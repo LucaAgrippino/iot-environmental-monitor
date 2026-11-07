@@ -542,6 +542,119 @@ extern DBGMCU_TypeDef g_mock_dbgmcu;
 #define DBGMCU_APB1_FZ_DBG_IWDG_STOP (1UL << 12U)
 
 /* ====================================================================== */
+/* §CoreDebug / §DWT / §SCB (CpuDriver) — same layout as stm32l475xx.h    */
+/* ====================================================================== */
+
+typedef struct
+{
+    volatile uint32_t DHCSR; /**< Debug Halting Control and Status Register. */
+    volatile uint32_t DEMCR; /**< Debug Exception and Monitor Control Register. */
+} CoreDebug_TypeDef;
+
+#define CoreDebug_DHCSR_C_DEBUGEN_Pos (0U)
+#define CoreDebug_DHCSR_C_DEBUGEN_Msk (1UL << CoreDebug_DHCSR_C_DEBUGEN_Pos)
+
+extern CoreDebug_TypeDef g_mock_core_debug;
+
+#define CoreDebug (&g_mock_core_debug)
+
+#define CoreDebug_DEMCR_TRCENA_Pos (24U)
+#define CoreDebug_DEMCR_TRCENA (1UL << CoreDebug_DEMCR_TRCENA_Pos)
+#define CoreDebug_DEMCR_TRCENA_Msk CoreDebug_DEMCR_TRCENA
+
+typedef struct
+{
+    volatile uint32_t CTRL;   /**< Control register.     */
+    volatile uint32_t CYCCNT; /**< Cycle count register. */
+} DWT_TypeDef;
+
+extern DWT_TypeDef g_mock_dwt;
+
+#define DWT (&g_mock_dwt)
+
+#define DWT_CTRL_CYCCNTENA_Pos (0U)
+#define DWT_CTRL_CYCCNTENA (1UL << DWT_CTRL_CYCCNTENA_Pos)
+#define DWT_CTRL_CYCCNTENA_Msk DWT_CTRL_CYCCNTENA
+
+typedef struct
+{
+    volatile uint32_t CFSR;  /**< Configurable Fault Status Register.  */
+    volatile uint32_t HFSR;  /**< Hard Fault Status Register.          */
+    volatile uint32_t BFAR;  /**< Bus Fault Address Register.          */
+    volatile uint32_t MMFAR; /**< MemManage Fault Address Register.    */
+    volatile uint32_t VTOR;  /**< Vector Table Offset Register.        */
+    volatile uint32_t SHCSR; /**< System Handler Control and State.    */
+} SCB_TypeDef;
+
+extern SCB_TypeDef g_mock_scb;
+
+#define SCB (&g_mock_scb)
+
+#define SCB_SHCSR_MEMFAULTENA_Pos (16U)
+#define SCB_SHCSR_MEMFAULTENA_Msk (1UL << SCB_SHCSR_MEMFAULTENA_Pos)
+#define SCB_SHCSR_BUSFAULTENA_Pos (17U)
+#define SCB_SHCSR_BUSFAULTENA_Msk (1UL << SCB_SHCSR_BUSFAULTENA_Pos)
+#define SCB_SHCSR_USGFAULTENA_Pos (18U)
+#define SCB_SHCSR_USGFAULTENA_Msk (1UL << SCB_SHCSR_USGFAULTENA_Pos)
+
+/* --- SCB_CFSR — MMFSR bits (MemManage, bits 7:0) --------------------- */
+#define SCB_CFSR_IACCVIOL_Pos   (0U)
+#define SCB_CFSR_IACCVIOL       (1UL << SCB_CFSR_IACCVIOL_Pos)
+#define SCB_CFSR_IACCVIOL_Msk   SCB_CFSR_IACCVIOL
+#define SCB_CFSR_DACCVIOL_Pos   (1U)
+#define SCB_CFSR_DACCVIOL       (1UL << SCB_CFSR_DACCVIOL_Pos)
+#define SCB_CFSR_DACCVIOL_Msk   SCB_CFSR_DACCVIOL
+#define SCB_CFSR_MUNSTKERR_Pos  (3U)
+#define SCB_CFSR_MUNSTKERR      (1UL << SCB_CFSR_MUNSTKERR_Pos)
+#define SCB_CFSR_MUNSTKERR_Msk  SCB_CFSR_MUNSTKERR
+#define SCB_CFSR_MSTKERR_Pos    (4U)
+#define SCB_CFSR_MSTKERR        (1UL << SCB_CFSR_MSTKERR_Pos)
+#define SCB_CFSR_MSTKERR_Msk    SCB_CFSR_MSTKERR
+#define SCB_CFSR_MLSPERR_Pos    (5U)
+#define SCB_CFSR_MLSPERR        (1UL << SCB_CFSR_MLSPERR_Pos)
+#define SCB_CFSR_MLSPERR_Msk    SCB_CFSR_MLSPERR
+
+/* --- SCB_CFSR — BFSR bits (BusFault, bits 15:8) ---------------------- */
+#define SCB_CFSR_IBUSERR_Pos    (8U)
+#define SCB_CFSR_IBUSERR        (1UL << SCB_CFSR_IBUSERR_Pos)
+#define SCB_CFSR_IBUSERR_Msk    SCB_CFSR_IBUSERR
+#define SCB_CFSR_PRECISERR_Pos  (9U)
+#define SCB_CFSR_PRECISERR      (1UL << SCB_CFSR_PRECISERR_Pos)
+#define SCB_CFSR_PRECISERR_Msk  SCB_CFSR_PRECISERR
+#define SCB_CFSR_IMPRECISERR_Pos (10U)
+#define SCB_CFSR_IMPRECISERR    (1UL << SCB_CFSR_IMPRECISERR_Pos)
+#define SCB_CFSR_IMPRECISERR_Msk SCB_CFSR_IMPRECISERR
+#define SCB_CFSR_UNSTKERR_Pos   (11U)
+#define SCB_CFSR_UNSTKERR       (1UL << SCB_CFSR_UNSTKERR_Pos)
+#define SCB_CFSR_UNSTKERR_Msk   SCB_CFSR_UNSTKERR
+#define SCB_CFSR_STKERR_Pos     (12U)
+#define SCB_CFSR_STKERR         (1UL << SCB_CFSR_STKERR_Pos)
+#define SCB_CFSR_STKERR_Msk     SCB_CFSR_STKERR
+#define SCB_CFSR_LSPERR_Pos     (13U)
+#define SCB_CFSR_LSPERR         (1UL << SCB_CFSR_LSPERR_Pos)
+#define SCB_CFSR_LSPERR_Msk     SCB_CFSR_LSPERR
+
+/* --- SCB_CFSR — UFSR bits (UsageFault, bits 31:16) ------------------- */
+#define SCB_CFSR_UNDEFINSTR_Pos  (16U)
+#define SCB_CFSR_UNDEFINSTR      (1UL << SCB_CFSR_UNDEFINSTR_Pos)
+#define SCB_CFSR_UNDEFINSTR_Msk  SCB_CFSR_UNDEFINSTR
+#define SCB_CFSR_INVSTATE_Pos    (17U)
+#define SCB_CFSR_INVSTATE        (1UL << SCB_CFSR_INVSTATE_Pos)
+#define SCB_CFSR_INVSTATE_Msk    SCB_CFSR_INVSTATE
+#define SCB_CFSR_INVPC_Pos       (18U)
+#define SCB_CFSR_INVPC           (1UL << SCB_CFSR_INVPC_Pos)
+#define SCB_CFSR_INVPC_Msk       SCB_CFSR_INVPC
+#define SCB_CFSR_NOCP_Pos        (19U)
+#define SCB_CFSR_NOCP            (1UL << SCB_CFSR_NOCP_Pos)
+#define SCB_CFSR_NOCP_Msk        SCB_CFSR_NOCP
+#define SCB_CFSR_UNALIGNED_Pos   (24U)
+#define SCB_CFSR_UNALIGNED       (1UL << SCB_CFSR_UNALIGNED_Pos)
+#define SCB_CFSR_UNALIGNED_Msk   SCB_CFSR_UNALIGNED
+#define SCB_CFSR_DIVBYZERO_Pos   (25U)
+#define SCB_CFSR_DIVBYZERO       (1UL << SCB_CFSR_DIVBYZERO_Pos)
+#define SCB_CFSR_DIVBYZERO_Msk   SCB_CFSR_DIVBYZERO
+
+/* ====================================================================== */
 /* §NVIC — must stay last; extended per driver                            */
 /* ====================================================================== */
 

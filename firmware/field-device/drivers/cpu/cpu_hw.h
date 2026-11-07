@@ -1,0 +1,52 @@
+#ifndef CPU_HW_H
+#define CPU_HW_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+/**
+ * @brief Mockable indirection layer for CPU-level CMSIS intrinsics (Field Device).
+ *
+ * In firmware builds the macros expand to real ARM CMSIS calls. In host unit-test builds they
+ * expand to instrumented stub functions defined in stm32_cmsis_mock.c, so Unity tests can verify
+ * that the interrupt-disable, breakpoint, barrier and system-reset paths are taken without
+ * executing privileged instructions on the host. Same macro names as the Gateway copy.
+ */
+
+#ifdef TEST
+
+void cpu_hw_disable_irq(void);
+void cpu_hw_breakpoint(void);
+void cpu_hw_system_reset(void);
+void cpu_hw_data_barrier(void);
+bool cpu_hw_debugger_attached(void);
+
+/** Call counters: test code reads these after exercising the module. */
+extern uint32_t g_cpu_hw_disable_irq_count;
+extern uint32_t g_cpu_hw_breakpoint_count;
+extern uint32_t g_cpu_hw_system_reset_count;
+extern uint32_t g_cpu_hw_data_barrier_count;
+/** What cpu_hw_debugger_attached() returns; the test sets it. */
+extern bool g_cpu_hw_debugger_attached;
+/** Barriers already issued when the most recent system reset was requested. */
+extern uint32_t g_cpu_hw_barriers_at_reset;
+
+#define CPU_HW_DISABLE_IRQ() cpu_hw_disable_irq()
+#define CPU_HW_BREAKPOINT() cpu_hw_breakpoint()
+#define CPU_HW_SYSTEM_RESET() cpu_hw_system_reset()
+#define CPU_HW_DATA_BARRIER() cpu_hw_data_barrier()
+#define CPU_HW_DEBUGGER_ATTACHED() cpu_hw_debugger_attached()
+
+#else /* TARGET BUILD */
+
+/* Real CMSIS intrinsics: available once stm32f469xx.h is included. */
+#define CPU_HW_DISABLE_IRQ() __disable_irq()
+#define CPU_HW_BREAKPOINT() __BKPT(0)
+#define CPU_HW_SYSTEM_RESET() NVIC_SystemReset()
+#define CPU_HW_DATA_BARRIER() __DSB()
+/* C_DEBUGEN is set while a debugger is connected; a BKPT without one is itself a fault. */
+#define CPU_HW_DEBUGGER_ATTACHED() ((CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) != 0U)
+
+#endif /* TEST */
+
+#endif /* CPU_HW_H */

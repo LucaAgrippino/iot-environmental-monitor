@@ -48,6 +48,13 @@ const panic_symbol_t *panic_symbol_lookup(const panic_symbol_t *table, uint32_t 
     return NULL; /* addr falls in a gap between functions, or past the last one */
 }
 
+bool panic_symbols_match(uint32_t anchor, uint32_t cpu_panic_addr, uint32_t text_end,
+                         uint32_t etext_addr, uint32_t count)
+{
+    return (count != 0u) && (anchor != 0u) && (text_end != 0u) &&
+           (anchor == (cpu_panic_addr & ~1u)) && (text_end == etext_addr);
+}
+
 /* Weak fallback table — an empty one — so the firmware links on a fresh
  * checkout (CI, a new machine) where panic_symbols_data.c has not been
  * generated yet: it needs a prior build's gateway.map, so a first build
@@ -58,3 +65,5 @@ const panic_symbol_t *panic_symbol_lookup(const panic_symbol_t *table, uint32_t 
 __attribute__((weak)) const panic_symbol_t g_panic_symbols[] = {{0u, 0u, "", 0u}};
 __attribute__((weak)) const uint32_t g_panic_symbol_count = 0u;
 __attribute__((weak)) const char *const g_panic_files[] = {""};
+__attribute__((weak)) const uint32_t g_panic_anchor_addr = 0u;
+__attribute__((weak)) const uint32_t g_panic_text_end = 0u;

@@ -270,8 +270,12 @@ extern FLASH_TypeDef g_mock_flash;
 
 typedef struct
 {
+    volatile uint32_t DHCSR; /**< Debug Halting Control and Status Register. */
     volatile uint32_t DEMCR; /**< Debug Exception and Monitor Control Register. */
 } CoreDebug_TypeDef;
+
+#define CoreDebug_DHCSR_C_DEBUGEN_Pos (0U)
+#define CoreDebug_DHCSR_C_DEBUGEN_Msk (1UL << CoreDebug_DHCSR_C_DEBUGEN_Pos)
 
 extern CoreDebug_TypeDef g_mock_core_debug;
 
@@ -312,7 +316,15 @@ typedef struct
     volatile uint32_t BFAR;  /**< Bus Fault Address Register.          */
     volatile uint32_t MMFAR; /**< MemManage Fault Address Register.    */
     volatile uint32_t VTOR;  /**< Vector Table Offset Register.        */
+    volatile uint32_t SHCSR; /**< System Handler Control and State.    */
 } SCB_TypeDef;
+
+#define SCB_SHCSR_MEMFAULTENA_Pos (16U)
+#define SCB_SHCSR_MEMFAULTENA_Msk (1UL << SCB_SHCSR_MEMFAULTENA_Pos)
+#define SCB_SHCSR_BUSFAULTENA_Pos (17U)
+#define SCB_SHCSR_BUSFAULTENA_Msk (1UL << SCB_SHCSR_BUSFAULTENA_Pos)
+#define SCB_SHCSR_USGFAULTENA_Pos (18U)
+#define SCB_SHCSR_USGFAULTENA_Msk (1UL << SCB_SHCSR_USGFAULTENA_Pos)
 
 extern SCB_TypeDef g_mock_scb;
 
