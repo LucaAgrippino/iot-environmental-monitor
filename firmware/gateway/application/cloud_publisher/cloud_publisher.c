@@ -13,6 +13,7 @@
 #include "cloud_publisher.h"
 #include "cloud_publisher_json.h"
 #include "config_service/config_service.h"
+#include "sensor_service/sensor_task.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -55,6 +56,8 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #define CP_TELEMETRY_PERIOD_MS_DEFAULT 60000u
 #define CP_HEALTH_PERIOD_MS_DEFAULT 300000u
 #define CP_STATS_PERIOD_MS 1000u
+#define CP_READ_WAIT_MS 300u /* longest wait for the cycle a "read" command asks for */
+#define CP_READ_POLL_MS 10u
 
 /** CP-D9: retry backoff between failed reconnect attempts (stats ticks). */
 /* WIFITASK-O2 / CP-D13: reconnect backoff after a terminal connect_step()
@@ -186,14 +189,15 @@ struct cloud_publisher_inst
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
     char topic_alarms[CP_TOPIC_MAX_LEN];
-    char topic_config_result[CP_TOPIC_MAX_LEN]; /**< Published: result of /config (CP-D30).  */
-    char topic_config_cmd[CP_TOPIC_MAX_LEN];    /**< Subscribed: /config (QoS 1).            */
-    char topic_control_cmd[CP_TOPIC_MAX_LEN];   /**< Subscribed: /control (QoS 1).           */
-    char topic_ota_cmd[CP_TOPIC_MAX_LEN];       /**< Subscribed: command (QoS 1).            */
-    char topic_ota_data[CP_TOPIC_MAX_LEN];      /**< Subscribed: chunk (QoS 0).              */
-    char topic_ota_request[CP_TOPIC_MAX_LEN];   /**< Published: chunk request (QoS 0).       */
-    char topic_ota_result[CP_TOPIC_MAX_LEN];    /**< Published: result report (QoS 1).       */
-    bool sub_config;                            /**< Task only: SUBSCRIBE done on this link. */
+    char topic_config_result[CP_TOPIC_MAX_LEN];  /**< Published: result of /config (CP-D30).  */
+    char topic_control_result[CP_TOPIC_MAX_LEN]; /**< Published: result of /control (CP-O8).  */
+    char topic_config_cmd[CP_TOPIC_MAX_LEN];     /**< Subscribed: /config (QoS 1).            */
+    char topic_control_cmd[CP_TOPIC_MAX_LEN];    /**< Subscribed: /control (QoS 1).           */
+    char topic_ota_cmd[CP_TOPIC_MAX_LEN];        /**< Subscribed: command (QoS 1).            */
+    char topic_ota_data[CP_TOPIC_MAX_LEN];       /**< Subscribed: chunk (QoS 0).              */
+    char topic_ota_request[CP_TOPIC_MAX_LEN];    /**< Published: chunk request (QoS 0).       */
+    char topic_ota_result[CP_TOPIC_MAX_LEN];     /**< Published: result report (QoS 1).       */
+    bool sub_config;                             /**< Task only: SUBSCRIBE done on this link. */
     bool sub_control;
     bool sub_ota_cmd;
     bool sub_ota_data;
@@ -1550,6 +1554,93 @@ static void prv_apply_config(struct cloud_publisher_inst *inst, const cp_command
     prv_publish_config_result(inst, CP_CFG_OK, NULL);
 }
 
+static void prv_publish_control_result(struct cloud_publisher_inst *inst, cp_control_cmd_t cmd,
+                                       bool req_known, uint32_t req, bool accepted,
+                                       const char *reason)
+{
+    const time_provider_ts_t ts = prv_now();
+    const uint32_t n =
+        cp_serialise_control_result(inst->scratch_buf, CP_JSON_BUF_SIZE, cmd, req_known, req,
+                                    accepted, reason, &ts, inst->device_serial);
+
+    if (n == 0u)
+    {
+        LOG_WARN(CP_LOG_MODULE, "control result exceeded %u bytes", CP_JSON_BUF_SIZE);
+        return;
+    }
+    (void) prv_enqueue_or_publish(inst, inst->topic_control_result,
+                                  (const uint8_t *) inst->scratch_buf, n, MQTT_QOS_1);
+}
+
+/** REQ-SA-170: one more acquisition cycle, then the telemetry message (REQ-NF-107: well under
+ *  500 ms; the cycle takes about 5 ms and SensorTask has the highest priority but one). */
+static bool prv_read_now(struct cloud_publisher_inst *inst)
+{
+    sensor_snapshot_t before;
+
+    if ((sensor_service->get_snapshot(&before) != SENSOR_SERVICE_ERR_OK) ||
+        !sensor_task_request_read())
+    {
+        return false;
+    }
+    for (uint32_t waited_ms = 0u; waited_ms < CP_READ_WAIT_MS; waited_ms += CP_READ_POLL_MS)
+    {
+        sensor_snapshot_t now;
+
+        vTaskDelay(pdMS_TO_TICKS(CP_READ_POLL_MS));
+        if ((sensor_service->get_snapshot(&now) == SENSOR_SERVICE_ERR_OK) &&
+            (now.cycle_count != before.cycle_count))
+        {
+            prv_publish_telemetry(inst);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void prv_handle_control(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry)
+{
+    bool req_known = false;
+    uint32_t req = 0u;
+    const cp_control_cmd_t cmd =
+        cp_parse_control_command(entry->payload, entry->payload_len, &req_known, &req);
+
+    switch (cmd)
+    {
+    case CP_CTRL_BAD_FORMAT:
+        LOG_WARN(CP_LOG_MODULE, "/control rejected: bad format");
+        prv_publish_control_result(inst, cmd, req_known, req, false, "bad_format");
+        break;
+    case CP_CTRL_UNKNOWN:
+        LOG_WARN(CP_LOG_MODULE, "/control rejected: unknown command");
+        prv_publish_control_result(inst, cmd, req_known, req, false, "unknown_command");
+        break;
+    case CP_CTRL_READ:
+        if (prv_read_now(inst))
+        {
+            prv_publish_control_result(inst, cmd, req_known, req, true, NULL);
+        }
+        else
+        {
+            LOG_WARN(CP_LOG_MODULE, "/control read failed");
+            prv_publish_control_result(inst, cmd, req_known, req, false, "failed");
+        }
+        break;
+    default:
+        if (inst->control_handler != NULL)
+        {
+            inst->control_handler(entry->payload, entry->payload_len);
+            prv_publish_control_result(inst, cmd, req_known, req, true, NULL);
+        }
+        else
+        {
+            LOG_WARN(CP_LOG_MODULE, "/control ignored: no handler");
+            prv_publish_control_result(inst, cmd, req_known, req, false, "failed");
+        }
+        break;
+    }
+}
+
 static void prv_route_command(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry)
 {
     const uint32_t topic_len = (uint32_t) strlen(entry->topic);
@@ -1564,14 +1655,7 @@ static void prv_route_command(struct cloud_publisher_inst *inst, const cp_comman
     }
     else if (prv_topic_ends_with(entry->topic, topic_len, MQTT_TOPIC_SUFFIX_CONTROL))
     {
-        if (inst->control_handler != NULL)
-        {
-            inst->control_handler(entry->payload, entry->payload_len);
-        }
-        else
-        {
-            LOG_WARN(CP_LOG_MODULE, "/control ignored: no handler");
-        }
+        prv_handle_control(inst, entry);
     }
     else
     {
@@ -1621,6 +1705,9 @@ static void prv_build_topics(struct cloud_publisher_inst *inst)
                     inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_REQUEST);
     (void) snprintf(inst->topic_ota_result, CP_TOPIC_MAX_LEN, "%s%s%s", MQTT_TOPIC_PREFIX_PUBLISH,
                     inst->device_serial, MQTT_TOPIC_SUFFIX_OTA_RESULT);
+    (void) snprintf(inst->topic_control_result, CP_TOPIC_MAX_LEN, "%s%s%s",
+                    MQTT_TOPIC_PREFIX_PUBLISH, inst->device_serial,
+                    MQTT_TOPIC_SUFFIX_CONTROL_RESULT);
     (void) snprintf(inst->topic_config_result, CP_TOPIC_MAX_LEN, "%s%s%s",
                     MQTT_TOPIC_PREFIX_PUBLISH, inst->device_serial,
                     MQTT_TOPIC_SUFFIX_CONFIG_RESULT);

@@ -410,6 +410,12 @@ int main(void)
                                      &s_lc_sensors, &s_lc_alarms, console_service, health_report,
                                      modbus_slave);
 
+    {
+        static const char *const k_cause[] = {"power_on", "soft", "watchdog", "unknown"};
+
+        LOG_INFO(MODULE_TAG, "reset cause %s",
+                 k_cause[((unsigned) reset_cause < 4U) ? (unsigned) reset_cause : 3U]);
+    }
     LOG_INFO(MODULE_TAG, "Field Device %s, starting the scheduler", FW_VERSION_STRING);
 
     /* 6. Tasks. LifecycleTask is created last. */

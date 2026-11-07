@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 #include "lifecycle_controller/lifecycle_controller.h"
+#include "watchdog_driver/watchdog_driver.h"
 #include "freertos_mock.h"
 #include "stm32_cmsis_mock.h"
 
@@ -167,10 +168,13 @@ static sensor_service_err_t spy_sensors_run_cycle(void)
 {
     return SENSOR_SERVICE_ERR_OK;
 }
+static uint32_t g_sensors_cycle_count;
+static sensor_service_err_t g_sensors_snapshot_return = SENSOR_SERVICE_ERR_OK;
 static sensor_service_err_t spy_sensors_get_snapshot(sensor_snapshot_t *s)
 {
-    (void) s;
-    return SENSOR_SERVICE_ERR_OK;
+    (void) memset(s, 0, sizeof(*s));
+    s->cycle_count = g_sensors_cycle_count;
+    return g_sensors_snapshot_return;
 }
 static sensor_service_err_t spy_sensors_subscribe(void (*cb)(const sensor_snapshot_t *))
 {
@@ -313,6 +317,8 @@ static void spy_reset_all(void)
 
     g_sensors_init_return = SENSOR_SERVICE_ERR_OK;
     g_sensors_init_calls = 0U;
+    g_sensors_cycle_count = 1U;
+    g_sensors_snapshot_return = SENSOR_SERVICE_ERR_OK;
     g_sensors_reconfigure_calls = 0U;
 
     g_alarms_init_return = ALARM_SERVICE_ERR_OK;
@@ -769,4 +775,56 @@ void test_LC_137_FD_reset_metrics_returns_OK_no_crash(void)
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, do_init());
     lifecycle_err_t err = lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_RESET_METRICS);
     TEST_ASSERT_EQUAL(LIFECYCLE_ERR_OK, err);
+}
+
+/* ======================================================================= */
+/* TC-LC-WDG — watchdog (REQ-NF-109, watchdog-driver.md section 3)         */
+/* ======================================================================= */
+
+void test_LC_WDG_01_operational_entry_starts_the_watchdog(void)
+{
+    TEST_ASSERT_FALSE(watchdog_is_running());
+    drive_to_operational();
+    TEST_ASSERT_TRUE(watchdog_is_running());
+    TEST_ASSERT_EQUAL_UINT32(1250U, IWDG->RLR); /* 10 s */
+}
+
+void test_LC_WDG_02_a_loop_pass_kicks_when_the_sensor_cycle_moved(void)
+{
+    drive_to_operational(); /* the first pass already saw cycle 1 and kicked */
+    IWDG->KR = 0U;
+    g_sensors_cycle_count = 2U;
+    lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(0xAAAAU, IWDG->KR);
+}
+
+void test_LC_WDG_03_no_sensor_progress_means_no_kick(void)
+{
+    drive_to_operational();
+    IWDG->KR = 0U;
+    lifecycle_task_body(NULL); /* cycle count unchanged */
+    TEST_ASSERT_EQUAL_UINT32(0U, IWDG->KR);
+}
+
+void test_LC_WDG_04_a_failed_snapshot_means_no_kick(void)
+{
+    drive_to_operational();
+    IWDG->KR = 0U;
+    g_sensors_cycle_count = 3U;
+    g_sensors_snapshot_return = SENSOR_SERVICE_ERR_NULL_ARG;
+    lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(0U, IWDG->KR);
+}
+
+void test_LC_WDG_05_faulted_keeps_kicking(void)
+{
+    drive_to_operational();
+    queue_event(LC_EVENT_UNRECOVERABLE_FAULT, 1U);
+    lifecycle_task_body(NULL);
+    g_mock_xQueueReceive_return = pdFALSE;
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_FAULTED, lifecycle_controller->get_state());
+    IWDG->KR = 0U;
+    g_sensors_cycle_count = 4U;
+    lifecycle_task_body(NULL);
+    TEST_ASSERT_EQUAL_UINT32(0xAAAAU, IWDG->KR);
 }

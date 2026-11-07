@@ -430,7 +430,7 @@ entry. Value: **10 seconds**, confirmed by REQ-NF-213; the Gateway reaches Opera
 
 In Operational, `LifecycleTask` blocks on the event queue with a
 timeout equal to the watchdog kick period (provisional 1 second). On
-timeout with no events, it kicks the watchdog (if enabled) and loops.
+timeout with no events, it kicks the watchdog (see watchdog-driver.md §9: every loop pass, gated on SensorTask progress) and loops.
 
 | Event | Action | New state |
 |---|---|---|

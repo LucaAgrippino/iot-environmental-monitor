@@ -94,6 +94,39 @@ uint32_t cp_serialise_config_result(char *buf, uint32_t buf_size, bool req_known
                                     cp_cfg_status_t status, const char *key,
                                     const time_provider_ts_t *ts, const char *device_serial);
 
+/** The /control commands (SRS REQ-DM-010, REQ-SA-170, REQ-NF-107/308). */
+typedef enum
+{
+    CP_CTRL_BAD_FORMAT = 0, /**< Not a JSON object with a string "command". */
+    CP_CTRL_UNKNOWN,        /**< Well formed, but the command name is not known. */
+    CP_CTRL_READ,           /**< "read": run one more acquisition cycle and publish it. */
+    CP_CTRL_RESTART,        /**< "restart": needs a "restart_confirm" within the timeout. */
+    CP_CTRL_RESTART_CONFIRM,
+    CP_CTRL_RESET_METRICS,
+} cp_control_cmd_t;
+
+/**
+ * @brief Classify a /control payload: {"command":"<name>"[,"req":<n>]}.
+ * @param[out] req_known  Set when a numeric "req" member is present (may be NULL).
+ * @param[out] req        The request id, echoed in the result (may be NULL).
+ */
+cp_control_cmd_t cp_parse_control_command(const uint8_t *payload, uint32_t len, bool *req_known,
+                                          uint32_t *req);
+
+/** @brief Wire name of a command, "unknown" for CP_CTRL_UNKNOWN and CP_CTRL_BAD_FORMAT. */
+const char *cp_control_name(cp_control_cmd_t cmd);
+
+/**
+ * @brief Result of a /control command (CP-O8): {"event":"control","command":...,"result":...}.
+ * @param[in] accepted  true: "result":"accepted" (executed or queued); false: "rejected".
+ * @param[in] reason    Included when not NULL (rejected: "bad_format", "unknown_command",
+ *                      "failed").
+ */
+uint32_t cp_serialise_control_result(char *buf, uint32_t buf_size, cp_control_cmd_t cmd,
+                                     bool req_known, uint32_t req, bool accepted,
+                                     const char *reason, const time_provider_ts_t *ts,
+                                     const char *device_serial);
+
 /** @brief Serialise a chunk request (update-service-lld.md 6.2) with the common block. */
 uint32_t cp_serialise_ota_request(char *buf, uint32_t buf_size, const us_chunk_request_t *req,
                                   const time_provider_ts_t *ts, const char *device_serial);
