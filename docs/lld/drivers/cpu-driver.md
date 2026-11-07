@@ -19,7 +19,7 @@
 | PROVIDES (upward) | Direct API in `cpu.h` (no vtable): `cpu_init`, `cpu_panic`, `cpu_reset`, `CPU_ASSERT`; Gateway only: `cpu_delay_us`, `cpu_delay_ms`, `cpu_get_sysclk_hz`, `cpu_get_pclk1_hz`, `cpu_get_pclk2_hz`, `cpu_get_vector_table_base` | this document |
 | USES (downward) | CMSIS only (`SCB`, `DWT`, `CoreDebug`, `RTC` backup registers, `PWR`, `RCC`, one USART and one GPIO port). Never `ILogger`, `IRtc`, `IDebugUart` or any RTOS call | `hld.md` §9; placeholder `panic.md` |
 | Consumers | `main()` of both boards (`cpu_init`), the FreeRTOS hooks (`cpu_panic`), any module (`CPU_ASSERT`), `ResetDriver` (Gateway, shares `cpu_hw.h`), `WifiDriver` (Gateway, delays) | code |
-| SRS | No requirement names fault diagnosis. The reset it ends in is bound by REQ-NF-202 and REQ-NF-203 (restart and resume within 5 s). The placeholder's "REQ-NF-DIAG" was never added | `SRS.md` |
+| SRS | REQ-NF-507 (added in SRS v1.6 for this module): record the cause, report it, restart, report it once at the next start. Related: REQ-NF-504 (diagnostic output), REQ-NF-202/203 (restart within 5 s) | `SRS.md` |
 
 **Why a direct API and a singleton.** There is one CPU, one fault vector set and one clock tree, and the fault path must work when nothing else does, so it cannot be reached through an interface pointer that a corrupted object could break. This is the same documented deviation from the ADT default that the Gateway code already carries.
 
@@ -44,7 +44,7 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason);
 
 | Function | Behaviour | Threading |
 |---|---|---|
-| `cpu_init` | Gateway: clock tree, wait states, LSE, DWT (section 3.1), then step 3 below. Field Device: enables the Bus, Memory and Usage fault handlers, enables the DWT cycle counter if it is off, then step 3. Step 3: if a panic record from the previous boot is valid, print it on the panic UART and invalidate it. Returns `STATUS_OK`; Gateway also `STATUS_ERR_TIMEOUT` (PLL or LSE did not lock) and `STATUS_ERR_HW` (no DWT); Field Device `STATUS_ERR_HW` (no DWT). | Once, from `main()`, before the scheduler. The Field Device calls it right after `system_clock_init()` because the panic UART baud rate depends on the APB1 clock. |
+| `cpu_init` | Gateway: clock tree, wait states, LSE, DWT (section 3.1), then step 3 below. Field Device: enables the Bus, Memory and Usage fault handlers, then step 3. Step 3: if a panic record from the previous boot is valid, print it on the panic UART and invalidate it. Returns `STATUS_OK`; the Gateway also returns `STATUS_ERR_TIMEOUT` (PLL or LSE did not lock) and `STATUS_ERR_HW` (no DWT). The Field Device always returns `STATUS_OK` and keeps `status_t` so the call matches. | Once, from `main()`, before the scheduler. The Field Device calls it right after `system_clock_init()` because the panic UART baud rate depends on the APB1 clock. |
 | `cpu_reset` | `CPU_HW_DATA_BARRIER()` then `NVIC_SystemReset()`. Does not return. | Any task or ISR. |
 | `cpu_panic` | Section 3.2. Does not return. | Any context, including fault handlers and ISRs. No lock, no allocation, no RTOS call. |
 | `CPU_ASSERT` | Compiled out unless `DEBUG` is defined. | Any context. |
@@ -69,12 +69,12 @@ Private state: `g_panic_active` (bool), `s_fault_frame` (pointer to the stacked 
 
 Flow of `cpu_panic(source, reason)`:
 
-1. If `g_panic_active` is already set (a fault inside the panic path): `CPU_HW_BREAKPOINT()` in DEBUG builds, then `CPU_HW_SYSTEM_RESET()`. Nothing else is touched.
+1. If `g_panic_active` is already set (a fault inside the panic path): go straight to step 6 without any output.
 2. Set `g_panic_active`, `CPU_HW_DISABLE_IRQ()`.
 3. Read `SCB->CFSR` and `SCB->HFSR`, and `SCB->BFAR` only when `CFSR.BFARVALID` (bit 15) is set; otherwise BFAR is recorded as 0, because the register keeps a stale value after a fault that is not a bus fault.
 4. Write the post-mortem record to the RTC backup registers (section 3.3). The record is written before any output, because the UART path is the part most likely to hang.
 5. Emit the report on the panic UART (section 3.4).
-6. DEBUG build: `CPU_HW_BREAKPOINT()` then spin forever (a debugger lands here). Other builds: wait for the UART to drain, then `CPU_HW_SYSTEM_RESET()`.
+6. End (`panic_end`): in a `DEBUG` build with a debugger attached (`CoreDebug->DHCSR.C_DEBUGEN`) execute `CPU_HW_BREAKPOINT()` and spin. Otherwise wait (bounded) for the UART to drain, when a report was written, and `CPU_HW_SYSTEM_RESET()`.
 
 Fault vectors (`cpu_fault.c`): `HardFault_Handler`, `BusFault_Handler`, `MemManage_Handler`, `UsageFault_Handler`. Each stub is a `naked` function (no compiler prologue, so MSP is exactly what the hardware left) that tests bit 2 of `EXC_RETURN` in LR to pick MSP or PSP, loads the frame pointer into R0 and its own `cpu_panic_source_t` into R1, and branches to `cpu_fault_entry(frame, source)`, which stores the frame pointer and calls `cpu_panic(source, NULL)`. The stubs live in their own translation unit so the host tests link `cpu.c` without assembly.
 
@@ -92,13 +92,13 @@ Stored in `CPU_PANIC_RECORD_WORDS` (17) consecutive RTC backup registers startin
 | 3 | BFAR | 12 | R12 |
 | 4 | PC | 13 | source (`cpu_panic_source_t`) |
 | 5 | LR | 14 | DJB2 hash of `reason` (0 for NULL) |
-| 6 | SP (the frame address; 0 when there is no frame) | 15 | reserved, 0 |
-| 7 | xPSR | 16 | uptime hint in ms (`DWT->CYCCNT / (SYSCLK / 1000)`) |
+| 6 | SP (the frame address; 0 when there is no frame) | 15 | RTC time (`RTC->TR`, BCD hh:mm:ss) |
+| 7 | xPSR | 16 | RTC date `RTC->DR` (BCD) |
 | 8 | R0 | | |
 
 Without a frame (assert, hook, user panic) offsets 4 to 12 are 0. Writing needs backup-domain access: set `RCC` PWR clock enable and `PWR` DBP. The magic is written last so a partial record is never reported.
 
-The uptime hint wraps every 53.7 s at 80 MHz and 23.9 s at 180 MHz (32-bit cycle counter). It is a hint only; see CPU-O2.
+Words 15 and 16 are the RTC time and date at the moment of the panic: the wall-clock time once TimeProvider has set the RTC, and the time since the RTC was started before that. They replace a cycle-counter uptime that wrapped in under a minute (CPU-D10). The registers are read as they are, without waiting for shadow synchronisation.
 
 ### 3.4 Panic UART
 
@@ -133,11 +133,13 @@ Reason: <text or (none)>
 
 The next boot prints the stored record under `--- POST-MORTEM (previous boot) ---` (source, CFSR, cause, HFSR, BFAR, PC, LR) and invalidates it.
 
-Symbols: the Gateway resolves PC and LR through a table generated from the linker map (`scripts/gen-panic-symbols.py`, `panic_symbols.c`, `panic_symbols_data.c`, gitignored, weak empty fallback). The Field Device prints the raw addresses in this version; decode them with `addr2line` (CPU-O3).
+Symbols (both boards): PC and LR are resolved to `function+offset file.o` from a table generated out of the linker map of a finished build (`scripts/gen-panic-symbols.py`, `panic_symbols.c`, `panic_symbols_data.c`, gitignored; an empty weak fallback keeps a fresh checkout linking). The table is generated from one build and compiled into the next, so `cpu.c` checks that it belongs to the running image before using it: the generator records the address of `cpu_panic` and the end of the code (`_etext`), and `panic_symbols_match()` requires both to equal the running image's values. A table from an earlier build is shown as `(no symbols for this image)` instead of a wrong function name (CPU-D11). `scripts/gen-panic-symbols.sh gateway|field-device [--flash]` runs the three builds that make the table and the image agree. The Field Device object names are whole paths in its build script; the generator keeps the file name.
 
 ### 3.5 Debug and release behaviour
 
-`DEBUG` selects halt (breakpoint and spin) or reset. A DEBUG image with no debugger attached ends in lockup after the BKPT, so the independent watchdog (REQ-NF-109), when running, is what resets it. Release images reset directly. Decision CPU-D3.
+A `DEBUG` build stops at a breakpoint only when a debugger is attached (`DHCSR.C_DEBUGEN`). With no debugger it resets exactly like a release build, because a `BKPT` with no debugger is itself a fault: it used to end in a core lockup that only the watchdog (when running) could clear. Release builds always reset. Decision CPU-D3.
+
+`C_DEBUGEN` is set by openocd or gdb and stays set after they disconnect, until a power-on reset. A DEBUG image that panics after a debug session therefore halts silently, with the report already on the console; power-cycle the board or clear the bit (`mww 0xE000EDF0 0xA05F0000` in openocd).
 
 ### 3.6 Design rules applied
 
@@ -155,7 +157,9 @@ One responsibility: platform-wide services only, with no policy (the panic does 
 | Backup write access | `RCC->APB1ENR1.PWREN`, `PWR->CR1.DBP` | `RCC->APB1ENR.PWREN`, `PWR->CR.DBP` |
 | Panic UART | USART1 (`ISR`/`TDR`, flags TXE, TC) on PB6 | USART3 (`SR`/`DR`, flags TXE, TC) on PB10 |
 | GPIO clock | `RCC->AHB2ENR.GPIOBEN` | `RCC->AHB1ENR.GPIOBEN` |
-| Cycle counter | `CoreDebug->DEMCR.TRCENA`, `DWT->CTRL.CYCCNTENA`, `DWT->CYCCNT` | same |
+| Cycle counter | `CoreDebug->DEMCR.TRCENA`, `DWT->CTRL.CYCCNTENA`, `DWT->CYCCNT` (delays) | not used |
+| Debugger present | `CoreDebug->DHCSR.C_DEBUGEN` | same |
+| Time stamp | `RTC->TR`, `RTC->DR` | same |
 | Reset | `NVIC_SystemReset()` | same |
 | Fault stack | The handlers run on MSP. A stack overflow of a task is on PSP, so the report still has a valid MSP | same |
 
@@ -182,7 +186,9 @@ Boot order with a stored record: reset, `cpu_init`, post-mortem lines on the con
 | UART never ready | The byte is dropped after `CPU_POLL_TIMEOUT` passes; the panic continues to the reset |
 | Fault inside the panic path | Second entry: breakpoint (DEBUG) and reset only |
 | Corrupt backup registers | A wrong magic is ignored. A right magic with garbage fields prints garbage once and is cleared |
-| Reset loop | A panic early in boot resets again and again; the record is overwritten each time. There is no counter (CPU-O4) |
+| Reset loop | A panic early in boot resets again and again; the record is overwritten each time. No counter: see CPU-D12 |
+| Table from another image | The symbols are replaced by `(no symbols for this image)` (section 3.4) |
+| Debugger left attached | A DEBUG image halts at the breakpoint instead of resetting (section 3.5) |
 
 Observability: the console report and the next-boot post-mortem. Nothing is sent to the cloud.
 
@@ -205,8 +211,11 @@ Host tests mock `SCB`, `DWT`, `CoreDebug`, `RTC`, `PWR`, `RCC`, the USART and `G
 | TC-CPU-034 | A record in registers 2 to 18 does not touch register 0 or 1 | both |
 | TC-CPU-035 | Each fault stub source (Hard, Bus, MemManage, Usage) reaches the record | both |
 | TC-CPU-036 | `cpu_init` sets MEMFAULTENA, BUSFAULTENA, USGFAULTENA | both |
-| TC-CPU-038 | `cpu_init` (Field Device) returns `STATUS_OK` and enables the cycle counter. The `STATUS_ERR_HW` branch cannot be reached on the host (the mock keeps a written bit) and the Cortex-M4 always has the counter | Field Device |
-| TC-CPU-039 | DEBUG halts, release resets (checked through the counters; the host build runs the release branch) | both |
+| TC-CPU-038 | `cpu_init` (Field Device) returns `STATUS_OK` and leaves the cycle counter alone | Field Device |
+| TC-CPU-039 | Release build resets, no breakpoint | both |
+| TC-CPU-039a..e | DEBUG build (own test file `test_cpu_debug*.c`): debugger attached stops at the breakpoint without a reset; no debugger resets without a breakpoint; a nested panic follows the same rule; `CPU_ASSERT` panics when false and not when true | both |
+| TC-CPU-042 | The record holds `RTC->TR` and `RTC->DR` | both |
+| TC-PS-MATCH | `panic_symbols_match()`: equal anchor and code end (Thumb bit ignored), another build, a code-size change after `cpu_panic`, empty table, missing anchors | both |
 | TC-CPU-041 | `cpu_reset` issues a barrier before the reset | both |
 
 Hardware (`integration-tests/cpu/main_test_cpu.c` on each board; the run is unattended, see the file header):
@@ -215,22 +224,25 @@ Hardware (`integration-tests/cpu/main_test_cpu.c` on each board; the run is unat
 |---|---|
 | TC-HW-CPU-007 | Forced fault (null-pointer read, divide trap, unaligned access with the trap on, undefined instruction): report on the console, reset, post-mortem on the next boot |
 | TC-HW-CPU-008 | `cpu_reset()` leaves no post-mortem |
-| TC-HW-CPU-009 | `CPU_ASSERT(false)` in a release build compiles out; in DEBUG it panics (not run on hardware) |
+| TC-HW-CPU-009 | `CPU_ASSERT(false)`: compiled out in a release build (then a clean reset); `Assert` panic with the expression and line in a DEBUG build |
 | TC-HW-CPU-010 | Task stack overflow raises `StackOverflow` with the task name (`vApplicationStackOverflowHook`) |
 | TC-HW-CPU-011 | TimeProvider's sync flag in register 0 survives a panic reset |
-| TC-HW-CPU-012 | Second fault inside the panic path does not loop (host test TC-CPU-024/025 only) |
+| TC-HW-CPU-012 | A fault inside the panic path (frame pointer into reserved memory) resets with no post-mortem and does not loop |
+| TC-HW-CPU-013 | DEBUG build with a debugger attached halts at the breakpoint inside `panic_end` (openocd, by hand) |
+| TC-HW-CPU-014 | PC and LR print as `function+offset file.o` with a matching table, and as `(no symbols for this image)` with an old table or after a code-size change |
 
 ## 8. Open items
 
-| ID | Item | Resolution path |
+| ID | Item | Status |
 |---|---|---|
-| CPU-O1 | No SRS requirement for fault diagnosis | Add one in the next SRS revision; the companion traces to REQ-NF-202/203 until then |
-| CPU-O2 | The uptime hint wraps in under a minute | Replace by the RTC sub-second clock or a free-running 32 kHz timer when a use for it appears |
-| CPU-O3 | Field Device has no symbol resolution | Port `panic_symbols.c` and the generator to the F469 map; the generator is already map-driven |
-| CPU-O4 | No reset-loop counter | Count consecutive panic resets in the spare register 1 and stop resetting after N, on a later requirement |
-| CPU-O5 | The Gateway symbol table is gitignored and goes stale when the image changes (observed in gateway-main F-9: the dump named the wrong function) | Print the image's build id with the report so a mismatched table is visible |
-| CPU-O6 | Malloc-failed and watchdog sources are never raised | Keep until a dynamic allocator or a watchdog pre-warning exists |
-| CPU-O7 | Enabling the Bus, Memory and Usage fault handlers changes the vector some faults take (they no longer escalate to HardFault) | Confirmed by TC-HW-CPU-007 on both boards |
+| CPU-O1 | No SRS requirement for fault diagnosis | Closed: REQ-NF-507, SRS v1.6 |
+| CPU-O2 | The uptime hint wrapped in under a minute | Closed: the record holds the RTC time and date (CPU-D10) |
+| CPU-O3 | Field Device had no symbol resolution | Closed (section 3.4) |
+| CPU-O4 | Reset-loop counter | Closed as a decision: not built (CPU-D12) |
+| CPU-O5 | The symbol table could be stale | Closed: checked against the running image (CPU-D11) |
+| CPU-O6 | Malloc-failed and watchdog sources are never raised | Closed as a decision: kept in the enum so the record format does not change; nothing in the images can raise them |
+| CPU-O7 | Enabling the Bus, Memory and Usage handlers changes the vector some faults take | Closed: confirmed on both boards (TC-HW-CPU-007) |
+| CPU-O8 | The Gateway image has 1.3 % of its RAM left (98.7 % used) | Open, outside this module: tracked with the Gateway memory budget |
 
 ## 9. Decisions log and changes against the Gateway code
 
@@ -245,17 +257,25 @@ Hardware (`integration-tests/cpu/main_test_cpu.c` on each board; the run is unat
 | CPU-D7 | The Field Device is the panic subset: no clock, no delays | Its clock is `system_clock.c`; nothing calls delays |
 | CPU-D8 | Test projects: the Gateway CpuDriver, ResetDriver and WifiDriver tests run from `project_gateway.yml`, the Field Device CpuDriver tests from `project.yml`. CI runs both projects | Same file names on both boards (`cpu.c`, `cpu.h`, `cpu_hw.h`) and a test that mocks `cpu.h` (ResetDriver, WifiDriver) would otherwise get the other board's header. CI ran only `project.yml`, so moving those tests needed the second CI step |
 | CPU-D9 | BFAR is recorded only when `CFSR.BFARVALID` is set | The first Field Device run printed `BFAR 0xE000ED38` (stale) for an undefined-instruction fault |
+| CPU-D10 | Words 15 and 16 of the record hold `RTC->TR` and `RTC->DR` | The cycle-counter uptime wrapped every 24 to 54 s and told nothing about a panic hours after boot. The RTC already runs on both boards and is set by TimeProvider |
+| CPU-D11 | Symbols are used only when the table matches the running image (`cpu_panic` address and `_etext`) | The first anchor, `cpu_panic` alone, did not notice a code-size change in a module linked after it; the code end does. Hardware-checked on both boards |
+| CPU-D12 | No reset-loop counter | Stopping the resets would leave an unattended device dead instead of repeatedly restarting; the watchdog and the reset-cause report already expose a loop. Revisit only with a requirement |
+| CPU-D13 | A DEBUG build stops only with a debugger attached | See section 3.5 |
 
 ## 10. Hardware validation (2026-11-07)
 
-Both harnesses run unattended: a step counter and a sentinel in RTC backup registers 31 (Gateway) and 19 (Field Device) and 0 make each boot run the next fault and the next boot print the post-mortem. Built without `DEBUG` so a panic resets.
+Both harnesses run unattended: a step counter and a sentinel in RTC backup registers 31 (Gateway), 19 (Field Device) and 0 make each boot run the next fault and the next boot print the post-mortem. Each ran as a DEBUG build, as a release build (`-UDEBUG`) and, for the symbol cases, with a generated table. Gateway harness built by a minimal script (CpuDriver, kernel, hooks, harness); Field Device with `MAIN=... scripts/build-fd-app.sh`.
 
 | ID | Result |
 |---|---|
-| TC-HW-CPU-007 | PASS on both boards. Bus fault (read of `0x2FFF0000`): `BusFault`, `CFSR 0x00008200`, `BFAR 0x2FFF0000`. Undefined instruction: `UsageFault`, `CFSR 0x00010000`. Divide by zero with `CCR.DIV_0_TRP`: `UsageFault`, `CFSR 0x02000000`. User panic: `User`, no frame. Each report was followed by a reset and a matching post-mortem |
-| PC check | The reported PC resolves with `addr2line` to the faulting source line (bus fault, undefined instruction and divide) on both boards. The old Gateway stubs would have printed the stacked LR here (CPU-D5) |
+| TC-HW-CPU-007 | PASS on both boards, DEBUG and release. Bus fault (read of `0x2FFF0000`): `BusFault`, `CFSR 0x00008200`, `BFAR 0x2FFF0000`. Undefined instruction: `UsageFault`, `CFSR 0x00010000`. Divide by zero with `CCR.DIV_0_TRP`: `UsageFault`, `CFSR 0x02000000`. User panic: `User`, no frame. Each report was followed by a reset and a matching post-mortem, with the RTC time and date |
+| PC check | The reported PC resolves with `addr2line` to the faulting source line on both boards. The old Gateway stubs would have printed the stacked LR (CPU-D5) |
 | TC-HW-CPU-008 | PASS on both boards. `cpu_reset()` left no post-mortem |
-| TC-HW-CPU-010 | PASS on the Field Device. A task overrunning a 96-word stack raised `StackOverflow` with `Reason: ovf_task`, then reset. Not run on the Gateway (same hook code, no kernel in the minimal Gateway harness) |
+| TC-HW-CPU-009 | PASS on both boards. DEBUG: `Source: Assert`, reason `step == 99U @ <file>:<line>`. Release: compiled out, then a clean reset |
+| TC-HW-CPU-010 | PASS on both boards. A task overrunning a 96-word stack raised `StackOverflow` with `Reason: ovf_task`, then reset |
 | TC-HW-CPU-011 | PASS on both boards. Backup register 0 kept its sentinel across every panic reset |
-| Product images | Field Device (RAM 62 664 B of 256 KB) and Gateway (RAM 97 056 B of 96 KB region, 98.73 %, 88 B more than before) boot to Operational |
-| Not run | TC-HW-CPU-009 (assert), TC-HW-CPU-012 (nested fault), the Gateway stack overflow, and the DEBUG halt with a debugger |
+| TC-HW-CPU-012 | PASS on both boards. The nested fault reset the board with no post-mortem and the sequence went on |
+| TC-HW-CPU-013 | PASS on both boards. With openocd attached the DEBUG build stopped in `panic_end` (`halted due to breakpoint, current mode: Handler UsageFault`) after printing the report. Without a debugger the same image resets |
+| TC-HW-CPU-014 | PASS on both boards. With a table generated from the same image: `PC: 0x080012B4 (trigger+0x00000040 main_test_cpu.c.o)`. With the Gateway's older table, and with the Field Device image grown by one statement, the line read `(no symbols for this image)` |
+| Product images | Field Device and Gateway boot to Operational with the final code (rebuilt and flashed after the last change) |
+| Not run | Nothing from section 7 is outstanding. The DEBUG halt was checked with openocd, not with gdb |
