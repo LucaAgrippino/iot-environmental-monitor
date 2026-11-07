@@ -22,21 +22,30 @@
  *   TC-HW-CPU-005  cpu_delay_us(1000) within 1 % of 80 000 DWT cycles
  *   TC-HW-CPU-006  cpu_delay_ms(100)  within 1 % of 8 000 000 DWT cycles
  *
- * Unattended fault sequence, run after the tests above (needs -UDEBUG so a panic resets):
- *   build:  EXTRA_CFLAGS=-UDEBUG scripts/build-gateway-app.sh (MAIN=this file) --flash
+ * Unattended fault sequence, run after the tests above :
+ *   Both the DEBUG and the release build run unattended (no debugger: a panic resets).
  *   step 0  read of a reserved address     expect BusFault, "Precise data bus error"
  *   step 1  undefined instruction          expect UsageFault, "Undefined instruction"
  *   step 2  divide by zero (trap enabled)  expect UsageFault, "Divide by zero"
  *   step 3  cpu_panic(CPU_PANIC_USER, ...) expect User, no frame
  *   step 4  cpu_reset()                    expect NO post-mortem on the next boot
+ *   step 5  task overruns its stack        expect StackOverflow, reason = the task name
+ *   step 6  CPU_ASSERT(false)              DEBUG: expect Assert; release: compiled out, then reset
+ *   step 7  fault inside the panic path    expect a reset and NO post-mortem
  *   TC-HW-CPU-007  steps 0 to 3 print a report and the next boot prints a post-mortem
  *   TC-HW-CPU-008  step 4 leaves no post-mortem
+ *   TC-HW-CPU-009  step 6 (assert)
+ *   TC-HW-CPU-010  step 5 goes through vApplicationStackOverflowHook
+ *   TC-HW-CPU-012  step 7 (nested fault does not loop)
  *   TC-HW-CPU-011  backup register 0 (TimeProvider's sync flag) holds its sentinel after
  *                  every panic reset
  */
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include "cpu/cpu.h"
 #include "status.h"
@@ -222,6 +231,9 @@ static void bringup_fail(const char *label)
 /* Unattended fault sequence                                              */
 /* ---------------------------------------------------------------------- */
 
+/* Not declared in cpu.h outside the host tests: the fault stubs reach it by name. */
+void cpu_fault_entry(uint32_t *frame, cpu_panic_source_t source);
+
 #define STEP_BKP_IDX (31U)
 #define STEP_MARKER (0x57E90000U)
 #define SENTINEL_BKP_IDX (0U)
@@ -238,6 +250,28 @@ static void bringup_drain(void)
 {
     while ((USART1->ISR & USART_ISR_TC) == 0U)
     {
+    }
+}
+
+/* The guard area below the task stack takes the overrun, so nothing else is corrupted. */
+static struct
+{
+    uint32_t guard[256];
+    StackType_t stack[96];
+} s_ovf_mem __attribute__((aligned(8)));
+static StaticTask_t s_ovf_tcb;
+
+static void overflow_task(void *arg)
+{
+    (void) arg;
+    for (;;)
+    {
+        volatile uint8_t big[600]; /* more than the 96-word (384 byte) stack */
+        for (uint32_t i = 0U; i < sizeof(big); ++i)
+        {
+            big[i] = 0x11U;
+        }
+        vTaskDelay(1U); /* the stack check runs at the context switch */
     }
 }
 
@@ -279,6 +313,31 @@ static void bringup_trigger(uint32_t step)
         bringup_drain();
         cpu_reset();
         break;
+    case 5U:
+        bringup_puts("[EXPECT] StackOverflow, Reason: ovf_task\r\n");
+        bringup_drain();
+        (void) xTaskCreateStatic(overflow_task, "ovf_task", 96U, NULL, 1U, s_ovf_mem.stack,
+                                 &s_ovf_tcb);
+        vTaskStartScheduler();
+        break;
+    case 6U:
+#ifdef DEBUG
+        bringup_puts("[EXPECT] Assert, reason \"step == 99U @ ...\"\r\n");
+        bringup_drain();
+        CPU_ASSERT(step == 99U);
+#else
+        bringup_puts("[EXPECT] assert compiled out in a release build, then a clean reset\r\n");
+        bringup_drain();
+        CPU_ASSERT(step == 99U);
+        cpu_reset();
+#endif
+        break;
+    case 7U:
+        bringup_puts("[EXPECT] nested fault: the panic path faults, reset, NO post-mortem\r\n");
+        bringup_drain();
+        /* A frame pointer into reserved memory: the panic faults while it reads the frame. */
+        cpu_fault_entry((uint32_t *) RESERVED_ADDRESS, CPU_PANIC_USER);
+        break;
     default:
         break;
     }
@@ -307,7 +366,7 @@ static void bringup_fault_sequence(void)
     bringup_put_dec(step);
     bringup_puts("]\r\n");
 
-    if (step >= 5U)
+    if (step >= 8U)
     {
         *bringup_bkp(STEP_BKP_IDX) = 0U; /* arm the next run */
         bringup_puts("[PASS] fault sequence complete, no operator action was needed\r\n");

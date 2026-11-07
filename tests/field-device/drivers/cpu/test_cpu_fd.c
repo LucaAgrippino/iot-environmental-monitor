@@ -252,12 +252,11 @@ void test_TC_CPU_036_init_enables_the_configurable_fault_handlers(void)
                           g_mock_scb.SHCSR);
 }
 
-void test_TC_CPU_038_init_enables_the_cycle_counter(void)
+void test_TC_CPU_038_init_returns_ok_and_leaves_the_cycle_counter_alone(void)
 {
     TEST_ASSERT_EQUAL(STATUS_OK, cpu_init());
 
-    TEST_ASSERT_BITS_HIGH(CoreDebug_DEMCR_TRCENA_Msk, g_mock_core_debug.DEMCR);
-    TEST_ASSERT_BITS_HIGH(DWT_CTRL_CYCCNTENA_Msk, g_mock_dwt.CTRL);
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_dwt.CTRL);
 }
 
 void test_TC_CPU_039_halt_or_reset_matches_the_build(void)
@@ -271,6 +270,17 @@ void test_TC_CPU_039_halt_or_reset_matches_the_build(void)
     TEST_ASSERT_EQUAL_UINT32(0U, g_cpu_hw_breakpoint_count);
     TEST_ASSERT_EQUAL_UINT32(1U, g_cpu_hw_system_reset_count);
 #endif
+}
+
+void test_TC_CPU_042_record_holds_the_rtc_time_and_date(void)
+{
+    g_mock_rtc.TR = 0x00123456U;
+    g_mock_rtc.DR = 0x00261107U;
+
+    cpu_panic(CPU_PANIC_USER, "time");
+
+    TEST_ASSERT_EQUAL_HEX32(0x00123456U, PANIC_REC(15));
+    TEST_ASSERT_EQUAL_HEX32(0x00261107U, PANIC_REC(16));
 }
 
 /* ===================================================================== */

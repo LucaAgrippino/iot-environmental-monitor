@@ -1,6 +1,7 @@
 #ifndef CPU_HW_H
 #define CPU_HW_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /**
@@ -23,12 +24,15 @@ void cpu_hw_disable_irq(void);
 void cpu_hw_breakpoint(void);
 void cpu_hw_system_reset(void);
 void cpu_hw_data_barrier(void);
+bool cpu_hw_debugger_attached(void);
 
 /** Call counters — test TUs read these after exercising the module. */
 extern uint32_t g_cpu_hw_disable_irq_count;
 extern uint32_t g_cpu_hw_breakpoint_count;
 extern uint32_t g_cpu_hw_system_reset_count;
 extern uint32_t g_cpu_hw_data_barrier_count;
+/** What cpu_hw_debugger_attached() returns; the test sets it. */
+extern bool g_cpu_hw_debugger_attached;
 /** Barriers already issued when the most recent system reset was requested (ResetDriver). */
 extern uint32_t g_cpu_hw_barriers_at_reset;
 
@@ -36,6 +40,7 @@ extern uint32_t g_cpu_hw_barriers_at_reset;
 #define CPU_HW_BREAKPOINT() cpu_hw_breakpoint()
 #define CPU_HW_SYSTEM_RESET() cpu_hw_system_reset()
 #define CPU_HW_DATA_BARRIER() cpu_hw_data_barrier()
+#define CPU_HW_DEBUGGER_ATTACHED() cpu_hw_debugger_attached()
 
 #else /* TARGET BUILD */
 
@@ -47,6 +52,8 @@ extern uint32_t g_cpu_hw_barriers_at_reset;
 #define CPU_HW_BREAKPOINT() __BKPT(0)
 #define CPU_HW_SYSTEM_RESET() NVIC_SystemReset()
 #define CPU_HW_DATA_BARRIER() __DSB()
+/* C_DEBUGEN is set while a debugger is connected; a BKPT without one is itself a fault. */
+#define CPU_HW_DEBUGGER_ATTACHED() ((CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) != 0U)
 
 #endif /* TEST */
 

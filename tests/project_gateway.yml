@@ -164,6 +164,10 @@
   :test_cpu:
     - STM32L475xx
     - TEST
+  :test_cpu_debug:
+    - STM32L475xx
+    - TEST
+    - DEBUG
   :test_circular_flash_log:
     - STM32L475xx
     - TEST

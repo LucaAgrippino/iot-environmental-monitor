@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "stm32_cmsis_mock.h"
 
 
@@ -99,6 +100,7 @@ uint32_t g_cpu_hw_breakpoint_count;
 uint32_t g_cpu_hw_system_reset_count;
 uint32_t g_cpu_hw_data_barrier_count;
 uint32_t g_cpu_hw_barriers_at_reset;
+bool g_cpu_hw_debugger_attached;
 
 IWDG_TypeDef g_mock_iwdg;
 DBGMCU_TypeDef g_mock_dbgmcu;
@@ -205,6 +207,7 @@ void stm32_cmsis_mock_reset(void)
     g_mock_quadspi_rx_fifo_idx = 0;
 
     /* §CoreDebug, §DWT, §SCB, cpu_hw counters */
+    g_mock_core_debug.DHCSR = 0;
     g_mock_core_debug.DEMCR = 0;
     g_mock_dwt.CTRL         = 0;
     g_mock_dwt.CYCCNT       = 0;
@@ -219,6 +222,7 @@ void stm32_cmsis_mock_reset(void)
     g_cpu_hw_system_reset_count = 0;
     g_cpu_hw_data_barrier_count = 0;
     g_cpu_hw_barriers_at_reset  = 0;
+    g_cpu_hw_debugger_attached  = false;
 
     /* §RTC */
     g_mock_rtc.TR    = 0;
@@ -319,6 +323,11 @@ void cpu_hw_breakpoint(void)
 void cpu_hw_data_barrier(void)
 {
     g_cpu_hw_data_barrier_count++;
+}
+
+bool cpu_hw_debugger_attached(void)
+{
+    return g_cpu_hw_debugger_attached;
 }
 
 void cpu_hw_system_reset(void)

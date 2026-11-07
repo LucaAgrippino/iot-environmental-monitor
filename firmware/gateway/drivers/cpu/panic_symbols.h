@@ -4,7 +4,7 @@
  *
  * The table itself (g_panic_symbols/g_panic_symbol_count/g_panic_files) is
  * generated at build time by scripts/gen-panic-symbols.py from
- * firmware/gateway/Debug/gateway.map — see
+ * the image map (gateway.map or field_device_app.map) — see
  * panic_symbols_data.c (gitignored, not this file). panic_symbol_lookup()
  * is hand-written and generic over any sorted table, specifically so it
  * stays unit-testable against a small fixture without needing the real,
@@ -14,6 +14,7 @@
 #ifndef PANIC_SYMBOLS_H
 #define PANIC_SYMBOLS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -34,6 +35,28 @@ typedef struct
 extern const panic_symbol_t g_panic_symbols[];
 extern const uint32_t g_panic_symbol_count;
 extern const char *const g_panic_files[];
+
+/** Address of cpu_panic() in the image the table was generated from (0 if there is no table). The
+ * table is only used when this equals the running cpu_panic(): a table from an earlier build has
+ * shifted addresses and would print wrong function names (cpu-driver.md CPU-O5). */
+extern const uint32_t g_panic_anchor_addr;
+
+/** End of the code (_etext) of the image the table was generated from. Any change in code size
+ * moves it, so it catches a table that is stale for functions after cpu_panic() as well. */
+extern const uint32_t g_panic_text_end;
+
+/**
+ * @brief Decide whether the generated table belongs to the running image.
+ *
+ * @param[in] anchor         g_panic_anchor_addr.
+ * @param[in] cpu_panic_addr Address of cpu_panic() in the running image (Thumb bit allowed).
+ * @param[in] text_end       g_panic_text_end.
+ * @param[in] etext_addr     Address of _etext in the running image.
+ * @param[in] count          g_panic_symbol_count.
+ * @return true when the table is non-empty and was generated from this image.
+ */
+bool panic_symbols_match(uint32_t anchor, uint32_t cpu_panic_addr, uint32_t text_end,
+                         uint32_t etext_addr, uint32_t count);
 
 /**
  * @brief Find the function symbol containing addr, if any.

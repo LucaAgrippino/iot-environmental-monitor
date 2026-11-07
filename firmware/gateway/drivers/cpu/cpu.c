@@ -5,6 +5,8 @@
  * Platform singleton — one MCU, one clock tree, one fault handler set.
  * Documented deviation from the Gateway ADT default (see LLD companion §0).
  *
+ * Implements REQ-NF-507 (design: docs/lld/drivers/cpu-driver.md).
+ *
  * Consumes: CMSIS register definitions (stm32l475xx.h) — nothing else.
  * No FreeRTOS headers are included in this file. The FreeRTOS hooks that
  * route through cpu_panic() (stack overflow, malloc failed) are added
@@ -56,8 +58,8 @@ enum
     REC_R12 = 12,
     REC_SOURCE = 13,
     REC_REASON_HASH = 14,
-    REC_RESERVED = 15,
-    REC_UPTIME_MS = 16,
+    REC_TIME = 15, /* RTC->TR: BCD hh:mm:ss, meaningful once TimeProvider has set the clock */
+    REC_DATE = 16, /* RTC->DR */
 };
 #define CPU_PANIC_UART_BAUD (115200U)
 
@@ -179,15 +181,26 @@ static void panic_uart_write_hex32(uint32_t value)
  * panic_symbol_lookup() itself has its own dedicated fixture-based unit
  * tests instead (tests/gateway/drivers/cpu/test_panic_symbols.c).
  */
+#ifndef TEST
+extern char _etext; /* end of code, from the linker script */
+#endif
+
 static void panic_uart_write_symbol(uint32_t addr)
 {
 #ifndef TEST
+    if (!panic_symbols_match(g_panic_anchor_addr, (uint32_t) (uintptr_t) &cpu_panic,
+                             g_panic_text_end, (uint32_t) (uintptr_t) &_etext,
+                             g_panic_symbol_count))
+    {
+        panic_uart_write_str(" (no symbols for this image)");
+        return;
+    }
     const panic_symbol_t *sym = panic_symbol_lookup(g_panic_symbols, g_panic_symbol_count, addr);
     if (sym != NULL)
     {
         panic_uart_write_str(" (");
         panic_uart_write_str(sym->name);
-        panic_uart_write_str("+0x");
+        panic_uart_write_str("+");
         panic_uart_write_hex32(addr - sym->addr);
         panic_uart_write_str(" ");
         panic_uart_write_str(g_panic_files[sym->file_index]);
@@ -291,19 +304,6 @@ static uint32_t djb2_hash(const char *str)
 }
 
 /* --------------------------------------------------------------------- */
-/* Private helpers — uptime estimate from DWT                             */
-/* --------------------------------------------------------------------- */
-
-static uint32_t uptime_ms(void)
-{
-    if (g_sysclk_hz == 0U)
-    {
-        return 0U;
-    }
-    return DWT->CYCCNT / (g_sysclk_hz / 1000U);
-}
-
-/* --------------------------------------------------------------------- */
 /* Private helpers — panic record write and emit                          */
 /* --------------------------------------------------------------------- */
 
@@ -340,8 +340,8 @@ static void write_panic_record(cpu_panic_source_t source, const char *reason, ui
 
     *panic_bkp(REC_SOURCE) = (uint32_t) source;
     *panic_bkp(REC_REASON_HASH) = djb2_hash(reason);
-    *panic_bkp(REC_RESERVED) = 0U;
-    *panic_bkp(REC_UPTIME_MS) = uptime_ms();
+    *panic_bkp(REC_TIME) = RTC->TR;
+    *panic_bkp(REC_DATE) = RTC->DR;
 
     /* Magic last: a partly written record is never reported. */
     *panic_bkp(REC_MAGIC) = CPU_PANIC_MAGIC;
@@ -427,6 +427,10 @@ static void check_panic_record(void)
     panic_uart_write_str("\r\nLR:     ");
     panic_uart_write_hex32(*panic_bkp(REC_LR));
     panic_uart_write_symbol(*panic_bkp(REC_LR));
+    panic_uart_write_str("\r\nTime:   ");
+    panic_uart_write_hex32(*panic_bkp(REC_TIME));
+    panic_uart_write_str(" ");
+    panic_uart_write_hex32(*panic_bkp(REC_DATE));
     panic_uart_write_str("\r\n-----------------------------------\r\n");
 
     /* Invalidate the record so it is not replayed on the next boot. */
@@ -580,6 +584,34 @@ _Noreturn void cpu_reset(void)
     CPU_HW_SYSTEM_RESET();
 }
 
+/** End of the panic: stop for an attached debugger (DEBUG build only), otherwise reset. A BKPT with
+ *  no debugger attached is itself a fault, so it is never executed blind (cpu-driver.md CPU-D3). */
+#ifdef TEST
+static void panic_end(bool report_written)
+#else
+static _Noreturn void panic_end(bool report_written)
+#endif
+{
+#ifdef DEBUG
+    if (CPU_HW_DEBUGGER_ATTACHED())
+    {
+        CPU_HW_BREAKPOINT();
+#ifdef TEST
+        return;
+#else
+        for (;;)
+        {
+        }
+#endif
+    }
+#endif
+    if (report_written)
+    {
+        panic_uart_drain(); /* do not cut the last bytes of the report */
+    }
+    CPU_HW_SYSTEM_RESET();
+}
+
 #ifdef TEST
 void cpu_panic(cpu_panic_source_t source, const char *reason)
 #else
@@ -588,12 +620,8 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
 {
     if (g_panic_active)
     {
-        /* Recursive fault — skip all output and go directly to halt/reset. A BKPT with no
-         * debugger attached is itself a fault, so it is DEBUG-only. */
-#ifdef DEBUG
-        CPU_HW_BREAKPOINT();
-#endif
-        CPU_HW_SYSTEM_RESET();
+        /* Fault inside the panic path: skip all output. */
+        panic_end(false);
 #ifdef TEST
         return;
 #endif
@@ -602,26 +630,16 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason)
     g_panic_active = true;
     CPU_HW_DISABLE_IRQ();
 
-    /* Capture hardware fault status registers. */
-    uint32_t cfsr = SCB->CFSR;
-    uint32_t hfsr = SCB->HFSR;
-    uint32_t bfar =
-        ((cfsr & CPU_CFSR_BFARVALID) != 0U) ? SCB->BFAR : 0U; /* BFAR is stale otherwise */
+    const uint32_t cfsr = SCB->CFSR;
+    const uint32_t hfsr = SCB->HFSR;
+    const uint32_t bfar =
+        ((cfsr & CPU_CFSR_BFARVALID) != 0U) ? SCB->BFAR : 0U; /* stale otherwise */
 
-    /* Persist the post-mortem record first: the UART is the part most likely to hang. */
+    /* Record first: the UART is the part most likely to hang. */
     write_panic_record(source, reason, cfsr, hfsr, bfar);
-
-    /* Emit diagnostic output over the one-shot panic UART. */
     emit_panic_uart(source, reason, cfsr, hfsr, bfar);
 
-#ifdef DEBUG
-    CPU_HW_BREAKPOINT();
-    for (;;)
-        ;
-#else
-    panic_uart_drain(); /* do not cut the last bytes of the report */
-    CPU_HW_SYSTEM_RESET();
-#endif
+    panic_end(true);
 }
 
 /* --------------------------------------------------------------------- */

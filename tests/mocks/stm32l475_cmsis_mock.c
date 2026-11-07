@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "stm32l475_cmsis_mock.h"
 
 /* ====================================================================== */
@@ -150,6 +151,7 @@ uint32_t g_cpu_hw_breakpoint_count;
 uint32_t g_cpu_hw_system_reset_count;
 uint32_t g_cpu_hw_data_barrier_count;
 uint32_t g_cpu_hw_barriers_at_reset;
+bool g_cpu_hw_debugger_attached;
 
 
 /* ====================================================================== */
@@ -203,6 +205,7 @@ void stm32l475_cmsis_mock_reset(void)
     g_mock_flash.ACR = 0;
 
     /* §CoreDebug */
+    g_mock_core_debug.DHCSR = 0;
     g_mock_core_debug.DEMCR = 0;
 
     /* §DWT */
@@ -354,6 +357,7 @@ void stm32l475_cmsis_mock_reset(void)
     g_cpu_hw_system_reset_count = 0;
     g_cpu_hw_data_barrier_count = 0;
     g_cpu_hw_barriers_at_reset  = 0;
+    g_cpu_hw_debugger_attached  = false;
 }
 
 
@@ -403,6 +407,11 @@ void cpu_hw_breakpoint(void)
 void cpu_hw_data_barrier(void)
 {
     g_cpu_hw_data_barrier_count++;
+}
+
+bool cpu_hw_debugger_attached(void)
+{
+    return g_cpu_hw_debugger_attached;
 }
 
 void cpu_hw_system_reset(void)

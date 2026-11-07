@@ -588,6 +588,17 @@ void test_TC_CPU_036_init_enables_the_configurable_fault_handlers(void)
                           g_mock_scb.SHCSR);
 }
 
+void test_TC_CPU_042_record_holds_the_rtc_time_and_date(void)
+{
+    g_mock_rtc.TR = 0x00123456U;
+    g_mock_rtc.DR = 0x00261107U;
+
+    cpu_panic(CPU_PANIC_USER, "time");
+
+    TEST_ASSERT_EQUAL_HEX32(0x00123456U, PANIC_REC(15));
+    TEST_ASSERT_EQUAL_HEX32(0x00261107U, PANIC_REC(16));
+}
+
 /* ===================================================================== */
 /* §7.5 Reset — TC-CPU-040                                              */
 /* ===================================================================== */

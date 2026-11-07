@@ -8,8 +8,9 @@
  *   MAIN=firmware/field-device/integration-tests/cpu/main_test_cpu.c \
  *   EXTRA_CFLAGS=-UDEBUG scripts/build-fd-app.sh --flash
  *
- * -UDEBUG gives the release behaviour (reset after a panic). With DEBUG a panic stops at a
- * breakpoint, which is the right behaviour under a debugger but ends the unattended run.
+ * Both builds run unattended: without a debugger a panic resets in DEBUG and release builds alike.
+ * -UDEBUG builds the release variant (step 6 checks that CPU_ASSERT compiles out). With a debugger
+ * attached a DEBUG build stops at the breakpoint instead (TC-HW-CPU-013, run by hand with openocd).
  *
  * Console: USART3 PB10 (ST-LINK virtual COM port), 115 200 8N1.
  *
@@ -23,11 +24,14 @@
  *   step 3  cpu_panic(CPU_PANIC_USER, ...)    expect User, no frame (PC 0x00000000)
  *   step 4  cpu_reset()                       expect NO post-mortem on the next boot
  *   step 5  task overruns its stack           expect StackOverflow, reason = the task name
- *   step 6  end
+ *   step 6  CPU_ASSERT(false)                 DEBUG: expect Assert; release: compiled out, then
+ * reset step 7  fault inside the panic path       expect a reset and NO post-mortem step 8  end
  *
  *   TC-HW-CPU-007  steps 0 to 3 print a report and the next boot prints a post-mortem
  *   TC-HW-CPU-008  step 4 leaves no post-mortem
+ *   TC-HW-CPU-009  step 6 (assert)
  *   TC-HW-CPU-010  step 5 goes through vApplicationStackOverflowHook
+ *   TC-HW-CPU-012  step 7 (nested fault does not loop)
  *   TC-HW-CPU-011  backup register 0 (TimeProvider's sync flag) holds its sentinel after every
  *                  panic reset
  */
@@ -40,6 +44,9 @@
 #include "cpu/cpu.h"
 #include "stm32f469xx.h"
 #include "system_clock.h"
+
+/* Not declared in cpu.h outside the host tests: the fault stubs reach it by name. */
+void cpu_fault_entry(uint32_t *frame, cpu_panic_source_t source);
 
 #define STEP_BKP_IDX (19U)
 #define STEP_MARKER (0x57E90000U)
@@ -166,6 +173,24 @@ static void trigger(uint32_t step)
                                  &s_ovf_tcb);
         vTaskStartScheduler();
         break;
+    case 6U:
+#ifdef DEBUG
+        puts_("[EXPECT] Assert, reason \"step == 99U @ ...\"\r\n");
+        drain();
+        CPU_ASSERT(step == 99U);
+#else
+        puts_("[EXPECT] assert compiled out in a release build, then a clean reset\r\n");
+        drain();
+        CPU_ASSERT(step == 99U);
+        cpu_reset();
+#endif
+        break;
+    case 7U:
+        puts_("[EXPECT] nested fault: the panic path faults, reset, NO post-mortem\r\n");
+        drain();
+        /* A frame pointer into reserved memory: the panic faults while it reads the frame. */
+        cpu_fault_entry((uint32_t *) RESERVED_ADDRESS, CPU_PANIC_USER);
+        break;
     default:
         break;
     }
@@ -200,7 +225,7 @@ int main(void)
     put_hex(step);
     puts_("]\r\n");
 
-    if (step >= 6U)
+    if (step >= 8U)
     {
         *bkp(STEP_BKP_IDX) = 0U; /* arm the next run */
         puts_("[PASS] sequence complete, no operator action was needed\r\n");

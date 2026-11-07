@@ -167,6 +167,10 @@
   :test_cpu_fd:
     - STM32F469xx
     - TEST
+  :test_cpu_debug_fd:
+    - STM32F469xx
+    - TEST
+    - DEBUG
   :test_spi_driver:
     - STM32L475xx
     - TEST

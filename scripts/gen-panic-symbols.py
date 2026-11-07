@@ -2,13 +2,15 @@
 """Generate panic_symbols_data.c from a GNU ld .map file.
 
 Usage: python3 gen-panic-symbols.py <map_path> <output_path>
+  Gateway:      gateway.map          -> firmware/gateway/drivers/cpu/panic_symbols_data.c
+  Field Device: field_device_app.map -> firmware/field-device/drivers/cpu/panic_symbols_data.c
 
 Parses every ".text.<name>" section GNU ld emits, keeping only sections
 that actually made it into the final image (non-zero address, non-zero
 size — a zero address means the linker garbage-collected it,
 --gc-sections). Emits a single C source defining a sorted-by-address
 panic_symbol_t table plus a deduplicated file-name table, consumed by
-firmware/gateway/drivers/cpu/cpu.c via panic_symbol_lookup()
+firmware/<board>/drivers/cpu/cpu.c via panic_symbol_lookup()
 (panic_symbols.h/panic_symbols.c — hand-written, not generated).
 
 Deliberately includes library/kernel symbols (FreeRTOS, mbedTLS,
@@ -74,8 +76,30 @@ def c_string_literal(s):
     return f'"{escaped}"'
 
 
-def render(entries):
+def short_object_name(objfile):
+    """The Field Device script names objects with their whole path; keep the file name only."""
+    return objfile.rsplit("/", 1)[-1] if objfile.startswith("/") else objfile
+
+
+ETEXT_RE = re.compile(r"^\s+(0x[0-9a-fA-F]+)\s+_etext = \.")
+
+
+def find_etext(text):
+    for line in text.splitlines():
+        m = ETEXT_RE.match(line)
+        if m is not None:
+            return int(m.group(1), 16)
+    raise SystemExit("[gen-panic-symbols] _etext not found in the map (is it a linked image?)")
+
+
+def render(entries, etext):
+    entries = [(a, s, n, short_object_name(o)) for a, s, n, o in entries]
     entries = sorted(entries, key=lambda e: e[0])
+    anchors = [e[0] for e in entries if e[2] == "cpu_panic"]
+    if len(anchors) != 1:
+        raise SystemExit("[gen-panic-symbols] cpu_panic not found exactly once in the map "
+                         f"(found {len(anchors)}): the staleness anchor needs it")
+    anchor = anchors[0]
 
     files = []
     file_index = {}
@@ -83,6 +107,9 @@ def render(entries):
         if objfile not in file_index:
             file_index[objfile] = len(files)
             files.append(objfile)
+
+    if len(files) > 256:
+        raise SystemExit(f"[gen-panic-symbols] {len(files)} object files: file_index is a uint8_t")
 
     lines = []
     lines.append("/**")
@@ -107,6 +134,13 @@ def render(entries):
     lines.append("")
     lines.append(f"const uint32_t g_panic_symbol_count = {len(entries)}u;")
     lines.append("")
+    lines.append("/* Address of cpu_panic() in this image: cpu.c uses the table only if it matches the")
+    lines.append(" * running cpu_panic() and _etext, so a table from an earlier build is never trusted. */")
+    lines.append(f"const uint32_t g_panic_anchor_addr = 0x{anchor:08x}u;")
+    lines.append("")
+    lines.append("/* End of code (_etext): any change in code size moves it. */")
+    lines.append(f"const uint32_t g_panic_text_end = 0x{etext:08x}u;")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -118,7 +152,7 @@ def main(map_path, output_path):
               f"is it a real, built gateway.map?", file=sys.stderr)
         sys.exit(1)
 
-    out_text = render(entries)
+    out_text = render(entries, find_etext(text))
     out = pathlib.Path(output_path)
     if out.exists() and out.read_text(encoding="utf-8") == out_text:
         return
@@ -130,6 +164,6 @@ def main(map_path, output_path):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print(f"usage: {sys.argv[0]} <gateway.map> <output.c>", file=sys.stderr)
+        print(f"usage: {sys.argv[0]} <image.map> <output.c>", file=sys.stderr)
         sys.exit(2)
     main(sys.argv[1], sys.argv[2])

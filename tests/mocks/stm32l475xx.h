@@ -270,8 +270,12 @@ extern FLASH_TypeDef g_mock_flash;
 
 typedef struct
 {
+    volatile uint32_t DHCSR; /**< Debug Halting Control and Status Register. */
     volatile uint32_t DEMCR; /**< Debug Exception and Monitor Control Register. */
 } CoreDebug_TypeDef;
+
+#define CoreDebug_DHCSR_C_DEBUGEN_Pos (0U)
+#define CoreDebug_DHCSR_C_DEBUGEN_Msk (1UL << CoreDebug_DHCSR_C_DEBUGEN_Pos)
 
 extern CoreDebug_TypeDef g_mock_core_debug;
 

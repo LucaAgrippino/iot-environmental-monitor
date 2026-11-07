@@ -46,15 +46,13 @@ typedef enum
  * @brief Initialise the fault diagnostics.
  *
  * Enables the Bus, Memory and Usage fault handlers (each fault then reaches its own vector),
- * enables the DWT cycle counter if it is off, then checks the RTC backup registers for a
- * post-mortem record from the previous boot. A valid record is printed on the debug UART pin
- * (USART3, PB10, 115 200 8N1, polled) and invalidated.
+ * then checks the RTC backup registers for a post-mortem record from the previous boot. A valid
+ * record is printed on the debug UART pin (USART3, PB10, 115 200 8N1, polled) and invalidated.
  *
  * Call it right after system_clock_init(): the baud rate assumes the 45 MHz APB1 clock.
  * Threading: once, from main(), before the scheduler.
  *
- * @return STATUS_OK on success.
- * @return STATUS_ERR_HW if the DWT cycle counter is not present.
+ * @return STATUS_OK (kept as status_t so the call matches the Gateway CpuDriver).
  */
 status_t cpu_init(void);
 
