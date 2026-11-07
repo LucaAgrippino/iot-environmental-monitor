@@ -85,3 +85,6 @@ docs/dev-tools/interview-tests/
 
 # CubeIDE headless build scratch (when invoked from /tmp)
 /.metadata/
+# Simulator: native build and rendered screenshots
+simulator/lcd-ui/build-native/
+simulator/lcd-ui/shots/
