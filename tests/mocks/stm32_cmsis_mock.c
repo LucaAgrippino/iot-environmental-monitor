@@ -89,6 +89,17 @@ LTDC_TypeDef g_mock_ltdc;
 /* ====================================================================== */
 
 EXTI_TypeDef g_mock_exti;
+CoreDebug_TypeDef g_mock_core_debug; /* CpuDriver */
+DWT_TypeDef g_mock_dwt;              /* CpuDriver */
+SCB_TypeDef g_mock_scb;              /* CpuDriver */
+
+/* CpuDriver hw-abstraction call counters (cpu_hw.h, TEST build). */
+uint32_t g_cpu_hw_disable_irq_count;
+uint32_t g_cpu_hw_breakpoint_count;
+uint32_t g_cpu_hw_system_reset_count;
+uint32_t g_cpu_hw_data_barrier_count;
+uint32_t g_cpu_hw_barriers_at_reset;
+
 IWDG_TypeDef g_mock_iwdg;
 DBGMCU_TypeDef g_mock_dbgmcu;
 
@@ -193,6 +204,22 @@ void stm32_cmsis_mock_reset(void)
     }
     g_mock_quadspi_rx_fifo_idx = 0;
 
+    /* §CoreDebug, §DWT, §SCB, cpu_hw counters */
+    g_mock_core_debug.DEMCR = 0;
+    g_mock_dwt.CTRL         = 0;
+    g_mock_dwt.CYCCNT       = 0;
+    g_mock_scb.CFSR         = 0;
+    g_mock_scb.HFSR         = 0;
+    g_mock_scb.BFAR         = 0;
+    g_mock_scb.MMFAR        = 0;
+    g_mock_scb.VTOR         = 0;
+    g_mock_scb.SHCSR        = 0;
+    g_cpu_hw_disable_irq_count  = 0;
+    g_cpu_hw_breakpoint_count   = 0;
+    g_cpu_hw_system_reset_count = 0;
+    g_cpu_hw_data_barrier_count = 0;
+    g_cpu_hw_barriers_at_reset  = 0;
+
     /* §RTC */
     g_mock_rtc.TR    = 0;
     g_mock_rtc.DR    = 0;
@@ -272,4 +299,30 @@ void NVIC_SetPriority(IRQn_Type irqn, uint32_t priority)
     {
         g_mock_nvic_priority[irqn] = priority;
     }
+}
+
+
+/* ====================================================================== */
+/* §CpuDriver hw-abstraction stub implementations (cpu_hw.h)              */
+/* ====================================================================== */
+
+void cpu_hw_disable_irq(void)
+{
+    g_cpu_hw_disable_irq_count++;
+}
+
+void cpu_hw_breakpoint(void)
+{
+    g_cpu_hw_breakpoint_count++;
+}
+
+void cpu_hw_data_barrier(void)
+{
+    g_cpu_hw_data_barrier_count++;
+}
+
+void cpu_hw_system_reset(void)
+{
+    g_cpu_hw_system_reset_count++;
+    g_cpu_hw_barriers_at_reset = g_cpu_hw_data_barrier_count;
 }

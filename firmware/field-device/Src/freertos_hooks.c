@@ -8,14 +8,14 @@
  * The timer task hook is omitted because configUSE_TIMERS = 0.
  *
  * configCHECK_FOR_STACK_OVERFLOW = 2 requires
- * vApplicationStackOverflowHook(); this implementation traps in a
- * tight loop so a debugger can inspect the offending task name.
+ * vApplicationStackOverflowHook(); it hands the task name to cpu_panic().
  */
 
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "stm32f469xx.h" /* for __disable_irq() */
+#include "cpu/cpu.h"
+#include "stm32f469xx.h"
 
 #include <stdint.h>
 
@@ -41,13 +41,9 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
     (void) xTask;
-    (void) pcTaskName;
-    /* A stack overflow is unrecoverable. Disable interrupts and spin so a
-     * debugger lands here with pcTaskName visible in the inspector. */
-    __disable_irq();
-    for (;;)
-    {
-    }
+    /* A stack overflow is unrecoverable: CpuDriver prints the task name, records it for the next
+     * boot and resets (DEBUG: halts for the debugger). cpu-driver.md CPU-D6. */
+    cpu_panic(CPU_PANIC_STACK_OVERFLOW, pcTaskName);
 }
 
 
