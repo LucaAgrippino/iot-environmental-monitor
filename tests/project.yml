@@ -39,6 +39,7 @@
     - -:gateway/drivers/bootloader/**
     - -:gateway/drivers/watchdog_driver/**
     - -:gateway/drivers/cpu/**
+    - -:gateway/drivers/adc/**
     - -:gateway/drivers/reset_driver/**
     - -:gateway/drivers/wifi_driver/**
     - gateway/middleware/mqtt_client/**
@@ -60,6 +61,7 @@
     - -:../firmware/gateway/drivers/imu_driver/**
     - -:../firmware/gateway/drivers/watchdog_driver/**
     - -:../firmware/gateway/drivers/cpu/**
+    - -:../firmware/gateway/drivers/adc/**
     - -:../firmware/gateway/drivers/reset_driver/**
     - -:../firmware/gateway/drivers/wifi_driver/**
     - -:../firmware/**/Debug/**

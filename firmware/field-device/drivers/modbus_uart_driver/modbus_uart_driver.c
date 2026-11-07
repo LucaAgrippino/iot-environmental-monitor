@@ -258,6 +258,11 @@ void modbus_uart_attach_rx(modbus_uart_rx_cb_t callback, void *context)
     NVIC_EnableIRQ(MBUART_IRQN);
 }
 
+/** Default: spin. An image with a scheduler overrides it with a sleep (see the header). */
+__attribute__((weak)) void modbus_uart_wait_hook(void)
+{
+}
+
 modbus_uart_err_t modbus_uart_transmit(const uint8_t *frame, uint16_t len)
 {
     if (s_modbus_uart.tx_busy)
@@ -274,6 +279,7 @@ modbus_uart_err_t modbus_uart_transmit(const uint8_t *frame, uint16_t len)
 
         while (!(MBUART_READ_STATUS() & MBUART_STATUS_TXE))
         {
+            modbus_uart_wait_hook();
             if (s_modbus_uart.get_ms != NULL)
             {
                 if ((s_modbus_uart.get_ms() - t0) >= MODBUS_UART_TXE_TIMEOUT_MS)
@@ -298,6 +304,7 @@ modbus_uart_err_t modbus_uart_transmit(const uint8_t *frame, uint16_t len)
 
         while (!(MBUART_READ_STATUS() & MBUART_STATUS_TC))
         {
+            modbus_uart_wait_hook();
             if (s_modbus_uart.get_ms != NULL)
             {
                 if ((s_modbus_uart.get_ms() - t0) >= MODBUS_UART_TXE_TIMEOUT_MS)

@@ -11,6 +11,13 @@
 #   --flash   program the STM32F469I-DISCO with openocd (ST-LINK on the board) and reset it
 #   MAIN      source file to use instead of Src/main.c, e.g. an integration-tests/<module>/*main.c bring-up
 #             harness (it is built with all product sources; output stays in Debug/app)
+#   GUI       1 = also build the display stack: LcdUi, LcdDriver, SdramDriver, TouchscreenDriver and
+#             GraphicsLibrary, with LVGL (vendor/lvgl, a submodule), ST's BSP/HAL and the fonts, and
+#             defines FD_WITH_GUI: the product Src/main.c then brings the display up, shows the boot
+#             splash and runs the UI task (the touch controller shares I2C1, a mutex serialises it).
+#             Without GUI the image has no display, and CubeIDE's Debug configuration excludes the
+#             display modules too. With MAIN=firmware/field-device/integration-tests/<module>/
+#             test_<module>_main.c the harness replaces Src/main.c (FD_WITH_GUI is then unused).
 #   ST_SERIAL ST-LINK serial number to use when several boards are attached (ls /dev/serial/by-id)
 set -euo pipefail
 
@@ -36,7 +43,14 @@ common=(-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -std=gnu11 -g
   -I"$cmsis/Device/ST/STM32F4xx/Include" -I"$cmsis/Core/Include" -I"$fd/../shared"
   ${EXTRA_CFLAGS:-})
 
-mapfile -t layer_srcs < <(find "$fd/application" "$fd/drivers" "$fd/middleware" -name '*.c' | sort)
+gui_excl=(-not -path '*/lcd_ui/*' -not -path '*/lcd_driver/*' -not -path '*/sdram_driver/*'
+  -not -path '*/touchscreen_driver/*' -not -path '*/graphics_library/*')
+if [[ "${GUI:-0}" == 1 ]]; then
+    [[ -f "$v/lvgl/lvgl.h" ]] || { echo "vendor/lvgl is empty: git submodule update --init vendor/lvgl" >&2; exit 1; }
+    mapfile -t layer_srcs < <(find "$fd/application" "$fd/drivers" "$fd/middleware" -name '*.c' | sort)
+else
+    mapfile -t layer_srcs < <(find "$fd/application" "$fd/drivers" "$fd/middleware" -name '*.c' "${gui_excl[@]}" | sort)
+fi
 project_srcs=(
   "${MAIN:-$fd/Src/main.c}" "${layer_srcs[@]}"
   "$fd/Src/freertos_hooks.c" "$fd/Src/syscalls.c" "$fd/Src/sysmem.c" "$fd/Src/system_clock.c"
@@ -45,11 +59,40 @@ project_srcs=(
   "$v/freertos-kernel/queue.c" "$v/freertos-kernel/stream_buffer.c" "$v/freertos-kernel/tasks.c"
   "$v/freertos-kernel/timers.c" "$v/freertos-kernel/portable/GCC/ARM_CM4F/port.c")
 
+# The display stack: project sources are built with the strict flags above, ST's and LVGL's sources
+# (third party, not pedantic-clean) with the same flags minus -pedantic and with their include paths.
+vendor_srcs=()
+gui_inc=()
+if [[ "${GUI:-0}" == 1 ]]; then
+    f4="$v/stm32/f469-disco"
+    gui_inc=(-DUSE_HAL_DRIVER -DUSE_STM32469I_DISCOVERY
+      -I"$fd/drivers/lcd_driver/bsp_shims"            # first: shadows ST's SDRAM BSP
+      -I"$f4/Drivers/BSP/STM32469I-Discovery" -I"$f4/Drivers/BSP/Components/Common"
+      -I"$f4/Drivers/BSP/Components/otm8009a" -I"$f4/Drivers/BSP/Components/nt35510"
+      -I"$f4/Drivers/STM32F4xx_HAL_Driver/Inc" -I"$f4/Utilities/Fonts"
+      -I"$fd/middleware/graphics_library" -I"$v/lvgl" -I"$v/lvgl/src")
+    mapfile -t vendor_srcs < <(
+      find "$v/lvgl/src" -name '*.c' | sort
+      find "$f4/Drivers/STM32F4xx_HAL_Driver/Src" -name '*.c' ! -name '*_template.c' | sort
+      echo "$f4/Drivers/BSP/STM32469I-Discovery/stm32469i_discovery.c" # OTM8009A_IO_Delay, NT35510_IO_Delay
+      echo "$f4/Drivers/BSP/STM32469I-Discovery/stm32469i_discovery_lcd.c"
+      echo "$f4/Drivers/BSP/Components/otm8009a/otm8009a.c"
+      echo "$f4/Drivers/BSP/Components/nt35510/nt35510.c")
+    # The fonts (Utilities/Fonts/font*.c) are #included by stm32469i_discovery_lcd.c itself.
+    common+=("${gui_inc[@]}" -DFD_WITH_GUI)
+fi
+vendor_flags=()
+for f in "${common[@]}"; do [[ "$f" == -pedantic || "$f" == -pedantic-errors ]] || vendor_flags+=("$f"); done
+
 fail=0
 pids=()
-for src in "${project_srcs[@]}"; do
+for src in "${project_srcs[@]}" "${vendor_srcs[@]}"; do
     obj="$out/$(echo "${src#"$root"/}" | tr '/' '_').o"
-    ( arm-none-eabi-gcc "${common[@]}" -O0 -c "$src" -o "$obj" 2> "$obj.log" \
+    flags=("${common[@]}")
+    [[ "$src" == "$v"/* && "$src" != "$v/freertos-kernel/"* && "$src" != "$cmsis"/* ]] && flags=("${vendor_flags[@]}")
+    opt=-O0
+    [[ "$src" == "$v/lvgl/"* ]] && opt=-O2 # LVGL renders a frame in a fraction of the time at -O2
+    ( arm-none-eabi-gcc "${flags[@]}" $opt -c "$src" -o "$obj" 2> "$obj.log" \
         || { cat "$obj.log" >&2; echo "FAILED: $src" >&2; exit 1; } ) &
     pids+=($!)
     if (( ${#pids[@]} >= $(nproc) )); then

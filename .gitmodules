@@ -7,3 +7,7 @@
 [submodule "vendor/mbedtls"]
 	path = vendor/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "vendor/lvgl"]
+	path = vendor/lvgl
+	url = https://github.com/lvgl/lvgl.git
+	branch = release/v8.3

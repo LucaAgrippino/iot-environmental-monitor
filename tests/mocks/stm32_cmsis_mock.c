@@ -243,6 +243,8 @@ void stm32_cmsis_mock_reset(void)
     g_mock_ltdc.IER = 0;
     g_mock_ltdc.ISR = 0;
     g_mock_ltdc.ICR = 0;
+    g_mock_ltdc.SRCR = 0;
+    g_mock_ltdc.LIPCR = 0;
 
     /* §SYSCFG */
     g_mock_syscfg.MEMRMP = 0;

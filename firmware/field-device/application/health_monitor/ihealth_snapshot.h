@@ -126,6 +126,12 @@ typedef struct
 
     /* ── RTOS task stack watermarks ── */
     uint16_t stack_watermark_words[HEALTH_TASK_COUNT];
+
+    /* ── Resources (REQ-CC-010, REQ-LD-070) ── */
+    uint8_t cpu_load_pct;    /**< 0-100: share of run time not spent in the idle task. */
+    uint32_t free_ram_bytes; /**< RAM no static object owns (the image has no heap, P5). */
+    bool mcu_temp_valid;     /**< mcu_temp_deci_c holds a reading. */
+    int16_t mcu_temp_deci_c; /**< MCU die temperature in 0.1 degC. */
 } device_health_snapshot_t;
 
 /* ======================================================================= */

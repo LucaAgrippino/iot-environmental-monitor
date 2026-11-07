@@ -100,6 +100,22 @@ health_monitor_err_t
 health_monitor_update_stack_watermarks(const uint16_t watermarks[HEALTH_TASK_COUNT]);
 
 /**
+ * @brief Record the CPU load, the free RAM and the MCU temperature (REQ-CC-010).
+ *
+ * Called by the housekeeping loop of main.c, which owns the sources (the run-time counters of
+ * FreeRTOS, the linker symbols and AdcDriver), so this module stays free of all three.
+ *
+ * @param  cpu_load_pct    0-100; larger values are clamped to 100.
+ * @param  free_ram_bytes  RAM not claimed by any static object.
+ * @param  temp_valid      false when the temperature could not be read: the snapshot then keeps
+ *                         mcu_temp_valid false instead of showing a stale value.
+ * @param  temp_deci_c     MCU temperature in 0.1 degC; ignored when temp_valid is false.
+ * @return HEALTH_MONITOR_ERR_OK on success; HEALTH_MONITOR_ERR_NOT_INIT before init.
+ */
+health_monitor_err_t health_monitor_update_resources(uint32_t cpu_load_pct, uint32_t free_ram_bytes,
+                                                     bool temp_valid, int16_t temp_deci_c);
+
+/**
  * @brief Get a copy of the current health snapshot.
  *
  * Thread-safe. Acquires mutex; copies the entire snapshot; releases mutex.

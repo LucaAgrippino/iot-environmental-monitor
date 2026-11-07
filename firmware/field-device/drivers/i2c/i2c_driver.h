@@ -64,6 +64,15 @@ typedef enum
 i2c_err_t i2c_init(void);
 
 /**
+ * @brief Bus lock hooks, called around every transfer.
+ *
+ * The defaults (weak) do nothing. An image where a second task uses the bus (the touch controller
+ * shares I2C1 with the sensors) defines both with a mutex; the lock is held for one transfer.
+ */
+void i2c_bus_lock(void);
+void i2c_bus_unlock(void);
+
+/**
  * @brief Perform a write-only I2C transaction.
  *
  * Generates START → address (write) → data bytes → STOP.
