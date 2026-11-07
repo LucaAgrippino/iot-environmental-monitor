@@ -1,0 +1,208 @@
+id,method,level,board,automation,means,expectation,requirement
+REQ-SA-000,T,S,FD,A,"set the polling interval, reset, the console shows it",-,The system shall read the polling interval configuration from flash during startup
+REQ-SA-010,T,S,FD,A,"erase the ConfigStore, boot: the interval is 1 s",-,The system shall use default polling interval of 1 second if the configuration reading fails
+REQ-SA-020,T,U,BOTH,A,host tests: default ranges when the configuration read fails,-,The system shall use default sensor minimum and maximum values if the configuration reading fails
+REQ-SA-030,T,S,FD,A,"boot log: temperature, humidity and pressure initialised","RK: LCD-O8, are the Field Device sensors real or simulated","The system shall initialise the field node sensor simulation: temperature, humidity, and pressure with default parameters during startup."
+REQ-SA-031,T,S,GW,A,boot log: all six sensor channels initialised,-,"The system shall initialise the gateway node sensors: temperature, humidity, pressure, accelerometer, gyroscope and magnetometer with manufacturer default settings during startup"
+REQ-SA-040,T,U,BOTH,A,host test: a failing driver init logs an error,-,The system shall log an error message if a sensor fails its initialisation
+REQ-SA-050,T,U,BOTH,A,host tests: filter defaults when the configuration read fails,-,The system shall use default filter parameters if configuration reading fails
+REQ-SA-060,T,U,BOTH,A,"host tests: one failed sensor, the others keep running",-,The system shall continue operation with available sensors if one or more sensors fail to initialise.
+REQ-SA-070,T,S,FD,A,console `sensors` updates at the configured interval,-,"The system shall read temperature, humidity, and pressure sensors on the field device at configurable"
+REQ-SA-071,T,S,GW,A,console shows six channels updating at the configured interval,-,"The system shall read temperature, humidity, pressure, accelerometer, gyroscope and magnetometer sensors on the gateway device at configurable polling interval"
+REQ-SA-080,T,U,BOTH,A,host test: a read failure logs the error code,-,The system shall log the error code if a sensor read operation fails
+REQ-SA-090,T,U,BOTH,A,host tests: last validated value and the filter state are held,-,"The system shall hold the latest validated reading per sensor together with the IIR filter state. (The figure of 10 samples is the filter window of REQ-SA-140, not a stored buffer; stored history is REQ-SA-180..-240.)"
+REQ-SA-100,T,S,BOTH,A,"timestamp present in the snapshot, the register map and the telemetry payload",-,The system shall store a timestamp with each sensor measurement
+REQ-SA-110,T,S,GW,A,a periodic and a remote-read value pass the same filter,-,The system shall apply the same processing pipeline to both periodic and on-demand sensor readings
+REQ-SA-120,T,U,BOTH,A,host tests: range validation,-,The system shall validate that the acquired value is within the configured sensor range
+REQ-SA-130,T,U,BOTH,A,host tests: clamping to the range boundary,-,The system shall clamp out-of-range readings to the nearest range boundary
+REQ-SA-140,T,U,BOTH,A,"host tests: first-order IIR, alpha 0.1, step response",-,"The system shall filter each sensor measurement using a first-order IIR low-pass filter with smoothing factor α = 0.1, yielding a time constant of approximately 9 seconds at the 1 Hz default polling rate (REQ-NF-110)."
+REQ-SA-150,T,I,FD,A,the register map value equals the value on the LCD,-,The system shall make processed sensor data available for Modbus register access and LCD display
+REQ-SA-175,T,U,BOTH,A,host tests: a failed read marks the reading invalid,-,The system shall mark the sensor value as invalid if sensor reading fails.
+REQ-SA-170,T,S,GW,A,control `read` over MQTT triggers an extra read and a result,-,The system shall perform an additional sensor read upon receiving a remote read request
+REQ-SA-180,T,U,FD,A,host tests: rolling history of validated readings per channel,-,"The system shall maintain a rolling in-memory history of validated sensor readings for each environmental channel (temperature, humidity, pressure)"
+REQ-SA-190,T,U,FD,A,host tests: window of 5 minutes,-,The history shall span a window of 5 minutes
+REQ-SA-200,T,U,FD,A,host tests: fixed 5 s sampling independent of the polling rate,-,"The history shall be sampled at a fixed interval of 5 seconds, independent of the configured polling rate"
+REQ-SA-210,T,U,FD,A,host tests: 60 entries per channel,-,The history shall retain 60 entries per channel
+REQ-SA-220,T,U,FD,A,"host tests: value, validity flag and timestamp per entry",-,"Each history entry shall include the measurement value, its validity flag, and its acquisition timestamp"
+REQ-SA-230,T,U,FD,A,"host tests and inspection: RAM only, cleared by reset",-,The history shall be stored in volatile memory only and shall be cleared on every reset
+REQ-SA-240,T,U,FD,A,host tests: a stale reading is recorded invalid,-,"When the latest validated reading for a channel is older than the history sampling interval, the system shall record the entry as invalid"
+REQ-AM-000,T,S,BOTH,A,set a threshold below the value: the alarm is raised,-,The system shall compare sensor measurements with configured alarm thresholds
+REQ-AM-010,T,S,BOTH,A,restore the threshold: the alarm clears,-,The system shall clear existing alarm if the current measurement is within the configured alarm thresholds
+REQ-AM-011,T,U,BOTH,A,host tests: hysteresis on clear,-,The system shall apply configurable hysteresis when clearing alarms to prevent flapping. The hysteresis value is expressed in the same engineering unit and scale as the corresponding alarm threshold (as encoded in `modbus-register-map.md` §6.4). Default: 0 (disabled). Configurable range: 0 to the absolute difference between the configured HIGH and LOW threshold values for that channel.
+REQ-AM-020,T,S,BOTH,A,an alarm notification is produced for an out-of-range value,-,The system shall trigger an alarm notification if the sensor measurement is out of range
+REQ-AM-030,T,S,SYS,A,the alarm event reaches the broker,-,The system shall send alarm notification to AWS IoT Core
+REQ-AM-040,T,S,GW,A,"payload fields: sensor, type, value, threshold, timestamp",-,"The system shall include in each alarm notification: sensor ID, alarm type (high/low), measured value, threshold value, timestamp, and device ID"
+REQ-LD-000,D,S,FD,S,tap through the five screens,-,"The system shall provide navigation between sensor readings, sensor trend, system status, system configuration, and alarm screens on the LCD"
+REQ-LD-010,T,S,FD,A,framebuffer of the Sensors screen against the golden image,-,"The system shall display the most recent temperature, humidity, and pressure readings on the LCD"
+REQ-LD-020,T,S,FD,A,the header clock equals the reading time (framebuffer),-,The system shall display the timestamp of the most recent reading on the LCD
+REQ-LD-030,T,S,FD,A,units visible on the Sensors screen (framebuffer),-,The system shall display the measurement unit for each sensor reading on the LCD
+REQ-LD-040,T,S,FD,S,an invalid sensor shows the error state,RK: needs a forced sensor fault,The system shall display an error indicator for any sensor whose reading is marked as invalid
+REQ-LD-050,T,S,FD,A,values differ between two framebuffer captures,-,The system shall update the displayed sensor values whenever new sensor data is available from the sensor acquisition pipeline. See REQ-NF-108 for the LCD hardware frame refresh rate.
+REQ-LD-060,T,S,FD,A,"""waiting for data"" visible right after boot",RK: timing,"The system shall display a ""waiting for data"" message on the LCD until the first sensor reading is available"
+REQ-LD-070,T,S,FD,A,Status screen lists the resources (framebuffer),-,"The system shall display a system status screen which lists: stack high watermarks, free TLS arena (the only dynamic memory, REQ-NF-408), CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy"
+REQ-LD-080,T,S,FD,A,raise an alarm: the Alarms screen lists it with its time,-,The system shall display an alarm screen which lists all active alarms with their timestamp
+REQ-LD-090,T,S,FD,A,no alarm: the empty-state message,-,The system shall display a message on the alarm screen if no alarms are detected
+REQ-LD-100,T,S,FD,A,Config screen lists the polling rate and the thresholds,-,The system shall display a configuration screen which lists these user configurable parameters: polling rate and alarm thresholds
+REQ-LD-110,T,S,FD,S,an out-of-range entry shows an error and blocks APPLY,-,The system shall validate each input value against a configurable acceptable range
+REQ-LD-120,D,S,FD,S,APPLY opens the confirmation,-,The system shall request confirmation from the Field Technician before applying changes
+REQ-LD-130,T,S,FD,S,"CONFIRM applies the change, `config list` shows it",-,The system shall apply the change if a confirmation is received
+REQ-LD-140,T,U,FD,A,host tests: previous values kept until all are applied,-,The system shall retain the previous configuration until all new parameters are successfully applied
+REQ-LD-155,T,S,FD,S,CANCEL and the 30 s timeout discard the edits,-,The system shall discard all the input parameters if no confirmation is received.
+REQ-LD-150,T,S,FD,S,"CONFIRM, reset, the value persists",-,The system shall save the parameters to persistent memory when they are successfully applied.
+REQ-LD-160,T,S,FD,A,Trend screen against the golden image,-,"The system shall provide a sensor trend screen on the LCD displaying the rolling history for temperature, humidity, and pressure"
+REQ-LD-170,T,S,FD,A,after 5 minutes the chart spans the window,-,The trend screen shall span the full 5-minute history window on its time axis
+REQ-LD-180,T,S,FD,A,the chart changes when a sample is added,-,The trend screen shall refresh when a new history sample becomes available
+REQ-LD-190,T,S,FD,S,an invalid sample is a gap in the chart,RK: needs a forced sensor fault,The trend screen shall indicate invalid history entries as gaps in the plotted series
+REQ-LD-195,T,S,FD,A,"""accumulating"" indicator right after boot",-,"The trend screen shall display a ""history accumulating"" indicator until the buffer holds at least one valid entry per channel"
+REQ-LD-200,T,S,FD,A,splash visible during boot and gone at Operational,RK: timing,"The system shall display a splash screen on the LCD during the boot phase, from the moment the LCD is initialised until the system reaches the operational state."
+REQ-LD-210,T,S,FD,A,the progress bar is on the splash (framebuffer),-,The system shall include a progress bar on the splash screen indicating boot progression.
+REQ-LD-220,T,S,FD,A,"the bar advances 10, 30, 55, 80, 100 per step",RK: timing,The system shall update the splash screen progress bar at the completion of each Init sub-step.
+REQ-LD-230,T,S,FD,A,the step names are shown,RK: timing,The system shall display the current Init sub-step name in human-readable form on the splash screen.
+REQ-LD-240,T,S,FD,A,the firmware version is shown,-,The system shall display the firmware version number on the splash screen.
+REQ-LD-250,T,S,FD,A,LED pin levels read over SWD in each state,-,The system shall use the on-board status LEDs to provide a visual indication of its operational state.
+REQ-LD-260,T,S,FD,A,green LED on in Operational,-,The green LED shall be illuminated when the system is in Operational state.
+REQ-LD-270,T,S,FD,A,green LED off in a fault state,-,The green LED shall not be illuminated when the system is in Error state.
+REQ-LD-280,T,S,FD,A,red LED on while an alarm is active,-,The red LED shall be illuminated when at least one alarm is active. *(Field Device only — the Gateway has no red LED.)*
+REQ-LI-000,T,S,BOTH,A,connect with the documented serial parameters,-,The system shall provide a serial console interface accessible to the Field Technician. The connection parameters are:
+REQ-LI-010,T,S,BOTH,A,"run each Appendix A command, expect an answer",-,The system shall receive a diagnostic command from the command set in Appendix A and execute it
+REQ-LI-020,T,S,BOTH,A,the result of each diagnostic is displayed,-,The system shall display the result of the diagnostic
+REQ-LI-030,T,S,GW,A,the provisioning menu is reachable,-,The system shall provide a provisioning menu accessible via the CLI.
+REQ-LI-040,T,S,GW,A,"`prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them",KG: accepted but never stored or used (GCS-O4),The system shall receive the WiFi credentials
+REQ-LI-050,T,S,GW,A,"`prov set mqtt-endpoint`, reset: the endpoint is used",-,The system shall receive the cloud endpoint
+REQ-LI-060,T,S,GW,A,provision the certificates over the console,"KG: not implemented (CS-O6, GCS-O5)",The system shall receive the cloud certificates
+REQ-LI-070,T,S,BOTH,A,`prov set modbus-addr` takes effect,-,The system shall receive the Modbus address
+REQ-LI-080,T,S,GW,A,`prov set modbus-baud` and `modbus-parity` take effect,KG: not configurable (GCS-O5),The system shall receive the serial port parameters
+REQ-LI-090,T,S,BOTH,A,bad format and out-of-range values are refused,-,The system shall validate the format and the range of the input values
+REQ-LI-100,T,S,BOTH,A,a change asks for confirmation,-,The system shall request confirmation from the Field Technician before applying changes
+REQ-LI-110,T,S,BOTH,A,a confirmed change is applied,-,The system shall apply the change if a confirmation is received
+REQ-LI-120,T,S,BOTH,A,the previous value stays until all new values are applied,-,The system shall retain the previous configuration until all new parameters are successfully applied
+REQ-LI-130,T,S,BOTH,A,`selftest` runs,-,The system shall provide a board self-test command via the CLI
+REQ-LI-140,T,S,BOTH,A,the self-test reports pass or fail,-,The system shall report the self-test result as pass/fail
+REQ-LI-150,T,S,BOTH,A,`serial` prints the MCU serial number,-,The system shall read and display the device serial number
+REQ-LI-160,T,S,GW,A,the last self-test result survives a reset,KG: not persisted (GCS-O6),The system shall store the most recent board self-test
+REQ-LI-170,T,S,BOTH,A,a failing diagnostic prints an error,-,The system shall display an error message if the diagnostic command fails.
+REQ-LI-180,T,S,BOTH,A,a rejected value prints the problem,-,The system shall display an error message with the problem if the input validation fails.
+REQ-LI-190,T,S,BOTH,A,no confirmation: the input is discarded,-,The system shall discard all the input parameters if no confirmation is received.
+REQ-MB-000,T,S,FD,A,a register changes when a measurement is ready,-,The system shall update Modbus register when a new sensor measurement is available
+REQ-MB-010,T,S,SYS,A,the Gateway reads the sensor registers of the Field Device,-,The system shall read sensor data from the field device via Modbus read input registers
+REQ-MB-020,T,S,SYS,A,the time write reaches the Field Device,-,The system shall write the updated time to the field node using Modbus holding register
+REQ-MB-030,T,S,SYS,A,line parameters measured with the RS-485 probe,-,The system shall communicate via Modbus RTU at:
+REQ-MB-040,T,I,SYS,A,function codes seen on the line with the probe,-,The system shall support Modbus function codes:
+REQ-MB-050,T,S,SYS,A,no slave: the request times out after 200 ms,-,The system shall timeout a Modbus request after 200 milliseconds with no response
+REQ-MB-060,T,S,SYS,A,a failed transaction is sent 4 times,-,The system shall retry a failed Modbus request up to 3 times after the initial request (4 total transmissions per transaction) before declaring that transaction failed. See REQ-NF-103.
+REQ-MB-070,I,S,BOTH,R,the register map in the code equals modbus-register-map.md,-,"The system shall implement a register map specifying the address, data type, and access mode for all exchanged data, as specified in `modbus-register-map.md`."
+REQ-MB-080,T,S,SYS,A,a remote command arrives in the holding registers,-,The system shall receive remote commands from the gateway and write them to the appropriate Modbus holding registers on the field device.
+REQ-MB-090,T,S,SYS,A,the command result returns to the cloud,-,The system shall read the command execution result from the field device via Modbus and return it to the cloud.
+REQ-MB-100,T,U,GW,A,host tests: several slave addresses,-,The system shall support addressing multiple field devices
+REQ-MB-110,T,I,GW,A,"`profiles add`, list, remove",-,"The system shall maintain a configurable registry of device profiles, one entry per expected field device"
+REQ-MB-111,T,I,GW,A,a profile needs its mandatory fields,-,The system shall require each device profile to specify:
+REQ-MB-120,T,S,SYS,A,a wrong device identifier is rejected at link establishment,-,"The system shall verify the device identifier returned by a Modbus slave against the profile bound to its address during link establishment, and shall reject mismatches"
+REQ-MB-130,T,S,SYS,A,a profile mismatch is logged with identifier and address,-,"The system shall log device-profile validation failures, including the offending device identifier and the slave address"
+REQ-MB-140,T,S,GW,A,a malformed remote command is rejected and logged,-,The system shall reject a remote command with an unrecognised format and log the error.
+REQ-CC-000,T,S,SYS,A,telemetry on the broker at the configured period,-,"The system shall publish periodically to the cloud the most recent sensor measurements (temperature, humidity, pressure, accelerometer, gyroscope, magnetometer) with timestamps"
+REQ-CC-010,T,S,SYS,A,health payload fields,-,"The system shall publish to the cloud the most recent device health metrics: stack high watermarks, free TLS arena (the only dynamic memory, REQ-NF-408), CPU load, WiFi RSSI, reconnection count, MQTT failure count, Modbus CRC/timeout/success counts, uptime, MCU temperature, buffer occupancy"
+REQ-CC-020,T,S,SYS,A,the alarm notification is published,-,The system shall publish to the cloud the alarm notification
+REQ-CC-030,T,S,SYS,A,change the telemetry interval by console and by cloud command,-,"The system shall publish sensor telemetry at a configurable interval, adjustable locally via the serial console and remotely via cloud command."
+REQ-CC-040,T,S,SYS,A,change the health interval by console and by cloud command,-,"The system shall publish device health data at a configurable interval, adjustable locally via the serial console and remotely via cloud command."
+REQ-CC-050,T,S,SYS,A,TLS 1.2 with a client certificate is accepted by the broker,-,The system shall connect to AWS IoT Core using MQTT over TLS with X.509 certificate authentication
+REQ-CC-060,T,S,SYS,A,"stop the broker, restart it, the device reconnects",-,The system shall reconnect automatically if the MQTT connection is lost
+REQ-CC-070,T,S,SYS,A,every payload parses as JSON,-,The system shall use JSON format for all MQTT payloads
+REQ-CC-071,T,S,SYS,A,every payload has a schema version,-,The system shall include a schema version identifier in all MQTT payloads.
+REQ-CC-080,T,S,SYS,A,"telemetry, alarms and health use separate topics",-,"The system shall use separate MQTT topics for telemetry, alarms, and device health data"
+REQ-CC-090,T,S,SYS,A,the serial number is in every payload,-,The system shall include the device serial number
+REQ-SA-160,T,S,GW,A,telemetry of an invalid channel carries the error flag,RK: needs a forced sensor fault,The system shall publish sensor data marked as invalid to the cloud with an error flag. *(Relocated from §2.1 Sensor Acquisition — this is a cloud publication responsibility.)*
+REQ-TS-000,T,S,GW,A,the time updates at boot and periodically,-,"The system shall update the internal time during the boot and periodically every 3600 seconds thereafter (default; configurable, see REQ-NF-210). Basis: TIME_SERVICE_NTP_INTERVAL_S_DEFAULT; a 32.768 kHz crystal at ±20 ppm drifts about 72 ms per hour, so the default keeps the RTC well inside one second. The drift itself has not been measured on the boards."
+REQ-TS-010,T,S,GW,A,NTP synchronisation from the configured server list,-,"The system shall synchronise time using NTP, with a configurable list of NTP servers"
+REQ-TS-020,T,S,GW,A,the RTC keeps the time across a reset,-,The system shall update the RTC with the synchronised time
+REQ-TS-030,T,S,SYS,A,the Field Device clock receives the time on connection,-,The system shall write the current time to the field device via Modbus holding register on initial connection and at regular intervals.
+REQ-TS-040,T,S,GW,A,without NTP the data is flagged unsynchronised,-,"The system shall use uptime-based timestamps and flag data as ""unsynchronised"" if NTP synchronisation has not been completed."
+REQ-TS-050,T,S,GW,A,restore the network: the time update is retried,-,The system shall retry to get the time update as soon as the internet connection is restored.
+REQ-TS-060,T,S,SYS,A,unplug and replug RS-485: the time is written again,-,The system shall retry writing the synchronised time to the field device via Modbus as soon as Modbus connectivity to the field device is restored. (Covers UC-13 exception E2 — field-node disconnected during time-write step.)
+REQ-DM-000,T,S,SYS,A,a parameter change by cloud command is accepted,-,The system shall accept operational parameter changes from the Remote Operator via cloud command
+REQ-DM-001,T,S,SYS,A,an invalid parameter change is refused,-,The system shall validate remote parameter changes before applying them.
+REQ-DM-002,T,S,SYS,A,a confirmation or rejection is sent to the cloud,-,The system shall send a confirmation or rejection response to the cloud after processing a remote parameter change.
+REQ-DM-010,T,S,SYS,A,the remote restart command restarts the device,-,The system shall execute remote restart command
+REQ-DM-020,T,S,SYS,A,no confirmation: the restart is cancelled,-,The system shall request confirmation from the Remote Operator before executing a restart and shall cancel the restart if no confirmation arrives within 30 seconds
+REQ-DM-021,T,S,SYS,A,a declined confirmation cancels the restart,-,The system shall cancel the restart if the Remote Operator declines confirmation
+REQ-DM-030,T,S,SYS,A,restart success is reported after the self-check,-,The system shall report restart success after reboot and self-check
+REQ-DM-040,T,S,SYS,A,the self-check verifies sensors and links,-,"The system shall complete a self-check after restart, verifying sensor initialisations and communication links"
+REQ-DM-050,T,S,GW,A,the firmware downloads over MQTT/TLS,-,The system shall download the firmware image from the authenticated cloud source via the existing MQTT/TLS channel.
+REQ-DM-051,T,S,GW,A,a download resumes at the interruption point,-,The system shall resume a firmware download from the point of interruption if the connection is restored.
+REQ-DM-052,T,S,GW,A,3 consecutive failures discard the partial image,-,The system shall discard the partially downloaded firmware image if the download fails after 3 consecutive retries.
+REQ-DM-053,T,S,GW,A,a download failure logs an error,-,The system shall log an error if the firmware image download fails
+REQ-DM-054,T,S,GW,A,a second update command is refused while one runs,-,The system shall reject a new update command if one is in progress
+REQ-DM-055,T,S,GW,A,the update result is reported,-,The system shall report the update result to the cloud
+REQ-DM-056,T,S,GW,A,an update command from a wrong source is refused,-,The system shall only accept firmware update commands from an authenticated source
+REQ-DM-060,T,S,GW,A,"a bad size, format or header is rejected",-,"The system shall validate the firmware image (size, format, and header integrity, excluding cryptographic verification — see REQ-DM-080)."
+REQ-DM-061,T,S,GW,A,a failed validation restores the current firmware,-,The system shall discard the firmware update process and restore the current firmware if the firmware validation fails
+REQ-DM-062,T,S,GW,A,a failed validation logs an error,-,The system shall log an error if the firmware image validation fails
+REQ-DM-070,T,S,GW,A,the inactive bank becomes the boot bank,-,The system shall set the newly written firmware partition (inactive bank) as the active boot partition.
+REQ-DM-071,T,S,GW,A,the new firmware runs a self-check,-,The system shall trigger a self-check validation on the new firmware
+REQ-DM-072,T,S,GW,A,a failed self-check rolls back,-,The system shall rollback the previous firmware image if the self-check fails
+REQ-DM-073,T,S,GW,A,the current image is kept until the self-check passes,-,The system shall retain the current firmware image until the success of the self-check validation
+REQ-DM-074,I,S,GW,R,dual-bank partitions per the layout document,-,The system shall maintain a dual-bank partition scheme to enable firmware rollback
+REQ-DM-080,T,S,GW,A,a wrong signature is refused,-,The system shall verify the cryptographic signature of the firmware image before applying the update
+REQ-DM-090,T,S,BOTH,A,every change survives a reset,-,The system shall persist all configuration changes to non-volatile storage
+REQ-DM-100,T,S,GW,A,a profile update by console and by remote configuration,-,The system shall accept device-profile updates via the provisioning mechanism (UC-16) and via remote configuration (UC-15)
+REQ-DM-101,T,S,GW,A,a changed profile re-probes the slave,-,The system shall trigger re-probing of an affected slave when its device profile is added or updated at runtime
+REQ-BF-000,T,S,GW,A,cut the network: messages are buffered in flash,-,"The system shall buffer all outbound cloud messages (telemetry, alarms, device health) in non-volatile storage when internet connectivity is lost"
+REQ-BF-010,T,S,GW,A,restore the network: delivered in order,-,The system shall publish buffered messages in chronological order when connectivity is restored
+REQ-BF-020,T,S,GW,A,more than 254 buffered entries: the oldest are dropped,-,"The system shall discard the oldest buffered messages when the buffer reaches its maximum capacity of 254 entries (SAF_CAPACITY: one entry per 4 KB sector of the CircularFlashLog data ring, worst case)"
+REQ-NF-100,T,S,BOTH,A,worst polling cycle measured against 100 ms,-,"The system shall complete a full sensor polling cycle (read all sensors, timestamp, queue data) within 100 ms"
+REQ-NF-101,T,S,BOTH,A,alarm detected within one cycle,-,The system shall detect an alarm condition within one polling cycle of the threshold being exceeded
+REQ-NF-102,T,S,BOTH,A,alarm cleared within one cycle,-,The system shall clear an alarm condition within one polling cycle of the measurement being in the range
+REQ-NF-103,T,S,SYS,A,3 failed transactions declare the link failed,-,"The system shall declare Modbus communication link failure after 3 consecutive failed transactions, where each failed transaction comprises 1 initial request plus up to 3 retries (REQ-MB-060) with no valid response received within the 200 ms per-attempt timeout (REQ-MB-050). See REQ-MB-060."
+REQ-NF-104,T,S,SYS,A,3 good responses declare it restored,-,The system shall declare Modbus communication restored after 3 consecutive successful responses
+REQ-NF-105,T,S,SYS,A,200 ms response timeout measured with the probe,-,The system shall consider a Modbus request failed if no response is received within 200 ms of transmission.
+REQ-NF-106,T,S,GW,A,a message is queued within 200 ms of the data,-,The system shall queue an MQTT message for publication within 200 ms of data being ready
+REQ-NF-107,T,S,GW,A,a remote command starts within 500 ms,-,The system shall begin executing a received remote command within 500 ms of receipt
+REQ-NF-108,T,S,FD,A,LCD refresh rate measured,"RK: UI task runs every 40 ms, the value refresh every 200 ms",The system shall use a refresh rate of 5Hz for the field node LCD
+REQ-NF-109,T,S,BOTH,A,hang the sensor task: watchdog reset after 10 s,-,The system shall use a system watchdog of 10 seconds.
+REQ-NF-110,T,S,SYS,A,default polling frames at 1 Hz on the line,-,The system shall poll the field node at default polling rate of 1Hz
+REQ-NF-111,T,S,SYS,A,telemetry period 60 s,-,The system shall publish the sensor measurements to AWS IoT Core each 60 seconds (default; see REQ-CC-030).
+REQ-NF-112,T,S,SYS,A,health period 5 min,-,The system shall publish the health data to AWS IoT Core each 5 minutes (default; see REQ-CC-040). Source: vision §5.8.
+REQ-NF-113,T,S,SYS,A,alarm latency at most 500 ms (the Raspberry Pi bench),-,The system shall publish the alarm notification to AWS IoT Core within 500 ms since their detection
+REQ-NF-114,T,S,BOTH,A,"100 ms and 10 s accepted, outside refused",-,"The system shall use a polling rate within the range 0.1 Hz (minimum, 10 s period) and 10 Hz (maximum, 100 ms period). (Lower bound: minimum meaningful environmental sampling interval; upper bound: REQ-NF-100 sensor-cycle budget.)"
+REQ-NF-200,T,S,GW,A,network off: sensors and alarms keep running,-,The system shall continue local sensor acquisition and alarm evaluation when internet connectivity is lost
+REQ-NF-201,T,S,SYS,A,a short bus interruption recovers without a restart,-,The system shall recover Modbus communication automatically after a transient bus error without requiring a restart
+REQ-NF-202,T,S,BOTH,A,watchdog reset: Operational within 5 s,-,The system shall restart and resume normal operation within 5 seconds after a watchdog reset. See REQ-NF-203.
+REQ-NF-203,T,S,BOTH,A,normal reset: Operational within 5 s,-,The system shall restart and resume normal operation within 5 seconds after a normal reset. See REQ-NF-202.
+REQ-NF-204,T,S,GW,A,a failed update rolls back within 10 s,-,The system shall roll back to the previous firmware and resume normal operation within 10 seconds if a firmware update fails post-installation
+REQ-NF-205,T,U,BOTH,A,host tests: a failed sensor is reinitialised,-,The system shall recover from a sensor failure by reinitialising the failed sensor.
+REQ-NF-206,T,S,SYS,A,telemetry is published with QoS 0,-,The system shall use MQTT QoS 0 for publishing sensor telemetry
+REQ-NF-207,T,S,SYS,A,alarms are published with QoS 1,-,The system shall use MQTT QoS 1 for publishing alarm notifications
+REQ-NF-208,T,U,BOTH,A,host tests: the error indicator value,-,The system shall substitute a defined error indicator value for any sensor that fails to provide a reading
+REQ-NF-209,T,S,GW,A,"reconnect after 2 s, doubling to 60 s",-,"The system shall start reconnecting within 2 seconds of detecting a connection loss on the WiFi layer or the MQTT layer, shall double the interval between consecutive failed attempts up to a maximum of 60 seconds, shall retry indefinitely, and shall return to the 2 second start interval after a successful connection."
+REQ-NF-210,T,S,GW,A,"RTC resync period, configurable from the console",-,The system shall synchronise the RTC every 3600 seconds by default; the interval shall be configurable from the console (`ntp-interval-min`). See REQ-TS-000.
+REQ-NF-211,T,S,SYS,A,the Field Device time is written after each NTP sync,-,"The system shall write the time to the field node after every successful NTP synchronisation (3600 seconds by default, REQ-NF-210) and whenever the Modbus link to the field node comes up."
+REQ-NF-212,T,S,GW,A,covered by TS-040,-,See REQ-TS-040. *(Requirement text retained in REQ-TS-040 as the authoritative functional-section entry; this entry retained for ID continuity.)*
+REQ-NF-213,T,S,BOTH,A,power-on to Operational within 10 s,-,The system shall reach normal operational state within 10 seconds of power-on.
+REQ-NF-214,T,S,GW,S,power cut during a flash write: the device recovers,RK: needs a controlled power cut,"The system shall recover to a known-good state if power is lost during a flash write operation (configuration save, buffer write, or firmware update)"
+REQ-NF-215,T,S,SYS,A,3 missed polls: the node is reported offline,-,"The system shall report a ""node offline"" status to the AWS IoT Core when no Modbus response is received for 3 consecutive polls"
+REQ-NF-216,T,S,SYS,A,health is published with QoS 0,-,The system shall use MQTT QoS 0 for publishing device health data
+REQ-NF-300,T,S,SYS,A,TLS 1.2 or higher on the wire,-,The system shall encrypt all communication with AWS IoT Core using TLS 1.2 or higher
+REQ-NF-301,T,S,SYS,A,the client certificate is required and checked,-,The system shall authenticate to AWS IoT Core using X.509 client certificates
+REQ-NF-302,I,S,GW,R,inspect storage: no plaintext passphrase or private key,"RK: depends on the provisioning back-end (LI-040, LI-060)",The system shall not store provisioning credentials (WiFi passphrase and X.509 private key) in plaintext.
+REQ-NF-303,I,S,BOTH,R,"no network console in the code, UART only",-,The system shall restrict CLI access to physical serial connections only
+REQ-NF-304,T,S,GW,A,an image with a wrong signature is refused,-,The system shall cryptographically verify firmware images before installation
+REQ-NF-305,T,S,GW,A,a plain-TCP broker is refused,-,The system shall reject any unencrypted connection to cloud services
+REQ-NF-306,T,S,SYS,A,Tier 1 parameters are refused over the cloud,-,The system shall restrict Tier 1 configuration parameters to local serial access only
+REQ-NF-307,T,S,SYS,A,a restart without confirmation does nothing,-,The system shall require a pre-execution confirmation response before executing potentially disruptive Tier 3 commands (specifically: the remote restart command — see UC-17 and REQ-DM-020).
+REQ-NF-308,T,S,SYS,A,an acknowledgement follows a non-disruptive command,-,The system shall send a post-execution acknowledgement response to the cloud after executing a non-disruptive Tier 3 command (specifically: on-demand sensor read — see UC-14).
+REQ-NF-400,A,S,GW,A,linker output: RAM within 128 KB,RK: 1 224 B spare,The system shall operate within the 128 KB SRAM of the B-L475E-IOT01A
+REQ-NF-401,A,S,GW,A,linker output: flash within 1 MB,-,The system shall operate within the 1 MB FLASH of the B-L475E-IOT01A
+REQ-NF-402,A,S,GW,A,QSPI map: all regions within 8 MB,-,The system shall operate within the 8 MB QUAD-SPI FLASH of the B-L475E-IOT01A
+REQ-NF-403,A,S,FD,A,linker output: RAM within 320 KB,-,The system shall operate within the 320+4 KB SRAM of the STM32F469 Discovery
+REQ-NF-404,A,S,FD,A,linker output: flash within 2 MB,-,The system shall operate within the 2 MB FLASH of the STM32F469 Discovery
+REQ-NF-405,A,S,FD,A,QSPI map: all regions within 16 MB,-,The system shall operate within the 16 MB QUAD-SPI FLASH of the STM32F469 Discovery
+REQ-NF-406,A,S,GW,A,log partition size at most 3 MB,-,The system shall allocate no more than 3 MB of non-volatile storage for diagnostic logs on the gateway (CircularFlashLog partition — see `flash-partition-layout.md`). The field device has no diagnostic log buffer in v1.0.
+REQ-NF-407,A,S,GW,A,buffer partition size at most 4 MB,-,The system shall allocate no more than 4 MB of non-volatile storage for buffered outbound sensor measurements on the gateway (StoreAndForward / CircularFlashLog). The field device has no store-and-forward buffer (see vision §5.9).
+REQ-NF-408,A,S,BOTH,A,no malloc or free call reachable in the image (symbol check),-,The system shall not use dynamic memory allocation (malloc/free) after initialisation completes
+REQ-NF-500,T,S,BOTH,A,"log lines carry level, time and module",-,"The system shall log diagnostic events with severity level, timestamp, and source module identifier"
+REQ-NF-501,I,S,FD,A,the HAL check script and the include rule,-,The system shall enforce a layered architecture where no module above the driver layer imports vendor-specific headers
+REQ-NF-502,I,S,BOTH,R,clang-format and cppcheck in CI plus a BARR-C review,RK: no full review done yet,The system shall be implemented in conformance with the project's BARR-C:2018 subset coding standard.
+REQ-NF-503,T,S,BOTH,A,the version via the console and in the health message,-,The system shall report its firmware version via the CLI and in cloud health messages
+REQ-NF-504,D,S,BOTH,A,trace output on the debug channel,-,The system shall provide a diagnostic output channel for runtime tracing and debugging
+REQ-NF-505,I,S,BOTH,R,"run Doxygen, read the warnings",RK: never run,The system shall include Doxygen-compatible documentation comments for all public API functions
+REQ-NF-506,I,S,BOTH,R,review of the interfaces plus the HAL check,-,The system shall expose vendor-neutral interfaces to the middleware and application layers
+REQ-NF-507,T,S,BOTH,A,fault injection: the cause is reported at the next start,-,"On a processor fault, a failed assertion or a task stack overflow the system shall record the cause and the processor state in memory that survives a reset, write a report on the diagnostic output, and restart; the next start shall report the recorded cause once. Restart time is bound by REQ-NF-203."
