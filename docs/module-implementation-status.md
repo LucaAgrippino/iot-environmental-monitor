@@ -29,7 +29,7 @@ Hardware columns come from the bench results recorded during the project; where 
 
 | Module | Hardware validation (per project record) | Notes |
 |---|---|---|
-| CpuDriver | harness exists | Platform singleton, not an ADT |
+| CpuDriver | ✅ TC-HW-CPU-007/008/011 on both boards, 010 on the Field Device (2026-11-07) | Platform singleton, not an ADT. Panic record, report and fault stubs on both boards (the Field Device has the panic subset); LLD `cpu-driver.md`. The Gateway fault stubs reported the wrong PC before this change |
 | DebugUartDriver | harness exists | |
 | GpioDriver | harness exists | |
 | ExtiDriver | harness exists | |
