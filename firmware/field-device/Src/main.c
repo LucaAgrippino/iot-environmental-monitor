@@ -205,20 +205,38 @@ static void sensor_task(void *arg)
 /* Boot progress for the splash (a no-op in images without the display stack)  */
 /* ----------------------------------------------------------------------- */
 
-/* Boot progress (splash.html: the bar advances per sub-step, with the step name) */
-#define BOOT_PCT_DISPLAY (25U)
-#define BOOT_PCT_SENSORS (55U)
-#define BOOT_PCT_SENSORS_DONE (80U)
-#define BOOT_PCT_READY (100U)
-
-static void boot_progress(uint8_t percent, const char *step)
+/* Boot steps shown on the splash (splash.html: the bar advances per sub-step, with the name).
+ * The boot reaches them in this order; the UI task shows each for at least GUI_STEP_MS, so the
+ * steps stay readable even though the real boot takes about a second. */
+typedef enum
 {
-#ifdef FD_WITH_GUI
-    lcd_ui_set_boot_progress(percent, step);
-#else
-    (void) percent;
-    (void) step;
-#endif
+    BOOT_STEP_DISPLAY = 0,
+    BOOT_STEP_CONFIG,
+    BOOT_STEP_SENSORS,
+    BOOT_STEP_SENSORS_DONE,
+    BOOT_STEP_READY,
+    BOOT_STEP_COUNT
+} boot_step_t;
+
+static const struct
+{
+    uint8_t percent;
+    const char *name;
+} k_boot_steps[BOOT_STEP_COUNT] = {
+    {10U, "Initialising display..."},  {30U, "Loading configuration..."},
+    {55U, "Initialising sensor bus..."}, {80U, "Sensors ready"},
+    {100U, "System ready"},
+};
+
+/** Highest step the real boot has reached (written by the boot code, read by the UI task). */
+static volatile uint32_t s_boot_reached;
+
+static void boot_reached(boot_step_t step)
+{
+    if ((uint32_t) step > s_boot_reached)
+    {
+        s_boot_reached = (uint32_t) step;
+    }
 }
 
 static bool wait_sensors_ready(void)
@@ -236,9 +254,9 @@ static bool wait_sensors_ready(void)
 
 static sensor_service_err_t lc_sensors_init(void)
 {
-    boot_progress(BOOT_PCT_SENSORS, "Initialising sensor bus...");
+    boot_reached(BOOT_STEP_SENSORS);
     const bool ok = wait_sensors_ready();
-    boot_progress(BOOT_PCT_SENSORS_DONE, ok ? "Sensors ready" : "Sensors not ready");
+    boot_reached(BOOT_STEP_SENSORS_DONE);
     return ok ? SENSOR_SERVICE_ERR_OK : SENSOR_SERVICE_ERR_NOT_INIT;
 }
 
@@ -387,13 +405,10 @@ static TaskStatus_t s_load_status[LOAD_MAX_TASKS];
 #define GUI_TASK_STACK_WORDS (2048U)
 /** Period of graphics_process() plus lcd_ui_tick(): the touch response and the blink phases. */
 #define GUI_PERIOD_MS (40U)
-/** The splash stays this long after "System ready" so that the 100 % is seen. */
+/** Each splash step is shown at least this long (the first frames render slowly at -O0 too). */
+#define GUI_STEP_MS (700U)
+/** The splash stays this long at 100 % before the screens appear. */
 #define GUI_SPLASH_HOLD_MS (800U)
-/** The splash is shown at least this long from the start of the UI task: the first frame takes
- *  over a second to render at -O0, and the boot itself is shorter than that. */
-#define GUI_SPLASH_MIN_MS (3000U)
-/** After a start-up fault the splash is removed sooner to show the status pill and banner. */
-#define GUI_SPLASH_FAULT_HOLD_MS (2000U)
 
 static StackType_t s_gui_stack[GUI_TASK_STACK_WORDS] __attribute__((aligned(8)));
 static StaticTask_t s_gui_tcb;
@@ -418,54 +433,66 @@ void i2c_bus_unlock(void)
     }
 }
 
-/** The UI task: drives LVGL and ends the splash once the lifecycle is Operational or Faulted. */
+/** The UI task: drives LVGL and walks the splash through the boot steps. The screens appear only
+ *  after the splash has shown 100 %; a start-up fault ends it early to show the status. */
 static void gui_task(void *arg)
 {
     (void) arg;
     TickType_t last_wake = xTaskGetTickCount();
-    uint32_t hold_ms = 0U;
-    uint32_t shown_ms = 0U;
-    bool finishing = false;
+    uint32_t shown = 0U;       /* splash step on screen */
+    uint32_t step_ms = 0U;     /* time it has been on screen */
+    uint32_t hold_ms = 0U;     /* time left at 100 % or after a fault */
+    bool ending = false;
     bool dismissed = false;
+
+    lcd_ui_set_boot_progress(k_boot_steps[0].percent, k_boot_steps[0].name);
 
     for (;;)
     {
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(GUI_PERIOD_MS));
-        (void) graphics_process();
+        /* tick first: the splash request is carried out before the first frame is drawn */
         lcd_ui_tick();
-        shown_ms += GUI_PERIOD_MS;
+        (void) graphics_process();
 
         if (dismissed)
         {
             continue;
         }
-        if (!finishing)
+        step_ms += GUI_PERIOD_MS;
+
+        if (lifecycle_controller->get_state() == LIFECYCLE_STATE_OPERATIONAL)
         {
-            const lifecycle_state_t st = lifecycle_controller->get_state();
-            if (st == LIFECYCLE_STATE_OPERATIONAL)
+            boot_reached(BOOT_STEP_READY);
+        }
+        if (!ending && (lifecycle_controller->get_state() == LIFECYCLE_STATE_FAULTED))
+        {
+            lcd_ui_set_boot_progress(k_boot_steps[shown].percent, "Start-up fault");
+            ending = true;
+            hold_ms = GUI_SPLASH_HOLD_MS;
+        }
+
+        if (!ending && (shown < s_boot_reached) && (step_ms >= GUI_STEP_MS))
+        {
+            shown++;
+            step_ms = 0U;
+            lcd_ui_set_boot_progress(k_boot_steps[shown].percent, k_boot_steps[shown].name);
+            if (shown == (BOOT_STEP_COUNT - 1U))
             {
-                boot_progress(BOOT_PCT_READY, "System ready");
-                finishing = true;
-                hold_ms = GUI_SPLASH_HOLD_MS;
-            }
-            else if (st == LIFECYCLE_STATE_FAULTED)
-            {
-                boot_progress(BOOT_PCT_SENSORS, "Start-up fault");
-                finishing = true;
-                hold_ms = GUI_SPLASH_FAULT_HOLD_MS;
+                ending = true;
+                hold_ms = GUI_SPLASH_HOLD_MS + GUI_STEP_MS; /* the 100 % is seen first */
             }
         }
-        else if ((hold_ms > GUI_PERIOD_MS) || (shown_ms < GUI_SPLASH_MIN_MS))
+        if (ending)
         {
             if (hold_ms > GUI_PERIOD_MS)
             {
                 hold_ms -= GUI_PERIOD_MS;
             }
-        }
-        else
-        {
-            lcd_ui_dismiss_splash();
-            dismissed = true;
+            else
+            {
+                lcd_ui_dismiss_splash();
+                dismissed = true;
+            }
         }
     }
 }
@@ -485,7 +512,6 @@ static void gui_bring_up(void)
         return;
     }
     lcd_ui_show_splash();
-    boot_progress(BOOT_PCT_DISPLAY, "Initialising display...");
     (void) xTaskCreateStatic(gui_task, "LcdUiTask", GUI_TASK_STACK_WORDS, NULL, GUI_TASK_PRIORITY,
                              s_gui_stack, &s_gui_tcb);
 }
@@ -602,6 +628,7 @@ int main(void)
 #ifdef FD_WITH_GUI
     gui_bring_up();
 #endif
+    boot_reached(BOOT_STEP_CONFIG);
     {
         config_blob_t blob;
         uint32_t len = 0U;

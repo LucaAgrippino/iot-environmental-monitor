@@ -260,6 +260,7 @@ uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const health_snapshot
             "\"buffer_entry_count\":%lu,\"buffer_overflow_count\":%lu,"
             "\"ntp_sync_fail_count\":%lu,\"last_ntp_sync_epoch\":%lu,"
             "\"cpu_load_pct\":%u,\"arena_min_free_bytes\":%lu,"
+            "\"free_ram_bytes\":%lu,\"mcu_temp_valid\":%s,\"mcu_temp_deci_c\":%d,"
             "\"stack_free_words\":[",
             (unsigned long) snap->modbus_transactions_ok, (unsigned long) snap->modbus_timeouts,
             snap->modbus_link_online ? "true" : "false", (unsigned long) snap->mqtt_publishes_sent,
@@ -267,7 +268,9 @@ uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const health_snapshot
             (long) snap->wifi_rssi_dbm, snap->cloud_connected ? "true" : "false",
             (unsigned long) snap->buffer_entry_count, (unsigned long) snap->buffer_overflow_count,
             (unsigned long) snap->ntp_sync_fail_count, (unsigned long) snap->last_ntp_sync_epoch,
-            (unsigned) snap->cpu_load_pct, (unsigned long) snap->arena_min_free_bytes);
+            (unsigned) snap->cpu_load_pct, (unsigned long) snap->arena_min_free_bytes,
+            (unsigned long) snap->free_ram_bytes, snap->mcu_temp_valid ? "true" : "false",
+            (int) snap->mcu_temp_deci_c);
 
     const uint32_t tasks = prv_stack_count(snap);
 

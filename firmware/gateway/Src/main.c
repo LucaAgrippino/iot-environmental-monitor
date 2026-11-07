@@ -301,6 +301,10 @@ static const char *const s_health_task_names[] = {"lifecycle", "SensorTask",    
 
 /* CPU load over the last RSSI period, from the idle task's share of the run-time counter, and the
  * TLS arena headroom, for the health message (REQ-CC-010). */
+/** End of .bss and top of RAM, from the linker script. */
+extern uint32_t _end;
+extern uint32_t _estack;
+
 static void feed_resources(void)
 {
     static uint32_t s_prev_idle;
@@ -333,6 +337,7 @@ static void feed_resources(void)
     int16_t temp_deci_c = 0;
     const bool temp_ok = (adc_read_mcu_temp_deci_c(&temp_deci_c) == ADC_OK);
     (void) health_monitor_update_mcu_temp(s_hm, temp_ok, temp_deci_c);
+    (void) health_monitor_update_free_ram(s_hm, (uint32_t) ((uintptr_t) &_estack - (uintptr_t) &_end));
 }
 
 static void register_health_tasks(void)
