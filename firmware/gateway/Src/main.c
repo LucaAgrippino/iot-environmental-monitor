@@ -37,6 +37,7 @@
 #include "circular_flash_log/circular_flash_log.h"
 #include "cloud_publisher/cloud_publisher.h"
 #include "config_service/config_service.h"
+#include "cert_store/cert_store.h"
 #include "config_store/config_store.h"
 #include "console_service/console_service.h"
 #include "adc/adc.h"
@@ -80,6 +81,55 @@
 #endif
 #include "bringup_certs.h"
 #include "bringup_secrets.h"
+
+/* ---- WiFi credentials and the X.509 identity (REQ-LI-040, REQ-LI-060)
+ * ---------------------------- The provisioned values (console, CertStore) are used when they
+ * exist; otherwise the build-time bring-up values stay in force, so a board that was never
+ * provisioned still works. */
+static const char *wifi_ssid(void)
+{
+    return cert_store_has_wifi() ? cert_store_ssid() : BRINGUP_WIFI_SSID;
+}
+
+static const char *wifi_password(void)
+{
+    return cert_store_has_wifi() ? cert_store_password() : BRINGUP_WIFI_PASSWORD;
+}
+
+static int prov_set_wifi(const char *ssid, const char *pass)
+{
+    return (cert_store_set_wifi(ssid, pass) == CERT_STORE_OK) ? 0 : 1;
+}
+
+static int prov_set_item(uint8_t item, const uint8_t *der, uint32_t len)
+{
+    const cert_store_err_t err = cert_store_set_item((cert_store_item_t) item, der, len);
+
+    return (err == CERT_STORE_OK)
+               ? 0
+               : ((err == CERT_STORE_ERR_TOO_BIG) ? 1 : ((err == CERT_STORE_ERR_FORMAT) ? 2 : 3));
+}
+
+static int prov_clear(void)
+{
+    return (cert_store_clear() == CERT_STORE_OK) ? 0 : 1;
+}
+
+static bool prov_has_wifi(void)
+{
+    return cert_store_has_wifi();
+}
+
+static bool prov_identity_complete(void)
+{
+    return cert_store_identity_complete();
+}
+
+static const console_prov_store_t s_prov_store = {.set_wifi = prov_set_wifi,
+                                                  .set_item = prov_set_item,
+                                                  .clear = prov_clear,
+                                                  .has_wifi = prov_has_wifi,
+                                                  .identity_complete = prov_identity_complete};
 
 /* ---------------------------------------------------------------------- */
 /* Board constants                                                         */
@@ -432,7 +482,7 @@ static bool join_access_point(wifitask_handle_t wifitask)
 
     for (unsigned attempt = 1U; (attempt <= JOIN_ATTEMPTS) && (join != WIFITASK_ERR_OK); attempt++)
     {
-        join = wifitask_connect_ap(wifitask, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+        join = wifitask_connect_ap(wifitask, wifi_ssid(), wifi_password());
         LOG_INFO("Main", "join attempt %u of %u -> %d", attempt, (unsigned) JOIN_ATTEMPTS,
                  (int) join);
         if (join != WIFITASK_ERR_OK)
@@ -477,8 +527,7 @@ static const char *prepare_connect(void)
         return s_broker_ip;
     }
     LOG_WARN("Main", "broker name did not resolve, joining the access point again");
-    const wifitask_err_t join =
-        wifitask_connect_ap(s_wifitask, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    const wifitask_err_t join = wifitask_connect_ap(s_wifitask, wifi_ssid(), wifi_password());
 
     LOG_INFO("Main", "rejoin -> %d", (int) join);
     if ((join == WIFITASK_ERR_OK) && resolve_once())
@@ -507,8 +556,7 @@ static const char *prepare_connect(void)
     {
         return NULL;
     }
-    const wifitask_err_t again =
-        wifitask_connect_ap(s_wifitask, BRINGUP_WIFI_SSID, BRINGUP_WIFI_PASSWORD);
+    const wifitask_err_t again = wifitask_connect_ap(s_wifitask, wifi_ssid(), wifi_password());
 
     LOG_INFO("Main", "join after reset -> %d", (int) again);
     return ((again == WIFITASK_ERR_OK) && resolve_once()) ? s_broker_ip : NULL;
@@ -596,18 +644,34 @@ static void boot_task(void *arg)
         halt_with("time_service_init");
     }
 
+    /* The provisioned identity when all three parts are stored, else the build-time one. */
+    const bool own_identity = cert_store_identity_complete();
+    uint32_t ca_len = (uint32_t) sizeof(s_bringup_ca_cert_der);
+    uint32_t cl_len = (uint32_t) sizeof(s_bringup_client_cert_der);
+    uint32_t key_len = (uint32_t) sizeof(s_bringup_client_key_der);
+    const uint8_t *ca_der = s_bringup_ca_cert_der;
+    const uint8_t *cl_der = s_bringup_client_cert_der;
+    const uint8_t *key_der = s_bringup_client_key_der;
+
+    if (own_identity)
+    {
+        ca_der = cert_store_item(CERT_STORE_CA, &ca_len);
+        cl_der = cert_store_item(CERT_STORE_CLIENT, &cl_len);
+        key_der = cert_store_item(CERT_STORE_KEY, &key_len);
+    }
+
     /* D-7: connect to the resolved address, check the certificate against the endpoint's name. */
     const mqtt_connect_cfg_t connect_cfg = {
         .broker_endpoint = s_broker_ip,
         .tls_server_name = BRINGUP_CERTS_BROKER_ENDPOINT,
         .broker_port = 8883U,
         .client_id = NULL, /* GM-O19: CloudPublisher uses the CPU unique id */
-        .client_cert_der = s_bringup_client_cert_der,
-        .client_cert_len = sizeof(s_bringup_client_cert_der),
-        .client_key_der = s_bringup_client_key_der,
-        .client_key_len = sizeof(s_bringup_client_key_der),
-        .ca_cert_der = s_bringup_ca_cert_der,
-        .ca_cert_len = sizeof(s_bringup_ca_cert_der),
+        .client_cert_der = cl_der,
+        .client_cert_len = cl_len,
+        .client_key_der = key_der,
+        .client_key_len = key_len,
+        .ca_cert_der = ca_der,
+        .ca_cert_len = ca_len,
         .keep_alive_s = MQTT_KEEP_ALIVE_S,
     };
 
@@ -744,6 +808,9 @@ int main(void)
     {
         spin_forever();
     }
+    /* WiFi credentials and certificates provisioned from the console; empty means build-time ones
+     */
+    (void) cert_store_init(qspi_flash_driver, (const uint8_t *) UID_BASE);
 
     /* Sensors and alarms are initialised before the scheduler (SS-D9). */
     if ((i2c_driver->init() != I2C_ERR_OK) || (sensor_task_create(s_hm) != SENSOR_TASK_ERR_OK))
@@ -770,7 +837,8 @@ int main(void)
                                          .health = s_hm,
                                          .prof_read = device_profile_provider,
                                          .prof_write = device_profile_manager,
-                                         .on_profile_changed = reprobe_after_profile_change};
+                                         .on_profile_changed = reprobe_after_profile_change,
+                                         .prov_store = &s_prov_store};
 
     if (console_service_init(&console_deps) != CONSOLE_SERVICE_ERR_OK)
     {

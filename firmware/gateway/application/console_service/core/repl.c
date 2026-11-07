@@ -130,7 +130,16 @@ console_service_err_t repl_execute(const char *line)
         repl_puts(PAL_PROMPT, "envmon>");
         return CONSOLE_SERVICE_ERR_OK;
     }
-    prv_echo(line);
+    /* The passphrase is not kept in the scrollback (CST-O2): the echo shows asterisks instead. */
+    if ((argc == 4) && (strcmp(argv[0], "prov") == 0) && (strcmp(argv[1], "set") == 0) &&
+        (strcmp(argv[2], "wifi-pass") == 0))
+    {
+        prv_echo("prov set wifi-pass ********");
+    }
+    else
+    {
+        prv_echo(line);
+    }
     if (too_many)
     {
         repl_puts(PAL_ERR, "[ERR] too many words (max 8)");

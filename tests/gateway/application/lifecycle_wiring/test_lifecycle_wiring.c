@@ -135,6 +135,19 @@ void config_service_unlock(void)
     s_lock_depth--;
 }
 
+static uint32_t s_line_calls;
+static uint32_t s_line_baud;
+static int
+    s_line_parity; /* 0 none, 1 even, 2 odd: the enum of the driver header, not included here */
+
+int modbus_uart_configure(uint32_t baud, int parity) /* returns MODBUS_UART_OK (0) */
+{
+    s_line_calls++;
+    s_line_baud = baud;
+    s_line_parity = parity;
+    return 0;
+}
+
 modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms)
 {
     s_period_calls++;
@@ -504,6 +517,9 @@ void setUp(void)
     s_register_result = CONFIG_SERVICE_OK;
     s_lock_depth = 0U;
     s_period_calls = 0U;
+    s_line_calls = 0U;
+    s_params.modbus_baud_div100 = 96U;
+    s_params.modbus_parity = 0U;
     s_cloud_ready = true;
     s_cloud_flush_result = CP_ERR_OK;
     s_cloud_flush_calls = 0U;
@@ -1472,4 +1488,33 @@ void test_LW_078_a_command_before_the_controller_is_initialised_is_harmless(void
     remote("{\"command\":\"restart\"}");
     remote("{\"command\":\"reset_metrics\"}");
     TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueSend_call_count);
+}
+
+void test_LW_043_poller_init_sets_the_modbus_line_before_the_poller_starts(void)
+{
+    bind_ok();
+    s_params.modbus_baud_div100 = 192U;
+    s_params.modbus_parity = 1U;
+
+    TEST_ASSERT_EQUAL(LC_DEP_OK, s_deps.modbus_poller->init(NULL));
+
+    TEST_ASSERT_EQUAL_UINT32(1U, s_line_calls);
+    TEST_ASSERT_EQUAL_UINT32(19200U, s_line_baud);
+    TEST_ASSERT_EQUAL_INT(1, s_line_parity);
+}
+
+void test_LW_044_a_changed_baud_or_parity_reconfigures_the_line(void)
+{
+    bind_ok();
+    s_params.modbus_baud_div100 = 48U;
+    s_params.modbus_parity = 2U;
+
+    s_change_cb(CONFIG_PARAM_MODBUS_BAUD);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_line_calls);
+    TEST_ASSERT_EQUAL_UINT32(4800U, s_line_baud);
+    TEST_ASSERT_EQUAL_INT(2, s_line_parity);
+
+    s_change_cb(CONFIG_PARAM_MODBUS_PARITY);
+    TEST_ASSERT_EQUAL_UINT32(2U, s_line_calls);
+    TEST_ASSERT_EQUAL_UINT32(0U, s_lock_depth);
 }

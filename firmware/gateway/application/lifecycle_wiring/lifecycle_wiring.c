@@ -18,6 +18,7 @@
 #endif /* TEST */
 
 #include "device_profile_registry/device_profile_registry.h"
+#include "modbus_uart_driver/modbus_uart_driver.h"
 #include "lifecycle_wiring_internal.h"
 
 #ifdef TEST
@@ -249,6 +250,13 @@ static const lc_cloud_if_t k_cloud = {
 static const device_profile_storage_t k_profile_storage = {.load = config_service_get_profiles,
                                                            .save = config_service_set_profiles};
 
+/* Baud rate and parity of the Modbus line (REQ-LI-080), from the configuration. */
+static void prv_apply_modbus_line(const config_params_t *params)
+{
+    (void) modbus_uart_configure((uint32_t) params->modbus_baud_div100 * 100U,
+                                 (modbus_uart_parity_t) params->modbus_parity);
+}
+
 static lc_dep_status_t poller_init(void *ctx)
 {
     (void) ctx;
@@ -263,6 +271,7 @@ static lc_dep_status_t poller_init(void *ctx)
     {
         return LC_DEP_FAIL;
     }
+    prv_apply_modbus_line(params); /* before the first transaction */
     return status_of(modbus_poller_init(params->modbus_poll_period_ms, s_cfg.health) ==
                      MODBUS_POLLER_ERR_OK);
 }
@@ -551,6 +560,10 @@ static void prv_config_changed(config_param_id_t id)
         break;
     case CONFIG_PARAM_MODBUS_POLL_PERIOD:
         (void) modbus_poller_set_poll_period(p->modbus_poll_period_ms);
+        break;
+    case CONFIG_PARAM_MODBUS_PARITY:
+    case CONFIG_PARAM_MODBUS_BAUD:
+        prv_apply_modbus_line(p); /* the next transaction uses the new line settings */
         break;
     default:
         break; /* broker, intervals of the cloud, slave address: other owners */

@@ -99,11 +99,11 @@ LI-000|T|S|BOTH|A|connect with the documented serial parameters|-
 LI-010|T|S|BOTH|A|run each Appendix A command, expect an answer|-
 LI-020|T|S|BOTH|A|the result of each diagnostic is displayed|-
 LI-030|T|S|GW|A|the provisioning menu is reachable|-
-LI-040|T|S|GW|A|`prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them|KG: accepted but never stored or used (GCS-O4)
+LI-040|T|S|GW|A|`prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them (negative and positive case)|-
 LI-050|T|S|GW|A|`prov set mqtt-endpoint`, reset: the endpoint is used|-
-LI-060|T|S|GW|A|provision the certificates over the console|KG: not implemented (CS-O6, GCS-O5)
+LI-060|T|S|GW|A|provision the certificates over the console|-
 LI-070|T|S|BOTH|A|`prov set modbus-addr` takes effect|-
-LI-080|T|S|GW|A|`prov set modbus-baud` and `modbus-parity` take effect|KG: not configurable (GCS-O5)
+LI-080|T|S|GW|A|`prov set modbus-baud` and `modbus-parity` take effect|-
 LI-090|T|S|BOTH|A|bad format and out-of-range values are refused|-
 LI-100|T|S|BOTH|A|a change asks for confirmation|-
 LI-110|T|S|BOTH|A|a confirmed change is applied|-
@@ -111,7 +111,7 @@ LI-120|T|S|BOTH|A|the previous value stays until all new values are applied|-
 LI-130|T|S|BOTH|A|`selftest` runs|-
 LI-140|T|S|BOTH|A|the self-test reports pass or fail|-
 LI-150|T|S|BOTH|A|`serial` prints the MCU serial number|-
-LI-160|T|S|GW|A|the last self-test result survives a reset|KG: not persisted (GCS-O6)
+LI-160|T|S|GW|A|the last self-test result survives a reset|-
 LI-170|T|S|BOTH|A|a failing diagnostic prints an error|-
 LI-180|T|S|BOTH|A|a rejected value prints the problem|-
 LI-190|T|S|BOTH|A|no confirmation: the input is discarded|-
@@ -213,7 +213,7 @@ NF-215|T|S|SYS|A|3 missed polls: the node is reported offline|-
 NF-216|T|S|SYS|A|health is published with QoS 0|-
 NF-300|T|S|SYS|A|TLS 1.2 or higher on the wire|-
 NF-301|T|S|SYS|A|the client certificate is required and checked|-
-NF-302|I|S|GW|R|inspect storage: no plaintext passphrase or private key|RK: depends on the provisioning back-end (LI-040, LI-060)
+NF-302|I|S|GW|R|inspect storage: no plaintext passphrase or private key|-
 NF-303|I|S|BOTH|R|no network console in the code, UART only|-
 NF-304|T|S|GW|A|an image with a wrong signature is refused|-
 NF-305|T|S|GW|A|a plain-TCP broker is refused|-

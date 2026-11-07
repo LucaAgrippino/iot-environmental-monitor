@@ -34,6 +34,22 @@ typedef enum
     CONSOLE_SERVICE_ERR_LINE_OVERFLOW = 7,
 } console_service_err_t;
 
+/** @brief The credential and certificate store behind `prov` (CertStore). All members required. */
+typedef struct
+{
+    /** Store the WiFi credentials; 0 on success. */
+    int (*set_wifi)(const char *ssid, const char *pass);
+    /** Store one certificate or key (0 CA, 1 client certificate, 2 private key); 0 on success, 1
+     * too big, 2 not DER, anything else a failure to write. */
+    int (*set_item)(uint8_t item, const uint8_t *der, uint32_t len);
+    /** Remove the credentials, the certificates and the key; 0 on success. */
+    int (*clear)(void);
+    /** Whether WiFi credentials are stored. */
+    bool (*has_wifi)(void);
+    /** Whether the CA, the client certificate and the key are all stored. */
+    bool (*identity_complete)(void);
+} console_prov_store_t;
+
 /** @brief Everything ConsoleService reads from or writes to. All pointers must be non-NULL. */
 typedef struct
 {
@@ -58,6 +74,9 @@ typedef struct
     void (*on_profile_changed)(
         uint8_t slave_addr); /**< Optional: called after a profile was added or updated, so the
                                 poller re-probes (REQ-DM-101). */
+    /* cppcheck-suppress unusedStructMember -- consumed by `prov set wifi-*` and `prov cert` */
+    const console_prov_store_t *prov_store; /**< Optional: NULL makes the credential and
+                                                  certificate commands "not available". */
 } console_deps_t;
 
 #endif /* CONSOLE_TYPES_H */

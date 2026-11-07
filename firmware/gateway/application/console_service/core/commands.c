@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "console_service/port/console_mem.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -103,6 +104,14 @@ typedef struct
     char mqtt_endpoint[BROKER_MAX_LEN + 1U];
     bool has_addr;
     uint8_t modbus_addr;
+    bool has_baud;
+    uint16_t modbus_baud_div100; /* 12, 24, 48, 96 or 192 */
+    bool has_parity;
+    uint8_t modbus_parity; /* 0 none, 1 even, 2 odd */
+    bool has_ssid;
+    char ssid[SSID_MAX_LEN + 1U];
+    bool has_pass;
+    char pass[PASS_MAX_LEN + 1U];
 } prov_pending_t;
 
 static const console_deps_t *s_deps;
@@ -614,6 +623,44 @@ static console_service_err_t cmd_net(int argc, const char *argv[])
 /* Self-test                                                               */
 /* ---------------------------------------------------------------------- */
 
+/* The last self-test is kept in the stored configuration (REQ-LI-160): bit 0 a test ran, 1 sensors,
+ * 2 comms, 3 flash checked, 4 flash pass, 5 overall. The uptime of the run is not kept. */
+#define ST_RAN (0x01U)
+#define ST_SENSORS (0x02U)
+#define ST_COMMS (0x04U)
+#define ST_FLASH_CHECKED (0x08U)
+#define ST_FLASH_PASS (0x10U)
+#define ST_OVERALL (0x20U)
+
+static uint8_t prv_selftest_to_flags(const selftest_result_t *r)
+{
+    return (uint8_t) (ST_RAN | (r->sensor_pass ? ST_SENSORS : 0U) |
+                      (r->comms_pass ? ST_COMMS : 0U) | (r->flash_checked ? ST_FLASH_CHECKED : 0U) |
+                      (r->flash_pass ? ST_FLASH_PASS : 0U) | (r->overall_pass ? ST_OVERALL : 0U));
+}
+
+/* Fill s_selftest from the stored flags when no test ran since boot. */
+static void prv_selftest_sync(void)
+{
+    if (s_selftest.valid || (s_deps == NULL) || (s_deps->cfg_read == NULL))
+    {
+        return;
+    }
+    const config_params_t *p = s_deps->cfg_read->get_params(s_deps->cfg_read->ctx);
+
+    if ((p != NULL) && ((p->selftest_flags & ST_RAN) != 0U))
+    {
+        s_selftest.valid = true;
+        s_selftest.sensor_pass = (p->selftest_flags & ST_SENSORS) != 0U;
+        s_selftest.comms_pass = (p->selftest_flags & ST_COMMS) != 0U;
+        s_selftest.flash_checked = (p->selftest_flags & ST_FLASH_CHECKED) != 0U;
+        s_selftest.flash_pass = (p->selftest_flags & ST_FLASH_PASS) != 0U;
+        s_selftest.overall_pass = (p->selftest_flags & ST_OVERALL) != 0U;
+        s_selftest.uptime_s = 0U;
+        s_selftest.from_store = true;
+    }
+}
+
 static console_service_err_t cmd_selftest(int argc, const char *argv[])
 {
     console_model_t m;
@@ -629,6 +676,16 @@ static console_service_err_t cmd_selftest(int argc, const char *argv[])
     s_selftest.flash_pass = false;
     s_selftest.overall_pass = s_selftest.sensor_pass && s_selftest.comms_pass;
     s_selftest.uptime_s = m.health.uptime_s;
+    s_selftest.from_store = false;
+
+    /* keep the result across a reset (REQ-LI-160); the flash write happens in the console task */
+    const uint8_t flags = prv_selftest_to_flags(&s_selftest);
+
+    if (s_deps->cfg_write->set_param_deferred(s_deps->cfg_write->ctx, CONFIG_PARAM_SELFTEST_FLAGS,
+                                              &flags) == CONFIG_SERVICE_OK)
+    {
+        s_persist_due = true;
+    }
 
     SAY(PAL_MUTED, "  SELF-TEST");
     SAY(s_selftest.sensor_pass ? PAL_OK : PAL_ERR, "  sensors   %s",
@@ -636,7 +693,7 @@ static console_service_err_t cmd_selftest(int argc, const char *argv[])
     SAY(s_selftest.comms_pass ? PAL_OK : PAL_ERR, "  comms     %s  (wifi, mqtt, modbus)",
         s_selftest.comms_pass ? "PASS" : "FAIL");
     SAY(PAL_WARN, "  flash     n/a   (no round-trip test available)");
-    SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  overall   %s  (not persisted)",
+    SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  overall   %s  (stored)",
         s_selftest.overall_pass ? "PASS" : "FAIL");
     return CONSOLE_SERVICE_ERR_OK;
 }
@@ -645,13 +702,23 @@ static console_service_err_t cmd_selftest_result(int argc, const char *argv[])
 {
     (void) argc;
     (void) argv;
+    prv_selftest_sync();
     if (!s_selftest.valid)
     {
-        SAY(PAL_WARN, "  no self-test result since boot (results are not persisted)");
+        SAY(PAL_WARN, "  no self-test has been run on this device");
         return CONSOLE_SERVICE_ERR_OK;
     }
-    SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  last self-test: %s at uptime %lu s",
-        s_selftest.overall_pass ? "PASS" : "FAIL", (unsigned long) s_selftest.uptime_s);
+    if (s_selftest.from_store)
+    {
+        SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR,
+            "  last self-test: %s (stored, earlier boot)",
+            s_selftest.overall_pass ? "PASS" : "FAIL");
+    }
+    else
+    {
+        SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  last self-test: %s at uptime %lu s",
+            s_selftest.overall_pass ? "PASS" : "FAIL", (unsigned long) s_selftest.uptime_s);
+    }
     SAY(PAL_INK, "  sensors %s · comms %s · flash n/a", s_selftest.sensor_pass ? "PASS" : "FAIL",
         s_selftest.comms_pass ? "PASS" : "FAIL");
     return CONSOLE_SERVICE_ERR_OK;
@@ -927,18 +994,28 @@ static console_service_err_t cmd_prov_set(int argc, const char *argv[])
             return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
                             "wifi-ssid must be 1..63 printable characters");
         }
-        return prv_not_available("WiFi credential store is not implemented");
+        if (s_deps->prov_store == NULL)
+        {
+            return prv_not_available("WiFi credential store is not implemented");
+        }
+        (void) snprintf(s_prov_pending.ssid, sizeof(s_prov_pending.ssid), "%s", val);
+        s_prov_pending.has_ssid = true;
     }
-    if (prv_ieq(key, "wifi-pass"))
+    else if (prv_ieq(key, "wifi-pass"))
     {
         if (!prv_printable(val, PASS_MIN_LEN, PASS_MAX_LEN))
         {
             return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
                             "wifi-pass must be 8..63 printable characters");
         }
-        return prv_not_available("WiFi credential store is not implemented");
+        if (s_deps->prov_store == NULL)
+        {
+            return prv_not_available("WiFi credential store is not implemented");
+        }
+        (void) snprintf(s_prov_pending.pass, sizeof(s_prov_pending.pass), "%s", val);
+        s_prov_pending.has_pass = true;
     }
-    if (prv_ieq(key, "mqtt-endpoint"))
+    else if (prv_ieq(key, "mqtt-endpoint"))
     {
         if (!prv_valid_endpoint(val))
         {
@@ -966,7 +1043,8 @@ static console_service_err_t cmd_prov_set(int argc, const char *argv[])
             return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
                             "modbus-baud must be 1200, 2400, 4800, 9600 or 19200");
         }
-        return prv_not_available("Modbus line settings are not configurable yet");
+        s_prov_pending.modbus_baud_div100 = (uint16_t) (n / 100U);
+        s_prov_pending.has_baud = true;
     }
     else if (prv_ieq(key, "modbus-parity"))
     {
@@ -974,7 +1052,8 @@ static console_service_err_t cmd_prov_set(int argc, const char *argv[])
         {
             return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "modbus-parity must be N, E or O");
         }
-        return prv_not_available("Modbus line settings are not configurable yet");
+        s_prov_pending.modbus_parity = (val[0] == 'E') ? 1U : ((val[0] == 'O') ? 2U : 0U);
+        s_prov_pending.has_parity = true;
     }
     else
     {
@@ -1005,6 +1084,34 @@ static console_service_err_t prv_prov_apply(void)
                             "the Modbus address was refused; changes stay staged");
         }
     }
+    if (s_prov_pending.has_baud && (s_deps->cfg_write->set_param_deferred(
+                                        s_deps->cfg_write->ctx, CONFIG_PARAM_MODBUS_BAUD,
+                                        &s_prov_pending.modbus_baud_div100) != CONFIG_SERVICE_OK))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "the Modbus baud rate was refused; changes stay staged");
+    }
+    if (s_prov_pending.has_parity &&
+        (s_deps->cfg_write->set_param_deferred(s_deps->cfg_write->ctx, CONFIG_PARAM_MODBUS_PARITY,
+                                               &s_prov_pending.modbus_parity) != CONFIG_SERVICE_OK))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "the Modbus parity was refused; changes stay staged");
+    }
+    if (s_prov_pending.has_ssid || s_prov_pending.has_pass)
+    {
+        if (!(s_prov_pending.has_ssid && s_prov_pending.has_pass))
+        {
+            return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
+                            "wifi-ssid and wifi-pass are stored together; set both");
+        }
+        if (s_deps->prov_store->set_wifi(s_prov_pending.ssid, s_prov_pending.pass) != 0)
+        {
+            return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                            "the WiFi credentials could not be stored; changes stay staged");
+        }
+        SAY(PAL_MUTED, "  WiFi credentials stored; they are used at the next connection");
+    }
     (void) memset(&s_prov_pending, 0, sizeof(s_prov_pending));
     s_persist_due = true;
     SAY(PAL_OK, "[OK] provisioning applied");
@@ -1029,9 +1136,250 @@ static console_service_err_t cmd_prov_commit(int argc, const char *argv[])
     {
         SAY(PAL_INK, "    modbus-addr = %u", (unsigned) s_prov_pending.modbus_addr);
     }
+    if (s_prov_pending.has_baud)
+    {
+        SAY(PAL_INK, "    modbus-baud = %u", (unsigned) (s_prov_pending.modbus_baud_div100 * 100U));
+    }
+    if (s_prov_pending.has_parity)
+    {
+        SAY(PAL_INK, "    modbus-parity = %c",
+            (s_prov_pending.modbus_parity == 1U)
+                ? 'E'
+                : ((s_prov_pending.modbus_parity == 2U) ? 'O' : 'N'));
+    }
+    if (s_prov_pending.has_ssid)
+    {
+        SAY(PAL_INK, "    wifi-ssid = %s", s_prov_pending.ssid);
+    }
+    if (s_prov_pending.has_pass)
+    {
+        SAY(PAL_INK, "    wifi-pass = ********");
+    }
     s_confirm = CONFIRM_PROV;
     s_confirm_ticks = CONFIRM_TIMEOUT_TICKS;
     return CONSOLE_SERVICE_ERR_OK;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Certificates: `prov cert add <item> <base64>` ..., `prov cert end <item>` (REQ-LI-060)  */
+/* ---------------------------------------------------------------------- */
+
+#define CERT_ASSEMBLY_MAX (1536U) /* the largest item CertStore accepts */
+
+CONSOLE_BIG_BUFFER static uint8_t s_cert_buf[CERT_ASSEMBLY_MAX];
+static uint32_t s_cert_len;
+static int32_t s_cert_item = -1;
+
+static int prv_cert_item(const char *name)
+{
+    if (prv_ieq(name, "ca"))
+    {
+        return 0;
+    }
+    if (prv_ieq(name, "client"))
+    {
+        return 1;
+    }
+    if (prv_ieq(name, "key"))
+    {
+        return 2;
+    }
+    return -1;
+}
+
+static int prv_b64_value(char c)
+{
+    if ((c >= 'A') && (c <= 'Z'))
+    {
+        return c - 'A';
+    }
+    if ((c >= 'a') && (c <= 'z'))
+    {
+        return (c - 'a') + 26;
+    }
+    if ((c >= '0') && (c <= '9'))
+    {
+        return (c - '0') + 52;
+    }
+    return (c == '+') ? 62 : ((c == '/') ? 63 : -1);
+}
+
+/* Decode a whole number of 4-character groups (RFC 4648, padding only in the last group). */
+static bool prv_b64_decode(const char *in, uint8_t *out, uint32_t max, uint32_t *n)
+{
+    const size_t len = strlen(in);
+    uint32_t w = 0U;
+
+    if ((len == 0U) || ((len % 4U) != 0U))
+    {
+        return false;
+    }
+    for (size_t i = 0U; i < len; i += 4U)
+    {
+        int v[4];
+        uint32_t pad = 0U;
+
+        for (uint32_t k = 0U; k < 4U; k++)
+        {
+            const char c = in[i + k];
+
+            if (c == '=')
+            {
+                if (((i + 4U) != len) || (k < 2U))
+                {
+                    return false;
+                }
+                v[k] = 0;
+                pad++;
+            }
+            else if ((pad != 0U) || ((v[k] = prv_b64_value(c)) < 0))
+            {
+                return false;
+            }
+        }
+        const uint32_t bytes = 3U - pad;
+
+        if ((w + bytes) > max)
+        {
+            return false;
+        }
+        const uint32_t word = ((uint32_t) v[0] << 18U) | ((uint32_t) v[1] << 12U) |
+                              ((uint32_t) v[2] << 6U) | (uint32_t) v[3];
+        out[w++] = (uint8_t) (word >> 16U);
+        if (bytes > 1U)
+        {
+            out[w++] = (uint8_t) (word >> 8U);
+        }
+        if (bytes > 2U)
+        {
+            out[w++] = (uint8_t) word;
+        }
+    }
+    *n = w;
+    return true;
+}
+
+static console_service_err_t cmd_prov_cert_add(int argc, const char *argv[])
+{
+    (void) argc;
+    if (s_deps->prov_store == NULL)
+    {
+        return prv_not_available("certificate store is not implemented");
+    }
+    const int item = prv_cert_item(argv[0]);
+    uint32_t n = 0U;
+
+    if (item < 0)
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_UNKNOWN_KEY, "item must be ca, client or key");
+    }
+    if (s_cert_item != item)
+    {
+        s_cert_item = item; /* a new item starts a new assembly */
+        s_cert_len = 0U;
+    }
+    if (!prv_b64_decode(argv[1], &s_cert_buf[s_cert_len], CERT_ASSEMBLY_MAX - s_cert_len, &n))
+    {
+        s_cert_item = -1;
+        s_cert_len = 0U;
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
+                        "bad chunk: base64 in groups of 4 characters, at most 1536 bytes in all");
+    }
+    s_cert_len += n;
+    SAY(PAL_MUTED, "  %s: %u bytes so far", argv[0], (unsigned) s_cert_len);
+    return CONSOLE_SERVICE_ERR_OK;
+}
+
+static console_service_err_t cmd_prov_cert_end(int argc, const char *argv[])
+{
+    (void) argc;
+    if (s_deps->prov_store == NULL)
+    {
+        return prv_not_available("certificate store is not implemented");
+    }
+    const int item = prv_cert_item(argv[0]);
+
+    if ((item < 0) || (item != s_cert_item) || (s_cert_len == 0U))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "nothing was added for that item");
+    }
+    const int rc = s_deps->prov_store->set_item((uint8_t) item, s_cert_buf, s_cert_len);
+
+    s_cert_item = -1;
+    s_cert_len = 0U;
+    (void) memset(s_cert_buf, 0, sizeof(s_cert_buf));
+    if (rc == 1)
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "the item is too big");
+    }
+    if (rc == 2)
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
+                        "not a DER structure (convert the PEM first)");
+    }
+    if (rc != 0)
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED, "the item could not be stored");
+    }
+    SAY(PAL_OK, "[OK] %s stored; it is used after the next restart", argv[0]);
+    return CONSOLE_SERVICE_ERR_OK;
+}
+
+static console_service_err_t cmd_prov_cert_clear(int argc, const char *argv[])
+{
+    (void) argc;
+    (void) argv;
+    if (s_deps->prov_store == NULL)
+    {
+        return prv_not_available("certificate store is not implemented");
+    }
+    s_cert_item = -1;
+    s_cert_len = 0U;
+    if (s_deps->prov_store->clear() != 0)
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED, "the store could not be cleared");
+    }
+    SAY(PAL_OK, "[OK] WiFi credentials and certificates removed");
+    return CONSOLE_SERVICE_ERR_OK;
+}
+
+static console_service_err_t cmd_prov_cert_status(int argc, const char *argv[])
+{
+    (void) argc;
+    (void) argv;
+    if (s_deps->prov_store == NULL)
+    {
+        return prv_not_available("certificate store is not implemented");
+    }
+    SAY(s_deps->prov_store->has_wifi() ? PAL_OK : PAL_WARN, "  wifi      %s",
+        s_deps->prov_store->has_wifi() ? "stored" : "not provisioned (build-time default)");
+    SAY(s_deps->prov_store->identity_complete() ? PAL_OK : PAL_WARN, "  identity  %s",
+        s_deps->prov_store->identity_complete() ? "CA, client certificate and key stored"
+                                                : "incomplete (build-time default)");
+    return CONSOLE_SERVICE_ERR_OK;
+}
+
+/* `prov cert <add|end|clear|status> ...`: the command table matches at most two words. */
+static console_service_err_t cmd_prov_cert(int argc, const char *argv[])
+{
+    if (prv_ieq(argv[0], "add") && (argc == 3))
+    {
+        return cmd_prov_cert_add(2, &argv[1]);
+    }
+    if (prv_ieq(argv[0], "end") && (argc == 2))
+    {
+        return cmd_prov_cert_end(1, &argv[1]);
+    }
+    if (prv_ieq(argv[0], "clear") && (argc == 1))
+    {
+        return cmd_prov_cert_clear(0, &argv[1]);
+    }
+    if (prv_ieq(argv[0], "status") && (argc == 1))
+    {
+        return cmd_prov_cert_status(0, &argv[1]);
+    }
+    return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
+                    "prov cert add <ca|client|key> <b64> | end <item> | clear | status");
 }
 
 static console_service_err_t cmd_prov_discard(int argc, const char *argv[])
@@ -1291,6 +1639,8 @@ static const cmd_entry_t s_cmd_table[] = {
     {"prov set", NULL, 2U, 2U, cmd_prov_set, "prov set <key> <v>"},
     {"prov commit", NULL, 0U, 0U, cmd_prov_commit, "apply staged provisioning"},
     {"prov discard", NULL, 0U, 0U, cmd_prov_discard, "drop staged provisioning"},
+    {"prov cert", NULL, 1U, 3U, cmd_prov_cert,
+     "prov cert add <ca|client|key> <b64> | end <item> | clear | status"},
     {"profiles list", NULL, 0U, 0U, cmd_profiles_list, "device profiles"},
     {"profiles add", NULL, 3U, 8U, cmd_profiles_add, "profiles add addr=N map=V vendor=V"},
     {"profiles remove", NULL, 1U, 1U, cmd_profiles_remove, "profiles remove <addr>"},
@@ -1535,6 +1885,7 @@ bool commands_cfg_dirty(void)
 
 const selftest_result_t *commands_selftest_result(void)
 {
+    prv_selftest_sync();
     return &s_selftest;
 }
 

@@ -1070,3 +1070,80 @@ void test_get_profiles_copies_at_most_max(void)
     TEST_ASSERT_TRUE(config_service_get_profiles(out, 2U, &n));
     TEST_ASSERT_EQUAL_UINT8(2U, n);
 }
+
+/* ======================================================================= */
+/* Modbus line settings and the stored self-test result (REQ-LI-080, -160)  */
+/* ======================================================================= */
+
+void test_modbus_line_settings_default_to_9600_without_parity(void)
+{
+    init_service();
+
+    TEST_ASSERT_EQUAL_UINT16(96U, params()->modbus_baud_div100);
+    TEST_ASSERT_EQUAL_UINT8(0U, params()->modbus_parity);
+    TEST_ASSERT_EQUAL_UINT8(0U, params()->selftest_flags);
+}
+
+void test_modbus_baud_accepts_only_the_supported_rates(void)
+{
+    const uint16_t good[] = {12U, 24U, 48U, 96U, 192U};
+    const uint16_t bad[] = {0U, 11U, 95U, 97U, 384U, 1152U};
+
+    init_service();
+    for (uint32_t i = 0U; i < (sizeof(good) / sizeof(good[0])); i++)
+    {
+        uint16_t v = good[i];
+        TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                          config_service_set_param(CONFIG_PARAM_MODBUS_BAUD, &v));
+        TEST_ASSERT_EQUAL_UINT16(good[i], params()->modbus_baud_div100);
+    }
+    for (uint32_t i = 0U; i < (sizeof(bad) / sizeof(bad[0])); i++)
+    {
+        uint16_t v = bad[i];
+        TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                          config_service_set_param(CONFIG_PARAM_MODBUS_BAUD, &v));
+    }
+    TEST_ASSERT_EQUAL_UINT16(192U, params()->modbus_baud_div100);
+}
+
+void test_modbus_parity_accepts_none_even_and_odd_only(void)
+{
+    init_service();
+    for (uint8_t v = 0U; v <= 2U; v++)
+    {
+        uint8_t x = v;
+        TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK,
+                          config_service_set_param(CONFIG_PARAM_MODBUS_PARITY, &x));
+        TEST_ASSERT_EQUAL_UINT8(v, params()->modbus_parity);
+    }
+    uint8_t bad = 3U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_MODBUS_PARITY, &bad));
+    TEST_ASSERT_EQUAL_UINT8(2U, params()->modbus_parity);
+}
+
+void test_a_blob_written_before_the_line_settings_loads_with_the_old_behaviour(void)
+{
+    init_service();
+    config_blob_t blob = blob_of_defaults();
+    blob.params.modbus_baud_div100 = 0U; /* the former padding */
+    blob.params.modbus_parity = 0U;
+
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_apply_loaded(&blob, sizeof(blob)));
+
+    TEST_ASSERT_EQUAL_UINT16(96U, params()->modbus_baud_div100);
+    TEST_ASSERT_EQUAL_UINT8(0U, params()->modbus_parity);
+}
+
+void test_selftest_flags_are_stored_and_a_value_above_the_defined_bits_is_refused(void)
+{
+    init_service();
+    uint8_t v = 0x2FU;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, config_service_set_param(CONFIG_PARAM_SELFTEST_FLAGS, &v));
+    TEST_ASSERT_EQUAL_UINT8(0x2FU, params()->selftest_flags);
+
+    v = 0x40U;
+    TEST_ASSERT_EQUAL(CONFIG_SERVICE_ERR_INVALID,
+                      config_service_set_param(CONFIG_PARAM_SELFTEST_FLAGS, &v));
+    TEST_ASSERT_EQUAL_UINT8(0x2FU, params()->selftest_flags);
+}

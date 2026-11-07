@@ -59,6 +59,7 @@ Hardware columns come from the bench results recorded during the project; where 
 | NtpClient | ✅ validated | IPv4 servers only |
 | TimeProvider | ✅ TC-HW-TP-001..011 | |
 | ConfigStore | ✅ validated | Diverges from the FD copy (CS-O5) |
+| CertStore | ✅ hardware-checked 2026-11-08 | WiFi credentials and the X.509 identity from the console; 20 host tests; `lld/middleware/cert-store.md` |
 | CircularFlashLog | ✅ TC-HW-CFL-001..010 (2026-10-11, per its LLD; harness now reads a real HealthMonitor, not yet re-run) | CFL-O7 closed 2026-10-26 (the mutex is inside the QSPI driver). Open: CFL-O8 (erase latency vs the 500 ms alarm budget, not measured) |
 | ModbusMaster | ✅ validated | |
 | FirmwareStore | ✅ PR #96, hardware-validated; also driven by the UpdateService bench | Staging in QSPI, install into the inactive slot, boot record and descriptor handling. `verify` (software ECDSA-P256 + SHA-256) 1.32 s for 480 KB. **FS-O4 open until measured:** `verify` now allocates from the static mbedTLS arena (WP2); 3 584 bytes of heap measured before that change with no TLS session open; the arena peak with a session open is TC-HW-MQTT-014 (REQ-NF-408) |

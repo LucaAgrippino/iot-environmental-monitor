@@ -83,6 +83,72 @@ static console_service_err_t run(const char *line)
     return repl_execute(line);
 }
 
+/* ---- a fake credential and certificate store ---- */
+
+static int s_store_wifi_calls;
+static char s_store_ssid[64];
+static char s_store_pass[64];
+static int s_store_set_rc;
+static int s_store_item_calls;
+static uint8_t s_store_item_id;
+static uint8_t s_store_item_data[2048];
+static uint32_t s_store_item_len;
+static int s_store_item_rc;
+static int s_store_clear_calls;
+static bool s_store_has_wifi_v;
+static bool s_store_identity_v;
+
+static int fake_set_wifi(const char *ssid, const char *pass)
+{
+    s_store_wifi_calls++;
+    (void) snprintf(s_store_ssid, sizeof(s_store_ssid), "%s", ssid);
+    (void) snprintf(s_store_pass, sizeof(s_store_pass), "%s", pass);
+    return s_store_set_rc;
+}
+
+static int fake_set_item(uint8_t item, const uint8_t *der, uint32_t len)
+{
+    s_store_item_calls++;
+    s_store_item_id = item;
+    s_store_item_len = len;
+    (void) memcpy(s_store_item_data, der, len);
+    return s_store_item_rc;
+}
+
+static int fake_clear(void)
+{
+    s_store_clear_calls++;
+    return 0;
+}
+
+static bool fake_has_wifi(void)
+{
+    return s_store_has_wifi_v;
+}
+
+static bool fake_identity(void)
+{
+    return s_store_identity_v;
+}
+
+static const console_prov_store_t s_fake_store = {.set_wifi = fake_set_wifi,
+                                                  .set_item = fake_set_item,
+                                                  .clear = fake_clear,
+                                                  .has_wifi = fake_has_wifi,
+                                                  .identity_complete = fake_identity};
+
+static void use_store(void)
+{
+    s_store_wifi_calls = 0;
+    s_store_set_rc = 0;
+    s_store_item_calls = 0;
+    s_store_item_rc = 0;
+    s_store_clear_calls = 0;
+    s_store_has_wifi_v = false;
+    s_store_identity_v = false;
+    s_deps.prov_store = &s_fake_store;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Initialisation                                                          */
 /* ---------------------------------------------------------------------- */
@@ -538,11 +604,35 @@ void test_selftest_fails_when_any_link_is_down(void)
     TEST_ASSERT_TRUE(has_line("comms     FAIL"));
 }
 
+/* REQ-LI-160: the result is written to the configuration and read back after a reset */
+void test_selftest_stores_its_result_in_the_configuration(void)
+{
+    g_spy_set_calls = 0U;
+
+    (void) run("selftest");
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_set_calls);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_SELFTEST_FLAGS, g_spy_set_ids[0]);
+    TEST_ASSERT_TRUE((g_spy_set_values[0][0] & 0x01U) != 0U); /* a test ran */
+    TEST_ASSERT_TRUE((g_spy_set_values[0][0] & 0x20U) != 0U); /* overall pass */
+}
+
+void test_selftest_result_after_a_reset_comes_from_the_stored_flags(void)
+{
+    g_spy_cfg.selftest_flags = 0x01U | 0x02U; /* ran, sensors pass, comms fail, overall fail */
+
+    (void) run("selftest-result");
+
+    TEST_ASSERT_TRUE(has_line("last self-test: FAIL (stored, earlier boot)"));
+    TEST_ASSERT_TRUE(has_line("sensors PASS"));
+    TEST_ASSERT_TRUE(has_line("comms FAIL"));
+}
+
 /* TC-GCS-177, 178 */
 void test_selftest_result_reports_the_last_run_or_none(void)
 {
     (void) run("selftest-result");
-    TEST_ASSERT_TRUE(has_line("no self-test result since boot"));
+    TEST_ASSERT_TRUE(has_line("no self-test has been run on this device"));
 
     (void) run("selftest");
     repl_clear();
@@ -732,16 +822,31 @@ void test_prov_set_wifi_credentials_validate_then_report_not_available(void)
     TEST_ASSERT_FALSE(commands_prov_dirty());
 }
 
-/* TC-GCS-141..144 */
-void test_prov_set_modbus_line_settings_validate_then_report_not_available(void)
+/* TC-GCS-141..144: REQ-LI-080, the Modbus line settings are staged and applied */
+void test_prov_set_modbus_line_settings_are_validated_and_staged(void)
 {
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-baud 9600"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set modbus-baud 19200"));
+    TEST_ASSERT_TRUE(commands_prov_dirty());
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov set modbus-baud 7200"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-parity E"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-parity N"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-parity O"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set modbus-parity E"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set modbus-parity O"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov set modbus-parity X"));
-    TEST_ASSERT_TRUE(has_line("Modbus line settings"));
+}
+
+void test_prov_commit_writes_the_modbus_baud_and_parity(void)
+{
+    (void) run("prov set modbus-baud 4800");
+    (void) run("prov set modbus-parity E");
+    g_spy_set_calls = 0U;
+
+    (void) run("prov commit");
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, commands_confirm_answer(true));
+
+    TEST_ASSERT_EQUAL_UINT32(2U, g_spy_set_calls);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_MODBUS_BAUD, g_spy_set_ids[0]);
+    TEST_ASSERT_EQUAL_UINT16(48U, *(uint16_t *) g_spy_set_values[0]);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_MODBUS_PARITY, g_spy_set_ids[1]);
+    TEST_ASSERT_EQUAL_UINT8(1U, g_spy_set_values[1][0]);
 }
 
 /* TC-GCS-145 */
@@ -1263,4 +1368,150 @@ void test_the_output_lock_is_taken_and_released_in_pairs(void)
 
     TEST_ASSERT_GREATER_THAN_UINT32(0U, g_mock_xSemaphoreTake_call_count);
     TEST_ASSERT_EQUAL_UINT32(g_mock_xSemaphoreTake_call_count, g_mock_xSemaphoreGive_call_count);
+}
+
+/* ---------------------------------------------------------------------- */
+/* WiFi credentials and certificates (REQ-LI-040, REQ-LI-060)               */
+/* ---------------------------------------------------------------------- */
+
+void test_prov_wifi_credentials_are_staged_and_stored_on_commit(void)
+{
+    use_store();
+
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set wifi-ssid Lab-2G"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set wifi-pass correct-horse"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov commit"));
+    TEST_ASSERT_TRUE(has_line("wifi-ssid = Lab-2G"));
+    TEST_ASSERT_TRUE(has_line("wifi-pass = ********"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, commands_confirm_answer(true));
+
+    TEST_ASSERT_EQUAL_INT(1, s_store_wifi_calls);
+    TEST_ASSERT_EQUAL_STRING("Lab-2G", s_store_ssid);
+    TEST_ASSERT_EQUAL_STRING("correct-horse", s_store_pass);
+}
+
+void test_prov_wifi_needs_both_the_name_and_the_passphrase(void)
+{
+    use_store();
+
+    (void) run("prov set wifi-ssid Lab-2G");
+    (void) run("prov commit");
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, commands_confirm_answer(true));
+
+    TEST_ASSERT_EQUAL_INT(0, s_store_wifi_calls);
+    TEST_ASSERT_TRUE(commands_prov_dirty()); /* still staged */
+}
+
+void test_prov_wifi_a_store_failure_keeps_the_input_staged(void)
+{
+    use_store();
+    s_store_set_rc = 5;
+
+    (void) run("prov set wifi-ssid Lab-2G");
+    (void) run("prov set wifi-pass correct-horse");
+    (void) run("prov commit");
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, commands_confirm_answer(true));
+
+    TEST_ASSERT_TRUE(commands_prov_dirty());
+}
+
+void test_prov_cert_chunks_are_assembled_and_stored_on_end(void)
+{
+    use_store();
+
+    /* "Zm9vYmFy" = "foobar", "Zm9v" = "foo", RFC 4648 */
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert add client Zm9vYmFy"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert add client Zm9v"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert add client Zm8="));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert end client"));
+
+    TEST_ASSERT_EQUAL_INT(1, s_store_item_calls);
+    TEST_ASSERT_EQUAL_UINT8(1U, s_store_item_id);
+    TEST_ASSERT_EQUAL_UINT32(6U + 3U + 2U, s_store_item_len);
+    TEST_ASSERT_EQUAL_MEMORY("foobarfoofo", s_store_item_data, 11U);
+}
+
+void test_prov_cert_maps_the_item_names(void)
+{
+    use_store();
+
+    (void) run("prov cert add ca Zm9v");
+    (void) run("prov cert end ca");
+    TEST_ASSERT_EQUAL_UINT8(0U, s_store_item_id);
+    (void) run("prov cert add key Zm9v");
+    (void) run("prov cert end key");
+    TEST_ASSERT_EQUAL_UINT8(2U, s_store_item_id);
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_UNKNOWN_KEY, run("prov cert add other Zm9v"));
+}
+
+void test_prov_cert_refuses_a_chunk_that_is_not_base64(void)
+{
+    use_store();
+
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov cert add ca Zm9"));  /* not 4 */
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov cert add ca Zm9*")); /* alphabet */
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION,
+                      run("prov cert add ca Zg==Zm9v"));                        /* pad inside */
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov cert end ca")); /* nothing kept */
+    TEST_ASSERT_EQUAL_INT(0, s_store_item_calls);
+}
+
+void test_prov_cert_end_reports_the_store_s_refusals(void)
+{
+    use_store();
+
+    (void) run("prov cert add ca Zm9v");
+    s_store_item_rc = 2;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov cert end ca"));
+    TEST_ASSERT_TRUE(has_line("not a DER structure"));
+
+    (void) run("prov cert add ca Zm9v");
+    s_store_item_rc = 1;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov cert end ca"));
+    TEST_ASSERT_TRUE(has_line("too big"));
+
+    (void) run("prov cert add ca Zm9v");
+    s_store_item_rc = 3;
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov cert end ca"));
+}
+
+void test_prov_cert_a_new_item_starts_a_new_assembly(void)
+{
+    use_store();
+
+    (void) run("prov cert add ca Zm9v");
+    (void) run("prov cert add key YmFy"); /* "bar" replaces the unfinished CA */
+    (void) run("prov cert end key");
+
+    TEST_ASSERT_EQUAL_UINT32(3U, s_store_item_len);
+    TEST_ASSERT_EQUAL_MEMORY("bar", s_store_item_data, 3U);
+}
+
+void test_prov_cert_clear_and_status(void)
+{
+    use_store();
+    s_store_has_wifi_v = true;
+    s_store_identity_v = false;
+
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert status"));
+    TEST_ASSERT_TRUE(has_line("wifi      stored"));
+    TEST_ASSERT_TRUE(has_line("identity  incomplete"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert clear"));
+    TEST_ASSERT_EQUAL_INT(1, s_store_clear_calls);
+}
+
+void test_prov_cert_commands_are_not_available_without_a_store(void)
+{
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov cert add ca Zm9v"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov cert status"));
+}
+
+void test_the_wifi_passphrase_is_not_kept_in_the_scrollback(void)
+{
+    use_store();
+
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set wifi-pass correct-horse"));
+
+    TEST_ASSERT_FALSE(has_line("correct-horse"));
+    TEST_ASSERT_TRUE(has_line("prov set wifi-pass ********"));
 }

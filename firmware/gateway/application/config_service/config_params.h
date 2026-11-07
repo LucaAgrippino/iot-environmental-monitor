@@ -55,21 +55,30 @@ typedef struct
     uint16_t pressure_hysteresis; /**< deci-hPa;   default    50                          */
 
     /* -- Modbus -- */
-    uint8_t modbus_slave_addr;      /**< Field Device address; unused on the Gateway; default 1 */
-    uint8_t reserved_a[3];          /**< Padding so the next field is 4-byte aligned; zero      */
+    uint8_t modbus_slave_addr; /**< Field Device address; unused on the Gateway; default 1 */
+    uint8_t
+        modbus_parity;     /**< Modbus line parity, REQ-LI-080: 0 none, 1 even, 2 odd; default 0.
+                                Carved out of the former padding: the blob size and schema stay, and
+                                a blob written before this field reads 0 (none, the old behaviour) */
+    uint8_t reserved_a[2]; /**< Padding so the next field is 4-byte aligned; zero      */
     uint32_t modbus_poll_period_ms; /**< Poll period; default 1000; range [100, 60000]          */
 
     /* -- Cloud connectivity -- */
     char mqtt_broker[CONFIG_MAX_BROKER_LEN]; /**< Host, NUL-terminated; default empty        */
     uint16_t mqtt_port;                      /**< default 8883                                */
-    uint8_t reserved_b[2];          /**< Padding so the next field is 4-byte aligned; zero */
+    uint16_t modbus_baud_div100; /**< Modbus baud rate divided by 100, REQ-LI-080: 12, 24, 48, 96 or
+                                      192; default 96 (9600). Carved out of the former padding; a
+                                      stored 0 is invalid and repaired to the default (D-8) */
     uint32_t telemetry_interval_ms; /**< default 60000; range [1000, 3600000]        */
     uint32_t health_interval_ms;    /**< default 300000; range [10000, 86400000]     */
 
     /* -- Time sync -- */
     char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN]; /**< IPv4 or host name */
     uint8_t ntp_server_count;                                          /**< default 0       */
-    uint8_t reserved_c;                                                /**< Padding; zero   */
+    uint8_t
+        selftest_flags; /**< Result of the last console self-test, REQ-LI-160: bit 0 a test ran,
+                             bit 1 sensors pass, bit 2 communication pass, bit 3 flash checked,
+                             bit 4 flash pass, bit 5 overall pass; 0 never ran (former padding) */
     uint16_t ntp_interval_min; /**< Sync interval, minutes; default 60; range [1, 1440]. Carved out
                                     of the former tail padding, so the blob size and schema stay;
                                     a stored 0 is invalid and repaired to the default (D-8). */
@@ -84,6 +93,7 @@ _Static_assert((offsetof(config_params_t, telemetry_interval_ms) % 4U) == 0U,
                "telemetry_interval_ms");
 _Static_assert((offsetof(config_params_t, health_interval_ms) % 4U) == 0U, "health_interval_ms");
 _Static_assert((offsetof(config_params_t, ntp_interval_min) % 2U) == 0U, "ntp_interval_min");
+_Static_assert((offsetof(config_params_t, modbus_baud_div100) % 2U) == 0U, "modbus_baud_div100");
 _Static_assert((sizeof(config_params_t) % 4U) == 0U, "config_params_t size");
 
 #endif /* CONFIG_PARAMS_H */

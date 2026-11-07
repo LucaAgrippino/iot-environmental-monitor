@@ -43,6 +43,7 @@
     # cpu and reset_driver: the Field Device has a cpu driver with the same file names.
     - gateway/drivers/cpu/**
     - gateway/drivers/adc/**
+    - gateway/middleware/cert_store/**
     - gateway/drivers/reset_driver/**
     - gateway/middleware/logger/**
     - gateway/drivers/wifi_driver/**
@@ -92,6 +93,7 @@
     - ../firmware/gateway/application/health_monitor/**
     - ../firmware/gateway/middleware/config_store/**
     - ../firmware/gateway/middleware/firmware_store/**
+    - ../firmware/gateway/middleware/cert_store/**
     # bootloader: boot_core.c is hardware-free; boot_hw_l4.c and boot_main.c are never linked
     # because no test includes their headers.
     - ../firmware/gateway/bootloader/**
@@ -348,6 +350,11 @@
     - BOARD_GATEWAY
     - TEST
   :test_fs_crypto_vectors:
+    - STM32L475xx
+    - BOARD_GATEWAY
+    - MBEDTLS_CONFIG_FILE=\"mbedtls_config_fs_test.h\"
+    - TEST
+  :test_cert_store:
     - STM32L475xx
     - BOARD_GATEWAY
     - MBEDTLS_CONFIG_FILE=\"mbedtls_config_fs_test.h\"

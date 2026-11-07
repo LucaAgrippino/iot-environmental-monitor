@@ -483,3 +483,77 @@ void test_T_MBUART_11_transmit_busy_guard(void)
     TEST_ASSERT_EQUAL_UINT32(1U, s_reentrant_calls);
     TEST_ASSERT_EQUAL_INT(MODBUS_UART_ERR_BUSY, s_reentrant_result);
 }
+
+/* ===================================================================== */
+/* Runtime line settings (REQ-LI-080)                                     */
+/* ===================================================================== */
+
+void test_T_MBUART_30_configure_sets_the_baud_rate_register(void)
+{
+    (void) modbus_uart_init();
+
+    TEST_ASSERT_EQUAL(MODBUS_UART_OK, modbus_uart_configure(19200U, MODBUS_UART_PARITY_NONE));
+    TEST_ASSERT_EQUAL_UINT32(4167UL, UART4->BRR); /* 80 MHz / 19200, rounded */
+    TEST_ASSERT_EQUAL(MODBUS_UART_OK, modbus_uart_configure(1200U, MODBUS_UART_PARITY_NONE));
+    TEST_ASSERT_EQUAL_UINT32(66667UL, UART4->BRR);
+}
+
+void test_T_MBUART_31_configure_even_parity_sets_pce_and_the_ninth_bit(void)
+{
+    (void) modbus_uart_init();
+
+    TEST_ASSERT_EQUAL(MODBUS_UART_OK, modbus_uart_configure(9600U, MODBUS_UART_PARITY_EVEN));
+    TEST_ASSERT_TRUE((UART4->CR1 & USART_CR1_PCE) != 0U);
+    TEST_ASSERT_TRUE((UART4->CR1 & USART_CR1_M0) != 0U);
+    TEST_ASSERT_TRUE((UART4->CR1 & USART_CR1_PS) == 0U);
+}
+
+void test_T_MBUART_32_configure_odd_parity_also_sets_ps(void)
+{
+    (void) modbus_uart_init();
+
+    TEST_ASSERT_EQUAL(MODBUS_UART_OK, modbus_uart_configure(9600U, MODBUS_UART_PARITY_ODD));
+    TEST_ASSERT_TRUE((UART4->CR1 & (USART_CR1_PCE | USART_CR1_PS | USART_CR1_M0)) ==
+                     (USART_CR1_PCE | USART_CR1_PS | USART_CR1_M0));
+}
+
+void test_T_MBUART_33_configure_none_clears_the_parity_bits_and_keeps_the_uart_on(void)
+{
+    (void) modbus_uart_init();
+    (void) modbus_uart_configure(9600U, MODBUS_UART_PARITY_ODD);
+
+    TEST_ASSERT_EQUAL(MODBUS_UART_OK, modbus_uart_configure(9600U, MODBUS_UART_PARITY_NONE));
+
+    TEST_ASSERT_TRUE((UART4->CR1 & (USART_CR1_PCE | USART_CR1_PS | USART_CR1_M0)) == 0U);
+    TEST_ASSERT_TRUE((UART4->CR1 & USART_CR1_UE) != 0U);
+    TEST_ASSERT_TRUE((UART4->CR1 & USART_CR1_TE) != 0U);
+}
+
+static void ignore_rx(modbus_uart_event_t event, void *ctx)
+{
+    (void) event;
+    (void) ctx;
+}
+
+void test_T_MBUART_34_configure_keeps_the_receiver_and_its_interrupts(void)
+{
+    (void) modbus_uart_init();
+    modbus_uart_attach_rx(ignore_rx, NULL);
+    const uint32_t keep = USART_CR1_RE | USART_CR1_RXNEIE | USART_CR1_IDLEIE;
+
+    TEST_ASSERT_EQUAL(MODBUS_UART_OK, modbus_uart_configure(4800U, MODBUS_UART_PARITY_EVEN));
+
+    TEST_ASSERT_TRUE((UART4->CR1 & keep) == keep);
+}
+
+void test_T_MBUART_35_configure_refuses_an_unsupported_rate_or_parity(void)
+{
+    (void) modbus_uart_init();
+    const uint32_t brr = UART4->BRR;
+
+    TEST_ASSERT_EQUAL(MODBUS_UART_ERR_INVALID_ARG,
+                      modbus_uart_configure(115200U, MODBUS_UART_PARITY_NONE));
+    TEST_ASSERT_EQUAL(MODBUS_UART_ERR_INVALID_ARG,
+                      modbus_uart_configure(9600U, (modbus_uart_parity_t) 3));
+    TEST_ASSERT_EQUAL_UINT32(brr, UART4->BRR);
+}
