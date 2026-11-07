@@ -95,6 +95,19 @@ static sensor_service_err_t spy_sensor_get_snapshot(sensor_snapshot_t *snap)
     *snap = g_spy_snapshot;
     return g_spy_snapshot_return;
 }
+/* SensorTask spy: a "read" command asks it for one more cycle (REQ-SA-170). */
+static uint32_t g_spy_read_requests;
+static bool g_spy_read_ok;
+static bool g_spy_cycle_runs;
+bool sensor_task_request_read(void)
+{
+    g_spy_read_requests++;
+    if (g_spy_read_ok && g_spy_cycle_runs)
+    {
+        g_spy_snapshot.cycle_count++; /* the requested cycle completes */
+    }
+    return g_spy_read_ok;
+}
 static const isensor_service_t g_spy_sensor_vtable = {.get_snapshot = spy_sensor_get_snapshot};
 const isensor_service_t *const sensor_service = &g_spy_sensor_vtable;
 
@@ -506,6 +519,9 @@ void setUp(void)
     (void) memset(&g_spy_snapshot, 0, sizeof(g_spy_snapshot));
     g_spy_snapshot_return = SENSOR_SERVICE_ERR_OK;
     g_spy_sensor_get_snapshot_calls = 0u;
+    g_spy_read_requests = 0u;
+    g_spy_read_ok = true;
+    g_spy_cycle_runs = true;
 
     g_spy_alarm_limit = 0;
     g_spy_alarm_cb = NULL;
@@ -2589,6 +2605,104 @@ void test_CP_T104_control_reaches_the_handler_and_is_ignored_without_one(void)
     prv_deliver_command("cmd/iotmonitor/" TC_SERIAL_TOPIC "/control",
                         (const uint8_t *) "{\"command\":\"restart\"}", 21u);
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
+}
+
+static void prv_send_control(const char *json)
+{
+    prv_deliver_command("cmd/iotmonitor/" TC_SERIAL_TOPIC "/control", (const uint8_t *) json,
+                        (uint32_t) strlen(json));
+}
+
+/* CP-T106: "read" runs one extra cycle, publishes telemetry, then the accepted result (REQ-SA-170).
+ */
+void test_CP_T106_read_publishes_telemetry_then_an_accepted_result(void)
+{
+    prv_create_and_connect();
+    const uint32_t before = g_spy_mqtt_publish_calls;
+
+    prv_send_control("{\"command\":\"read\",\"req\":7}");
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_read_requests);
+    TEST_ASSERT_EQUAL_UINT32(before + 2u, g_spy_mqtt_publish_calls);
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/control/result",
+                             g_spy_mqtt_publish_last_topic);
+    TEST_ASSERT_EQUAL(MQTT_QOS_1, g_spy_mqtt_publish_last_qos);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"read\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":7"));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"accepted\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
+}
+
+/* CP-T107: no SensorTask, or a cycle that never completes, gives a rejected result. */
+void test_CP_T107_read_without_a_sensor_cycle_is_rejected_as_failed(void)
+{
+    prv_create_and_connect();
+    g_spy_read_ok = false;
+    prv_send_control("{\"command\":\"read\"}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"rejected\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"failed\""));
+
+    g_spy_read_ok = true;
+    g_spy_cycle_runs = false;
+    prv_send_control("{\"command\":\"read\"}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"failed\""));
+}
+
+/* CP-T108: a malformed or unknown command is rejected on the result topic (REQ-MB-140). */
+void test_CP_T108_bad_and_unknown_commands_are_rejected_with_a_reason(void)
+{
+    prv_create_and_connect();
+
+    prv_send_control("not json at all");
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/control/result",
+                             g_spy_mqtt_publish_last_topic);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"bad_format\""));
+
+    prv_send_control("{\"command\":\"selfdestruct\"}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"unknown_command\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_read_requests);
+}
+
+/* CP-T109: restart commands still reach the handler and are acknowledged (REQ-NF-308). */
+void test_CP_T109_restart_reaches_the_handler_and_is_acknowledged(void)
+{
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"restart\"}");
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_control_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"restart\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"accepted\""));
+
+    prv_send_control("{\"command\":\"restart_confirm\"}");
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_control_calls);
+    TEST_ASSERT_NOT_NULL(
+        strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"restart_confirm\""));
+}
+
+/* CP-T110: parser: names are matched exactly, spaces are allowed, the id is optional. */
+void test_CP_T110_control_parser_matches_exact_names(void)
+{
+    bool known = true;
+    uint32_t req = 99u;
+    const char *a = "{ \"command\" : \"read\" , \"req\" : 12 }";
+    const char *b = "{\"command\":\"restart_confirm\"}";
+    const char *c = "{\"command\":\"rest\"}";
+    const char *d = "{\"cmd\":\"read\"}";
+
+    TEST_ASSERT_EQUAL(CP_CTRL_READ, cp_parse_control_command((const uint8_t *) a,
+                                                             (uint32_t) strlen(a), &known, &req));
+    TEST_ASSERT_TRUE(known);
+    TEST_ASSERT_EQUAL_UINT32(12u, req);
+    TEST_ASSERT_EQUAL(
+        CP_CTRL_RESTART_CONFIRM,
+        cp_parse_control_command((const uint8_t *) b, (uint32_t) strlen(b), &known, &req));
+    TEST_ASSERT_FALSE(known);
+    TEST_ASSERT_EQUAL(CP_CTRL_UNKNOWN, cp_parse_control_command((const uint8_t *) c,
+                                                                (uint32_t) strlen(c), NULL, NULL));
+    TEST_ASSERT_EQUAL(
+        CP_CTRL_BAD_FORMAT,
+        cp_parse_control_command((const uint8_t *) d, (uint32_t) strlen(d), NULL, NULL));
+    TEST_ASSERT_EQUAL(CP_CTRL_BAD_FORMAT, cp_parse_control_command(NULL, 0u, NULL, NULL));
 }
 
 /* CP-T105: every serialiser output fits the buffer at the largest values. */
