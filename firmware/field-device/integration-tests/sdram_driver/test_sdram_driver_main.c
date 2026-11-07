@@ -66,25 +66,25 @@
 /* Configuration                                                         */
 /* ===================================================================== */
 
-#define LOG_MODULE                  ("SDRAM")
+#define LOG_MODULE ("SDRAM")
 
 #define SDRAM_TEST_TASK_STACK_WORDS (1024U)
-#define SDRAM_TEST_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define SDRAM_TEST_TASK_PRIORITY (tskIDLE_PRIORITY + 1U)
 
-#define SDRAM_SIZE_BYTES            (16UL * 1024UL * 1024UL) /* 16 MB    */
-#define SDRAM_SIZE_WORDS            (SDRAM_SIZE_BYTES / 4UL) /* 4 M words */
+#define SDRAM_SIZE_BYTES (16UL * 1024UL * 1024UL) /* 16 MB    */
+#define SDRAM_SIZE_WORDS (SDRAM_SIZE_BYTES / 4UL) /* 4 M words */
 
 /* Aged-data test region: first 1 MB */
-#define AGED_DATA_SIZE_WORDS        (1UL * 1024UL * 1024UL / 4UL)
-#define AGED_DATA_SLEEP_MS          (200U)
+#define AGED_DATA_SIZE_WORDS (1UL * 1024UL * 1024UL / 4UL)
+#define AGED_DATA_SLEEP_MS (200U)
 
 /* Spot-check test: 1 024 pseudo-random addresses */
-#define SPOT_CHECK_COUNT            (1024U)
+#define SPOT_CHECK_COUNT (1024U)
 
 /* LCG parameters for deterministic pseudo-random address generation */
-#define LCG_A                       (1664525UL)
-#define LCG_C                       (1013904223UL)
-#define LCG_SEED                    (0xDEADBEEFUL)
+#define LCG_A (1664525UL)
+#define LCG_C (1013904223UL)
+#define LCG_SEED (0xDEADBEEFUL)
 
 /* ===================================================================== */
 /* Helpers                                                               */
@@ -92,7 +92,7 @@
 
 static uint32_t lcg_next(uint32_t *state)
 {
-    *state = (uint32_t)(*state * LCG_A) + LCG_C;
+    *state = (uint32_t) (*state * LCG_A) + LCG_C;
     return *state;
 }
 
@@ -173,15 +173,15 @@ static uint32_t run_aged_data_test(volatile uint32_t *base, uint32_t words)
 static uint32_t run_spot_check(volatile uint32_t *base, uint32_t words)
 {
     uint32_t errors = 0U;
-    uint32_t lcg    = LCG_SEED;
+    uint32_t lcg = LCG_SEED;
     static uint32_t addrs[SPOT_CHECK_COUNT];
     static uint32_t patterns[SPOT_CHECK_COUNT];
 
     /* Generate random addresses and patterns, then write. */
     for (uint32_t i = 0U; i < SPOT_CHECK_COUNT; i++)
     {
-    	uint32_t addr = lcg_next(&lcg) % words;
-        addrs[i]    = addr;
+        uint32_t addr = lcg_next(&lcg) % words;
+        addrs[i] = addr;
         uint32_t patt = lcg_next(&lcg);
         patterns[i] = patt;
         base[addrs[i]] = patterns[i];
@@ -259,7 +259,7 @@ static void sdram_test_task(void *arg)
 /* ===================================================================== */
 
 static StaticTask_t s_sdram_test_tcb;
-static StackType_t  s_sdram_test_stack[SDRAM_TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_sdram_test_stack[SDRAM_TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
 
 /* ===================================================================== */
 /* Entry point                                                           */
@@ -279,23 +279,16 @@ int main(void)
     sdram_err_t sdram_err = sdram_init();
     if (sdram_err != SDRAM_ERR_OK)
     {
-        LOG_ERROR(LOG_MODULE, "sdram_init FAILED err=%u -- halting",
-                  (unsigned) sdram_err);
+        LOG_ERROR(LOG_MODULE, "sdram_init FAILED err=%u -- halting", (unsigned) sdram_err);
         for (;;)
         {
         }
     }
 
-    LOG_INFO(LOG_MODULE, "sdram_init OK -- base=0x%08lX",
-             (unsigned long) sdram_get_base_addr());
+    LOG_INFO(LOG_MODULE, "sdram_init OK -- base=0x%08lX", (unsigned long) sdram_get_base_addr());
 
-    (void) xTaskCreateStatic(sdram_test_task,
-                             "SdramTest",
-                             SDRAM_TEST_TASK_STACK_WORDS,
-                             NULL,
-                             SDRAM_TEST_TASK_PRIORITY,
-                             s_sdram_test_stack,
-                             &s_sdram_test_tcb);
+    (void) xTaskCreateStatic(sdram_test_task, "SdramTest", SDRAM_TEST_TASK_STACK_WORDS, NULL,
+                             SDRAM_TEST_TASK_PRIORITY, s_sdram_test_stack, &s_sdram_test_tcb);
 
     LOG_INFO(LOG_MODULE, "starting scheduler...");
     vTaskStartScheduler();

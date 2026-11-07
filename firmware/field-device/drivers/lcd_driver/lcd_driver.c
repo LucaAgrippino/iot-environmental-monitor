@@ -37,6 +37,7 @@
 
 #define LCD_HEIGHT (480U)
 #define LCD_WIDTH (800U)
+#define LCD_BLANK_PIXEL (0xFF000000U) /* opaque black, ARGB8888 */
 
 /* ===================================================================== */
 /* Stage markers (private in production; exposed in test via .h)        */
@@ -64,6 +65,7 @@ typedef struct
     uint32_t *framebuffer;
     lcd_frame_done_cb_t frame_done_cb;
     void *frame_done_ctx;
+    volatile uint32_t error_count; /* LTDC FIFO underruns + transfer errors (ISR-updated) */
     bool initialised;
 } lcd_driver_t;
 
@@ -78,6 +80,19 @@ lcd_err_t lcd_init(void)
     /* Stage 1: enable LTDC, DSI, DMA2D peripheral clocks. */
     RCC->APB2ENR |= RCC_APB2ENR_LTDCEN | RCC_APB2ENR_DSIEN;
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA2DEN;
+
+    /* Stage 1b: blank the framebuffer BEFORE the panel is switched on. SDRAM holds random data
+     * after a power-up and the previous frame after a reset; without this the panel shows that
+     * until the first LVGL frame lands (LCD-D1). Opaque black: ARGB8888 0xFF000000. */
+#ifndef TEST
+    {
+        uint32_t *fb = (uint32_t *) (uintptr_t) sdram_get_base_addr();
+        for (uint32_t i = 0U; i < (LCD_WIDTH * LCD_HEIGHT); i++)
+        {
+            fb[i] = LCD_BLANK_PIXEL;
+        }
+    }
+#endif
 
     /* Stage 2: hand off DSI/LTDC/OTM8009A initialisation to the BSP. */
 #ifndef TEST
@@ -102,6 +117,14 @@ lcd_err_t lcd_init(void)
     BSP_LCD_LayerDefaultInit(0, (uint32_t) sdram_get_base_addr());
     BSP_LCD_SelectLayer(0);
 #endif
+    /* LTDC error monitoring, independent of any frame-done callback: FIFO underrun (the
+     * framebuffer could not be read from SDRAM fast enough) and transfer error (bus fault on
+     * that read). Both LTDC vectors sit at the same priority, inside the FreeRTOS-safe band
+     * (BUG-LCD-001). */
+    LTDC->IER |= LTDC_IER_FUIE | LTDC_IER_TERRIE;
+    NVIC_SetPriority(LTDC_ER_IRQn, LCD_IRQ_PRIORITY);
+    NVIC_EnableIRQ(LTDC_ER_IRQn);
+
     /* Stage 6: mark driver ready. */
     s_lcd.initialised = true;
 
@@ -121,16 +144,11 @@ lcd_err_t lcd_attach_frame_done(lcd_frame_done_cb_t cb, void *ctx)
 
     s_lcd.frame_done_cb = cb;
     s_lcd.frame_done_ctx = ctx;
-#ifndef TEST
+
     LTDC->LIPCR = LCD_HEIGHT - 1U; /* fire at last active line */
-
-    /* Enable LTDC line interrupt. */
     LTDC->IER |= LTDC_IER_LIE;
-
-    /* Configure NVIC for LTDC line interrupt and LTDC error interrupt. */
     NVIC_SetPriority(LTDC_IRQn, LCD_IRQ_PRIORITY);
     NVIC_EnableIRQ(LTDC_IRQn);
-#endif
 
     return LCD_ERR_OK;
 }
@@ -151,11 +169,9 @@ lcd_err_t lcd_flush(void)
         return LCD_ERR_STATE;
     }
 
-#ifndef TEST
     /* LTDC->SRCR.VBR = 1 → shadow reload on next vertical blanking.
      * Self-clearing bit. RM0386 §16.7.2. */
     LTDC->SRCR = LTDC_SRCR_VBR;
-#endif
 
     return LCD_ERR_OK;
 }
@@ -199,6 +215,29 @@ void LCD_TFT_IRQHandler(void)
     }
 }
 
+/* LTDC error vector (named LCD_TFT_1_IRQHandler in the F469 startup file): clear the flags so
+ * the interrupt does not re-fire, and count the event for lcd_get_error_count(). */
+void LCD_TFT_1_IRQHandler(void)
+{
+    const uint32_t isr = LTDC->ISR;
+
+    if ((isr & LTDC_ISR_FUIF) != 0U)
+    {
+        LTDC->ICR = LTDC_ICR_CFUIF;
+        s_lcd.error_count++;
+    }
+    if ((isr & LTDC_ISR_TERRIF) != 0U)
+    {
+        LTDC->ICR = LTDC_ICR_CTERRIF;
+        s_lcd.error_count++;
+    }
+}
+
+uint32_t lcd_get_error_count(void)
+{
+    return s_lcd.error_count;
+}
+
 /* ===================================================================== */
 /* Test-only                                                            */
 /* ===================================================================== */
@@ -209,6 +248,7 @@ void lcd_driver_reset(void)
     s_lcd.framebuffer = NULL;
     s_lcd.frame_done_cb = NULL;
     s_lcd.frame_done_ctx = NULL;
+    s_lcd.error_count = 0U;
     s_lcd.initialised = false;
 }
 #endif /* TEST */

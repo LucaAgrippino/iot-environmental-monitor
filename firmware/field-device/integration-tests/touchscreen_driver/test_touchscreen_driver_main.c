@@ -81,7 +81,7 @@ static void log_result(const char *name, bool passed)
     {
         g_results.passed++;
     }
-    LOG_INFO(MODULE_ID,"%s: %s", name, passed ? "PASS" : "FAIL");
+    LOG_INFO(MODULE_ID, "%s: %s", name, passed ? "PASS" : "FAIL");
 }
 
 /* ===================================================================== */
@@ -109,7 +109,7 @@ static void tc_ts_016_irq_on_touch(TaskHandle_t this_task)
     g_test_task_handle = this_task;
     touchscreen_attach_irq(on_touch_irq, (void *) this_task);
 
-    LOG_INFO(MODULE_ID,"TC-TS-016: touch the screen within %u ms ...", TOUCH_IRQ_TIMEOUT_MS);
+    LOG_INFO(MODULE_ID, "TC-TS-016: touch the screen within %u ms ...", TOUCH_IRQ_TIMEOUT_MS);
     uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(TOUCH_IRQ_TIMEOUT_MS));
     log_result("TC-TS-016 EXTI IRQ fires on physical touch", notified > 0U);
 }
@@ -123,21 +123,21 @@ static void tc_ts_016_irq_on_touch(TaskHandle_t this_task)
 
 static void tc_ts_017_read_coordinates(void)
 {
-    LOG_INFO(MODULE_ID,"TC-TS-017: touch the screen within %u ms ...", TOUCH_WAIT_MS);
+    LOG_INFO(MODULE_ID, "TC-TS-017: touch the screen within %u ms ...", TOUCH_WAIT_MS);
     uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(TOUCH_WAIT_MS));
 
-    if (notified == 0U) {
+    if (notified == 0U)
+    {
         log_result("TC-TS-017 read coordinates -- no touch received", false);
         return;
     }
 
     ts_touch_t touch;
-    ts_err_t   err = touchscreen_read(&touch);
-    bool ok = (err == TS_ERR_OK) &&
-              (touch.x < 800U) &&
-              (touch.y < 480U);
-    if (err == TS_ERR_OK) {
-        LOG_INFO(MODULE_ID,"  touch=(%u,%u) event=%u", touch.x, touch.y, (unsigned)touch.event);
+    ts_err_t err = touchscreen_read(&touch);
+    bool ok = (err == TS_ERR_OK) && (touch.x < 800U) && (touch.y < 480U);
+    if (err == TS_ERR_OK)
+    {
+        LOG_INFO(MODULE_ID, "  touch=(%u,%u) event=%u", touch.x, touch.y, (unsigned) touch.event);
     }
     log_result("TC-TS-017 read coordinates in bounds", ok);
 }
@@ -151,17 +151,18 @@ static void test_task(void *params)
     (void) params;
     TaskHandle_t this_task = xTaskGetCurrentTaskHandle();
 
-    LOG_INFO(MODULE_ID,"TouchscreenDriver integration tests");
-    LOG_INFO(MODULE_ID,"===================================");
+    LOG_INFO(MODULE_ID, "TouchscreenDriver integration tests");
+    LOG_INFO(MODULE_ID, "===================================");
 
     tc_ts_015_init_on_hardware();
     tc_ts_016_irq_on_touch(this_task);
     tc_ts_017_read_coordinates();
 
-    LOG_INFO(MODULE_ID,"===================================");
-    LOG_INFO(MODULE_ID,"Result: %lu/%lu passed", g_results.passed, g_results.total);
+    LOG_INFO(MODULE_ID, "===================================");
+    LOG_INFO(MODULE_ID, "Result: %lu/%lu passed", g_results.passed, g_results.total);
 
-    for (;;) {
+    for (;;)
+    {
         vTaskDelay(pdMS_TO_TICKS(1000U));
     }
 }
@@ -173,7 +174,6 @@ void test_touchscreen_driver_run(void)
     xTaskCreateStatic(test_task, "ts_test", TEST_TASK_STACK_WORDS, NULL, tskIDLE_PRIORITY + 1U,
                       s_test_stack, &s_test_tcb);
 }
-
 
 /* ===================================================================== */
 /* Entry point                                                            */
@@ -192,5 +192,7 @@ int main(void)
 
     vTaskStartScheduler();
 
-    for (;;) { }   /* unreachable */
+    for (;;)
+    {
+    } /* unreachable */
 }

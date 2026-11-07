@@ -46,31 +46,31 @@
 /* ===================================================================== */
 
 #define TEST_TASK_STACK_WORDS (2048U)
-#define MODULE_ID             "LCD"
+#define MODULE_ID "LCD"
 
-#define LCD_WIDTH  (800U)
+#define LCD_WIDTH (800U)
 #define LCD_HEIGHT (480U)
 #define LCD_PIXELS (LCD_WIDTH * LCD_HEIGHT)
 
 /* RGB565 colour constants */
-#define ARGB8888_RED   (0xFFFF0000U)
+#define ARGB8888_RED (0xFFFF0000U)
 #define ARGB8888_GREEN (0xFF00FF00U)
-#define ARGB8888_BLUE  (0xFF0000FFU)
+#define ARGB8888_BLUE (0xFF0000FFU)
 #define ARGB8888_WHITE (0xFFFFFFFFU)
 
-#define FLUSH_INTERVAL_MS  (200U)
-#define FLUSH_COUNT        (100U)
+#define FLUSH_INTERVAL_MS (200U)
+#define FLUSH_COUNT (100U)
 #define FRAME_NOTIFY_TICKS (pdMS_TO_TICKS(500U))
 
-#define LAYER0_ADDRESS               (LCD_FB_START_ADDRESS)
+#define LAYER0_ADDRESS (LCD_FB_START_ADDRESS)
 /* ===================================================================== */
 /* Test state                                                            */
 /* ===================================================================== */
 
 static StaticTask_t s_test_tcb;
-static StackType_t  s_test_stack[TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
+static StackType_t s_test_stack[TEST_TASK_STACK_WORDS] __attribute__((aligned(8)));
 
-static TaskHandle_t   s_test_task_handle;
+static TaskHandle_t s_test_task_handle;
 static volatile uint32_t s_frame_done_count;
 
 typedef struct
@@ -88,7 +88,7 @@ static test_results_t s_results;
 static void on_frame_done(void *context)
 {
     TaskHandle_t task = (TaskHandle_t) context;
-    BaseType_t   higher_woken = pdFALSE;
+    BaseType_t higher_woken = pdFALSE;
     s_frame_done_count++;
     vTaskNotifyGiveFromISR(task, &higher_woken);
     portYIELD_FROM_ISR(higher_woken);
@@ -126,28 +126,28 @@ static void fill_framebuffer(uint32_t *fb, uint32_t colour)
 
 static void lcd_test_task(void *arg)
 {
-    (void)arg;
+    (void) arg;
 
     LOG_INFO(MODULE_ID, "LcdDriver integration tests starting");
 
     /* lcd_init() is called from main() before the scheduler starts.
      * Obtain the framebuffer pointer and confirm it. */
     uint32_t *fb = lcd_get_framebuffer();
-    bool      fb_ok = (fb == (uint32_t *)SDRAM_BASE_ADDR);
+    bool fb_ok = (fb == (uint32_t *) SDRAM_BASE_ADDR);
     log_result("TC-LCD-010 (framebuffer address after init)", fb_ok);
 
     /* --- TC-LCD-011 Solid colour fills -------------------------------- */
     LOG_INFO(MODULE_ID, "TC-LCD-011: solid colour fills");
     fill_framebuffer(fb, ARGB8888_RED);
-    (void)lcd_flush();
+    (void) lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(1000U));
 
     fill_framebuffer(fb, ARGB8888_GREEN);
-    (void)lcd_flush();
+    (void) lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(1000U));
 
     fill_framebuffer(fb, ARGB8888_BLUE);
-    (void)lcd_flush();
+    (void) lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(1000U));
 
     log_result("TC-LCD-011 solid colour fills (visual)", true);
@@ -160,23 +160,24 @@ static void lcd_test_task(void *arg)
         {
             /* Vertical bars: 8 colours cycling, one per 100-px column. */
             uint32_t bar = (x / 100U) % 8U;
-            uint8_t  r   = (bar & 0x1U) ? 0xFFU : 0x00U;
-            uint8_t  g   = (bar & 0x2U) ? 0xFFU : 0x00U;
-            uint8_t  b   = (bar & 0x4U) ? 0xFFU : 0x00U;
+            uint8_t r = (bar & 0x1U) ? 0xFFU : 0x00U;
+            uint8_t g = (bar & 0x2U) ? 0xFFU : 0x00U;
+            uint8_t b = (bar & 0x4U) ? 0xFFU : 0x00U;
 
-//            /* Horizontal red gradient within each column (0..255). */
-//            uint8_t grad = (uint8_t)((x * 255U) / (LCD_WIDTH - 1U));
-//            r = (uint8_t)(r ^ grad);   /* XOR so the gradient is visible on all bars */
+            //            /* Horizontal red gradient within each column (0..255). */
+            //            uint8_t grad = (uint8_t)((x * 255U) / (LCD_WIDTH - 1U));
+            //            r = (uint8_t)(r ^ grad);   /* XOR so the gradient is visible on all bars
+            //            */
 
-            uint32_t colour = ((uint32_t)0xFFU << 24) |   /* alpha */
-                              ((uint32_t)r    << 16) |   /* red   */
-                              ((uint32_t)g    <<  8) |   /* green */
-                              ((uint32_t)b    <<  0);    /* blue  */
+            uint32_t colour = ((uint32_t) 0xFFU << 24) | /* alpha */
+                              ((uint32_t) r << 16) |     /* red   */
+                              ((uint32_t) g << 8) |      /* green */
+                              ((uint32_t) b << 0);       /* blue  */
 
             fb[y * LCD_WIDTH + x] = colour;
         }
     }
-    (void)lcd_flush();
+    (void) lcd_flush();
     vTaskDelay(pdMS_TO_TICKS(2000U));
     log_result("TC-LCD-012 test pattern (visual)", true);
 
@@ -184,24 +185,24 @@ static void lcd_test_task(void *arg)
     LOG_INFO(MODULE_ID, "TC-LCD-013: 100 flush/callback cycles");
 
     s_frame_done_count = 0U;
-    (void)lcd_attach_frame_done(on_frame_done, s_test_task_handle);
+    (void) lcd_attach_frame_done(on_frame_done, s_test_task_handle);
 
     fill_framebuffer(fb, ARGB8888_WHITE);
 
     for (uint32_t i = 0U; i < FLUSH_COUNT; i++)
     {
-        (void)lcd_flush();
+        (void) lcd_flush();
         /* Wait for frame-done notification from ISR (or timeout). */
         if (ulTaskNotifyTake(pdTRUE, FRAME_NOTIFY_TICKS) == 0U)
         {
-            LOG_ERROR(MODULE_ID, "TC-LCD-013: timeout on flush %lu", (unsigned long)i);
+            LOG_ERROR(MODULE_ID, "TC-LCD-013: timeout on flush %lu", (unsigned long) i);
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(FLUSH_INTERVAL_MS));
     }
 
     bool callback_ok = (s_frame_done_count >= FLUSH_COUNT);
-    LOG_INFO(MODULE_ID, "Callback count: %lu", (unsigned long)s_frame_done_count);
+    LOG_INFO(MODULE_ID, "Callback count: %lu", (unsigned long) s_frame_done_count);
     log_result("TC-LCD-013 frame-done 100 cycles", callback_ok);
 
     /* --- TC-LCD-014 Touchscreen I2C (visual) -------------------------- */
@@ -210,8 +211,8 @@ static void lcd_test_task(void *arg)
     log_result("TC-LCD-014 PH7 reset released (manual verify)", true);
 
     /* --- Final summary ------------------------------------------------ */
-    LOG_INFO(MODULE_ID, "Results: %lu/%lu passed",
-             (unsigned long)s_results.passed, (unsigned long)s_results.total);
+    LOG_INFO(MODULE_ID, "Results: %lu/%lu passed", (unsigned long) s_results.passed,
+             (unsigned long) s_results.total);
 
     if (s_results.passed == s_results.total)
     {
@@ -237,9 +238,9 @@ int main(void)
     system_clock_init();
     system_clock_enable_dwt();
 
-    (void)gpio_init();
-    (void)debug_uart_init();
-    (void)rtc_init();
+    (void) gpio_init();
+    (void) debug_uart_init();
+    (void) rtc_init();
 
     logger_init(LOG_LEVEL_DEBUG);
     LOG_INFO(MODULE_ID, "LcdDriver integration test firmware");
@@ -248,7 +249,7 @@ int main(void)
     sdram_err_t sdram_err = sdram_init();
     if (sdram_err != SDRAM_ERR_OK)
     {
-        LOG_ERROR(MODULE_ID, "sdram_init failed: %d", (int)sdram_err);
+        LOG_ERROR(MODULE_ID, "sdram_init failed: %d", (int) sdram_err);
         for (;;)
         {
         }
@@ -258,25 +259,26 @@ int main(void)
     lcd_err_t lcd_err = lcd_init();
     if (lcd_err != LCD_ERR_OK)
     {
-        LOG_ERROR(MODULE_ID, "lcd_init failed: %d (stage=0x%02X)",
-                  (int)lcd_err, (unsigned int)/*s_lcd_init_stage*/0);
+        LOG_ERROR(MODULE_ID, "lcd_init failed: %d (stage=0x%02X)", (int) lcd_err,
+                  (unsigned int) /*s_lcd_init_stage*/ 0);
         for (;;)
         {
         }
     }
-    LOG_INFO(MODULE_ID, "lcd_init OK — stage %d", (int)/*s_lcd_init_stage*/0);
+    LOG_INFO(MODULE_ID, "lcd_init OK — stage %d", (int) /*s_lcd_init_stage*/ 0);
 
     uint32_t *fb = lcd_get_framebuffer();
-    if (fb != NULL) {
+    if (fb != NULL)
+    {
         /* Fill entire framebuffer with red — RGB565 */
-        for (uint32_t i = 0; i < 800U * 480U; i++) {
+        for (uint32_t i = 0; i < 800U * 480U; i++)
+        {
             fb[i] = 0xFFFFFFFFU;
         }
     }
 
-    s_test_task_handle = xTaskCreateStatic(
-        lcd_test_task, "LCD_TEST", TEST_TASK_STACK_WORDS, NULL,
-        2U, s_test_stack, &s_test_tcb);
+    s_test_task_handle = xTaskCreateStatic(lcd_test_task, "LCD_TEST", TEST_TASK_STACK_WORDS, NULL,
+                                           2U, s_test_stack, &s_test_tcb);
 
     vTaskStartScheduler();
 

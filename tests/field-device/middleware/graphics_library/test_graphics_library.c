@@ -130,6 +130,23 @@ void test_TC_GFX_001_init_fresh_state(void)
 }
 
 /* ===================================================================== */
+/* TC-GFX-001b — BUG-GFX-001: a second graphics_init() changes nothing   */
+/* ===================================================================== */
+
+void test_TC_GFX_001b_second_init_is_idempotent(void)
+{
+    TEST_ASSERT_EQUAL(GRAPHICS_ERR_OK, graphics_init());
+    lv_disp_t *display = graphics_get_display();
+    lv_indev_t *indev = graphics_get_indev();
+
+    TEST_ASSERT_EQUAL(GRAPHICS_ERR_OK, graphics_init());
+
+    TEST_ASSERT_EQUAL_INT(1, g_lvgl_lv_init_calls);
+    TEST_ASSERT_EQUAL_PTR(display, graphics_get_display());
+    TEST_ASSERT_EQUAL_PTR(indev, graphics_get_indev());
+}
+
+/* ===================================================================== */
 /* TC-GFX-002 — graphics_process before init returns NOT_INIT           */
 /* ===================================================================== */
 

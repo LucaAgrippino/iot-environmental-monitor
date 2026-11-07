@@ -67,11 +67,9 @@ typedef enum
 /* Status screen metric label count                                     */
 /* ===================================================================== */
 
-#ifdef TEST
-#define LCD_UI_STATUS_STACK_LABELS HEALTH_STUB_TASK_COUNT
-#else
+/* The HealthMonitor stub now pulls in the real interface headers, so the constant is the same in
+ * production and in the host tests. */
 #define LCD_UI_STATUS_STACK_LABELS HEALTH_TASK_COUNT
-#endif
 #define STATUS_METRIC_COUNT (7U + LCD_UI_STATUS_STACK_LABELS)
 
 /* ===================================================================== */

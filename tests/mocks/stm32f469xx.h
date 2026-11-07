@@ -509,12 +509,24 @@ extern LTDC_TypeDef g_mock_ltdc;
 /* --- LTDC interrupt bit constants (RM0386 §28.6) ---------------------- */
 #define LTDC_IER_LIE_Pos  (0U)
 #define LTDC_IER_LIE      (1UL << LTDC_IER_LIE_Pos)
+#define LTDC_IER_FUIE_Pos (1U)
+#define LTDC_IER_FUIE     (1UL << LTDC_IER_FUIE_Pos)
+#define LTDC_IER_TERRIE_Pos (2U)
+#define LTDC_IER_TERRIE   (1UL << LTDC_IER_TERRIE_Pos)
 
 #define LTDC_ISR_LIF_Pos  (0U)
 #define LTDC_ISR_LIF      (1UL << LTDC_ISR_LIF_Pos)
+#define LTDC_ISR_FUIF_Pos (1U)
+#define LTDC_ISR_FUIF     (1UL << LTDC_ISR_FUIF_Pos)
+#define LTDC_ISR_TERRIF_Pos (2U)
+#define LTDC_ISR_TERRIF   (1UL << LTDC_ISR_TERRIF_Pos)
 
 #define LTDC_ICR_CLIF_Pos (0U)
 #define LTDC_ICR_CLIF     (1UL << LTDC_ICR_CLIF_Pos)
+#define LTDC_ICR_CFUIF_Pos (1U)
+#define LTDC_ICR_CFUIF    (1UL << LTDC_ICR_CFUIF_Pos)
+#define LTDC_ICR_CTERRIF_Pos (2U)
+#define LTDC_ICR_CTERRIF  (1UL << LTDC_ICR_CTERRIF_Pos)
 
 #define LTDC_SRCR_VBR    (1UL << 1)    /* Vertical blanking reload bit */
 /* ====================================================================== */

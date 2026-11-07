@@ -107,6 +107,13 @@ static void tick_timer_cb(TimerHandle_t xTimer)
 
 graphics_err_t graphics_init(void)
 {
+    /* BUG-GFX-001: idempotent. A second call would leak the mutex, run lv_init() again (undefined
+     * in LVGL) and start a second tick timer. */
+    if (s_gl.initialised)
+    {
+        return GRAPHICS_ERR_OK;
+    }
+
     s_gl.mutex = xSemaphoreCreateMutexStatic(&s_gl.mutex_storage);
 
     lv_init();

@@ -184,6 +184,8 @@ struct lv_timer_s
 /* lv_obj_t (rich stub struct for widget state tracking)                */
 /* ===================================================================== */
 
+#define LVGL_STUB_EVENTS_MAX (4U)
+
 struct lv_obj_s
 {
     char stub_text[LVGL_STUB_TEXT_MAX];
@@ -196,10 +198,15 @@ struct lv_obj_s
     /* List widget items */
     char stub_list_items[LVGL_STUB_LIST_MAX][LVGL_STUB_LIST_ITEM_LEN];
     uint32_t stub_list_count;
-    /* Event callback (one slot sufficient for tests) */
-    lv_event_cb_t stub_event_cb;
-    lv_event_code_t stub_event_filter;
-    void *stub_event_user_data;
+    /* Event callbacks: a list per object, like real LVGL v8 (BUG-LCDUI-001: the old single slot
+     * let a second lv_obj_add_event_cb() overwrite the first). */
+    struct
+    {
+        lv_event_cb_t cb;
+        lv_event_code_t filter;
+        void *user_data;
+    } stub_events[LVGL_STUB_EVENTS_MAX];
+    uint32_t stub_event_count;
     /* Tabview: active tab index */
     uint16_t stub_tab_act;
     bool in_use;
@@ -235,6 +242,12 @@ void lvgl_stub_reset(void);
 
 /** Fire a widget event: invokes obj's registered callback if filter matches. */
 void lvgl_stub_fire_event(lv_obj_t *obj, lv_event_code_t code, void *user_data_override);
+
+/** Number of event callbacks registered on obj (all filters). */
+uint32_t lvgl_stub_event_cb_count(const lv_obj_t *obj);
+
+/** True when obj has cb registered for the event code. */
+bool lvgl_stub_has_event_cb(const lv_obj_t *obj, lv_event_cb_t cb, lv_event_code_t code);
 
 /* ===================================================================== */
 /* LVGL API stubs — GraphicsLibrary level                               */

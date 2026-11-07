@@ -126,6 +126,23 @@ lcd_err_t lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint32_
  */
 void LCD_TFT_IRQHandler(void);
 
+/**
+ * @brief LTDC error-interrupt ISR (vector LCD_TFT_1_IRQHandler): FIFO underrun and transfer error.
+ *
+ * Clears the flag and counts the event; priority equals the line interrupt (BUG-LCD-001).
+ */
+void LCD_TFT_1_IRQHandler(void);
+
+/**
+ * @brief Number of LTDC FIFO-underrun and transfer-error events since boot.
+ *
+ * A non-zero, growing value on a healthy panel means the framebuffer read from SDRAM is starved
+ * (SDRAM timing or bus load).
+ *
+ * @return Event count; wraps at 2^32.
+ */
+uint32_t lcd_get_error_count(void);
+
 /* ===================================================================== */
 /* Test-only API                                                         */
 /* ===================================================================== */

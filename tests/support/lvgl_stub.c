@@ -102,20 +102,45 @@ static lv_timer_t *alloc_timer(void)
 
 void lvgl_stub_fire_event(lv_obj_t *obj, lv_event_code_t code, void *user_data_override)
 {
-    if ((obj == NULL) || (obj->stub_event_cb == NULL))
+    if (obj == NULL)
     {
         return;
     }
-    if (obj->stub_event_filter != code)
+    for (uint32_t i = 0U; i < obj->stub_event_count; i++)
     {
-        return;
+        if ((obj->stub_events[i].cb == NULL) || (obj->stub_events[i].filter != code))
+        {
+            continue;
+        }
+        lv_event_t evt;
+        (void) memset(&evt, 0, sizeof(evt));
+        evt.target = obj;
+        evt.code = code;
+        evt.user_data =
+            (user_data_override != NULL) ? user_data_override : obj->stub_events[i].user_data;
+        obj->stub_events[i].cb(&evt);
     }
-    lv_event_t evt;
-    (void) memset(&evt, 0, sizeof(evt));
-    evt.target = obj;
-    evt.code = code;
-    evt.user_data = (user_data_override != NULL) ? user_data_override : obj->stub_event_user_data;
-    obj->stub_event_cb(&evt);
+}
+
+uint32_t lvgl_stub_event_cb_count(const lv_obj_t *obj)
+{
+    return (obj == NULL) ? 0U : obj->stub_event_count;
+}
+
+bool lvgl_stub_has_event_cb(const lv_obj_t *obj, lv_event_cb_t cb, lv_event_code_t code)
+{
+    if (obj == NULL)
+    {
+        return false;
+    }
+    for (uint32_t i = 0U; i < obj->stub_event_count; i++)
+    {
+        if ((obj->stub_events[i].cb == cb) && (obj->stub_events[i].filter == code))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* ===================================================================== */
@@ -355,9 +380,14 @@ void lv_obj_add_event_cb(lv_obj_t *obj, lv_event_cb_t cb, lv_event_code_t filter
     {
         return;
     }
-    obj->stub_event_cb = cb;
-    obj->stub_event_filter = filter;
-    obj->stub_event_user_data = user_data;
+    if (obj->stub_event_count >= LVGL_STUB_EVENTS_MAX)
+    {
+        return; /* the stub holds four per object; real LVGL has no such limit */
+    }
+    obj->stub_events[obj->stub_event_count].cb = cb;
+    obj->stub_events[obj->stub_event_count].filter = filter;
+    obj->stub_events[obj->stub_event_count].user_data = user_data;
+    obj->stub_event_count++;
 }
 
 void lv_spinbox_set_value(lv_obj_t *obj, int32_t value)

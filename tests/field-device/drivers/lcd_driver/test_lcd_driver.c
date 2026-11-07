@@ -161,19 +161,59 @@ void test_TC_LCD_006_attach_null_callback_returns_err_null(void)
 /*              Callback stored; LTDC_IER_LIE set; LTDC_IRQn enabled   */
 /* ===================================================================== */
 
-// void test_TC_LCD_007_attach_stores_callback_and_enables_interrupt(void)
-// {
-//     static int ctx_sentinel;
+void test_TC_LCD_007_attach_stores_callback_and_enables_line_interrupt(void)
+{
+    static int ctx_sentinel;
 
-//     (void)lcd_init();
+    (void) lcd_init();
 
-//     lcd_err_t result = lcd_attach_frame_done(test_frame_done_cb, &ctx_sentinel);
+    lcd_err_t result = lcd_attach_frame_done(test_frame_done_cb, &ctx_sentinel);
 
-//     TEST_ASSERT_EQUAL(LCD_ERR_OK, result);
-//     TEST_ASSERT_BITS(LTDC_IER_LIE, LTDC_IER_LIE, g_mock_ltdc.IER);
-//     TEST_ASSERT_EQUAL(1U, g_mock_nvic_enable_count[LTDC_IRQn]);
-//     TEST_ASSERT_EQUAL(6U, g_mock_nvic_priority[LTDC_IRQn]);
-// }
+    TEST_ASSERT_EQUAL(LCD_ERR_OK, result);
+    TEST_ASSERT_BITS(LTDC_IER_LIE, LTDC_IER_LIE, g_mock_ltdc.IER);
+    TEST_ASSERT_EQUAL(1U, g_mock_nvic_enable_count[LTDC_IRQn]);
+    TEST_ASSERT_EQUAL(6U, g_mock_nvic_priority[LTDC_IRQn]);
+    TEST_ASSERT_EQUAL_UINT32(479U, g_mock_ltdc.LIPCR);
+}
+
+/* BUG-LCD-001: the error vector is armed by lcd_init, with no callback needed, at the same
+ * priority as the line vector. */
+void test_TC_LCD_007a_init_arms_the_error_interrupt_at_the_line_priority(void)
+{
+    (void) lcd_init();
+
+    TEST_ASSERT_BITS(LTDC_IER_FUIE | LTDC_IER_TERRIE, LTDC_IER_FUIE | LTDC_IER_TERRIE,
+                     g_mock_ltdc.IER);
+    TEST_ASSERT_EQUAL(1U, g_mock_nvic_enable_count[LTDC_ER_IRQn]);
+    TEST_ASSERT_EQUAL(6U, g_mock_nvic_priority[LTDC_ER_IRQn]);
+}
+
+void test_TC_LCD_007b_error_isr_clears_flags_and_counts(void)
+{
+    (void) lcd_init();
+    TEST_ASSERT_EQUAL_UINT32(0U, lcd_get_error_count());
+
+    g_mock_ltdc.ISR = LTDC_ISR_FUIF;
+    LCD_TFT_1_IRQHandler();
+    TEST_ASSERT_EQUAL_UINT32(LTDC_ICR_CFUIF, g_mock_ltdc.ICR);
+    TEST_ASSERT_EQUAL_UINT32(1U, lcd_get_error_count());
+
+    g_mock_ltdc.ISR = LTDC_ISR_FUIF | LTDC_ISR_TERRIF;
+    LCD_TFT_1_IRQHandler();
+    TEST_ASSERT_EQUAL_UINT32(3U, lcd_get_error_count());
+}
+
+void test_TC_LCD_007c_error_isr_with_no_flag_does_nothing(void)
+{
+    (void) lcd_init();
+    g_mock_ltdc.ISR = 0U;
+    g_mock_ltdc.ICR = 0U;
+
+    LCD_TFT_1_IRQHandler();
+
+    TEST_ASSERT_EQUAL_UINT32(0U, lcd_get_error_count());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_ltdc.ICR);
+}
 
 /* ===================================================================== */
 /* TC-LCD-008 — LCD_TFT_IRQHandler with LIF set dispatches callback        */
@@ -200,16 +240,16 @@ void test_TC_LCD_008_isr_with_lif_invokes_callback_and_clears_flag(void)
 /* TC-LCD-009 — lcd_flush() triggers BSP reload with correct argument  */
 /* ===================================================================== */
 
-// void test_TC_LCD_009_flush_writes_vbr_to_srcr(void)
-// {
-//     (void)lcd_init();
-//     g_mock_ltdc.SRCR = 0U;
+void test_TC_LCD_009_flush_writes_vbr_to_srcr(void)
+{
+    (void) lcd_init();
+    g_mock_ltdc.SRCR = 0U;
 
-//     lcd_err_t result = lcd_flush();
+    lcd_err_t result = lcd_flush();
 
-//     TEST_ASSERT_EQUAL(LCD_ERR_OK, result);
-//     TEST_ASSERT_BITS(LTDC_SRCR_VBR, LTDC_SRCR_VBR, g_mock_ltdc.SRCR);
-// }
+    TEST_ASSERT_EQUAL(LCD_ERR_OK, result);
+    TEST_ASSERT_BITS(LTDC_SRCR_VBR, LTDC_SRCR_VBR, g_mock_ltdc.SRCR);
+}
 
 /* ===================================================================== */
 /* TC-LCD-010 — lcd_get_framebuffer() after init returns SDRAM base    */

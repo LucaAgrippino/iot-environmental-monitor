@@ -56,8 +56,8 @@
 /* Configuration                                                         */
 /* ===================================================================== */
 
-#define GFX_TASK_STACK_WORDS  (2048U)
-#define GFX_TASK_PRIORITY     (tskIDLE_PRIORITY + 2U)
+#define GFX_TASK_STACK_WORDS (2048U)
+#define GFX_TASK_PRIORITY (tskIDLE_PRIORITY + 2U)
 #define GFX_PROCESS_PERIOD_MS (200U)
 
 /* ===================================================================== */
@@ -65,9 +65,10 @@
 /* ===================================================================== */
 
 static StaticTask_t s_gfx_task_tcb;
-static StackType_t  s_gfx_task_stack[GFX_TASK_STACK_WORDS];
+static StackType_t s_gfx_task_stack[GFX_TASK_STACK_WORDS];
 
-uint32_t get_random_color(void) {
+uint32_t get_random_color(void)
+{
     // Generate random values between 0 and 255 for each channel
     uint8_t r = rand() % 256;
     uint8_t g = rand() % 256;
@@ -75,18 +76,17 @@ uint32_t get_random_color(void) {
 
     // Combine them using bitwise left-shift (<<) and OR (|) operators
     // Format: 0x00RRGGBB
-    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+    return ((uint32_t) r << 16) | ((uint32_t) g << 8) | b;
 }
 
 static void lcd_ui_task(void *arg)
 {
-    (void)arg;
+    (void) arg;
 
-    lv_disp_t  *disp  = graphics_get_display();
+    lv_disp_t *disp = graphics_get_display();
     lv_indev_t *indev = graphics_get_indev();
 
-    LOG_INFO("GfxTask", "display=%p indev=%p",
-             (void *)disp, (void *)indev);
+    LOG_INFO("GfxTask", "display=%p indev=%p", (void *) disp, (void *) indev);
 
     /* Create a simple background object to exercise the flush path. */
     if (disp != NULL)
@@ -99,25 +99,23 @@ static void lcd_ui_task(void *arg)
         }
     }
 
-    (void)indev;
-
     for (;;)
     {
-    	static lv_indev_state_t prev_state = LV_INDEV_STATE_RELEASED;
+        static lv_indev_state_t prev_state = LV_INDEV_STATE_RELEASED;
 
-    	lv_indev_t *indev = graphics_get_indev();
-    	if (indev != NULL)
-    	{
-    	    lv_point_t point;
-    	    lv_indev_get_point(indev, &point);
+        indev = graphics_get_indev();
+        if (indev != NULL)
+        {
+            lv_point_t point;
+            lv_indev_get_point(indev, &point);
 
-    	    if (indev->proc.state == LV_INDEV_STATE_PRESSED && prev_state == LV_INDEV_STATE_RELEASED)
-    	    {
-    	        LOG_INFO("GfxTask", "touch x=%d y=%d",
-    	                 (int)point.x, (int)point.y);
-    	    }
-			prev_state = indev->proc.state;
-    	}
+            if (indev->proc.state == LV_INDEV_STATE_PRESSED &&
+                prev_state == LV_INDEV_STATE_RELEASED)
+            {
+                LOG_INFO("GfxTask", "touch x=%d y=%d", (int) point.x, (int) point.y);
+            }
+            prev_state = indev->proc.state;
+        }
 
         graphics_err_t err = graphics_process();
         if (err == GRAPHICS_ERR_OK)
@@ -129,12 +127,11 @@ static void lcd_ui_task(void *arg)
                 lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
             }
 
-            LOG_INFO("GfxTask", "process OK tick=%lu",
-                      (unsigned long)lv_tick_get());
+            LOG_INFO("GfxTask", "process OK tick=%lu", (unsigned long) lv_tick_get());
         }
         else
         {
-            LOG_ERROR("GfxTask", "process error %d", (int)err);
+            LOG_ERROR("GfxTask", "process error %d", (int) err);
         }
         vTaskDelay(pdMS_TO_TICKS(GFX_PROCESS_PERIOD_MS));
     }
@@ -151,28 +148,28 @@ int main(void)
     system_clock_enable_dwt();
 
     /* 2. Logger (pre-scheduler synchronous path). */
-    (void)gpio_init();
-    (void)debug_uart_init();
-    (void)rtc_init();
-    (void)logger_init(LOG_LEVEL_DEBUG);
+    (void) gpio_init();
+    (void) debug_uart_init();
+    (void) rtc_init();
+    (void) logger_init(LOG_LEVEL_DEBUG);
 
     LOG_INFO("Boot", "===== GraphicsLibrary integration test =====");
 
     /* 3. SDRAM must be ready before lcd_init captures the framebuffer. */
     sdram_err_t sdram_err = sdram_init();
-    LOG_INFO("Boot", "sdram_init=%d", (int)sdram_err);
+    LOG_INFO("Boot", "sdram_init=%d", (int) sdram_err);
 
     /* 4. LCD: LTDC + DSI configured; framebuffer pointer set. */
     lcd_err_t lcd_err = lcd_init();
-    LOG_INFO("Boot", "lcd_init=%d", (int)lcd_err);
+    LOG_INFO("Boot", "lcd_init=%d", (int) lcd_err);
 
     /* 5. Touchscreen: FT6x06 configured; EXTI still masked. */
     ts_err_t ts_err = touchscreen_init();
-    LOG_INFO("Boot", "touchscreen_init=%d", (int)ts_err);
+    LOG_INFO("Boot", "touchscreen_init=%d", (int) ts_err);
 
     /* 6. GraphicsLibrary: LVGL init, callbacks registered, tick timer created. */
     graphics_err_t gfx_err = graphics_init();
-    LOG_INFO("Boot", "graphics_init=%d", (int)gfx_err);
+    LOG_INFO("Boot", "graphics_init=%d", (int) gfx_err);
 
     if (gfx_err != GRAPHICS_ERR_OK)
     {
@@ -183,10 +180,8 @@ int main(void)
     }
 
     /* 7. Spawn LcdUiTask. */
-    (void)xTaskCreateStatic(lcd_ui_task, "LcdUiTask",
-                            GFX_TASK_STACK_WORDS, NULL,
-                            GFX_TASK_PRIORITY,
-                            s_gfx_task_stack, &s_gfx_task_tcb);
+    (void) xTaskCreateStatic(lcd_ui_task, "LcdUiTask", GFX_TASK_STACK_WORDS, NULL,
+                             GFX_TASK_PRIORITY, s_gfx_task_stack, &s_gfx_task_tcb);
 
     LOG_INFO("Boot", "starting scheduler...");
 

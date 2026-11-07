@@ -500,6 +500,27 @@ void test_TC_LCDUI_017_alarm_active_high_shows_list_entry(void)
 }
 
 /* ===================================================================== */
+/* BUG-LCDUI-001: both callbacks reach every config spinbox              */
+/* ===================================================================== */
+
+extern void config_field_tapped_cb(lv_event_t *e);
+extern void config_field_changed_cb(lv_event_t *e);
+
+void test_TC_LCDUI_018a_each_spinbox_keeps_its_tap_and_change_callbacks(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    for (uint32_t i = 0U; i < 7U; i++)
+    {
+        TEST_ASSERT_TRUE(lvgl_stub_has_event_cb(ui->config_screen.spinbox[i],
+                                                config_field_tapped_cb, LV_EVENT_CLICKED));
+        TEST_ASSERT_TRUE(lvgl_stub_has_event_cb(ui->config_screen.spinbox[i],
+                                                config_field_changed_cb, LV_EVENT_VALUE_CHANGED));
+    }
+}
+
+/* ===================================================================== */
 /* TC-LCDUI-018: config_screen on_enter loads config params to spinboxes */
 /* ===================================================================== */
 
