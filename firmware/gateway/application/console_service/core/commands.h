@@ -36,7 +36,7 @@ typedef struct
     const char *help;
 } cmd_entry_t;
 
-/** @brief Selftest outcome kept in RAM (persistence is not available, CS-O5). */
+/** @brief Selftest outcome: kept in RAM and stored with the configuration (REQ-LI-160). */
 typedef struct
 {
     bool valid;
@@ -46,6 +46,7 @@ typedef struct
     bool flash_pass;
     bool overall_pass;
     uint32_t uptime_s;
+    bool from_store; /**< Read back from the stored configuration (an earlier boot) */
 } selftest_result_t;
 
 /** @brief Reset all command state and remember the injected services. */

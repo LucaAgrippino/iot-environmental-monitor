@@ -35,6 +35,14 @@
 /** Baud rate: 9600 bps (REQ-MB-030). */
 #define MODBUS_UART_BAUD (9600U)
 
+/** Parity of the Modbus line (REQ-LI-080). Data bits are 8; with parity the frame is 8E1 or 8O1. */
+typedef enum
+{
+    MODBUS_UART_PARITY_NONE = 0,
+    MODBUS_UART_PARITY_EVEN = 1,
+    MODBUS_UART_PARITY_ODD = 2
+} modbus_uart_parity_t;
+
 /** Per-byte TXE polling timeout in ms (companion §3.5). */
 #define MODBUS_UART_TXE_TIMEOUT_MS (5U)
 
@@ -156,5 +164,21 @@ void modbus_uart_set_tick_source(uint32_t (*get_ms)(void));
  */
 void modbus_uart_reset_for_test(void);
 #endif /* TEST */
+
+/**
+ * @brief Set the baud rate and the parity of the line (REQ-LI-080), after modbus_uart_init().
+ *
+ * The UART is disabled while the registers change (the reference manual requires it for the parity
+ * and word-length bits); the receiver and its interrupts keep their state. Not to be called while
+ * a transaction is in progress: the caller (the lifecycle wiring, at boot and after a console
+ * change) runs it outside a transfer, and the next transaction simply starts with the new line
+ * settings.
+ *
+ * @param[in] baud    1200, 2400, 4800, 9600 or 19200.
+ * @param[in] parity  MODBUS_UART_PARITY_NONE, _EVEN or _ODD.
+ * @return MODBUS_UART_OK, or MODBUS_UART_ERR_INVALID_ARG when the rate or the parity is not
+ * supported.
+ */
+modbus_uart_err_t modbus_uart_configure(uint32_t baud, modbus_uart_parity_t parity);
 
 #endif /* MODBUS_UART_DRIVER_H */

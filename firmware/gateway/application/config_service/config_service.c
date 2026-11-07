@@ -50,6 +50,9 @@
 #define NTP_COUNT_MIN (1)
 #define NTP_INTERVAL_MIN_MIN (1)
 #define NTP_INTERVAL_MIN_MAX (1440)
+#define DEFAULT_MODBUS_BAUD_DIV100 (96U) /* 9600 bps, REQ-MB-030 */
+#define MODBUS_PARITY_MAX (2)            /* 0 none, 1 even, 2 odd */
+#define SELFTEST_FLAGS_MAX (0x3F)
 
 /* Alarm band rule: high - low must exceed twice the hysteresis (CFG-D7). */
 #define HYSTERESIS_BAND_FACTOR (2)
@@ -108,6 +111,9 @@ static const field_desc_t s_fields[CONFIG_PARAM_COUNT] = {
     [CONFIG_PARAM_NTP_SERVERS] = FIELD(ntp_servers, KIND_NTP_BLOCK),
     [CONFIG_PARAM_NTP_SERVER_COUNT] = FIELD(ntp_server_count, KIND_U8),
     [CONFIG_PARAM_NTP_INTERVAL_MIN] = FIELD(ntp_interval_min, KIND_U16),
+    [CONFIG_PARAM_MODBUS_PARITY] = FIELD(modbus_parity, KIND_U8),
+    [CONFIG_PARAM_MODBUS_BAUD] = FIELD(modbus_baud_div100, KIND_U16),
+    [CONFIG_PARAM_SELFTEST_FLAGS] = FIELD(selftest_flags, KIND_U8),
 };
 
 /* Sensor channels share one rule set: range, alarm band and hysteresis (CFG-D7, CFG-D10). */
@@ -321,6 +327,12 @@ static bool prv_validate_scalar(config_param_id_t id, int64_t v, const config_pa
         return prv_validate_ntp_count(v, ctx);
     case CONFIG_PARAM_NTP_INTERVAL_MIN:
         return prv_in_range(v, NTP_INTERVAL_MIN_MIN, NTP_INTERVAL_MIN_MAX);
+    case CONFIG_PARAM_MODBUS_PARITY:
+        return prv_in_range(v, 0, MODBUS_PARITY_MAX);
+    case CONFIG_PARAM_MODBUS_BAUD:
+        return (v == 12) || (v == 24) || (v == 48) || (v == 96) || (v == 192); /* 1200..19200 */
+    case CONFIG_PARAM_SELFTEST_FLAGS:
+        return prv_in_range(v, 0, SELFTEST_FLAGS_MAX);
     default:
         return false;
     }
@@ -365,6 +377,9 @@ static void prv_apply_defaults(config_params_t *p)
     p->polling_interval_ms = DEFAULT_POLLING_INTERVAL_MS;
     p->filter_alpha = DEFAULT_FILTER_ALPHA;
     p->ntp_interval_min = DEFAULT_NTP_INTERVAL_MIN;
+    p->modbus_parity = 0U;
+    p->modbus_baud_div100 = DEFAULT_MODBUS_BAUD_DIV100;
+    p->selftest_flags = 0U;
     p->temp_range_min = -4000;
     p->temp_range_max = 8500;
     p->humidity_range_min = 0U;

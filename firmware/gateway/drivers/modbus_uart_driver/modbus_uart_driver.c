@@ -195,6 +195,35 @@ modbus_uart_err_t modbus_uart_init(void)
     return MODBUS_UART_OK;
 }
 
+modbus_uart_err_t modbus_uart_configure(uint32_t baud, modbus_uart_parity_t parity)
+{
+    if (((baud != 1200U) && (baud != 2400U) && (baud != 4800U) && (baud != 9600U) &&
+         (baud != 19200U)) ||
+        ((unsigned) parity > (unsigned) MODBUS_UART_PARITY_ODD))
+    {
+        return MODBUS_UART_ERR_INVALID_ARG;
+    }
+
+    /* PCE, PS and M0 may only change while the UART is disabled (RM0351, USART_CR1). With parity
+     * the parity bit takes the ninth bit of the word, so M0 is set to keep 8 data bits. */
+    uint32_t cr1 = UART4->CR1;
+    UART4->CR1 = cr1 & ~USART_CR1_UE;
+
+    cr1 &= ~(USART_CR1_PCE | USART_CR1_PS | USART_CR1_M0);
+    if (parity != MODBUS_UART_PARITY_NONE)
+    {
+        cr1 |= USART_CR1_PCE | USART_CR1_M0;
+        if (parity == MODBUS_UART_PARITY_ODD)
+        {
+            cr1 |= USART_CR1_PS;
+        }
+    }
+    UART4->BRR = (uint32_t) ((MBUART_PCLK_HZ + (baud / 2UL)) / baud);
+    UART4->CR1 = cr1 & ~USART_CR1_UE;
+    UART4->CR1 = cr1 | USART_CR1_UE;
+    return MODBUS_UART_OK;
+}
+
 void modbus_uart_attach_rx(modbus_uart_rx_cb_t callback, void *context)
 {
     if (callback == NULL)

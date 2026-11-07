@@ -103,6 +103,10 @@ typedef struct
     char mqtt_endpoint[BROKER_MAX_LEN + 1U];
     bool has_addr;
     uint8_t modbus_addr;
+    bool has_baud;
+    uint16_t modbus_baud_div100; /* 12, 24, 48, 96 or 192 */
+    bool has_parity;
+    uint8_t modbus_parity; /* 0 none, 1 even, 2 odd */
 } prov_pending_t;
 
 static const console_deps_t *s_deps;
@@ -614,6 +618,44 @@ static console_service_err_t cmd_net(int argc, const char *argv[])
 /* Self-test                                                               */
 /* ---------------------------------------------------------------------- */
 
+/* The last self-test is kept in the stored configuration (REQ-LI-160): bit 0 a test ran, 1 sensors,
+ * 2 comms, 3 flash checked, 4 flash pass, 5 overall. The uptime of the run is not kept. */
+#define ST_RAN (0x01U)
+#define ST_SENSORS (0x02U)
+#define ST_COMMS (0x04U)
+#define ST_FLASH_CHECKED (0x08U)
+#define ST_FLASH_PASS (0x10U)
+#define ST_OVERALL (0x20U)
+
+static uint8_t prv_selftest_to_flags(const selftest_result_t *r)
+{
+    return (uint8_t) (ST_RAN | (r->sensor_pass ? ST_SENSORS : 0U) |
+                      (r->comms_pass ? ST_COMMS : 0U) | (r->flash_checked ? ST_FLASH_CHECKED : 0U) |
+                      (r->flash_pass ? ST_FLASH_PASS : 0U) | (r->overall_pass ? ST_OVERALL : 0U));
+}
+
+/* Fill s_selftest from the stored flags when no test ran since boot. */
+static void prv_selftest_sync(void)
+{
+    if (s_selftest.valid || (s_deps == NULL) || (s_deps->cfg_read == NULL))
+    {
+        return;
+    }
+    const config_params_t *p = s_deps->cfg_read->get_params(s_deps->cfg_read->ctx);
+
+    if ((p != NULL) && ((p->selftest_flags & ST_RAN) != 0U))
+    {
+        s_selftest.valid = true;
+        s_selftest.sensor_pass = (p->selftest_flags & ST_SENSORS) != 0U;
+        s_selftest.comms_pass = (p->selftest_flags & ST_COMMS) != 0U;
+        s_selftest.flash_checked = (p->selftest_flags & ST_FLASH_CHECKED) != 0U;
+        s_selftest.flash_pass = (p->selftest_flags & ST_FLASH_PASS) != 0U;
+        s_selftest.overall_pass = (p->selftest_flags & ST_OVERALL) != 0U;
+        s_selftest.uptime_s = 0U;
+        s_selftest.from_store = true;
+    }
+}
+
 static console_service_err_t cmd_selftest(int argc, const char *argv[])
 {
     console_model_t m;
@@ -629,6 +671,16 @@ static console_service_err_t cmd_selftest(int argc, const char *argv[])
     s_selftest.flash_pass = false;
     s_selftest.overall_pass = s_selftest.sensor_pass && s_selftest.comms_pass;
     s_selftest.uptime_s = m.health.uptime_s;
+    s_selftest.from_store = false;
+
+    /* keep the result across a reset (REQ-LI-160); the flash write happens in the console task */
+    const uint8_t flags = prv_selftest_to_flags(&s_selftest);
+
+    if (s_deps->cfg_write->set_param_deferred(s_deps->cfg_write->ctx, CONFIG_PARAM_SELFTEST_FLAGS,
+                                              &flags) == CONFIG_SERVICE_OK)
+    {
+        s_persist_due = true;
+    }
 
     SAY(PAL_MUTED, "  SELF-TEST");
     SAY(s_selftest.sensor_pass ? PAL_OK : PAL_ERR, "  sensors   %s",
@@ -636,7 +688,7 @@ static console_service_err_t cmd_selftest(int argc, const char *argv[])
     SAY(s_selftest.comms_pass ? PAL_OK : PAL_ERR, "  comms     %s  (wifi, mqtt, modbus)",
         s_selftest.comms_pass ? "PASS" : "FAIL");
     SAY(PAL_WARN, "  flash     n/a   (no round-trip test available)");
-    SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  overall   %s  (not persisted)",
+    SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  overall   %s  (stored)",
         s_selftest.overall_pass ? "PASS" : "FAIL");
     return CONSOLE_SERVICE_ERR_OK;
 }
@@ -645,13 +697,23 @@ static console_service_err_t cmd_selftest_result(int argc, const char *argv[])
 {
     (void) argc;
     (void) argv;
+    prv_selftest_sync();
     if (!s_selftest.valid)
     {
-        SAY(PAL_WARN, "  no self-test result since boot (results are not persisted)");
+        SAY(PAL_WARN, "  no self-test has been run on this device");
         return CONSOLE_SERVICE_ERR_OK;
     }
-    SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  last self-test: %s at uptime %lu s",
-        s_selftest.overall_pass ? "PASS" : "FAIL", (unsigned long) s_selftest.uptime_s);
+    if (s_selftest.from_store)
+    {
+        SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR,
+            "  last self-test: %s (stored, earlier boot)",
+            s_selftest.overall_pass ? "PASS" : "FAIL");
+    }
+    else
+    {
+        SAY(s_selftest.overall_pass ? PAL_OK : PAL_ERR, "  last self-test: %s at uptime %lu s",
+            s_selftest.overall_pass ? "PASS" : "FAIL", (unsigned long) s_selftest.uptime_s);
+    }
     SAY(PAL_INK, "  sensors %s · comms %s · flash n/a", s_selftest.sensor_pass ? "PASS" : "FAIL",
         s_selftest.comms_pass ? "PASS" : "FAIL");
     return CONSOLE_SERVICE_ERR_OK;
@@ -966,7 +1028,8 @@ static console_service_err_t cmd_prov_set(int argc, const char *argv[])
             return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
                             "modbus-baud must be 1200, 2400, 4800, 9600 or 19200");
         }
-        return prv_not_available("Modbus line settings are not configurable yet");
+        s_prov_pending.modbus_baud_div100 = (uint16_t) (n / 100U);
+        s_prov_pending.has_baud = true;
     }
     else if (prv_ieq(key, "modbus-parity"))
     {
@@ -974,7 +1037,8 @@ static console_service_err_t cmd_prov_set(int argc, const char *argv[])
         {
             return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION, "modbus-parity must be N, E or O");
         }
-        return prv_not_available("Modbus line settings are not configurable yet");
+        s_prov_pending.modbus_parity = (val[0] == 'E') ? 1U : ((val[0] == 'O') ? 2U : 0U);
+        s_prov_pending.has_parity = true;
     }
     else
     {
@@ -1004,6 +1068,20 @@ static console_service_err_t prv_prov_apply(void)
             return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
                             "the Modbus address was refused; changes stay staged");
         }
+    }
+    if (s_prov_pending.has_baud && (s_deps->cfg_write->set_param_deferred(
+                                        s_deps->cfg_write->ctx, CONFIG_PARAM_MODBUS_BAUD,
+                                        &s_prov_pending.modbus_baud_div100) != CONFIG_SERVICE_OK))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "the Modbus baud rate was refused; changes stay staged");
+    }
+    if (s_prov_pending.has_parity &&
+        (s_deps->cfg_write->set_param_deferred(s_deps->cfg_write->ctx, CONFIG_PARAM_MODBUS_PARITY,
+                                               &s_prov_pending.modbus_parity) != CONFIG_SERVICE_OK))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "the Modbus parity was refused; changes stay staged");
     }
     (void) memset(&s_prov_pending, 0, sizeof(s_prov_pending));
     s_persist_due = true;
@@ -1535,6 +1613,7 @@ bool commands_cfg_dirty(void)
 
 const selftest_result_t *commands_selftest_result(void)
 {
+    prv_selftest_sync();
     return &s_selftest;
 }
 

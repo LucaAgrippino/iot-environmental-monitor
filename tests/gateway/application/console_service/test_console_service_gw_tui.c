@@ -538,11 +538,35 @@ void test_selftest_fails_when_any_link_is_down(void)
     TEST_ASSERT_TRUE(has_line("comms     FAIL"));
 }
 
+/* REQ-LI-160: the result is written to the configuration and read back after a reset */
+void test_selftest_stores_its_result_in_the_configuration(void)
+{
+    g_spy_set_calls = 0U;
+
+    (void) run("selftest");
+
+    TEST_ASSERT_EQUAL_UINT32(1U, g_spy_set_calls);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_SELFTEST_FLAGS, g_spy_set_ids[0]);
+    TEST_ASSERT_TRUE((g_spy_set_values[0][0] & 0x01U) != 0U); /* a test ran */
+    TEST_ASSERT_TRUE((g_spy_set_values[0][0] & 0x20U) != 0U); /* overall pass */
+}
+
+void test_selftest_result_after_a_reset_comes_from_the_stored_flags(void)
+{
+    g_spy_cfg.selftest_flags = 0x01U | 0x02U; /* ran, sensors pass, comms fail, overall fail */
+
+    (void) run("selftest-result");
+
+    TEST_ASSERT_TRUE(has_line("last self-test: FAIL (stored, earlier boot)"));
+    TEST_ASSERT_TRUE(has_line("sensors PASS"));
+    TEST_ASSERT_TRUE(has_line("comms FAIL"));
+}
+
 /* TC-GCS-177, 178 */
 void test_selftest_result_reports_the_last_run_or_none(void)
 {
     (void) run("selftest-result");
-    TEST_ASSERT_TRUE(has_line("no self-test result since boot"));
+    TEST_ASSERT_TRUE(has_line("no self-test has been run on this device"));
 
     (void) run("selftest");
     repl_clear();
@@ -732,16 +756,31 @@ void test_prov_set_wifi_credentials_validate_then_report_not_available(void)
     TEST_ASSERT_FALSE(commands_prov_dirty());
 }
 
-/* TC-GCS-141..144 */
-void test_prov_set_modbus_line_settings_validate_then_report_not_available(void)
+/* TC-GCS-141..144: REQ-LI-080, the Modbus line settings are staged and applied */
+void test_prov_set_modbus_line_settings_are_validated_and_staged(void)
 {
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-baud 9600"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set modbus-baud 19200"));
+    TEST_ASSERT_TRUE(commands_prov_dirty());
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov set modbus-baud 7200"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-parity E"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-parity N"));
-    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_APPLY_FAILED, run("prov set modbus-parity O"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set modbus-parity E"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov set modbus-parity O"));
     TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov set modbus-parity X"));
-    TEST_ASSERT_TRUE(has_line("Modbus line settings"));
+}
+
+void test_prov_commit_writes_the_modbus_baud_and_parity(void)
+{
+    (void) run("prov set modbus-baud 4800");
+    (void) run("prov set modbus-parity E");
+    g_spy_set_calls = 0U;
+
+    (void) run("prov commit");
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, commands_confirm_answer(true));
+
+    TEST_ASSERT_EQUAL_UINT32(2U, g_spy_set_calls);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_MODBUS_BAUD, g_spy_set_ids[0]);
+    TEST_ASSERT_EQUAL_UINT16(48U, *(uint16_t *) g_spy_set_values[0]);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_MODBUS_PARITY, g_spy_set_ids[1]);
+    TEST_ASSERT_EQUAL_UINT8(1U, g_spy_set_values[1][0]);
 }
 
 /* TC-GCS-145 */
