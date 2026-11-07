@@ -340,6 +340,14 @@ static const isensor_service_t s_bringup_sensor_vtable = {
 };
 const isensor_service_t *const sensor_service = &s_bringup_sensor_vtable;
 
+/* The harness does not run SensorTask, so the /control read command (REQ-SA-170) has no
+ * acquisition cycle to trigger; report "not delivered" as the real function does before
+ * sensor_task_create() succeeds. */
+bool sensor_task_request_read(void)
+{
+    return false;
+}
+
 static alarm_service_err_t bringup_alarm_subscribe(void (*cb)(sensor_id_t, alarm_event_t,
                                                               const sensor_reading_t *))
 {
