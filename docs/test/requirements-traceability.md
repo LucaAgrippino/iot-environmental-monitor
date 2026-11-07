@@ -10,8 +10,8 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 
 | Evidence | Count |
 |---|---|
-| LLD + code | 79 |
-| LLD | 126 |
+| LLD + code | 83 |
+| LLD | 122 |
 | code | 2 |
 | HLD only | 0 |
 | No reference | 0 |
@@ -98,11 +98,11 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-LI-010 | UC-04 | LLD | components, task-breakdown | console-service-lld, debug-uart-driver, gw-console-service-lld, lld | TC-CS-044, TC-CS-045, TC-CS-046, TC-CS-047, TC-CS-048, TC-CS-049 (+15) |
 | REQ-LI-020 | UC-04 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LI-030 | UC-16 | LLD + code | - | config-service-lld, console-service-lld, gw-console-service-lld, lld | - |
-| REQ-LI-040 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-080, TC-CS-100, TC-GCS-130, TC-GCS-133 |
+| REQ-LI-040 | UC-16 | LLD + code | - | cert-store, console-service-lld, gw-console-service-lld | TC-CS-080, TC-CS-100, TC-GCS-130, TC-GCS-133 |
 | REQ-LI-050 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-083, TC-GCS-136 |
-| REQ-LI-060 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | - |
+| REQ-LI-060 | UC-16 | LLD + code | - | cert-store, console-service-lld, gw-console-service-lld | - |
 | REQ-LI-070 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-085, TC-GCS-138 |
-| REQ-LI-080 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-088, TC-CS-090, TC-GCS-141, TC-GCS-143 |
+| REQ-LI-080 | UC-16 | LLD + code | - | console-service-lld, gw-console-service-lld | TC-CS-088, TC-CS-090, TC-GCS-141, TC-GCS-143 |
 | REQ-LI-090 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-061, TC-CS-081, TC-CS-082, TC-CS-084, TC-CS-086, TC-CS-087 (+17) |
 | REQ-LI-100 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-064, TC-CS-094, TC-GCS-147, TC-GCS-164 |
 | REQ-LI-110 | UC-16 | LLD | - | console-service-lld | TC-CS-064, TC-CS-094 |
@@ -110,7 +110,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-LI-130 | UC-04 | LLD + code | - | console-service-lld, gw-console-service-lld, simulated-sensor-drivers | TC-CS-110, TC-CS-116, TC-GCS-170, TC-GCS-176 |
 | REQ-LI-140 | UC-04 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-111, TC-CS-112, TC-CS-113, TC-CS-114, TC-CS-115, TC-GCS-171 (+4) |
 | REQ-LI-150 | UC-04 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-043, TC-GCS-103 |
-| REQ-LI-160 | UC-04 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-110, TC-CS-117, TC-CS-118, TC-GCS-177, TC-GCS-178 |
+| REQ-LI-160 | UC-04 | LLD + code | - | console-service-lld, gw-console-service-lld | TC-CS-110, TC-CS-117, TC-CS-118, TC-GCS-177, TC-GCS-178 |
 | REQ-LI-170 | UC-04 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LI-180 | UC-16 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LI-190 | UC-16 | LLD | - | requirement-coverage-addendum | - |
@@ -213,7 +213,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-NF-216 | UC-11 | LLD | sequence-diagrams | lld, mqtt-client | - |
 | REQ-NF-300 | UC-10, UC-11, UC-12 | LLD + code | - | lld, mqtt-client, update-service-lld | - |
 | REQ-NF-301 | UC-10, UC-11, UC-12 | LLD | sequence-diagrams | lld, mqtt-client | - |
-| REQ-NF-302 | UC-16 | LLD + code | flash-partition-layout | lld, mqtt-client | - |
+| REQ-NF-302 | UC-16 | LLD + code | flash-partition-layout | cert-store, lld, mqtt-client | - |
 | REQ-NF-303 | UC-04, UC-16 | LLD | - | requirement-coverage-addendum | - |
 | REQ-NF-304 | UC-18, UC-20 | LLD | sequence-diagrams | firmware-store, lld, qspi-flash-driver, update-service-lld | TC-SYS-OTA-005 |
 | REQ-NF-305 | UC-10, UC-11, UC-12 | LLD | - | lld, mqtt-client | - |

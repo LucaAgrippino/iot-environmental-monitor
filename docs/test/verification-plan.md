@@ -95,7 +95,7 @@ and the runner stops with a prompt, so the operator's answer is part of the reco
 1. The baseline tag exists and the build is reproducible (CI green on the tagged commit).
 2. This plan and the method table are reviewed and accepted by the project owner.
 3. Both boards are flashed with the baseline images, and the environment of section 4 works (a boot smoke test passes).
-4. The known gaps of section 10 have a decision: implement before the run, or waive.
+4. Any gap found before the run (section 10) has a decision: implement, waive, or change the SRS.
 
 ## 8. Exit criteria
 
@@ -121,19 +121,13 @@ and the runner stops with a prompt, so the operator's answer is part of the reco
 
 ## 10. Known gaps and risks found while planning
 
-Four requirements are expected to fail, because the implementation is incomplete, not because of a test problem:
-
-| ID | Gap | Source |
-|---|---|---|
-| REQ-LI-040 | The console accepts the WiFi credentials, but nothing stores or uses them: the Gateway uses compile-time credentials | GCS-O4 |
-| REQ-LI-060 | Certificate provisioning over the console is not implemented | CS-O6, GCS-O5 |
-| REQ-LI-080 | The Modbus serial parameters (baud, parity) are not configurable | GCS-O5 |
-| REQ-LI-160 | The last self-test result is not kept across a reset | GCS-O6 |
-
-The closure report of the implementation phase listed these among items needing no SRS requirement. That was wrong
-for these four and is corrected there. **Decision needed before the run:** implement them (a credential store, the
-certificate path, configurable line settings and a persisted self-test result, which is design work), or waive them
-with a documented reason, or change the SRS. Related: REQ-NF-302 (no plaintext credentials) depends on the answer.
+Four requirements (REQ-LI-040, -060, -080, -160) were found to be unmet while planning: the console accepted
+WiFi credentials, certificates and Modbus line settings but stored or applied none of them, and the self-test result
+was not kept. **They were implemented on 2026-11-08** (CertStore, `modbus_uart_configure`, the stored self-test
+flags) and checked on the boards: a wrong stored passphrase keeps the Gateway offline, the stored identity
+connects to the broker over mutual TLS after a reset, the UART registers follow the provisioned baud rate and parity, and the
+self-test result survives a reset. The cases for these four requirements are planned as normal cases. No requirement
+is known to fail at the start of the verification.
 
 Risks the method table marks: LCD-O8 (are the Field Device sensors real or simulated; this decides what the
 sensor cases prove), forced sensor faults needed for four cases, timing-sensitive splash captures, the 200 ms against

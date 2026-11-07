@@ -155,7 +155,7 @@ the wrong slot.
 | Partition | Start | End | Size | Purpose | Wear strategy |
 |---|---|---|---|---|---|
 | `ConfigStore` | `0x9000_0000` | `0x9000_FFFF` | 64 KB | Operational config + `DeviceProfileRegistry` profiles *(D17, D18)* | A/B sector rotation (§6.1) |
-| `CertStore` | `0x9001_0000` | `0x9001_FFFF` | 64 KB | X.509 client certificates and private keys *(CON-006, REQ-NF-302)*; one slot per provisioned device identity | Write-once; re-provisioned by secure channel only |
+| `CertStore` | `0x9001_0000` | `0x9001_FFFF` | 64 KB | X.509 client certificates and private keys *(CON-006, REQ-NF-302)*; one slot per provisioned device identity | Two 8 KB slots written alternately (sequence and CRC), the WiFi passphrase and the private key encrypted; re-provisioned from the serial console (`lld/middleware/cert-store.md`) |
 | `CircularFlashLog` | `0x9002_0000` | `0x9011_FFFF` | 1 MB | Diagnostic log ring buffer (REQ-NF-500 series); also the non-volatile backing store for `StoreAndForward` during cloud outages (REQ-BF-000..-020, REQ-NF-407) | Circular overwrite (§6.2) |
 | OTA staging | `0x9012_0000` | `0x9051_FFFF` | 4 MB | Download buffer for OTA images; allows the full image to be received, validated, and signature-checked before any on-chip write to Slot B | Erased per OTA cycle |
 | *(reserved)* | `0x9052_0000` | `0x907F_FFFF` | ~2.75 MB | Future use | — |

@@ -16,7 +16,8 @@
 #define CERT_STORE_RAM __attribute__((section(".bss.sram2"))) /* the 96 KB bank is nearly full */
 #endif
 
-#define SLOT_SIZE (4096UL) /* one erase sector per slot */
+#define SECTOR_SIZE (4096UL)
+#define SLOT_SIZE (2UL * SECTOR_SIZE) /* two erase sectors per slot */
 #define SLOT_COUNT (2U)
 #define MAGIC (0x54524543UL) /* "CERT" */
 #define FORMAT_VERSION (1U)
@@ -51,7 +52,7 @@ typedef struct
 } slot_body_t;
 
 _Static_assert(sizeof(slot_header_t) == 16U, "slot header");
-_Static_assert((sizeof(slot_header_t) + sizeof(slot_body_t)) <= SLOT_SIZE, "a slot is one sector");
+_Static_assert((sizeof(slot_header_t) + sizeof(slot_body_t)) <= SLOT_SIZE, "a slot is two sectors");
 
 static slot_body_t s_body CERT_STORE_RAM; /* the decrypted copy in use */
 static const iqspi_flash_t *s_flash;
@@ -165,6 +166,7 @@ static cert_store_err_t save(void)
     hdr.crc = body_crc(&s_body);
 
     const bool ok = (s_flash->erase_sector(slot_addr(target)) == QSPI_FLASH_OK) &&
+                    (s_flash->erase_sector(slot_addr(target) + SECTOR_SIZE) == QSPI_FLASH_OK) &&
                     program(slot_addr(target) + sizeof(hdr), (const uint8_t *) &s_body,
                             (uint32_t) sizeof(s_body)) &&
                     program(slot_addr(target), (const uint8_t *) &hdr, (uint32_t) sizeof(hdr));
@@ -183,23 +185,17 @@ static cert_store_err_t save(void)
 /* Public API                                                                  */
 /* ------------------------------------------------------------------------- */
 
-cert_store_err_t cert_store_init(const iqspi_flash_t *flash,
-                                 const uint8_t uid[CERT_STORE_UID_BYTES])
+/* Load the newest valid slot into the RAM copy and decrypt it; an empty store leaves it zeroed. The
+ * candidate buffer is static (SRAM2), not on the stack: a slot is 4.5 KB. */
+static void load_newest(void)
 {
-    if ((flash == NULL) || (uid == NULL))
-    {
-        return CERT_STORE_ERR_ARG;
-    }
-    s_flash = flash;
-    (void) memcpy(s_uid, uid, CERT_STORE_UID_BYTES);
-    (void) memset(&s_body, 0, sizeof(s_body));
-    s_seq = 0U;
-    s_active = SLOT_COUNT - 1U; /* the first write goes to slot 0 */
-
     static slot_body_t cand CERT_STORE_RAM;
     slot_header_t hdr;
     bool found = false;
 
+    (void) memset(&s_body, 0, sizeof(s_body));
+    s_seq = 0U;
+    s_active = SLOT_COUNT - 1U; /* the first write goes to slot 0 */
     for (uint32_t slot = 0U; slot < SLOT_COUNT; slot++)
     {
         if (read_slot(slot, &hdr, &cand) && (!found || (hdr.sequence > s_seq)))
@@ -215,6 +211,18 @@ cert_store_err_t cert_store_init(const iqspi_flash_t *flash,
         crypt_secrets(s_seq);
     }
     (void) memset(&cand, 0, sizeof(cand));
+}
+
+cert_store_err_t cert_store_init(const iqspi_flash_t *flash,
+                                 const uint8_t uid[CERT_STORE_UID_BYTES])
+{
+    if ((flash == NULL) || (uid == NULL))
+    {
+        return CERT_STORE_ERR_ARG;
+    }
+    s_flash = flash;
+    (void) memcpy(s_uid, uid, CERT_STORE_UID_BYTES);
+    load_newest();
     s_inited = true;
     return CERT_STORE_OK;
 }
@@ -300,8 +308,6 @@ cert_store_err_t cert_store_set_wifi(const char *ssid, const char *pass)
     {
         return CERT_STORE_ERR_ARG;
     }
-    const slot_body_t before = s_body;
-
     (void) memset(s_body.ssid, 0, sizeof(s_body.ssid));
     (void) memset(s_body.pass, 0, sizeof(s_body.pass));
     (void) memcpy(s_body.ssid, ssid, strlen(ssid));
@@ -313,7 +319,7 @@ cert_store_err_t cert_store_set_wifi(const char *ssid, const char *pass)
 
     if (err != CERT_STORE_OK)
     {
-        s_body = before;
+        load_newest(); /* back to the copy that is still on flash */
     }
     return err;
 }
@@ -366,8 +372,6 @@ cert_store_err_t cert_store_set_item(cert_store_item_t item, const uint8_t *der,
     {
         return CERT_STORE_ERR_FORMAT;
     }
-    const slot_body_t before = s_body;
-
     switch (item)
     {
     case CERT_STORE_CA:
@@ -390,7 +394,7 @@ cert_store_err_t cert_store_set_item(cert_store_item_t item, const uint8_t *der,
 
     if (err != CERT_STORE_OK)
     {
-        s_body = before;
+        load_newest(); /* back to the copy that is still on flash */
     }
     return err;
 }
@@ -401,14 +405,12 @@ cert_store_err_t cert_store_clear(void)
     {
         return CERT_STORE_ERR_NOT_INIT;
     }
-    const slot_body_t before = s_body;
-
     (void) memset(&s_body, 0, sizeof(s_body));
     const cert_store_err_t err = save();
 
     if (err != CERT_STORE_OK)
     {
-        s_body = before;
+        load_newest(); /* back to the copy that is still on flash */
     }
     return err;
 }

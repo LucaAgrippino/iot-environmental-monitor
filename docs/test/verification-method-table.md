@@ -37,10 +37,6 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 
 | ID | Requirement | Gap |
 |---|---|---|
-| REQ-LI-040 | receive the WiFi credentials | accepted but never stored or used (GCS-O4) |
-| REQ-LI-060 | receive the cloud certificates | not implemented (CS-O6, GCS-O5) |
-| REQ-LI-080 | receive the serial port parameters | not configurable (GCS-O5) |
-| REQ-LI-160 | store the most recent board self-test | not persisted (GCS-O6) |
 
 ## Risks to watch
 
@@ -56,7 +52,6 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 | REQ-SA-160 | needs a forced sensor fault |
 | REQ-NF-108 | UI task runs every 40 ms, the value refresh every 200 ms |
 | REQ-NF-214 | needs a controlled power cut |
-| REQ-NF-302 | depends on the provisioning back-end (LI-040, LI-060) |
 | REQ-NF-400 | 1 224 B spare |
 | REQ-NF-502 | no full review done yet |
 | REQ-NF-505 | never run |
@@ -133,11 +128,11 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 | REQ-LI-010 | receive a diagnostic command from the command set in Appendix A and ex | T | S | BOTH | A | run each Appendix A command, expect an answer | - |
 | REQ-LI-020 | display the result of the diagnostic | T | S | BOTH | A | the result of each diagnostic is displayed | - |
 | REQ-LI-030 | provide a provisioning menu accessible via the CLI. | T | S | GW | A | the provisioning menu is reachable | - |
-| REQ-LI-040 | receive the WiFi credentials | T | S | GW | A | `prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them | KG: accepted but never stored or used (GCS-O4) |
+| REQ-LI-040 | receive the WiFi credentials | T | S | GW | A | `prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them (negative and positive case) | - |
 | REQ-LI-050 | receive the cloud endpoint | T | S | GW | A | `prov set mqtt-endpoint`, reset: the endpoint is used | - |
-| REQ-LI-060 | receive the cloud certificates | T | S | GW | A | provision the certificates over the console | KG: not implemented (CS-O6, GCS-O5) |
+| REQ-LI-060 | receive the cloud certificates | T | S | GW | A | provision the certificates over the console | - |
 | REQ-LI-070 | receive the Modbus address | T | S | BOTH | A | `prov set modbus-addr` takes effect | - |
-| REQ-LI-080 | receive the serial port parameters | T | S | GW | A | `prov set modbus-baud` and `modbus-parity` take effect | KG: not configurable (GCS-O5) |
+| REQ-LI-080 | receive the serial port parameters | T | S | GW | A | `prov set modbus-baud` and `modbus-parity` take effect | - |
 | REQ-LI-090 | validate the format and the range of the input values | T | S | BOTH | A | bad format and out-of-range values are refused | - |
 | REQ-LI-100 | request confirmation from the Field Technician before applying changes | T | S | BOTH | A | a change asks for confirmation | - |
 | REQ-LI-110 | apply the change if a confirmation is received | T | S | BOTH | A | a confirmed change is applied | - |
@@ -145,7 +140,7 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 | REQ-LI-130 | provide a board self-test command via the CLI | T | S | BOTH | A | `selftest` runs | - |
 | REQ-LI-140 | report the self-test result as pass/fail | T | S | BOTH | A | the self-test reports pass or fail | - |
 | REQ-LI-150 | read and display the device serial number | T | S | BOTH | A | `serial` prints the MCU serial number | - |
-| REQ-LI-160 | store the most recent board self-test | T | S | GW | A | the last self-test result survives a reset | KG: not persisted (GCS-O6) |
+| REQ-LI-160 | store the most recent board self-test | T | S | GW | A | the last self-test result survives a reset | - |
 | REQ-LI-170 | display an error message if the diagnostic command fails. | T | S | BOTH | A | a failing diagnostic prints an error | - |
 | REQ-LI-180 | display an error message with the problem if the input validation fail | T | S | BOTH | A | a rejected value prints the problem | - |
 | REQ-LI-190 | discard all the input parameters if no confirmation is received. | T | S | BOTH | A | no confirmation: the input is discarded | - |
@@ -248,7 +243,7 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 | REQ-NF-216 | use MQTT QoS 0 for publishing device health data | T | S | SYS | A | health is published with QoS 0 | - |
 | REQ-NF-300 | encrypt all communication with AWS IoT Core using TLS 1.2 or higher | T | S | SYS | A | TLS 1.2 or higher on the wire | - |
 | REQ-NF-301 | authenticate to AWS IoT Core using X.509 client certificates | T | S | SYS | A | the client certificate is required and checked | - |
-| REQ-NF-302 | not store provisioning credentials (WiFi passphrase and X.509 private  | I | S | GW | R | inspect storage: no plaintext passphrase or private key | RK: depends on the provisioning back-end (LI-040, LI-060) |
+| REQ-NF-302 | not store provisioning credentials (WiFi passphrase and X.509 private  | I | S | GW | R | inspect storage: no plaintext passphrase or private key | - |
 | REQ-NF-303 | restrict CLI access to physical serial connections only | I | S | BOTH | R | no network console in the code, UART only | - |
 | REQ-NF-304 | cryptographically verify firmware images before installation | T | S | GW | A | an image with a wrong signature is refused | - |
 | REQ-NF-305 | reject any unencrypted connection to cloud services | T | S | GW | A | a plain-TCP broker is refused | - |

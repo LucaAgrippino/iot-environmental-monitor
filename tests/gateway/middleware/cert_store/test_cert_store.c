@@ -17,7 +17,7 @@ static const uint8_t k_uid[CERT_STORE_UID_BYTES] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 1
 static const uint8_t k_other_uid[CERT_STORE_UID_BYTES] = {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9};
 
 #define SLOT0 (CERT_STORE_BASE)
-#define SLOT1 (CERT_STORE_BASE + 4096UL)
+#define SLOT1 (CERT_STORE_BASE + 8192UL)
 #define PASS "correct-horse-battery"
 
 /* A DER SEQUENCE of the given total length, filled with a pattern. */
@@ -43,7 +43,7 @@ static uint32_t make_der(uint8_t *out, uint32_t total, uint8_t fill)
 static bool in_flash(const void *needle, size_t n)
 {
     const uint8_t *mem = fake_qspi_mem() + CERT_STORE_BASE;
-    for (size_t i = 0U; (i + n) <= 8192U; i++)
+    for (size_t i = 0U; (i + n) <= 16384U; i++)
     {
         if (memcmp(&mem[i], needle, n) == 0)
         {
@@ -162,6 +162,18 @@ void test_the_ca_the_client_certificate_and_the_key_complete_the_identity(void)
     TEST_ASSERT_TRUE(cert_store_identity_complete());
 }
 
+void test_an_rsa_2048_private_key_of_1218_bytes_fits(void)
+{
+    uint8_t key[1218];
+
+    make_der(key, sizeof(key), 0x77U);
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_item(CERT_STORE_KEY, key, sizeof(key)));
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_init(&fake_qspi_flash_if, k_uid));
+    uint32_t len = 0U;
+    TEST_ASSERT_EQUAL_MEMORY(key, cert_store_item(CERT_STORE_KEY, &len), sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(sizeof(key), len);
+}
+
 void test_a_certificate_of_exactly_the_maximum_size_is_accepted(void)
 {
     uint8_t cert[CERT_STORE_CERT_MAX];
@@ -221,8 +233,11 @@ void test_each_write_goes_to_the_other_slot_with_a_higher_sequence(void)
     TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_wifi("two-net", PASS));
     TEST_ASSERT_EQUAL_UINT32(2U, cert_store_sequence());
 
-    TEST_ASSERT_EQUAL_UINT32(1U, fake_qspi_sector_erases(CERT_STORE_BASE / 4096UL));
+    TEST_ASSERT_EQUAL_UINT32(1U, fake_qspi_sector_erases(CERT_STORE_BASE / 4096UL)); /* slot 0 */
     TEST_ASSERT_EQUAL_UINT32(1U, fake_qspi_sector_erases(CERT_STORE_BASE / 4096UL + 1UL));
+    TEST_ASSERT_EQUAL_UINT32(1U,
+                             fake_qspi_sector_erases(CERT_STORE_BASE / 4096UL + 2UL)); /* slot 1 */
+    TEST_ASSERT_EQUAL_UINT32(1U, fake_qspi_sector_erases(CERT_STORE_BASE / 4096UL + 3UL));
     TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_init(&fake_qspi_flash_if, k_uid));
     TEST_ASSERT_EQUAL_STRING("two-net", cert_store_ssid());
 }
@@ -243,7 +258,7 @@ void test_a_power_cut_before_the_header_leaves_the_previous_copy_valid(void)
 {
     TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_wifi("old-net", PASS));
     /* the second write died after the body: erase slot 1 and write only part of it */
-    memset(fake_qspi_mem() + SLOT1, 0xFFU, 4096U);
+    memset(fake_qspi_mem() + SLOT1, 0xFFU, 8192U);
     fake_qspi_mem()[SLOT1 + 16U] = 0x00U;
 
     TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_init(&fake_qspi_flash_if, k_uid));

@@ -23,7 +23,7 @@
 #define CERT_STORE_SSID_MAX (63U) /**< Characters, without the terminator. */
 #define CERT_STORE_PASS_MAX (63U)
 #define CERT_STORE_CERT_MAX (1536U) /**< DER bytes of a certificate. */
-#define CERT_STORE_KEY_MAX (512U)   /**< DER bytes of a private key. */
+#define CERT_STORE_KEY_MAX (1280U)  /**< DER bytes of a private key: RSA-2048 PKCS#8 is 1218. */
 #define CERT_STORE_UID_BYTES (12U)  /**< The 96-bit unique ID of the MCU, the root of the key. */
 
 /** @brief Device offset of the CertStore partition in the QSPI flash. */
