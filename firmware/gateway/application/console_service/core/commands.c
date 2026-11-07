@@ -1166,7 +1166,7 @@ static console_service_err_t cmd_prov_commit(int argc, const char *argv[])
 
 #define CERT_ASSEMBLY_MAX (1536U) /* the largest item CertStore accepts */
 
-static uint8_t s_cert_buf[CERT_ASSEMBLY_MAX] CONSOLE_BIG_BUFFER;
+CONSOLE_BIG_BUFFER static uint8_t s_cert_buf[CERT_ASSEMBLY_MAX];
 static uint32_t s_cert_len;
 static int32_t s_cert_item = -1;
 
