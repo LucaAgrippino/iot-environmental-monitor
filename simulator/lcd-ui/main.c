@@ -7,6 +7,8 @@
  * Scripted (headless-capable): `lcd_sim --script "<commands>"`, commands separated by ';':
  *
  *   scenario <name>   normal | waiting | stale | error | alarm | degraded | gap
+ *   splash show|hide  show or remove the boot splash
+ *   boot <pct> <step> set the splash progress and step name (100 shows READY)
  *   warp <seconds>    advance the virtual clock quickly, running every UI timer
  *   tap <x> <y>       a 120 ms touch at logical coordinates
  *   shot <file.ppm>   save the current frame (binary PPM)
@@ -94,6 +96,21 @@ static void sim_run_script(char *script)
             sim_advance(SIM_TAP_MS);
             sdl_backend_clear_injection();
             sim_advance(SIM_UI_TICK_MS); /* let the tick show the result */
+        }
+        else if (strncmp(cmd, "splash show", 11U) == 0)
+        {
+            lcd_ui_show_splash();
+            sim_advance(SIM_UI_TICK_MS);
+        }
+        else if (strncmp(cmd, "splash hide", 11U) == 0)
+        {
+            lcd_ui_dismiss_splash();
+            sim_advance(SIM_UI_TICK_MS);
+        }
+        else if (sscanf(cmd, "boot %d %511[^\n]", &a, arg1) == 2)
+        {
+            lcd_ui_set_boot_progress((uint8_t)a, arg1);
+            sim_advance(SIM_UI_TICK_MS);
         }
         else if (sscanf(cmd, "shot %511s", arg1) == 1)
         {

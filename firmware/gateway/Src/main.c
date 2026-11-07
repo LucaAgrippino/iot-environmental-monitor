@@ -39,6 +39,7 @@
 #include "config_service/config_service.h"
 #include "config_store/config_store.h"
 #include "console_service/console_service.h"
+#include "adc/adc.h"
 #include "cpu/cpu.h"
 #include "cpu/status.h"
 #include "debug_uart/debug_uart.h"
@@ -328,6 +329,10 @@ static void feed_resources(void)
         (void) health_monitor_update_resources(s_hm, (idle_pct >= 100U) ? 0U : (100U - idle_pct),
                                                TLS_ARENA_SIZE_BYTES - tls_arena_peak_bytes());
     }
+
+    int16_t temp_deci_c = 0;
+    const bool temp_ok = (adc_read_mcu_temp_deci_c(&temp_deci_c) == ADC_OK);
+    (void) health_monitor_update_mcu_temp(s_hm, temp_ok, temp_deci_c);
 }
 
 static void register_health_tasks(void)
@@ -687,6 +692,7 @@ int main(void)
     {
         spin_forever();
     }
+    (void) adc_init(); /* after the clock tree; a failure leaves the temperature unavailable */
     tls_arena_init(); /* before any mbedTLS call (WP2) */
 
     gpio_pin_config_t uart_tx_config = {.port = UART_TX_PORT,

@@ -23,6 +23,7 @@
 #include "lcd_ui/widgets/header_bar.h"
 #include "lcd_ui/widgets/numpad.h"
 #include "lcd_ui/widgets/sensor_card.h"
+#include "lcd_ui/widgets/splash_view.h"
 #include "lcd_ui/widgets/status_row.h"
 #include "lcd_ui/widgets/tab_bar.h"
 #include "lcd_ui/widgets/trend_panel.h"
@@ -37,6 +38,13 @@
 #define SCR_ALARM (3U)
 #define SCR_CONFIG (4U)
 #define SCR_COUNT (5U)
+
+/** Requests to the splash overlay, written by any task and carried out by lcd_ui_tick(). */
+#define SPLASH_REQ_NONE (0U)
+#define SPLASH_REQ_SHOW (1U)
+#define SPLASH_REQ_HIDE (2U)
+/** Longest boot step name kept, with its terminator. */
+#define SPLASH_STEP_MAX (40U)
 
 /** Physical sensors shown on the Sensors, Trend and Alarms screens (03_SCREEN_SPECS.md: S1..S3). */
 #define SENSOR_DISPLAY_COUNT (3U)
@@ -100,8 +108,8 @@ typedef struct
     uint32_t gen_seen;
 } trend_screen_t;
 
-#define STATUS_ROWS (14U) /* left: 4 + 3; right: MODBUS 4 + DEVICE 3 */
-#define STATUS_SECTIONS (4U)
+#define STATUS_ROWS (17U) /* SENSORS 4, SYSTEM 3, MODBUS 4, DEVICE 2, RESOURCES 4 */
+#define STATUS_SECTIONS (5U)
 
 typedef struct
 {
@@ -193,6 +201,12 @@ typedef struct lcd_ui
     bool link_down;      /**< The Modbus link was up and is lost. */
     uint32_t fault_ms;   /**< When the faults were last evaluated. */
     volatile uint16_t requested_screen; /**< lcd_ui_select_screen(): screen + 1, 0 for none. */
+    splash_view_t splash;               /**< Boot overlay, hidden until requested. */
+    volatile uint8_t splash_req;        /**< SPLASH_REQ_*; cleared when carried out. */
+    volatile uint8_t boot_pct;          /**< Progress from lcd_ui_set_boot_progress(). */
+    volatile uint32_t boot_seq;         /**< Incremented per progress update. */
+    uint32_t boot_seq_seen;             /**< boot_seq already drawn. */
+    char boot_step[SPLASH_STEP_MAX];    /**< Step name from lcd_ui_set_boot_progress(). */
 } lcd_ui_t;
 
 #endif /* SCREEN_INTERNAL_H */

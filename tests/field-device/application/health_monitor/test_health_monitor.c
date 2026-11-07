@@ -422,3 +422,64 @@ void test_set_led_fault_drives_red_on_green_off(void)
     TEST_ASSERT_TRUE(led_red_is_on());
     TEST_ASSERT_TRUE(led_green_is_off());
 }
+
+/* ======================================================================= */
+/* Resources: CPU load, free RAM, MCU temperature                          */
+/* ======================================================================= */
+
+void test_update_resources_stores_the_values(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK,
+                      health_monitor_update_resources(37U, 91234U, true, 451));
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_EQUAL_UINT8(37U, snap.cpu_load_pct);
+    TEST_ASSERT_EQUAL_UINT32(91234U, snap.free_ram_bytes);
+    TEST_ASSERT_TRUE(snap.mcu_temp_valid);
+    TEST_ASSERT_EQUAL_INT16(451, snap.mcu_temp_deci_c);
+}
+
+void test_update_resources_clamps_the_load_to_100(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    (void)health_monitor_update_resources(250U, 0U, true, 0);
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_EQUAL_UINT8(100U, snap.cpu_load_pct);
+}
+
+void test_update_resources_without_a_temperature_clears_the_flag_and_the_value(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    (void)health_monitor_update_resources(10U, 1U, true, -52);
+    (void)health_monitor_update_resources(10U, 1U, false, 999);
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_FALSE(snap.mcu_temp_valid);
+    TEST_ASSERT_EQUAL_INT16(0, snap.mcu_temp_deci_c);
+}
+
+void test_update_resources_keeps_a_negative_temperature(void)
+{
+    device_health_snapshot_t snap;
+
+    (void)health_monitor_init();
+    (void)health_monitor_update_resources(0U, 0U, true, -52);
+    (void)health_monitor_get_snapshot(&snap);
+
+    TEST_ASSERT_EQUAL_INT16(-52, snap.mcu_temp_deci_c);
+}
+
+void test_not_init_guard_update_resources(void)
+{
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NOT_INIT,
+                      health_monitor_update_resources(1U, 1U, true, 1));
+}

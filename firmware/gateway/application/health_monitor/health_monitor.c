@@ -549,6 +549,24 @@ health_monitor_err_t health_monitor_update_resources(health_monitor_handle_t han
     return HEALTH_MONITOR_ERR_OK;
 }
 
+health_monitor_err_t health_monitor_update_mcu_temp(health_monitor_handle_t handle, bool valid,
+                                                    int16_t deci_c)
+{
+    health_monitor_err_t err = hm_check_handle(handle);
+
+    if (err != HEALTH_MONITOR_ERR_OK)
+    {
+        return err;
+    }
+
+    hm_lock(handle);
+    handle->snapshot.mcu_temp_valid = valid;
+    handle->snapshot.mcu_temp_deci_c = valid ? deci_c : 0;
+    hm_unlock(handle);
+
+    return HEALTH_MONITOR_ERR_OK;
+}
+
 /* ====================================================================== */
 /* IHealthSnapshot                                                        */
 /* ====================================================================== */

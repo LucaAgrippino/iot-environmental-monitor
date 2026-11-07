@@ -243,6 +243,12 @@ static health_monitor_err_t sim_get_health_snapshot(device_health_snapshot_t *sn
     {
         snap->stack_watermark_words[i] = (uint16_t)(78U + (i * 40U)); /* the smallest is 312 B */
     }
+    /* Resources: healthy values drift a little; the degraded scenario runs hot (warning/error) */
+    const bool hot = (s_scenario == SIM_DEGRADED) && (s_now_ms >= 10000U);
+    snap->cpu_load_pct = hot ? 92U : (uint8_t)(18U + ((s_now_ms / 1000U) % 7U));
+    snap->free_ram_bytes = hot ? (3U * 1024U) : (94U * 1024U);
+    snap->mcu_temp_valid = true;
+    snap->mcu_temp_deci_c = hot ? (int16_t)872 : (int16_t)(412 + (int16_t)((s_now_ms / 1000U) % 5U));
     return HEALTH_MONITOR_ERR_OK;
 }
 

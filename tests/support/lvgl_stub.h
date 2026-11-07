@@ -578,6 +578,21 @@ static inline void lv_obj_set_style_pad_right(lv_obj_t *o, lv_coord_t p, lv_styl
     (void) p;
     (void) s;
 }
+#define LV_RADIUS_CIRCLE (0x7FFF)
+#define LV_TEXT_ALIGN_RIGHT (2)
+static inline void lv_obj_set_style_text_letter_space(lv_obj_t *o, lv_coord_t sp,
+                                                      lv_style_selector_t s)
+{
+    (void) o;
+    (void) sp;
+    (void) s;
+}
+static inline void lv_obj_set_style_text_align(lv_obj_t *o, int align, lv_style_selector_t s)
+{
+    (void) o;
+    (void) align;
+    (void) s;
+}
 static inline void lv_obj_set_style_radius(lv_obj_t *o, lv_coord_t r, lv_style_selector_t s)
 {
     (void) o;

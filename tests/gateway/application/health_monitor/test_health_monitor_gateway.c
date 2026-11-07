@@ -417,6 +417,24 @@ void test_HM_T20b_resources_are_stored_and_the_load_is_clamped(void)
     TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_PTR, health_monitor_update_resources(NULL, 1U, 1U));
 }
 
+void test_HM_T20c_mcu_temperature_is_stored_and_cleared_when_unreadable(void)
+{
+    create_ok();
+
+    TEST_ASSERT_FALSE(snap().mcu_temp_valid);
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_update_mcu_temp(s_h, true, 412));
+    TEST_ASSERT_TRUE(snap().mcu_temp_valid);
+    TEST_ASSERT_EQUAL_INT16(412, snap().mcu_temp_deci_c);
+
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_update_mcu_temp(s_h, true, -75));
+    TEST_ASSERT_EQUAL_INT16(-75, snap().mcu_temp_deci_c);
+
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_OK, health_monitor_update_mcu_temp(s_h, false, 999));
+    TEST_ASSERT_FALSE(snap().mcu_temp_valid);
+    TEST_ASSERT_EQUAL_INT16(0, snap().mcu_temp_deci_c);
+    TEST_ASSERT_EQUAL(HEALTH_MONITOR_ERR_NULL_PTR, health_monitor_update_mcu_temp(NULL, true, 1));
+}
+
 void test_HM_T21_operational_lifecycle_makes_the_led_solid(void)
 {
     create_ok();

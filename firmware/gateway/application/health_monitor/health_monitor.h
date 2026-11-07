@@ -215,6 +215,8 @@ typedef struct
     uint8_t cpu_load_pct;          /**< 0-100, share of run time not spent in the idle task. */
     uint32_t arena_min_free_bytes; /**< Least free space ever left in the static TLS arena; the
                                         Gateway has no other dynamic memory (REQ-NF-408).   */
+    bool mcu_temp_valid;           /**< mcu_temp_deci_c holds a reading.                   */
+    int16_t mcu_temp_deci_c;       /**< MCU die temperature in 0.1 degC (AdcDriver).        */
 
     /* ── RTOS task stack watermarks ── */
     uint16_t stack_watermark_words[HEALTH_MONITOR_MAX_TASKS];
@@ -389,6 +391,20 @@ health_monitor_err_t health_monitor_update_wifi_rssi(health_monitor_handle_t han
 health_monitor_err_t health_monitor_update_resources(health_monitor_handle_t handle,
                                                      uint32_t cpu_load_pct,
                                                      uint32_t arena_min_free_bytes);
+
+/**
+ * @brief Record the MCU temperature (REQ-CC-010; HM-D13 closed by AdcDriver).
+ *
+ * @param[in] handle       HealthMonitor handle.
+ * @param[in] valid        false when the temperature could not be read: the snapshot then keeps
+ *                         mcu_temp_valid false instead of a stale value.
+ * @param[in] deci_c       MCU temperature in 0.1 degC; ignored when valid is false.
+ * @return HEALTH_MONITOR_ERR_OK; HEALTH_MONITOR_ERR_NULL_PTR if handle is NULL;
+ *         HEALTH_MONITOR_ERR_NOT_INIT.
+ * @note Threading: task-context only. Not ISR-safe.
+ */
+health_monitor_err_t health_monitor_update_mcu_temp(health_monitor_handle_t handle, bool valid,
+                                                    int16_t deci_c);
 
 /* ====================================================================== */
 /* IHealthSnapshot — read side (consumers)                                */

@@ -23,6 +23,9 @@ run() { # name, script
     SDL_VIDEODRIVER=dummy "$sim" --script "$2; shot $out/$1.ppm" 2> /dev/null
 }
 
+run splash-boot-28    "splash show; boot 28 Initialising LCD driver..."
+run splash-boot-62    "splash show; boot 62 Initialising sensor bus..."
+run splash-ready      "splash show; boot 100 System ready"
 run sensors-normal    "warp 310"
 run sensors-waiting   "scenario waiting; warp 2"
 run sensors-stale     "scenario stale; warp 60"

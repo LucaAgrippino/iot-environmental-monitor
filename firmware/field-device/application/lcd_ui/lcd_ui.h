@@ -117,6 +117,31 @@ void lcd_ui_tick(void);
 void lcd_ui_select_screen(uint16_t screen);
 
 /**
+ * @brief Show the boot splash over the screens (REQ-LD-200).
+ *
+ * Any task may call it; the overlay appears on the next lcd_ui_tick(). The splash stays until
+ * lcd_ui_dismiss_splash(). Needs lcd_ui_init() first.
+ */
+void lcd_ui_show_splash(void);
+
+/**
+ * @brief Set the splash progress bar and step name (REQ-LD-210, -220, -230).
+ *
+ * 100 switches the badge from BOOT to READY. One calling task at a time (the boot sequence).
+ *
+ * @param[in] percent  0-100; larger values are clamped.
+ * @param[in] step     Human-readable step name, for example "Initialising sensor bus...";
+ *                     longer than SPLASH_STEP_MAX - 1 characters is cut; NULL keeps the name.
+ */
+void lcd_ui_set_boot_progress(uint8_t percent, const char *step);
+
+/** @brief Remove the splash (REQ-LD-200: shown until the Operational state). */
+void lcd_ui_dismiss_splash(void);
+
+/** @brief True while the splash overlay is shown (as of the last lcd_ui_tick()). */
+bool lcd_ui_splash_visible(void);
+
+/**
  * @brief LcdUiTask entry point — 200 ms refresh loop.
  *
  * Loop: vTaskDelayUntil → graphics_process() → lcd_ui_tick().

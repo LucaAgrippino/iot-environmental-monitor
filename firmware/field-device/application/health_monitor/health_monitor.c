@@ -526,6 +526,28 @@ void health_monitor_poll(void)
     }
 }
 
+health_monitor_err_t health_monitor_update_resources(uint32_t cpu_load_pct,
+                                                     uint32_t free_ram_bytes, bool temp_valid,
+                                                     int16_t temp_deci_c)
+{
+    if (!s_hm.initialised)
+    {
+        return HEALTH_MONITOR_ERR_NOT_INIT;
+    }
+    if (xSemaphoreTake(s_hm.mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return HEALTH_MONITOR_ERR_NOT_INIT;
+    }
+
+    s_hm.snapshot.cpu_load_pct = (uint8_t) ((cpu_load_pct > 100U) ? 100U : cpu_load_pct);
+    s_hm.snapshot.free_ram_bytes = free_ram_bytes;
+    s_hm.snapshot.mcu_temp_valid = temp_valid;
+    s_hm.snapshot.mcu_temp_deci_c = temp_valid ? temp_deci_c : 0;
+
+    (void) xSemaphoreGive(s_hm.mutex);
+    return HEALTH_MONITOR_ERR_OK;
+}
+
 health_monitor_err_t health_monitor_register_task(const char *name, void *task_handle)
 {
     if (!s_hm.initialised)

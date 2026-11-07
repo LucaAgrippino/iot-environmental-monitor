@@ -39,6 +39,7 @@ TEST_FILE("config_field.c")
 TEST_FILE("numpad.c")
 TEST_FILE("confirm_modal.c")
 TEST_FILE("trend_panel.c")
+TEST_FILE("splash_view.c")
 TEST_FILE("ui_format.c")
 TEST_FILE("ui_history.c")
 
@@ -845,4 +846,160 @@ void test_TC_LCDUI_038_keypad_stops_at_its_length_limit_and_ignores_keys_when_id
     numpad_load(&ui->config_screen.numpad, NULL); /* no field focused */
     numpad_press(&ui->config_screen.numpad, "1");
     TEST_ASSERT_EQUAL_STRING("", numpad_text(&ui->config_screen.numpad));
+}
+
+/* ======================================================================= */
+/* Status screen: CPU load, free RAM, MCU temperature                      */
+/* ======================================================================= */
+
+void test_TC_LCDUI_039_status_shows_cpu_load_free_ram_and_mcu_temperature(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.cpu_load_pct = 37U;
+    g_stub_health_snap.free_ram_bytes = 94U * 1024U;
+    g_stub_health_snap.mcu_temp_valid = true;
+    g_stub_health_snap.mcu_temp_deci_c = 451;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING("37%", ui->status_screen.row[14].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("94 KB", ui->status_screen.row[15].value->stub_text);
+    TEST_ASSERT_EQUAL_STRING("45.1 \xC2\xB0" "C", ui->status_screen.row[16].value->stub_text);
+}
+
+void test_TC_LCDUI_040_status_shows_a_negative_temperature_with_the_true_minus(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.mcu_temp_valid = true;
+    g_stub_health_snap.mcu_temp_deci_c = -52;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING(UI_MINUS "5.2 \xC2\xB0" "C", ui->status_screen.row[16].value->stub_text);
+}
+
+void test_TC_LCDUI_041_status_shows_a_dash_when_the_temperature_is_unavailable(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+    g_stub_health_snap.mcu_temp_valid = false;
+    g_stub_health_snap.mcu_temp_deci_c = 999;
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->status_screen.row[16].value->stub_text);
+}
+
+void test_TC_LCDUI_042_status_has_five_sections_in_three_columns(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_test_fire_tab_change(SCR_STATUS);
+    tick_at(2000U);
+
+    TEST_ASSERT_EQUAL_UINT32(5U, STATUS_SECTIONS);
+    TEST_ASSERT_EQUAL_UINT32(17U, STATUS_ROWS);
+    for (uint32_t r = 0U; r < STATUS_ROWS; r++)
+    {
+        TEST_ASSERT_NOT_NULL(ui->status_screen.row[r].value);
+    }
+}
+
+/* ======================================================================= */
+/* Boot splash                                                             */
+/* ======================================================================= */
+
+void test_TC_LCDUI_043_the_splash_is_hidden_until_requested(void)
+{
+    do_init();
+
+    TEST_ASSERT_FALSE(lcd_ui_splash_visible());
+}
+
+void test_TC_LCDUI_044_show_splash_appears_on_the_next_tick_and_dismiss_removes_it(void)
+{
+    do_init();
+
+    lcd_ui_show_splash();
+    TEST_ASSERT_FALSE(lcd_ui_splash_visible()); /* LVGL is touched by the UI task only */
+    tick_at(100U);
+    TEST_ASSERT_TRUE(lcd_ui_splash_visible());
+
+    lcd_ui_dismiss_splash();
+    tick_at(200U);
+    TEST_ASSERT_FALSE(lcd_ui_splash_visible());
+}
+
+void test_TC_LCDUI_045_boot_progress_updates_the_bar_the_label_and_the_step(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_show_splash();
+    lcd_ui_set_boot_progress(62U, "Initialising sensor bus...");
+    tick_at(100U);
+
+    TEST_ASSERT_EQUAL_UINT8(62U, ui->splash.percent);
+    TEST_ASSERT_EQUAL_STRING("62%", ui->splash.pct_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("Initialising sensor bus...", ui->splash.step_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("BOOT", ui->splash.badge_lbl->stub_text);
+}
+
+void test_TC_LCDUI_046_one_hundred_percent_turns_the_badge_to_ready(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_set_boot_progress(100U, "System ready");
+    tick_at(100U);
+
+    TEST_ASSERT_EQUAL_STRING("100%", ui->splash.pct_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("READY", ui->splash.badge_lbl->stub_text);
+}
+
+void test_TC_LCDUI_047_progress_above_100_is_clamped(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_set_boot_progress(250U, "x");
+    tick_at(100U);
+
+    TEST_ASSERT_EQUAL_UINT8(100U, ui->splash.percent);
+}
+
+void test_TC_LCDUI_048_a_null_step_keeps_the_name_and_a_long_step_is_cut(void)
+{
+    char longname[100];
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    lcd_ui_set_boot_progress(10U, "Starting drivers");
+    tick_at(100U);
+    lcd_ui_set_boot_progress(20U, NULL);
+    tick_at(200U);
+    TEST_ASSERT_EQUAL_STRING("Starting drivers", ui->splash.step_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("20%", ui->splash.pct_lbl->stub_text);
+
+    (void) memset(longname, 'a', sizeof(longname) - 1U);
+    longname[sizeof(longname) - 1U] = '\0';
+    lcd_ui_set_boot_progress(30U, longname);
+    tick_at(300U);
+    TEST_ASSERT_EQUAL_UINT32(SPLASH_STEP_MAX - 1U, strlen(ui->splash.step_lbl->stub_text));
+}
+
+void test_TC_LCDUI_049_the_splash_footer_names_the_firmware_and_lvgl(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    /* the footer labels are the last two children of the splash root */
+    TEST_ASSERT_NOT_NULL(ui->splash.root);
+    TEST_ASSERT_NOT_NULL(ui->splash.logo);
 }
