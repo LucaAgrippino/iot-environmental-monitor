@@ -389,6 +389,9 @@ static TaskStatus_t s_load_status[LOAD_MAX_TASKS];
 #define GUI_PERIOD_MS (40U)
 /** The splash stays this long after "System ready" so that the 100 % is seen. */
 #define GUI_SPLASH_HOLD_MS (800U)
+/** The splash is shown at least this long from the start of the UI task: the first frame takes
+ *  over a second to render at -O0, and the boot itself is shorter than that. */
+#define GUI_SPLASH_MIN_MS (3000U)
 /** After a start-up fault the splash is removed sooner to show the status pill and banner. */
 #define GUI_SPLASH_FAULT_HOLD_MS (2000U)
 
@@ -421,6 +424,7 @@ static void gui_task(void *arg)
     (void) arg;
     TickType_t last_wake = xTaskGetTickCount();
     uint32_t hold_ms = 0U;
+    uint32_t shown_ms = 0U;
     bool finishing = false;
     bool dismissed = false;
 
@@ -429,6 +433,7 @@ static void gui_task(void *arg)
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(GUI_PERIOD_MS));
         (void) graphics_process();
         lcd_ui_tick();
+        shown_ms += GUI_PERIOD_MS;
 
         if (dismissed)
         {
@@ -450,9 +455,12 @@ static void gui_task(void *arg)
                 hold_ms = GUI_SPLASH_FAULT_HOLD_MS;
             }
         }
-        else if (hold_ms > GUI_PERIOD_MS)
+        else if ((hold_ms > GUI_PERIOD_MS) || (shown_ms < GUI_SPLASH_MIN_MS))
         {
-            hold_ms -= GUI_PERIOD_MS;
+            if (hold_ms > GUI_PERIOD_MS)
+            {
+                hold_ms -= GUI_PERIOD_MS;
+            }
         }
         else
         {
