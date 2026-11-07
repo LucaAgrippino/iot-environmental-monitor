@@ -24,6 +24,7 @@
 #include "lvgl_stub.h"
 
 #include "lcd_ui/lcd_ui.h"   /* brings in stubs + screen_internal.h (TEST) */
+#include "lcd_ui/ui_history.h"
 
 TEST_FILE("theme.c")
 TEST_FILE("tab_bar.c")

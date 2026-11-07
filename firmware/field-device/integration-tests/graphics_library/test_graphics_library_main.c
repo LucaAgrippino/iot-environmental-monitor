@@ -101,11 +101,10 @@ static void lcd_ui_task(void *arg)
 
     for (;;)
     {
-        static lv_indev_state_t prev_state = LV_INDEV_STATE_RELEASED;
-
         indev = graphics_get_indev();
         if (indev != NULL)
         {
+            static lv_indev_state_t prev_state = LV_INDEV_STATE_RELEASED;
             lv_point_t point;
             lv_indev_get_point(indev, &point);
 

@@ -17,7 +17,7 @@ native:
 
 # Render every screen and state of the design pack to PPM files in shots/ (needs `make native`).
 shots: native
-	./shots.sh build-native/lcd_sim shots
+	bash ./shots.sh build-native/lcd_sim shots
 
 run:
 	./$(BUILD_DIR)/lcd_sim
