@@ -51,6 +51,15 @@ Restore the sensor after OP-06/07.
 
 ## D. Still open elsewhere
 
-Wave 6 (the 8 hour endurance run, TC-VER-EN-001) is not run yet; start it with `verification/run.sh 6` on the machine that stays on.
+Wave 6 (the 8 hour endurance run, TC-VER-EN-001) ran on 2026-11-08 from 14:44 to 22:44 on the Raspberry Pi and passed:
+no reset of either board (uptimes 29 347 s and 29 324 s at the last sample), 605 MQTT publishes with 0 failures, buffer
+empty, 0 sensor failures. The test carries no `REQ-` tag, so the results report does not credit it to any requirement;
+which requirements an endurance run verifies is not defined in the plan yet.
+
+- **Bus errors to look at with the boards in hand.** The pass limit is 1 % of transactions. The run ended with 2 277
+  Modbus timeouts against 292 789 good transactions (0.78 %) and 2 260 Field Device CRC errors in 294 736 frames
+  (0.77 %), about 280 of each per hour and steady. The two counts almost match, which points at one cause on the RS-485 link (noise, a marginal
+  contact, missing or doubled termination) and not at the firmware. Check the wiring and the termination; a quiet
+  bus should show none. Not filed as a defect: the requirement limit is met.
 Requirements without a case yet are listed as "Not run" in `verification-results.md`; they need a cloud command path
 (remote configuration, restart, OTA, rollback), the Raspberry Pi probe (timings of the bus), or more Robot cases.
