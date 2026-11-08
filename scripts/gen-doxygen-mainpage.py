@@ -140,7 +140,7 @@ def dependency_graph(board, mods):
                 tgt = owner.get(Path(m.group(1)).name)
                 if tgt and tgt != key and tgt[1] not in CROSS_CUTTING:
                     edges.add((key, tgt))
-    dot = ['digraph G {', 'rankdir=TB; compound=true; concentrate=true; nodesep=0.25; ranksep=0.9;',
+    dot = ['digraph G {', 'rankdir=TB; nodesep=0.3; ranksep=1.1;',
            'node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, height=0.3];',
            'edge [color="#777777", arrowsize=0.6];']
     for layer, (title, desc, colour) in LAYERS.items():
@@ -153,8 +153,12 @@ def dependency_graph(board, mods):
             url = f', URL="{mangle(mh.name)}", tooltip="{k[1]}"' if mh else ""
             dot.append(f'"{k[0]}/{k[1]}" [label="{k[1]}", fillcolor="{colour}"{url}];')
         dot.append("}")
+    order = {k: i for i, k in enumerate(LAYERS)}
     for a, b in sorted(edges):
-        dot.append(f'"{a[0]}/{a[1]}" -> "{b[0]}/{b[1]}";')
+        d = order[b[0]] - order[a[0]]
+        style = ('class="e-down", color="#9aa5b1"' if d > 0 else 'class="e-same", color="#2b7bd6"' if d == 0
+                 else 'class="e-up", color="#d6342b", penwidth=1.8')
+        dot.append(f'"{a[0]}/{a[1]}" -> "{b[0]}/{b[1]}" [{style}];')
     dot.append("}")
     return "\n".join(dot), len(edges)
 
@@ -182,6 +186,43 @@ def svg(dot_text):
     out = out[out.index("<svg"):]
     out = re.sub(r'<svg width="[^"]+" height="[^"]+"', '<svg style="max-width:100%;height:auto"', out, count=1)
     return out
+
+
+GRAPH_JS = """<script>
+(function () {
+  var box = document.getElementById("%(id)s");
+  if (!box) return;
+  var edges = box.querySelectorAll("g.edge"), nodes = box.querySelectorAll("g.node");
+  function title(g) { var t = g.querySelector("title"); return t ? t.textContent : ""; }
+  function focus(name) {
+    edges.forEach(function (e) {
+      var t = title(e), on = name && (t.indexOf(name + "->") === 0 || t.slice(-name.length - 2) === "->" + name);
+      e.style.opacity = !name ? "" : (on ? "1" : "0.06");
+      e.style.strokeWidth = on ? "2.5" : "";
+    });
+    nodes.forEach(function (n) { n.style.opacity = !name || title(n) === name || connected(name, title(n)) ? "" : "0.35"; });
+  }
+  function connected(a, b) {
+    for (var i = 0; i < edges.length; i++) {
+      var t = title(edges[i]);
+      if (t === a + "->" + b || t === b + "->" + a) return true;
+    }
+    return false;
+  }
+  nodes.forEach(function (n) {
+    n.addEventListener("mouseenter", function () { focus(title(n)); });
+    n.addEventListener("mouseleave", function () { focus(""); });
+  });
+  var q = /[?&]focus=([^&]+)/.exec(location.search);
+  if (q) focus(decodeURIComponent(q[1]));
+})();
+</script>"""
+
+LEGEND = ('<p style="margin:0.3em 0"><b>Arrows:</b> '
+          '<span style="color:#9aa5b1">&#9644; uses a lower layer</span> &nbsp; '
+          '<span style="color:#2b7bd6">&#9644; uses a module of the same layer</span> &nbsp; '
+          '<span style="color:#d6342b">&#9644; uses a higher layer (look at these)</span>. '
+          '<b>Hover</b> a module to show only its arrows; <b>click</b> it to open its header.</p>')
 
 
 def md_modules(board, mods):
@@ -231,7 +272,8 @@ def page(board):
           "Modules reach each other through interface tables (the `i...` structs of Data Structures), which is also how the tests replace a neighbour with a mock. "
           f"The graph below is generated from the `#include` lines of this board ({len(mods)} modules, {n_edges} dependencies; the `logger`, used by almost every module, is left out of the arrows); "
           "click a module to open its header.", "",
-          "\\htmlonly", '<div style="overflow:auto;margin:1em 0;border:1px solid #ccc;padding:0.5em">', svg(dot), "</div>", "\\endhtmlonly", "",
+          "\\htmlonly", LEGEND, f'<div id="graph-{board}" style="overflow:auto;margin:1em 0;border:1px solid #ccc;padding:0.5em">', svg(dot), "</div>",
+          GRAPH_JS % {"id": f"graph-{board}"}, "\\endhtmlonly", "",
           "## How to navigate this reference", "",
           "1. Find the module in the graph above or in the list below and open its main header: the first comment of the file says what the module is for.",
           "2. Open the **interface** (`i...` header, or the vtable struct in the main header) to see what the rest of the system can call.",
