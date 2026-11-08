@@ -27,17 +27,24 @@ TARGET = {"FD": ("stm32f4x", FD_SERIAL), "GW": ("stm32l4x", GW_SERIAL)}
 
 
 def _openocd():
+    if os.environ.get("VERIFY_OPENOCD"):            # the Raspberry Pi: openocd from the distribution
+        return os.environ["VERIFY_OPENOCD"]
     return glob.glob("/opt/st/stm32cubeide_*/plugins/com.st.stm32cube.ide.mcu.externaltools.openocd.linux64_*/tools/bin/openocd")[0]
 
 
 def _scripts():
+    if os.environ.get("VERIFY_OPENOCD"):
+        return "/usr/share/openocd/scripts"
     return glob.glob("/opt/st/stm32cubeide_*/plugins/com.st.stm32cube.ide.mcu.debug.openocd_*/resources/openocd/st_scripts")[0]
 
 
 def _run_openocd(board, commands, timeout=60):
     target, serial = TARGET[board]
-    cmd = [_openocd(), "-s", _scripts(), "-f", "interface/stlink-dap.cfg", "-c", "adapter serial %s" % serial,
-           "-c", "transport select dapdirect_swd", "-f", "target/%s.cfg" % target, "-c", "adapter speed 4000",
+    if os.environ.get("VERIFY_OPENOCD"):
+        iface = ["-f", "interface/stlink.cfg", "-c", "adapter serial %s" % serial]
+    else:
+        iface = ["-f", "interface/stlink-dap.cfg", "-c", "adapter serial %s" % serial, "-c", "transport select dapdirect_swd"]
+    cmd = [_openocd(), "-s", _scripts(), *iface, "-f", "target/%s.cfg" % target, "-c", "adapter speed 2000",
            "-c", "init; %s; shutdown" % commands]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return r.stdout + r.stderr
