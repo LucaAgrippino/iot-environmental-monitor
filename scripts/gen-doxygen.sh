@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 mode=api
 if [ "${1:-}" = "--with-sources" ]; then mode=sources; shift; fi
 mkdir -p generated-docs/doxygen
+python3 scripts/gen-doxygen-mainpage.py
 for board in ${@:-gateway field-device}; do
   cfg="docs/doxygen/Doxyfile.$board"
   if [ "$mode" = sources ]; then
