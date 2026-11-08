@@ -10,12 +10,12 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | | Count |
 |---|---|
 | Test cases executed | 46 |
-| Test cases passing | 45 |
-| Test cases failing | 1 |
+| Test cases passing | 46 |
+| Test cases failing | 0 |
 | Requirements | 207 |
-| Verified (all tagged tests pass) | 114 |
+| Verified (all tagged tests pass) | 115 |
 | Failed | 0 |
-| Not run yet | 93 |
+| Not run yet | 92 |
 
 ## Test cases
 
@@ -29,7 +29,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | TC-VER-CL-002 | PASS | 20261108-130214 | REQ-CC-050, REQ-NF-300, REQ-NF-301 |
 | TC-VER-CL-003 | PASS | 20261108-130214 | REQ-CC-000, REQ-CC-070, REQ-CC-071, REQ-CC-080, REQ-CC-090, REQ-NF-111, REQ-NF-206, REQ-NF-216 |
 | TC-VER-CL-004 | PASS | 20261108-130214 | REQ-AM-040 |
-| TC-VER-EN-001 | **FAIL** | 20261108-114943 | - |
+| TC-VER-EN-001 | PASS | 20261108-113557 | REQ-NF-200, REQ-NF-201, REQ-NF-202 |
 | TC-VER-FD-001 | PASS | 20261108-012626 | REQ-SA-070, REQ-SA-100 |
 | TC-VER-FD-002 | PASS | 20261108-012626 | REQ-DM-090, REQ-SA-000 |
 | TC-VER-FD-003 | PASS | 20261108-012626 | REQ-LI-090, REQ-LI-180, REQ-NF-114 |
@@ -236,9 +236,9 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-NF-112 | T | SYS | Not run | - |
 | REQ-NF-113 | T | SYS | Not run | - |
 | REQ-NF-114 | T | BOTH | Verified | TC-VER-FD-003, TC-VER-FD-004, TC-VER-GW-004, TC-VER-GW-005 |
-| REQ-NF-200 | T | GW | Verified | TC-VER-GW-011 |
-| REQ-NF-201 | T | SYS | Verified | TC-VER-GW-009 |
-| REQ-NF-202 | T | BOTH | Not run | - |
+| REQ-NF-200 | T | GW | Verified | TC-VER-EN-001, TC-VER-GW-011 |
+| REQ-NF-201 | T | SYS | Verified | TC-VER-EN-001, TC-VER-GW-009 |
+| REQ-NF-202 | T | BOTH | Verified | TC-VER-EN-001 |
 | REQ-NF-203 | T | BOTH | Verified | TC-VER-FD-007, TC-VER-GW-012 |
 | REQ-NF-204 | T | GW | Not run | - |
 | REQ-NF-205 | T | BOTH | Verified | TC-VER-U-001 |
@@ -279,7 +279,3 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-NF-505 | I | BOTH | Not run | - |
 | REQ-NF-506 | I | BOTH | Verified | TC-VER-NF-006 |
 | REQ-NF-507 | T | BOTH | Not run | - |
-
-## Failing test cases
-
-- TC-VER-EN-001: Execution terminated by signal
