@@ -125,42 +125,94 @@ def main_header(name, headers):
     return headers[0] if headers else None
 
 
-def dependency_graph(board, mods):
+ENTRY = ("entry", "Src")  # the product main() and the FreeRTOS hooks: not a module, but they use many
+
+
+def collect_edges(board, mods):
+    """Set of (user, used) module keys from the #include lines; ENTRY stands for firmware/<board>/Src."""
     owner = {}
     for key, (path, hs) in mods.items():
         for h in hs:
             owner.setdefault(h.name, key)
-    edges = set()
     inc = re.compile(r'#\s*include\s+"([^"]+)"')
-    for key, (path, _) in mods.items():
-        for f in list(path.rglob("*.c")) + list(path.rglob("*.h")):
-            if "integration-tests" in f.parts:
-                continue
+    sources = {key: [f for f in list(path.rglob("*.c")) + list(path.rglob("*.h")) if "integration-tests" not in f.parts]
+               for key, (path, _) in mods.items()}
+    src_dir = ROOT / "firmware" / board / "Src"
+    sources[ENTRY] = [f for f in src_dir.glob("*.[ch]")] if src_dir.is_dir() else []
+    edges = set()
+    for key, files in sources.items():
+        for f in files:
             for m in inc.finditer(f.read_text(errors="ignore")):
                 tgt = owner.get(Path(m.group(1)).name)
                 if tgt and tgt != key and tgt[1] not in CROSS_CUTTING:
                     edges.add((key, tgt))
-    dot = ['digraph G {', 'rankdir=TB; nodesep=0.3; ranksep=1.1;',
-           'node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, height=0.3];',
-           'edge [color="#777777", arrowsize=0.6];']
-    for layer, (title, desc, colour) in LAYERS.items():
-        names = [k for k in mods if k[0] == layer]
-        if not names:
-            continue
-        dot.append(f'subgraph cluster_{layer} {{ label="{title}"; style="rounded"; color="#999999"; fontname="Helvetica-Bold"; fontsize=13;')
-        for k in names:
-            mh = main_header(k[1], mods[k][1])
-            url = f', URL="{mangle(mh.name)}", tooltip="{k[1]}"' if mh else ""
-            dot.append(f'"{k[0]}/{k[1]}" [label="{k[1]}", fillcolor="{colour}"{url}];')
-        dot.append("}")
-    order = {k: i for i, k in enumerate(LAYERS)}
-    for a, b in sorted(edges):
-        d = order[b[0]] - order[a[0]]
-        style = ('class="e-down", color="#9aa5b1"' if d > 0 else 'class="e-same", color="#2b7bd6"' if d == 0
-                 else 'class="e-up", color="#d6342b", penwidth=1.8')
-        dot.append(f'"{a[0]}/{a[1]}" -> "{b[0]}/{b[1]}" [{style}];')
+    return edges
+
+
+LAYER_ORDER = {"entry": 0, "application": 1, "middleware": 2, "drivers": 3}
+DOT_HEAD = ('rankdir=TB; nodesep=0.3; ranksep=0.8;\n'
+            'node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, height=0.3];\n'
+            'edge [color="#777777", arrowsize=0.6];')
+
+
+def edge_style(a, b):
+    d = LAYER_ORDER[b[0]] - LAYER_ORDER[a[0]]
+    if d > 0:
+        return 'class="e-down", color="#9aa5b1"'
+    if d == 0:
+        return 'class="e-same", color="#2b7bd6"'
+    return 'class="e-up", color="#d6342b", penwidth=1.8'
+
+
+def node_line(k, mods):
+    colour = LAYERS[k[0]][2]
+    mh = main_header(k[1], mods[k][1]) if k in mods else None
+    url = f', URL="{mangle(mh.name)}", tooltip="{k[1]}"' if mh else ""
+    return f'"{k[0]}/{k[1]}" [label="{k[1]}", fillcolor="{colour}"{url}];'
+
+
+def layer_graph(layer, mods, edges):
+    """Modules of one layer and the dependencies between them."""
+    names = [k for k in mods if k[0] == layer]
+    inside = sorted(e for e in edges if e[0][0] == layer and e[1][0] == layer)
+    dot = ["digraph L {", DOT_HEAD]
+    dot += [node_line(k, mods) for k in names]
+    dot += [f'"{a[0]}/{a[1]}" -> "{b[0]}/{b[1]}" [class="e-same", color="#2b7bd6"];' for a, b in inside]
     dot.append("}")
-    return "\n".join(dot), len(edges)
+    return "\n".join(dot), len(names), len(inside)
+
+
+def layers_graph(edges):
+    """The layers as boxes; an arrow carries the number of module dependencies."""
+    counts = {}
+    for a, b in edges:
+        counts[(a[0], b[0])] = counts.get((a[0], b[0]), 0) + 1
+    dot = ["digraph Y {", DOT_HEAD.replace("nodesep=0.3; ranksep=0.8;", "nodesep=1.2; ranksep=1.2;"),
+           'node [fontsize=14, height=0.6, width=2.2];']
+    entry = '"entry" [label="Entry point\\n(Src: main, FreeRTOS hooks)", fillcolor="#eeeeee"];'
+    dot.append(entry)
+    for layer, (title, desc, colour) in LAYERS.items():
+        dot.append(f'"{layer}" [label="{title}", fillcolor="{colour}"];')
+    for (a, b), n in sorted(counts.items(), key=lambda x: (LAYER_ORDER[x[0][0]], LAYER_ORDER[x[0][1]])):
+        s = edge_style((a, ""), (b, ""))
+        dot.append(f'"{a}" -> "{b}" [label="{n}", fontsize=12, {s}];')
+    dot.append("}")
+    return "\n".join(dot), counts
+
+
+def layer_table(layer, mods, edges):
+    """Markdown table: module and headers, what it uses and what uses it."""
+    def names(keys):
+        return ", ".join(sorted(f"`{k[1]}`" if k != ENTRY else "`Src`" for k in keys)) or "-"
+    L = ["| Module (headers) | Uses | Used by |", "|---|---|---|"]
+    for k in (k for k in mods if k[0] == layer):
+        hs = mods[k][1]
+        main = [h for h in hs if h.stem == k[1]]
+        links = ", ".join(f"\\ref {h.name}" for h in main + [h for h in hs if h not in main]) or "(no public header)"
+        uses = {b for a, b in edges if a == k}
+        used = {a for a, b in edges if b == k}
+        L.append(f"| **{k[1]}**: {links} | {names(uses)} | {names(used)} |")
+    return L
 
 
 def repo_graph():
@@ -181,10 +233,10 @@ def repo_graph():
     return "\n".join(dot)
 
 
-def svg(dot_text):
+def svg(dot_text, max_width="100%"):
     out = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True, text=True, check=True).stdout
     out = out[out.index("<svg"):]
-    out = re.sub(r'<svg width="[^"]+" height="[^"]+"', '<svg style="max-width:100%;height:auto"', out, count=1)
+    out = re.sub(r'<svg width="[^"]+" height="[^"]+"', f'<svg style="max-width:{max_width};height:auto"', out, count=1)
     return out
 
 
@@ -254,7 +306,6 @@ def md_tools():
 def page(board):
     title, blurb = BOARDS[board]
     mods = modules(board)
-    dot, n_edges = dependency_graph(board, mods)
     L = [f"# IoT Environmental Monitor: {title}", "", blurb, "",
          "This page is the starting point: how the code is organised, how to find things in this reference, and the command that runs each tool "
          "and test. The reference itself covers the **public headers** (one page per header and per struct).", "",
@@ -266,22 +317,38 @@ def page(board):
          "    Src/           product main()", "```", ""]
     L += ["| Folder | What is in it |", "|---|---|"] + [f"| `{a}` | {b} |" for a, b in REPO_MAP] + [""]
     L += ["\\htmlonly", '<div style="overflow:auto;margin:1em 0">', svg(repo_graph()), "</div>", "\\endhtmlonly", ""]
+    edges = collect_edges(board, mods)
+    lg_dot, counts = layers_graph(edges)
     L += ["## How the code is layered", "",
           "Dependencies mostly point **downwards**: application services use middleware and drivers, middleware uses drivers, drivers touch the hardware. "
-          "The arrows that go up are the exceptions to look at: lower layers report their faults to `health_monitor`, an application service. "
+          "The entry point (`Src/`: the product `main()` and the FreeRTOS hooks) is not a module but starts and uses many of them. "
           "Modules reach each other through interface tables (the `i...` structs of Data Structures), which is also how the tests replace a neighbour with a mock. "
-          f"The graph below is generated from the `#include` lines of this board ({len(mods)} modules, {n_edges} dependencies; the `logger`, used by almost every module, is left out of the arrows); "
-          "click a module to open its header.", "",
-          "\\htmlonly", LEGEND, f'<div id="graph-{board}" style="overflow:auto;margin:1em 0;border:1px solid #ccc;padding:0.5em">', svg(dot), "</div>",
-          GRAPH_JS % {"id": f"graph-{board}"}, "\\endhtmlonly", "",
+          "The graphs are generated from the `#include` lines of this board; `logger`, used by almost every module, is left out of the arrows. "
+          "A module can be used without an arrow when it is reached only through the vtable of another one.", "",
+          "### The layers together", "",
+          "Each arrow is the number of module-to-module dependencies between two layers. "
+          + ("A red arrow goes up: " + ", ".join(f"{counts[k]} from {k[0]} to {k[1]}" for k in counts if LAYER_ORDER[k[1]] < LAYER_ORDER[k[0]]) + ". "
+             if any(LAYER_ORDER[k[1]] < LAYER_ORDER[k[0]] for k in counts) else ""), "",
+          "\\htmlonly", LEGEND, '<div style="overflow:auto;margin:1em 0">', svg(lg_dot, "760px"), "</div>", "\\endhtmlonly", ""]
+    for layer, (title, desc, _) in LAYERS.items():
+        if not any(k[0] == layer for k in mods):
+            continue
+        ldot, n_mod, n_edge = layer_graph(layer, mods, edges)
+        gid = f"graph-{board}-{layer}"
+        L += [f"### {title}", "", f"{desc[0].upper()}{desc[1:]}. {n_mod} modules, {n_edge} dependencies between them (blue). "
+              "Hover a module to show only its arrows, click it to open its header. "
+              "The table lists everything each module uses and is used by, in any layer (`Src` is the entry point).", "",
+              "\\htmlonly", f'<div id="{gid}" style="overflow:auto;margin:1em 0;border:1px solid #ccc;padding:0.5em">', svg(ldot), "</div>",
+              GRAPH_JS % {"id": gid}, "\\endhtmlonly", ""]
+        L += layer_table(layer, mods, edges) + [""]
+    L += [
           "## How to navigate this reference", "",
-          "1. Find the module in the graph above or in the list below and open its main header: the first comment of the file says what the module is for.",
+          "1. Find the module in the layer graphs or tables above and open its main header: the first comment of the file says what the module is for.",
           "2. Open the **interface** (`i...` header, or the vtable struct in the main header) to see what the rest of the system can call.",
           "3. **Data Structures** (menu): every struct, with a UML-style diagram of its members and references. Use it to follow a type from one module to the next.",
           "4. **Files**: the headers by folder, with the include graph of each. **Search** (top right) finds any function, type or macro.",
           "5. For the behaviour behind a module, read its low-level design in `docs/lld/` and its test: the unit test in `tests/`, and the bring-up test in `firmware/" + board + "/integration-tests/`.", "",
-          "## Modules", ""]
-    L += md_modules(board, mods)
+          ""]
     L += ["## Tools and how to run them", "",
           "All commands run from the repository root unless a `cd` says otherwise. CI (`.github/workflows/ci.yml`) runs the host tests, "
           "the firmware builds, the display simulator, cppcheck and clang-format on every push.", ""]
