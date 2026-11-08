@@ -70,6 +70,8 @@ i2c_err_t i2c_init(void);
  * shares I2C1 with the sensors) defines both with a mutex; the lock is held for one transfer.
  */
 void i2c_bus_lock(void);
+
+/** @brief Release the bus taken by i2c_bus_lock(); called after every transfer. */
 void i2c_bus_unlock(void);
 
 /**

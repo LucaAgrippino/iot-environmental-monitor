@@ -409,9 +409,6 @@ static modbus_exception_t read_humidity(const modbus_register_map_t *s, uint16_t
     return MB_EXC_NONE;
 }
 
-/* INTENTIONAL BUG (MRM-BUG-001): reads from SENSOR_ID_HUMIDITY instead
- * of SENSOR_ID_PRESSURE. TC-MRM-007 detects this. Fix: replace both
- * SENSOR_ID_HUMIDITY occurrences with SENSOR_ID_PRESSURE.             */
 static modbus_exception_t read_pressure(const modbus_register_map_t *s, uint16_t *o)
 {
     sensor_snapshot_t snap;
@@ -420,12 +417,12 @@ static modbus_exception_t read_pressure(const modbus_register_map_t *s, uint16_t
         *o = 0xFFFFu;
         return MB_EXC_NONE;
     }
-    if (!snap.readings[SENSOR_ID_PRESSURE].valid) /* BUG: should be SENSOR_ID_PRESSURE */
+    if (!snap.readings[SENSOR_ID_PRESSURE].valid)
     {
         *o = 0xFFFFu;
         return MB_EXC_NONE;
     }
-    *o = (uint16_t) (uint32_t) snap.readings[SENSOR_ID_PRESSURE].value; /* BUG */
+    *o = (uint16_t) (uint32_t) snap.readings[SENSOR_ID_PRESSURE].value;
     return MB_EXC_NONE;
 }
 

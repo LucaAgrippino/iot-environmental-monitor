@@ -402,6 +402,9 @@ health_monitor_err_t health_monitor_update_resources(health_monitor_handle_t han
  *         HEALTH_MONITOR_ERR_NOT_INIT.
  * @note Threading: task-context only. Not ISR-safe.
  */
+health_monitor_err_t health_monitor_update_free_ram(health_monitor_handle_t handle,
+                                                    uint32_t free_ram_bytes);
+
 /**
  * @brief Record the MCU temperature (REQ-CC-010; HM-D13 closed by AdcDriver).
  *
@@ -413,9 +416,6 @@ health_monitor_err_t health_monitor_update_resources(health_monitor_handle_t han
  *         HEALTH_MONITOR_ERR_NOT_INIT.
  * @note Threading: task-context only. Not ISR-safe.
  */
-health_monitor_err_t health_monitor_update_free_ram(health_monitor_handle_t handle,
-                                                    uint32_t free_ram_bytes);
-
 health_monitor_err_t health_monitor_update_mcu_temp(health_monitor_handle_t handle, bool valid,
                                                     int16_t deci_c);
 

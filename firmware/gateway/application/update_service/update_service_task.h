@@ -93,8 +93,10 @@ struct update_service
 extern struct update_service g_us;
 extern uint8_t g_us_chunk[US_CHUNK_SIZE];
 
-/** @brief Take or give the instance mutex. Held only for field copies, never across a call out. */
+/** @brief Take the instance mutex. Held only for field copies, never across a call out. */
 void us_lock(void);
+
+/** @brief Give the instance mutex taken by us_lock(). */
 void us_unlock(void);
 
 /** @brief Run one pass of the task body: pending notifications, then deadlines (§9.2). */
