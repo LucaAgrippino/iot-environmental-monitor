@@ -42,6 +42,8 @@ typedef struct
     /** Store one certificate or key (0 CA, 1 client certificate, 2 private key); 0 on success, 1
      * too big, 2 not DER, anything else a failure to write. */
     int (*set_item)(uint8_t item, const uint8_t *der, uint32_t len);
+    /** Store the MQTT broker host name or address; 0 on success. */
+    int (*set_endpoint)(const char *host);
     /** Remove the credentials, the certificates and the key; 0 on success. */
     int (*clear)(void);
     /** Whether WiFi credentials are stored. */

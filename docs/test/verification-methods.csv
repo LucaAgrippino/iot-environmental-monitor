@@ -68,7 +68,7 @@ REQ-LI-010,T,S,BOTH,A,"run each Appendix A command, expect an answer",-,The syst
 REQ-LI-020,T,S,BOTH,A,the result of each diagnostic is displayed,-,The system shall display the result of the diagnostic
 REQ-LI-030,T,S,GW,A,the provisioning menu is reachable,-,The system shall provide a provisioning menu accessible via the CLI.
 REQ-LI-040,T,S,GW,A,"`prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them (negative and positive case)",-,The system shall receive the WiFi credentials
-REQ-LI-050,T,S,GW,A,"`prov set mqtt-endpoint`, reset: the endpoint is used",-,The system shall receive the cloud endpoint
+REQ-LI-050,T,S,GW,A,"`prov set mqtt-endpoint`, reset: the endpoint is used (a wrong one gives no connection)",-,The system shall receive the cloud endpoint
 REQ-LI-060,T,S,GW,A,provision the certificates over the console,-,The system shall receive the cloud certificates
 REQ-LI-070,T,S,BOTH,A,`prov set modbus-addr` takes effect,-,The system shall receive the Modbus address
 REQ-LI-080,T,S,GW,A,`prov set modbus-baud` and `modbus-parity` take effect,-,The system shall receive the serial port parameters
@@ -163,7 +163,7 @@ REQ-NF-111,T,S,SYS,A,telemetry period 60 s,-,The system shall publish the sensor
 REQ-NF-112,T,S,SYS,A,health period 5 min,-,The system shall publish the health data to AWS IoT Core each 5 minutes (default; see REQ-CC-040). Source: vision §5.8.
 REQ-NF-113,T,S,SYS,A,alarm latency at most 500 ms (the Raspberry Pi bench),-,The system shall publish the alarm notification to AWS IoT Core within 500 ms since their detection
 REQ-NF-114,T,S,BOTH,A,"100 ms and 10 s accepted, outside refused",-,"The system shall use a polling rate within the range 0.1 Hz (minimum, 10 s period) and 10 Hz (maximum, 100 ms period). (Lower bound: minimum meaningful environmental sampling interval; upper bound: REQ-NF-100 sensor-cycle budget.)"
-REQ-NF-200,T,S,GW,A,network off: sensors and alarms keep running,-,The system shall continue local sensor acquisition and alarm evaluation when internet connectivity is lost
+REQ-NF-200,T,S,GW,A,"network off and broker unreachable: sensors and alarms keep running, no reset loop",-,The system shall continue local sensor acquisition and alarm evaluation when internet connectivity is lost
 REQ-NF-201,T,S,SYS,A,a short bus interruption recovers without a restart,-,The system shall recover Modbus communication automatically after a transient bus error without requiring a restart
 REQ-NF-202,T,S,BOTH,A,watchdog reset: Operational within 5 s,-,The system shall restart and resume normal operation within 5 seconds after a watchdog reset. See REQ-NF-203.
 REQ-NF-203,T,S,BOTH,A,normal reset: Operational within 5 s,-,The system shall restart and resume normal operation within 5 seconds after a normal reset. See REQ-NF-202.

@@ -10,8 +10,8 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 
 | Evidence | Count |
 |---|---|
-| LLD + code | 83 |
-| LLD | 122 |
+| LLD + code | 84 |
+| LLD | 121 |
 | code | 2 |
 | HLD only | 0 |
 | No reference | 0 |
@@ -99,7 +99,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-LI-020 | UC-04 | LLD | - | requirement-coverage-addendum | - |
 | REQ-LI-030 | UC-16 | LLD + code | - | config-service-lld, console-service-lld, gw-console-service-lld, lld | - |
 | REQ-LI-040 | UC-16 | LLD + code | - | cert-store, console-service-lld, gw-console-service-lld | TC-CS-080, TC-CS-100, TC-GCS-130, TC-GCS-133 |
-| REQ-LI-050 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-083, TC-GCS-136 |
+| REQ-LI-050 | UC-16 | LLD + code | - | cert-store, console-service-lld, gw-console-service-lld | TC-CS-083, TC-GCS-136 |
 | REQ-LI-060 | UC-16 | LLD + code | - | cert-store, console-service-lld, gw-console-service-lld | - |
 | REQ-LI-070 | UC-16 | LLD | - | console-service-lld, gw-console-service-lld | TC-CS-085, TC-GCS-138 |
 | REQ-LI-080 | UC-16 | LLD + code | - | console-service-lld, gw-console-service-lld | TC-CS-088, TC-CS-090, TC-GCS-141, TC-GCS-143 |
@@ -194,7 +194,7 @@ The evidence is a text search for the requirement ID (HLD documents excluding ga
 | REQ-NF-112 | UC-11 | LLD | sequence-diagrams | cloud-publisher-lld | - |
 | REQ-NF-113 | UC-09, UC-12 | LLD + code | sequence-diagrams, task-breakdown | circular-flash-log, cloud-publisher-lld, mqtt-client, qspi-flash-driver, update-service-lld, wifi-task | TC-HW-CP-004, TC-HW-CP-010, TC-HW-CP-011, TC-HW-QSPI-010 |
 | REQ-NF-114 | UC-07 | LLD + code | - | config-service-lld, requirement-coverage-addendum | - |
-| REQ-NF-200 | UC-07, UC-08 | LLD | hld, sequence-diagrams, state-machines | firmware-store | - |
+| REQ-NF-200 | UC-07, UC-08 | LLD | hld, sequence-diagrams, state-machines | cert-store, firmware-store | - |
 | REQ-NF-201 | UC-07, UC-10 | LLD + code | sequence-diagrams | lld, modbus-poller-lld, time-service-lld | - |
 | REQ-NF-202 | — | LLD | components, modbus-register-map, state-machines | bootloader, cpu-driver, gpio-driver, lifecycle-controller-lld, lld, reset-driver, watchdog-driver | TC-LC-105, TC-LC-106 |
 | REQ-NF-203 | UC-17 | LLD | hld, modbus-register-map, sequence-diagrams, state-machines | bootloader, lifecycle-controller-lld, lld, reset-driver, update-service-lld | TC-HW-BL-009, TC-HW-BL-010, TC-LC-005, TC-LC-010, TC-LC-011, TC-LC-012 (+3) |

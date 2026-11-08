@@ -22,9 +22,13 @@
 
 #define CERT_STORE_SSID_MAX (63U) /**< Characters, without the terminator. */
 #define CERT_STORE_PASS_MAX (63U)
-#define CERT_STORE_CERT_MAX (1536U) /**< DER bytes of a certificate. */
-#define CERT_STORE_KEY_MAX (1280U)  /**< DER bytes of a private key: RSA-2048 PKCS#8 is 1218. */
-#define CERT_STORE_UID_BYTES (12U)  /**< The 96-bit unique ID of the MCU, the root of the key. */
+#define CERT_STORE_CERT_MAX                                                                        \
+    (2048U) /**< DER bytes of a certificate (RSA-4096 certificates are about 1.4 KB). */
+#define CERT_STORE_KEY_MAX                                                                         \
+    (2560U) /**< DER bytes of a private key: PKCS#8 RSA-2048 is 1218, RSA-3072 1794, RSA-4096      \
+               2375. */
+#define CERT_STORE_ENDPOINT_MAX (127U) /**< Characters of the broker host name or address. */
+#define CERT_STORE_UID_BYTES (12U)     /**< The 96-bit unique ID of the MCU, the root of the key. */
 
 /** @brief Device offset of the CertStore partition in the QSPI flash. */
 #define CERT_STORE_BASE (0x00010000UL)
@@ -72,6 +76,17 @@ const char *cert_store_password(void);
  * @return Pointer to the DER bytes, or NULL when the item is absent.
  */
 const uint8_t *cert_store_item(cert_store_item_t item, uint32_t *len);
+
+/** @return The stored MQTT broker host name or address, NUL-terminated ("" when none). */
+const char *cert_store_endpoint(void);
+
+/**
+ * @brief Store the MQTT broker host name or IPv4 address (REQ-LI-050), used at the next boot.
+ *
+ * @param[in] host  1 to CERT_STORE_ENDPOINT_MAX characters of letters, digits, dots and hyphens.
+ * @return CERT_STORE_OK, CERT_STORE_ERR_ARG, CERT_STORE_ERR_NOT_INIT or CERT_STORE_ERR_FLASH.
+ */
+cert_store_err_t cert_store_set_endpoint(const char *host);
 
 /** @return true when the CA, the client certificate and the private key are all stored. */
 bool cert_store_identity_complete(void);

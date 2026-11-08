@@ -115,6 +115,16 @@ static int fake_set_item(uint8_t item, const uint8_t *der, uint32_t len)
     return s_store_item_rc;
 }
 
+static int s_store_endpoint_calls;
+static char s_store_endpoint[130];
+
+static int fake_set_endpoint(const char *host)
+{
+    s_store_endpoint_calls++;
+    (void) snprintf(s_store_endpoint, sizeof(s_store_endpoint), "%s", host);
+    return 0;
+}
+
 static int fake_clear(void)
 {
     s_store_clear_calls++;
@@ -133,6 +143,7 @@ static bool fake_identity(void)
 
 static const console_prov_store_t s_fake_store = {.set_wifi = fake_set_wifi,
                                                   .set_item = fake_set_item,
+                                                  .set_endpoint = fake_set_endpoint,
                                                   .clear = fake_clear,
                                                   .has_wifi = fake_has_wifi,
                                                   .identity_complete = fake_identity};
@@ -144,6 +155,7 @@ static void use_store(void)
     s_store_item_calls = 0;
     s_store_item_rc = 0;
     s_store_clear_calls = 0;
+    s_store_endpoint_calls = 0;
     s_store_has_wifi_v = false;
     s_store_identity_v = false;
     s_deps.prov_store = &s_fake_store;
@@ -1514,4 +1526,33 @@ void test_the_wifi_passphrase_is_not_kept_in_the_scrollback(void)
 
     TEST_ASSERT_FALSE(has_line("correct-horse"));
     TEST_ASSERT_TRUE(has_line("prov set wifi-pass ********"));
+}
+
+void test_prov_cert_reset_drops_a_half_built_assembly_but_keeps_what_is_stored(void)
+{
+    use_store();
+
+    (void) run("prov cert add ca Zm9v");
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, run("prov cert reset"));
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_VALIDATION, run("prov cert end ca")); /* nothing kept */
+    TEST_ASSERT_EQUAL_INT(0, s_store_item_calls);
+    TEST_ASSERT_EQUAL_INT(0, s_store_clear_calls);
+
+    (void) run("prov cert add ca YmFy");
+    (void) run("prov cert end ca");
+    TEST_ASSERT_EQUAL_UINT32(3U, s_store_item_len); /* only the chunk added after the reset */
+}
+
+void test_prov_commit_stores_the_broker_endpoint_in_the_store_and_in_the_configuration(void)
+{
+    use_store();
+    g_spy_set_calls = 0U;
+
+    (void) run("prov set mqtt-endpoint broker.example.org");
+    (void) run("prov commit");
+    TEST_ASSERT_EQUAL(CONSOLE_SERVICE_ERR_OK, commands_confirm_answer(true));
+
+    TEST_ASSERT_EQUAL_INT(1, s_store_endpoint_calls);
+    TEST_ASSERT_EQUAL_STRING("broker.example.org", s_store_endpoint);
+    TEST_ASSERT_EQUAL(CONFIG_PARAM_MQTT_BROKER, g_spy_set_ids[0]);
 }

@@ -7,6 +7,7 @@ are converted to DER here, because the device stores DER (REQ-LI-040, REQ-LI-060
 
     python3 scripts/provision_device.py --port /dev/ttyACM1 --ssid MyNet --password secret-pass \\
         --ca ca.crt --cert client.crt --key client.key
+    python3 scripts/provision_device.py --port /dev/ttyACM1 --endpoint broker.example.org
     python3 scripts/provision_device.py --port /dev/ttyACM1 --status
     python3 scripts/provision_device.py --port /dev/ttyACM1 --clear
 
@@ -84,6 +85,7 @@ def main():
     ap.add_argument("--port", required=True)
     ap.add_argument("--ssid")
     ap.add_argument("--password")
+    ap.add_argument("--endpoint", help="MQTT broker host name or IPv4 address")
     ap.add_argument("--ca")
     ap.add_argument("--cert")
     ap.add_argument("--key")
@@ -112,30 +114,55 @@ def main():
 
     if a.clear:
         step("prov cert clear", "removed", 1.5)
-    if a.ssid and a.password:
-        step("prov set wifi-ssid %s" % a.ssid, "staged wifi-ssid")
-        step("prov set wifi-pass %s" % a.password, "staged wifi-pass")
+    if (a.ssid and a.password) or a.endpoint:
+        if a.ssid and a.password:
+            step("prov set wifi-ssid %s" % a.ssid, "staged wifi-ssid")
+            step("prov set wifi-pass %s" % a.password, "staged wifi-pass")
+        if a.endpoint:
+            step("prov set mqtt-endpoint %s" % a.endpoint, "staged mqtt-endpoint")
         con.send("prov commit", 0.8)
         step("y", "provisioning applied", 3.0, tries=1)
     for name, path in (("ca", a.ca), ("client", a.cert), ("key", a.key)):
         if not path:
             continue
-        b64 = base64.b64encode(pem_to_der(path)).decode()
-        for i in range(0, len(b64), CHUNK_CHARS):
-            chunk = b64[i:i + CHUNK_CHARS]
-            con.send("prov cert add %s %s" % (name, chunk), 0.25)
-            if "bad chunk" in con.text():
-                print("FAIL chunk at %d of %s" % (i, name))
-                ok = False
+        der = pem_to_der(path)
+        b64 = base64.b64encode(der).decode()
+        stored = False
+        for attempt in range(1, 4):
+            # The console task has the lowest priority and drops input while the board associates or
+            # handshakes, so every chunk is acknowledged with its running byte count and a mismatch
+            # restarts the item.
+            con.send("prov cert reset", 0.6)
+            sent = 0
+            clean = True
+            for i in range(0, len(b64), CHUNK_CHARS):
+                chunk = b64[i:i + CHUNK_CHARS]
+                sent += len(base64.b64decode(chunk))
+                got = False
+                for _ in range(4):
+                    con.send("prov cert add %s %s" % (name, chunk), 0.1)
+                    # wait for the acknowledgement before deciding anything: a slow answer must not
+                    # be mistaken for a lost chunk (a resend would double it)
+                    for _ in range(40):
+                        if con.has("%s: %d bytes so far" % (name, sent)) or con.has("bytes so far"):
+                            break
+                        con.pump(0.1)
+                    got = con.has("%s: %d bytes so far" % (name, sent))
+                    if got or con.has("bytes so far"):
+                        break  # acknowledged, or the count is wrong (restart the item)
+                if not got:
+                    clean = False
+                    break
+            if not clean:
+                print("     %s: restart (attempt %d)" % (name, attempt))
+                continue
+            con.send("prov cert end %s" % name, 2.5)
+            if con.has("stored"):
+                stored = True
                 break
-        step("prov cert end %s" % name, "stored", 2.5, tries=1)
-        if not con.has("stored"):
             print("     console said: " + " ".join(con.text().split())[:160])
-    for cmd in a.run:
-        con.send(cmd, 1.5)
-        for line in con.text().replace("\r", "").split("\n"):
-            if line.strip():
-                print("    " + " ".join(line.split()))
+        print("%-4s prov cert %s (%d bytes)" % ("ok" if stored else "FAIL", name, len(der)))
+        ok = ok and stored
     con.send("prov cert status", 0.8)
     for line in con.text().replace("\r", "").split("\n"):
         if ("wifi" in line and ("stored" in line or "provisioned" in line)) or "identity" in line:

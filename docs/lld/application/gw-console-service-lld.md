@@ -1561,3 +1561,12 @@ ST-Link VCP at 115200 8N1.
 
 *GW Console TUI LLD companion v1.0. Authored by Luca Agrippino;
 reviewed against the V-Model gate criteria for LLD Pass H.*
+
+## Provisioning commands added 2026-11-08
+
+`prov set wifi-ssid` and `wifi-pass` (both needed, stored by `prov commit`), `prov set mqtt-endpoint` (configuration and CertStore), `prov set
+modbus-baud` and `modbus-parity`, `prov cert add <ca|client|key> <base64>`, `prov cert end <item>`, `prov cert reset`, `prov cert clear`,
+`prov cert status`. The command table matches at most two words, so `prov cert` is one command whose first argument is the subcommand. The echo of
+`prov set wifi-pass <value>` is masked in the scrollback. `scripts/provision_device.py` drives them and acknowledges every certificate
+chunk by its running byte count, because the console task has the lowest priority and drops input while the board associates or handshakes
+(GCS-O12). Design of the store: `docs/lld/middleware/cert-store.md`.

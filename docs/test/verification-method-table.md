@@ -129,7 +129,7 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 | REQ-LI-020 | display the result of the diagnostic | T | S | BOTH | A | the result of each diagnostic is displayed | - |
 | REQ-LI-030 | provide a provisioning menu accessible via the CLI. | T | S | GW | A | the provisioning menu is reachable | - |
 | REQ-LI-040 | receive the WiFi credentials | T | S | GW | A | `prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them (negative and positive case) | - |
-| REQ-LI-050 | receive the cloud endpoint | T | S | GW | A | `prov set mqtt-endpoint`, reset: the endpoint is used | - |
+| REQ-LI-050 | receive the cloud endpoint | T | S | GW | A | `prov set mqtt-endpoint`, reset: the endpoint is used (a wrong one gives no connection) | - |
 | REQ-LI-060 | receive the cloud certificates | T | S | GW | A | provision the certificates over the console | - |
 | REQ-LI-070 | receive the Modbus address | T | S | BOTH | A | `prov set modbus-addr` takes effect | - |
 | REQ-LI-080 | receive the serial port parameters | T | S | GW | A | `prov set modbus-baud` and `modbus-parity` take effect | - |
@@ -224,7 +224,7 @@ Requirements: **207**. Method codes: T test, I inspection, A analysis, D demonst
 | REQ-NF-112 | publish the health data to AWS IoT Core each 5 minutes (default; see R | T | S | SYS | A | health period 5 min | - |
 | REQ-NF-113 | publish the alarm notification to AWS IoT Core within 500 ms since the | T | S | SYS | A | alarm latency at most 500 ms (the Raspberry Pi bench) | - |
 | REQ-NF-114 | use a polling rate within the range 0.1 Hz (minimum, 10 s period) and  | T | S | BOTH | A | 100 ms and 10 s accepted, outside refused | - |
-| REQ-NF-200 | continue local sensor acquisition and alarm evaluation when internet c | T | S | GW | A | network off: sensors and alarms keep running | - |
+| REQ-NF-200 | continue local sensor acquisition and alarm evaluation when internet c | T | S | GW | A | network off and broker unreachable: sensors and alarms keep running, no reset loop | - |
 | REQ-NF-201 | recover Modbus communication automatically after a transient bus error | T | S | SYS | A | a short bus interruption recovers without a restart | - |
 | REQ-NF-202 | restart and resume normal operation within 5 seconds after a watchdog  | T | S | BOTH | A | watchdog reset: Operational within 5 s | - |
 | REQ-NF-203 | restart and resume normal operation within 5 seconds after a normal re | T | S | BOTH | A | normal reset: Operational within 5 s | - |

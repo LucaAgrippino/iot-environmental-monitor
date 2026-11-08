@@ -281,8 +281,18 @@ static wifi_handle_t helper_create_ready(void)
     return handle;
 }
 
+/* The driver sleeps through this hook once a wait is longer than its 2 ms spin window; the test
+ * counts the calls (the real image sleeps one tick per call). */
+static uint32_t s_wait_hook_calls;
+
+void wifi_driver_wait_1ms(void)
+{
+    s_wait_hook_calls++;
+}
+
 void setUp(void)
 {
+    s_wait_hook_calls = 0U;
     wifi_reset_for_test();
 
     s_drdy_seq_len = 0u;
@@ -577,17 +587,41 @@ static wifi_handle_t helper_create_connected(void)
 }
 
 /* WIFI-O19 / GM-O22: a module that takes longer than the old 100 ms to accept the next command
- * (seen right after a send on the board) is waited for, not reported as a failure. 1500 polls of
- * 100 us are 150 ms. */
+ * (seen right after a send on the board) is waited for, not reported as a failure. A wait spins 20
+ * polls of 100 us (2 ms), then sleeps 1 ms per poll: 169 polls are about 150 ms. */
 void test_WIFI_T15b_a_slow_module_still_gets_the_command(void)
 {
     wifi_handle_t handle = helper_create_connected();
 
-    drdy_seq_push(GPIO_LEVEL_LOW, 1500u);
+    drdy_seq_push(GPIO_LEVEL_LOW, 169u);
     helper_script_at_command("\r\n-67\r\nOK\r\n");
     int8_t rssi = 0;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
     TEST_ASSERT_EQUAL_INT8(-67, rssi);
+}
+
+/* A long wait for the module sleeps instead of spinning, so the other tasks and the watchdog keep
+ * running. */
+void test_WIFI_T15g_a_long_wait_sleeps_through_the_hook_after_the_spin_window(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_LOW, 169u); /* about 150 ms */
+    helper_script_at_command("\r\n-67\r\nOK\r\n");
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
+    TEST_ASSERT_TRUE(s_wait_hook_calls >= 100U);
+}
+
+void test_WIFI_T15h_a_quick_reply_never_reaches_the_sleeping_wait(void)
+{
+    wifi_handle_t handle = helper_create_connected();
+
+    drdy_seq_push(GPIO_LEVEL_LOW, 5u); /* 0.5 ms */
+    helper_script_at_command("\r\n-67\r\nOK\r\n");
+    int8_t rssi = 0;
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
+    TEST_ASSERT_EQUAL_UINT32(0U, s_wait_hook_calls);
 }
 
 /* WIFI-O19: a module that does not accept the command at all is still given up on (1 s). */
@@ -595,19 +629,20 @@ void test_WIFI_T15c_a_module_that_never_gets_ready_times_out(void)
 {
     wifi_handle_t handle = helper_create_connected();
 
-    drdy_seq_push(GPIO_LEVEL_LOW, 3000u); /* 300 ms, then the stub falls back to LOW for ever */
+    drdy_seq_push(GPIO_LEVEL_LOW,
+                  320u); /* about 300 ms, then the stub falls back to LOW for ever */
     int8_t rssi = 0;
     TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_get_rssi(handle, &rssi));
 }
 
 /* A command that is answered before the next poll leaves no DRDY dip to see.
- * The wait for the dip runs its 100 ms (1001 reads of 100 us) with DRDY high; the answer is
- * waiting, so it is read and the command succeeds. */
+ * The wait for the dip runs its 100 ms (119 reads: 20 of 100 us, then 1 ms each) with DRDY high;
+ * the answer is waiting, so it is read and the command succeeds. */
 void test_WIFI_T15e_a_missed_drdy_dip_still_reads_the_answer(void)
 {
     wifi_handle_t handle = helper_create_connected();
 
-    drdy_seq_push(GPIO_LEVEL_HIGH, 1u + 1001u + 1u); /* pre-send, no dip for 100 ms, answer ready */
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u + 119u + 1u); /* pre-send, no dip for 100 ms, answer ready */
     helper_script_data_phase("\r\n-67\r\nOK\r\n> ");
     int8_t rssi = 0;
     TEST_ASSERT_EQUAL(WIFI_ERR_OK, wifi_get_rssi(handle, &rssi));
@@ -620,7 +655,7 @@ void test_WIFI_T15f_no_dip_and_no_answer_is_still_a_timeout(void)
 {
     wifi_handle_t handle = helper_create_connected();
 
-    drdy_seq_push(GPIO_LEVEL_HIGH, 1u + 1001u + 1u);
+    drdy_seq_push(GPIO_LEVEL_HIGH, 1u + 119u + 1u);
     helper_script_data_phase("\r\n");
     int8_t rssi = 0;
     TEST_ASSERT_EQUAL(WIFI_ERR_TIMEOUT, wifi_get_rssi(handle, &rssi));

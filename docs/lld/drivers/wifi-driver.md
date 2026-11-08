@@ -884,3 +884,12 @@ respective companion documents (MqttClient, WifiTask) and do not block
 WifiDriver implementation. WIFI-O15 was found post-implementation, during
 a robustness review of WiFi/MQTT connection-loss handling (2026-07-10);
 it is pinned by WIFI-T19 rather than left as prose only.
+
+## Long waits sleep (2026-11-08)
+
+`prv_wait_drdy` waits for the module's DRDY line. It spins with 100 microsecond delays for the first 2 ms, which covers a normal
+reply, and from then on calls `wifi_driver_wait_1ms()` once per poll. The weak default spins 1 ms; an image with a scheduler overrides it
+with a sleep of one tick (`Src/main.c`). A failing join, lookup or connect makes the module answer after 10 to 19 s, and the
+spinning wait kept the priority-1 lifecycle task from kicking the watchdog (a reset loop with the broker unreachable). Host
+tests T15g and T15h cover the hook (used after the spin window, not used for a quick reply); the scripted DRDY counts of the
+older tests were converted to the new timing (100 ms is 119 polls).

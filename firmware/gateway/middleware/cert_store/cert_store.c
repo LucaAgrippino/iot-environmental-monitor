@@ -20,7 +20,7 @@
 #define SLOT_SIZE (2UL * SECTOR_SIZE) /* two erase sectors per slot */
 #define SLOT_COUNT (2U)
 #define MAGIC (0x54524543UL) /* "CERT" */
-#define FORMAT_VERSION (1U)
+#define FORMAT_VERSION (2U)
 #define PAGE_SIZE (256UL)
 #define SHA256_BYTES (32U)
 #define KEY_SALT "envmon-cert-store-v1"
@@ -44,6 +44,9 @@ typedef struct
     uint16_t ca_len;
     uint16_t client_len;
     uint16_t key_len;
+    uint8_t endpoint_len;
+    uint8_t reserved; /* zero */
+    char endpoint[CERT_STORE_ENDPOINT_MAX + 1U];
     char ssid[CERT_STORE_SSID_MAX + 1U];
     char pass[CERT_STORE_PASS_MAX + 1U]; /* encrypted on flash */
     uint8_t ca[CERT_STORE_CERT_MAX];
@@ -122,17 +125,32 @@ static uint32_t body_crc(const slot_body_t *body)
     return config_store_crc32_end(c);
 }
 
-static bool read_slot(uint32_t slot, slot_header_t *hdr, slot_body_t *body)
+/* A slot is valid when its header is right and the CRC of the body, read in pieces, matches. The
+ * body is not copied here: the candidate would cost another 6.8 KB of SRAM2. */
+static bool slot_valid(uint32_t slot, slot_header_t *hdr)
 {
+    uint8_t piece[PAGE_SIZE];
+
     if ((s_flash->read(slot_addr(slot), (uint8_t *) hdr, (uint32_t) sizeof(*hdr)) !=
          QSPI_FLASH_OK) ||
-        (hdr->magic != MAGIC) || (hdr->version != FORMAT_VERSION) ||
-        (s_flash->read(slot_addr(slot) + sizeof(*hdr), (uint8_t *) body,
-                       (uint32_t) sizeof(*body)) != QSPI_FLASH_OK))
+        (hdr->magic != MAGIC) || (hdr->version != FORMAT_VERSION))
     {
         return false;
     }
-    return body_crc(body) == hdr->crc;
+    uint32_t crc = config_store_crc32_begin();
+
+    for (uint32_t off = 0U; off < sizeof(slot_body_t); off += PAGE_SIZE)
+    {
+        const uint32_t n =
+            ((sizeof(slot_body_t) - off) < PAGE_SIZE) ? (sizeof(slot_body_t) - off) : PAGE_SIZE;
+
+        if (s_flash->read(slot_addr(slot) + sizeof(*hdr) + off, piece, n) != QSPI_FLASH_OK)
+        {
+            return false;
+        }
+        crc = config_store_crc32_feed(crc, piece, n);
+    }
+    return config_store_crc32_end(crc) == hdr->crc;
 }
 
 static bool program(uint32_t addr, const uint8_t *data, uint32_t len)
@@ -185,32 +203,35 @@ static cert_store_err_t save(void)
 /* Public API                                                                  */
 /* ------------------------------------------------------------------------- */
 
-/* Load the newest valid slot into the RAM copy and decrypt it; an empty store leaves it zeroed. The
- * candidate buffer is static (SRAM2), not on the stack: a slot is 4.5 KB. */
+/* Load the newest valid slot into the RAM copy and decrypt it; an empty store leaves it zeroed. */
 static void load_newest(void)
 {
-    static slot_body_t cand CERT_STORE_RAM;
     slot_header_t hdr;
-    bool found = false;
+    uint32_t best = SLOT_COUNT; /* none yet */
+    uint32_t best_seq = 0U;
 
     (void) memset(&s_body, 0, sizeof(s_body));
     s_seq = 0U;
     s_active = SLOT_COUNT - 1U; /* the first write goes to slot 0 */
     for (uint32_t slot = 0U; slot < SLOT_COUNT; slot++)
     {
-        if (read_slot(slot, &hdr, &cand) && (!found || (hdr.sequence > s_seq)))
+        if (slot_valid(slot, &hdr) && ((best == SLOT_COUNT) || (hdr.sequence > best_seq)))
         {
-            s_body = cand;
-            s_seq = hdr.sequence;
-            s_active = slot;
-            found = true;
+            best = slot;
+            best_seq = hdr.sequence;
         }
     }
-    if (found)
+    if ((best < SLOT_COUNT) && (s_flash->read(slot_addr(best) + sizeof(hdr), (uint8_t *) &s_body,
+                                              (uint32_t) sizeof(s_body)) == QSPI_FLASH_OK))
     {
+        s_seq = best_seq;
+        s_active = best;
         crypt_secrets(s_seq);
     }
-    (void) memset(&cand, 0, sizeof(cand));
+    else
+    {
+        (void) memset(&s_body, 0, sizeof(s_body));
+    }
 }
 
 cert_store_err_t cert_store_init(const iqspi_flash_t *flash,
@@ -272,6 +293,51 @@ const uint8_t *cert_store_item(cert_store_item_t item, uint32_t *len)
         *len = n;
     }
     return (n > 0U) ? p : NULL;
+}
+
+const char *cert_store_endpoint(void)
+{
+    return s_body.endpoint;
+}
+
+cert_store_err_t cert_store_set_endpoint(const char *host)
+{
+    if (!s_inited)
+    {
+        return CERT_STORE_ERR_NOT_INIT;
+    }
+    if (host == NULL)
+    {
+        return CERT_STORE_ERR_ARG;
+    }
+    const size_t n = strlen(host);
+
+    if ((n == 0U) || (n > CERT_STORE_ENDPOINT_MAX))
+    {
+        return CERT_STORE_ERR_ARG;
+    }
+    for (size_t i = 0U; i < n; i++)
+    {
+        const char c = host[i];
+        const bool ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')) ||
+                        ((c >= '0') && (c <= '9')) || (c == '.') || (c == '-');
+
+        if (!ok)
+        {
+            return CERT_STORE_ERR_ARG;
+        }
+    }
+    (void) memset(s_body.endpoint, 0, sizeof(s_body.endpoint));
+    (void) memcpy(s_body.endpoint, host, n);
+    s_body.endpoint_len = (uint8_t) n;
+
+    const cert_store_err_t err = save();
+
+    if (err != CERT_STORE_OK)
+    {
+        load_newest(); /* back to the copy that is still on flash */
+    }
+    return err;
 }
 
 bool cert_store_identity_complete(void)
