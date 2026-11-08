@@ -16,3 +16,13 @@ Short, informal. Newest at the bottom.
    the time of reception is stored (the firmware flags unsynchronised time on purpose, REQ-TS-040).
 7. **Chunk requests of an OTA are not stored.** There is one per image chunk; the OTA job record keeps the
    progress instead.
+8. **Accounts are made on the machine, not over HTTP.** There is no sign-up and no password reset, so there is
+   nothing to attack there; `iotcloud-admin` on the Pi creates users. Two roles, decided by the HTTP method: a
+   viewer reads, an admin also changes things.
+9. **Own sessions, not a login library.** A random token in an HttpOnly, SameSite=Strict cookie, stored hashed;
+   passwords with scrypt from the standard library. About 100 lines, no extra dependency. Cognito's counterpart is
+   a user pool; this is the same idea at the size of one house.
+10. **Caddy for HTTPS, with its own certificate authority.** A public CA cannot issue for a name that exists only
+    on the home network. The price is importing one root certificate in each browser, once.
+11. **The deployment does not touch the broker.** The Pi's Mosquitto belongs to the bench; the cloud connects to it
+    as a client. A broker with a real CA and per-device permissions is its own step (`broker/`).
