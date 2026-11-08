@@ -1,0 +1,2 @@
+# What broker/iotpki.py needs (the cloud backend's own dependencies are in cloud/backend/pyproject.toml)
+cryptography>=41
