@@ -14,9 +14,11 @@ the AWS service it replaces. An optional last step can bridge the same messages 
 | `sim/device_sim.py`: a device that speaks the firmware's schema 1.1 and answers `/config`, `/control` and an OTA (`--ota-fail` ends it in a failure) | done |
 | `dev/run-local.sh`: broker, backend and simulator on this machine | done |
 | Commands from the API (config, control): request id, result tracking, timeout | done |
-| OTA service: firmware store, jobs, chunk server, progress and result | done, 21 tests in all |
+| OTA service: firmware store, jobs, chunk server, progress and result | done |
 | `web/` web app (Svelte): devices, live values, charts, alarms, commands, firmware update with progress, downloads | done |
-| Alerts to the phone, login, TLS and per-device permissions, Pi deployment | later |
+| Login: users, scrypt passwords, sessions, admin and viewer roles, lockout, cross-site check | done, 31 tests in all |
+| `deploy/`: bundle, installer, systemd unit, Caddy HTTPS; installer tested in a Debian 13 container | done, not yet run on the Pi |
+| Alerts to the phone, broker mutual TLS and per-device permissions, CI job | later |
 
 ## Layout
 
@@ -47,7 +49,7 @@ its own repository later without changes, since nothing here imports firmware co
 | CloudWatch Logs | the `events` table and the downloads; device logs need firmware support (see below) |
 | SNS | notifications to the phone (later) |
 | API Gateway, Lambda | the FastAPI app |
-| Cognito | one login on the web app (later) |
+| Cognito | login on the web app, users and roles in SQLite (`backend/iotcloud/auth.py`) |
 | Amplify, CloudFront | Caddy serving the web app over HTTPS (later) |
 
 ## Topics (from the firmware)
@@ -111,8 +113,9 @@ curl -X POST localhost:8000/api/ota/1/cancel           # stop serving chunks
 - **OTA.** One update per device at a time. Cancel only stops the chunks; the device gives up by its own timeout,
   because the protocol has no abort message. Images are not checked here: the device verifies the signature, and a
   bad image shows up as a `failed` result.
-- **No login yet.** Anyone who can reach the API can send commands and start an update. Keep it on localhost or the
-  home network until the login and the broker's per-device permissions are in.
+- **Login is on by default**, except in `dev/run-local.sh` (localhost only). Accounts are made on the machine with
+  `python -m iotcloud.admin` (`iotcloud-admin` on the Pi); there is no sign-up and no password reset over HTTP.
+  Sessions last 7 days; a password change ends them. The API does not rate-limit anything but logins.
 - **Device logs.** The firmware publishes no log messages today (logs leave only on the serial console), so the
   "logs" you can download are what the cloud holds: readings, health, alarms, command results and OTA results.
   Real device logs need a firmware feature (a log topic fed by the logger sink, buffered like the other messages);

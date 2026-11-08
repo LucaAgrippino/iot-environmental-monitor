@@ -9,6 +9,7 @@ Tables (the AWS counterpart in brackets):
   commands   config / control commands and their outcome  [IoT Device Shadow / Jobs]
   images     firmware images the operator uploaded        [S3 bucket]
   ota_jobs   one OTA update of one device                 [IoT Jobs]
+  users, sessions   who may log in, and who is logged in  [Cognito]
 """
 import json
 import sqlite3
@@ -45,6 +46,10 @@ CREATE TABLE IF NOT EXISTS ota_jobs (
   size_a INTEGER NOT NULL, size_b INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL,
   state TEXT NOT NULL, sent_bytes INTEGER NOT NULL DEFAULT 0, detail TEXT);
 CREATE INDEX IF NOT EXISTS ota_jobs_dev ON ota_jobs(device, created);
+CREATE TABLE IF NOT EXISTS users (
+  name TEXT PRIMARY KEY, pw_hash TEXT NOT NULL, role TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY, user TEXT NOT NULL, created INTEGER NOT NULL, expires INTEGER NOT NULL);
 """
 # Tables of the cloud's own state (the AWS counterparts: IoT Jobs, S3 for the images)
 

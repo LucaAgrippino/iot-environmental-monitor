@@ -1,0 +1,17 @@
+# HTTPS in front of the cloud service. `tls internal` makes Caddy its own small certificate authority, which is
+# the right tool for a name that only exists on the home network (a public CA cannot issue for envmon.lan).
+# Import Caddy's root certificate in the browser once: see cloud/deploy/README.md.
+{$IOTCLOUD_HOST:envmon.lan} {
+	tls internal
+	encode gzip
+	reverse_proxy 127.0.0.1:8000 {
+		# the live stream must reach the browser at once, not in buffered blocks
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+	}
+}

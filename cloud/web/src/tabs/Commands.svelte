@@ -1,6 +1,7 @@
 <script>
   import { get, post, fmtTime } from '../lib/api.js';
   import { live } from '../lib/live.svelte.js';
+  import { auth } from '../lib/auth.svelte.js';
 
   let { device } = $props();
   // The settings the Gateway accepts from the cloud (Tier 2). Units are the firmware's fixed-point ones.
@@ -52,6 +53,8 @@
   const cls = (s) => (s === 'applied' || s === 'accepted' ? 'ok' : s === 'pending' ? 'warn' : 'bad');
 </script>
 
+{#if auth.role !== 'admin'}<div class="card muted">This account can only read: sending commands needs an admin account.</div>{/if}
+<fieldset disabled={auth.role !== 'admin'}>
 <div class="card">
   <h2>Change a setting</h2>
   <form class="row" onsubmit={sendConfig}>
@@ -75,6 +78,7 @@
   </div>
   <p class="muted small">A restart takes two steps: ask, then confirm within 30 s.</p>
 </div>
+</fieldset>
 
 {#if error}<p class="err">{error}</p>{/if}
 
@@ -96,4 +100,5 @@
   </table>
 </div>
 
-<style> .small { font-size: .8rem; margin: .6rem 0 0; } </style>
+<style> fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .8rem; min-width: 0; }
+  .small { font-size: .8rem; margin: .6rem 0 0; } </style>
