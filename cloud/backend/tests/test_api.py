@@ -68,3 +68,17 @@ def test_web_app_is_served_without_hiding_the_api(settings, db, tmp_path):
     c = TestClient(create_app(replace(settings, web_dir=str(tmp_path)), db, start_mqtt=False))
     assert "<title>app</title>" in c.get("/").text
     assert c.get("/api/healthz").json() == {"ok": True}
+
+
+def test_missing_tls_files_do_not_take_the_service_down(settings, db, caplog):
+    """A restart loop hides the cause: the service stays up, says which file is missing, and commands answer 503."""
+    import logging
+    from dataclasses import replace
+    s = replace(settings, mqtt_cafile="/nonexistent/ca.crt", mqtt_cert="/nonexistent/c.crt", mqtt_key="/nonexistent/c.key")
+    ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b"{}", 1)
+    with caplog.at_level(logging.ERROR, logger="iotcloud.mqtt"):
+        with TestClient(create_app(s, db, start_mqtt=True)) as c:
+            assert c.get("/api/healthz").json() == {"ok": True}
+            assert c.get("/api/devices").status_code == 200
+            assert c.post(f"/api/devices/{DEV}/control", json={"command": "read"}).status_code == 503
+    assert "CA certificate not found: /nonexistent/ca.crt" in caplog.text

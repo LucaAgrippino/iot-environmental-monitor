@@ -11,7 +11,7 @@ browser ──https──> Caddy :443 ──http──> iotcloud :8000 (127.0.0.
 |---|---|
 | `build-bundle.sh` | on the PC: packs backend, built web app, service files and installer into `out/iotcloud-bundle.tar.gz` |
 | `install.sh` | on the Pi: installs or upgrades everything, keeps data and settings |
-| `iotcloud.service` | the systemd unit (unprivileged user, 300 MB memory cap, read-only system, writes only `/var/lib/iotcloud`) |
+| `iotcloud.service` | the systemd unit (unprivileged user, read-only system, writes only `/var/lib/iotcloud`; 300 MB memory cap, see below) |
 | `iotcloud.env.example` | the settings file, copied to `/etc/iotcloud/iotcloud.env` on first install |
 | `Caddyfile` | HTTPS in front of the service, with Caddy's own certificate authority |
 | `requirements.lock` | exact Python package versions (made by `test-install.sh --freeze`) |
@@ -51,18 +51,43 @@ sudo systemctl restart iotcloud
 
 Check: `systemctl status iotcloud`, `journalctl -u iotcloud -f`, and `curl -s localhost:8000/api/healthz`.
 
+## First install, before the broker step
+
+The service needs a client certificate for the broker, and `iotcloud.env.example` points at
+`/etc/iotcloud/certs/{ca.crt,iotcloud.crt,iotcloud.key}`. Until the system's own CA is in use (`broker/`), the Pi's bench
+broker accepts the bench certificates it already has. Copy them, on the Pi (no key leaves it):
+
+```sh
+b=/etc/mosquitto/bench-certs
+sudo install -m 0640 -o root -g iotcloud $b/ca.crt       /etc/iotcloud/certs/ca.crt
+sudo install -m 0640 -o root -g iotcloud $b/operator.crt /etc/iotcloud/certs/iotcloud.crt
+sudo install -m 0640 -o root -g iotcloud $b/operator.key /etc/iotcloud/certs/iotcloud.key
+sudo systemctl restart iotcloud
+```
+
+This is a stand-in: the cloud then connects as the bench's `ota-operator` identity, with no access list in force. If the
+files are missing the service still starts (the web app and the stored data work, commands answer 503) and the journal
+says which file is missing: `journalctl -u iotcloud -n 20`.
+
 ## HTTPS and the browser warning
 
 Caddy issues a certificate for `envmon.lan` from its own authority, so each browser must trust that authority once:
 
 ```sh
-scp luca@192.168.0.209:/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt envmon-root.crt
+ssh luca@192.168.0.209 'sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt' > envmon-root.crt
 ```
 
 Import `envmon-root.crt` as a trusted authority in the browser (or the operating system). The name `envmon.lan` must
 resolve to the Pi: add `192.168.0.209 envmon.lan` to the PC's `/etc/hosts`, or set `IOTCLOUD_HOST` in Caddy's
 environment to a name your router knows. Reaching it from outside the house is a separate decision (a VPN such as
 WireGuard is the safe way); nothing here opens a port to the internet.
+
+## The memory cap is not enforced on Raspberry Pi OS
+
+`MemoryMax=300M` in the unit needs the kernel's memory controller, and the Pi's kernel boots with
+`cgroup_disable=memory`. Check: `cat /sys/fs/cgroup/cgroup.controllers` lists no `memory`. The service uses about
+60 MB, so nothing is wrong today; the cap only matters as a guard. To make it real, add `cgroup_enable=memory
+cgroup_memory=1` to the single line of `/boot/firmware/cmdline.txt` and reboot (not done here: it reboots the Pi).
 
 ## Upgrade, back up, remove
 
