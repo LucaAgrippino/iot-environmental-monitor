@@ -3,24 +3,27 @@
   import { live, startLive, stopLive } from './lib/live.svelte.js';
   import DeviceView from './DeviceView.svelte';
   import Login from './Login.svelte';
+  import Alerts from './Alerts.svelte';
   import { auth, whoami, logout } from './lib/auth.svelte.js';
 
   let devices = $state([]);
   let error = $state('');
   const parts = decodeURIComponent(location.hash.slice(1)).split('/'); // #<device>/<tab>: links can point at a tab
-  let selected = $state(parts[0]);
+  let page = $state(parts[0] === 'alerts' ? 'alerts' : 'devices');
+  let selected = $state(parts[0] === 'alerts' ? '' : parts[0]);
   const startTab = parts[1] || 'Overview';
 
   async function load() {
     try {
       devices = await get('/devices');
       error = '';
-      if (!selected && devices.length) select(devices[0].id);
+      if (!selected && page === 'devices' && devices.length) select(devices[0].id);
     } catch (e) {
       error = e.message;
     }
   }
   function select(id) {
+    page = 'devices';
     selected = id;
     location.hash = encodeURIComponent(id);
   }
@@ -59,6 +62,9 @@
         <span class="muted small">{d.online ? 'online' : ago(d.last_seen)}</span>
       </button>
     {/each}
+    <button class="dev" class:sel={page === 'alerts'} onclick={() => ((page = 'alerts'), (location.hash = 'alerts'))}>
+      <span class="name">Alerts</span>
+    </button>
     {#if !devices.length && !error}<p class="muted">No device has sent anything yet.</p>{/if}
     {#if error}<p class="err">{error}</p>{/if}
     {#if auth.requiresLogin}
@@ -66,7 +72,9 @@
     {/if}
   </aside>
   <main>
-    {#if selected}
+    {#if page === 'alerts'}
+      <Alerts />
+    {:else if selected}
       {#key selected}<DeviceView id={selected} {startTab} />{/key}
     {/if}
   </main>

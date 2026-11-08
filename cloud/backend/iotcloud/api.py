@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, commands, config, mqtt, ota
+from . import auth, commands, config, mqtt, notify, ota
 from .db import TABLES, Database
 from .live import Hub
 
@@ -26,19 +26,23 @@ TIME_COLUMN = {"telemetry": "ts", "health": "ts", "alarms": "ts", "events": "rec
 
 
 def create_app(settings: config.Settings | None = None, db: Database | None = None, start_mqtt: bool = True,
-               publisher=None) -> FastAPI:
+               publisher=None, notifier: notify.Notifier | None = None) -> FastAPI:
     settings = settings or config.load()
     db = db or Database(settings.db_path)
     hub = Hub()
+    notifier = notifier or notify.Notifier(db, settings.online_window_s)
     link = {"publish": publisher}  # publish(topic, payload, qos); set by the MQTT client once it exists
 
     @asynccontextmanager
     async def lifespan(app):
         hub.bind(asyncio.get_running_loop())
-        client = mqtt.start(settings, db, hub) if start_mqtt else None
+        client = mqtt.start(settings, db, hub, notifier) if start_mqtt else None
+        if start_mqtt:
+            notifier.start()  # the worker and the offline watcher run only where there is a broker to hear
         if client:
             link["publish"] = lambda topic, payload, qos: client.publish(topic, payload, qos)
         yield
+        notifier.stop()
         if client:
             client.loop_stop()
             client.disconnect()
@@ -250,6 +254,42 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
         if not ota.cancel_job(db, job):
             raise HTTPException(409, "the job is not running")
         return ota.get_job(db, job)
+
+    # -- alerts ---------------------------------------------------------------------------------------------------
+    def channel_call(fn, *a, **kw):
+        try:
+            return fn(*a, **kw)
+        except notify.NotifyError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/notify/events")
+    def notify_events():
+        return [{"name": k, "description": v, "default": k in notify.DEFAULT_EVENTS} for k, v in notify.EVENTS.items()]
+
+    @app.get("/api/notify/channels")
+    def notify_channels():
+        return notify.list_channels(db)
+
+    @app.post("/api/notify/channels", status_code=201)
+    async def notify_create(request: Request):
+        return channel_call(notify.save_channel, db, await json_body(request))
+
+    @app.put("/api/notify/channels/{cid}")
+    async def notify_update(cid: int, request: Request):
+        return channel_call(notify.save_channel, db, await json_body(request), cid)
+
+    @app.delete("/api/notify/channels/{cid}", status_code=204)
+    def notify_delete(cid: int):
+        if not notify.delete_channel(db, cid):
+            raise HTTPException(404, "no such channel")
+
+    @app.post("/api/notify/channels/{cid}/test")
+    def notify_test(cid: int):
+        return channel_call(notifier.test, cid)
+
+    @app.get("/api/notify/log")
+    def notify_log(limit: int = Query(100, le=2000)):
+        return notify.recent_log(db, limit)
 
     @app.get("/api/stream")
     async def stream():

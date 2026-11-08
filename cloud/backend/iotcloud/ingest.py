@@ -76,7 +76,8 @@ def handle(db, root: str, topic: str, payload: bytes, now: int | None = None):
             (device, ts, now, msg.get("sync_state"), msg.get("sensor_id"), msg.get("alarm_type"),
              _opt(msg, "measured_value_raw"), _opt(msg, "threshold_value_raw"), msg.get("source")))
         return {"device": device, "kind": "alarm", "ts": ts, "alarm_type": msg.get("alarm_type"),
-                "sensor_id": msg.get("sensor_id"), "source": msg.get("source")}
+                "sensor_id": msg.get("sensor_id"), "source": msg.get("source"),
+                "measured_value_raw": _opt(msg, "measured_value_raw"), "threshold_value_raw": _opt(msg, "threshold_value_raw")}
 
     if kind == "ota/request":  # one per chunk: too many to store, the OTA service answers them
         return {"device": device, "kind": "ota_request", "ts": now}
@@ -90,4 +91,4 @@ def handle(db, root: str, topic: str, payload: bytes, now: int | None = None):
                (device, now, name, msg.get("req") if isinstance(msg.get("req"), int) else msg.get("job"),
                 msg.get("result"), json.dumps(msg)))
     return {"device": device, "kind": name, "ts": now, "result": msg.get("result"),
-            "req": msg.get("req") if name != "ota" else msg.get("job")}
+            "req": msg.get("req") if name != "ota" else msg.get("job"), "reason": msg.get("reason")}

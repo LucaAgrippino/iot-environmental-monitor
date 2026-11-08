@@ -10,7 +10,7 @@ from .config import Settings
 log = logging.getLogger("iotcloud.mqtt")
 
 
-def make_client(settings: Settings, db, hub, client_id: str = "iotcloud") -> mqtt.Client:
+def make_client(settings: Settings, db, hub, notifier=None, client_id: str = "iotcloud") -> mqtt.Client:
     # a persistent session: what the devices send while this process restarts waits in the broker (QoS 1)
     c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=False)
     if settings.mqtt_cafile:
@@ -31,6 +31,8 @@ def make_client(settings: Settings, db, hub, client_id: str = "iotcloud") -> mqt
                 event = {**event, "job": job["id"], "sent_bytes": job["sent_bytes"], "size": job["size_b"]} if job else None
             if event:
                 hub.publish(event)
+                if notifier:
+                    notifier.submit(event)
         except Exception:  # one bad message must not stop the stream
             log.exception("could not store %s", msg.topic)
 
@@ -40,8 +42,8 @@ def make_client(settings: Settings, db, hub, client_id: str = "iotcloud") -> mqt
     return c
 
 
-def start(settings: Settings, db, hub) -> mqtt.Client:
-    c = make_client(settings, db, hub)
+def start(settings: Settings, db, hub, notifier=None) -> mqtt.Client:
+    c = make_client(settings, db, hub, notifier)
     c.connect_async(settings.mqtt_host, settings.mqtt_port, keepalive=30)
     c.loop_start()
     return c

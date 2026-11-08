@@ -30,3 +30,11 @@ Short, informal. Newest at the bottom.
     (`%u`): a client chooses its MQTT client id itself, so keying permissions on it lets a device claim another's.
 13. **The backend keeps a persistent session.** An alarm sent while the backend restarts waits in the broker and is
     delivered when it returns (checked against a real broker in `broker/tests`).
+14. **Alerts through ntfy first.** A push to the phone needs an app on the phone; ntfy is open, can be self-hosted
+    (one small binary) and its message is one HTTP POST. Webhook (signed) and e-mail are there for the cases it does
+    not fit. Each channel lists the events it wants, like an SNS subscription with a filter.
+15. **The offline alert comes from a watcher, not from a message.** Silence has no message, so a thread compares each
+    device's last message with the online window and tells once when it goes quiet and once when it returns. The state
+    is in the database: a restart of the backend does not repeat the alert, and gets a grace period before judging.
+16. **Sending is off the MQTT thread.** A queue and a worker send with three tries; a channel is cut off after 20
+    messages in a minute. A slow mail server must not delay the next reading, and a fault storm must not flood a phone.
