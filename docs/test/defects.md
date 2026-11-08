@@ -6,18 +6,17 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | ID | Found by | Requirement | Severity | Status |
 |---|---|---|---|---|
 | DEF-000 | TC-VER-FD-006 | REQ-AM-000, -010, -020, REQ-LD-280 | 2 | Closed: PR #180 (the Field Device pushed no alarm events to HealthMonitor: `alarms` always empty, red LED never lit) |
-| DEF-001 | TC-VER-CL-004 | REQ-AM-040 | 3 | **Open, decision needed** |
+| DEF-001 | TC-VER-CL-004 | REQ-AM-040 | 3 | Closed: PR #184 (the poller reads the channel's limits when a flag is raised; TC-VER-CL-004 passes) |
 | DEF-002 | wave 4 preparation, 2026-11-08 | none yet | 3 | Open, not reproduced |
 
-## DEF-001: the alarm of a Field Device carries threshold 0
+## DEF-001: the alarm of a Field Device carried threshold 0
 
-An alarm raised on the Field Device reaches the broker at QoS 1 with all fields, but `threshold_value_raw` is 0
-(measured: limit set to 2039 centi-degrees, published 0). REQ-AM-040 lists the threshold among the payload fields.
-Cause: `prv_fd_alarm_cb` in `cloud_publisher.c` only sees the `ALARM_FLAGS` register; its comment says "the threshold
-lives on the Field Device (0)". Gateway-sourced alarms carry the real limit.
-Options: (a) the poller reads the Field Device threshold registers when a flag changes and passes them on (code and
-LLD change, one extra transaction per alarm); (b) the requirement is reworded to say the threshold is given for
-Gateway alarms only (owner decision, waiver). Not fixed: it needs that decision.
+An alarm raised on the Field Device reached the broker at QoS 1 with all fields, but `threshold_value_raw` was 0
+(limit set to 2039 centi-degrees, published 0), against REQ-AM-040. Cause: `prv_fd_alarm_cb` only saw the
+`ALARM_FLAGS` register. Fix (PR #184): when a flag is raised the poller reads that channel's low and high limit
+registers (FC03, 0x0100 + 0x10 x channel, two registers; at most three short reads, only on a transition),
+`modbus_poller_get_fd_reading` returns them, CloudPublisher publishes the limit of the side that was crossed.
+Verified on the boards: TC-VER-CL-004 and CL-001 pass, waves 4 and 5 8/8. Cost: 112 B of RAM.
 
 ## DEF-002: the Field Device display image hard-faulted at boot once
 
