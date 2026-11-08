@@ -68,6 +68,14 @@ class Boards:
         """Reset the board and let it run (a soft reset through SYSRESETREQ)."""
         _run_openocd(board.upper(), "reset run")
 
+    def hold_board_in_reset(self, board):
+        """Halt the board in reset: it goes silent on the bus, like an unplugged cable."""
+        _run_openocd(board.upper(), "reset halt")
+
+    def release_board(self, board):
+        """Let a board held in reset run again."""
+        _run_openocd(board.upper(), "reset run")
+
     def read_u32(self, board, address):
         """Read one 32-bit word from the running or halted target."""
         out = _run_openocd(board.upper(), "echo VAL=[read_memory %s 32 1]" % address)
