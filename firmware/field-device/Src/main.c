@@ -125,6 +125,13 @@ static volatile bool s_sensors_ready;
  * the alarm-propagation test (2B-007) impossible to time from the log. */
 static void on_alarm_event(sensor_id_t sensor, alarm_event_t event, const sensor_reading_t *reading)
 {
+    /* HealthMonitor learns of every raise and clear: its snapshot feeds the console `alarms`, the red
+     * LED (REQ-LD-280) and the alarm counters of the Status screen. Nothing else pushed these events,
+     * so all three stayed at "no alarm" (found by the wave 2 verification, TC-VER-FD-006). */
+    (void) health_report->push_event((event == ALARM_EVENT_CLEARED) ? HEALTH_EVENT_ALARM_CLEARED
+                                                                    : HEALTH_EVENT_ALARM_RAISED,
+                                     (uint32_t) sensor);
+
     static const char *const names[] = {"TEMPERATURE", "HUMIDITY", "PRESSURE"};
     const char *name = ((unsigned) sensor < 3U) ? names[sensor] : "OTHER";
 
