@@ -1,0 +1,7 @@
+@INCLUDE               = docs/doxygen/Doxyfile.common
+PROJECT_NAME           = "IoT Environmental Monitor: Field Device firmware"
+INPUT                  = generated-docs/doxygen/mainpage-field-device.md firmware/field-device/application firmware/field-device/drivers firmware/field-device/middleware firmware/field-device/Src
+OUTPUT_DIRECTORY       = generated-docs/doxygen/field-device
+WARN_LOGFILE           = generated-docs/doxygen/field-device.warnings
+PREDEFINED            += BOARD_FIELD_DEVICE
+USE_MDFILE_AS_MAINPAGE = generated-docs/doxygen/mainpage-field-device.md
