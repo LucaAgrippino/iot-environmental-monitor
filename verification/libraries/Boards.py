@@ -93,15 +93,36 @@ class Boards:
                                  capture_output=True, text=True, timeout=60).stdout.split("= ")[-1].strip(), 16)
         _run_openocd("FD", "mwh 0x%x %d" % (base + off, int(index) + 1))
 
+    def capture_after_reset(self, path, delay_ms):
+        """Reset the Field Device, let it run `delay_ms`, halt it and save the framebuffer as a PNG (splash timing)."""
+        raw = path + ".bin"
+        for attempt in range(3):
+            _run_openocd("FD", "reset run; sleep %d; halt; dump_image %s 0x%x %d; resume" % (int(delay_ms), raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
+            try:
+                return self._save_png(raw, path)
+            except (IOError, FileNotFoundError):
+                time.sleep(1)
+        raise AssertionError("the framebuffer could not be captured after the reset")
+
+    def _save_png(self, raw, path):
+        data = open(raw, "rb").read()
+        os.remove(raw)
+        if len(data) != FB_W * FB_H * 4:
+            raise IOError("framebuffer dump is %d bytes, expected %d" % (len(data), FB_W * FB_H * 4))
+        img = Image.new("RGB", (FB_W, FB_H))
+        img.frombytes(b"".join(bytes((data[i + 2], data[i + 1], data[i])) for i in range(0, len(data), 4)))
+        img.save(path)
+        return path
+
     def capture_framebuffer(self, path, settle=0.0):
         """Halt the Field Device, dump the SDRAM framebuffer and save it as a PNG (halting avoids tearing)."""
         if float(settle):
             time.sleep(float(settle))
         raw = path + ".bin"
-        _run_openocd("FD", "halt; dump_image %s 0x%x %d; resume" % (raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
-        data = open(raw, "rb").read()
-        os.remove(raw)
-        img = Image.new("RGB", (FB_W, FB_H))
-        img.frombytes(b"".join(bytes((data[i + 2], data[i + 1], data[i])) for i in range(0, len(data), 4)))
-        img.save(path)
-        return path
+        for attempt in range(3):
+            _run_openocd("FD", "halt; dump_image %s 0x%x %d; resume" % (raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
+            try:
+                return self._save_png(raw, path)
+            except (IOError, FileNotFoundError):
+                time.sleep(1)
+        raise AssertionError("the framebuffer could not be captured")

@@ -80,6 +80,13 @@ class ConsoleLib:
                 return self.buf
         raise AssertionError("%r did not answer %r: %r" % (line, expect, " ".join(self.buf.split())[-300:]))
 
+    def console_value(self, pattern):
+        """First group of a regular expression in the collected text (white space normalised to single spaces)."""
+        m = re.search(pattern, " ".join(self.buf.split()))
+        if not m:
+            raise AssertionError("pattern %r not found in %r" % (pattern, " ".join(self.buf.split())[-300:]))
+        return m.group(1)
+
     def get_console_text(self):
         return self.buf
 
