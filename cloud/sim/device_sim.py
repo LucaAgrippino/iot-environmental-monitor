@@ -7,6 +7,8 @@ Not simulated yet: OTA (the cloud side of it is not written yet).
 """
 import argparse
 import json
+import struct
+import zlib
 import random
 import ssl
 import time
@@ -37,7 +39,7 @@ class Sim:
         if a.cafile:
             self.c.tls_set(ca_certs=a.cafile, certfile=a.cert, keyfile=a.key, cert_reqs=ssl.CERT_REQUIRED)
         self.c.on_connect = lambda c, u, f, r, p=None: c.subscribe(
-            [(f"cmd/{self.root}/{self.id}/config", 1), (f"cmd/{self.root}/{self.id}/control", 1)])
+            [(f"cmd/{self.root}/{self.id}/{t}", q) for t, q in (("config", 1), ("control", 1), ("ota", 1), ("ota/data", 0))])
         self.c.on_message = self.on_message
 
     def common(self):
@@ -96,12 +98,53 @@ class Sim:
             body = json.loads(m.payload)
         except ValueError:
             body = None
+        if m.topic.endswith("/ota/data"):
+            return self.on_ota_data(m.payload)
         kind = m.topic.rsplit("/", 1)[1]
+        if kind == "ota":
+            return self.on_ota(body)
         req = body.get("req") if isinstance(body, dict) and isinstance(body.get("req"), int) else None
         if kind == "config":
             self.on_config(body, req)
         else:
             self.on_control(body, req)
+
+    # -- OTA: pull slot B chunk by chunk, like UpdateService, then report. "--ota-fail" ends in a failure.
+    def ota_report(self, result, reason=None, job=None):
+        job = job if job is not None else self.ota["job"]
+        msg = {**self.common(), "event": "ota", "job": job, "result": result, **({"reason": reason} if reason else {})}
+        self.pub("ota/result", msg, 1)
+
+    def ota_request(self):
+        o = self.ota
+        n = min(1024, o["size"] - o["offset"])
+        self.pub("ota/request", {"job": o["job"], "slot": "B", "offset": o["offset"], "len": n})
+
+    def on_ota(self, body):
+        if not isinstance(body, dict) or not isinstance(body.get("job"), int) or not isinstance(body.get("size_b"), int):
+            return
+        self.ota = {"job": body["job"], "size": body["size_b"], "offset": 0, "crc": 0}
+        self.ota_report("accepted")
+        self.ota_request()
+
+    def on_ota_data(self, payload):
+        o = getattr(self, "ota", None)
+        if not o or len(payload) < 9:
+            return
+        job, offset = struct.unpack("<II", payload[:8])
+        if job != o["job"] or offset != o["offset"]:
+            return  # a duplicate or stale chunk: the next request re-syncs
+        o["crc"] = zlib.crc32(payload[8:], o["crc"])
+        o["offset"] += len(payload) - 8
+        if o["offset"] < o["size"]:
+            self.ota_request()
+            return
+        self.ota = None
+        if self.a.ota_fail:
+            self.ota_report("failed", "hash_mismatch", job=o["job"])
+        else:
+            self.ota_report("success", job=o["job"])
+            self.fw = "ota-" + format(o["crc"], "08x")  # shows in the next health report
 
     def on_config(self, body, req):
         if not isinstance(body, dict):
@@ -165,6 +208,7 @@ def main():
     p.add_argument("--telemetry-s", type=int, default=60); p.add_argument("--health-s", type=int, default=300)
     p.add_argument("--fast", action="store_true", help="telemetry every 3 s, health every 15 s")
     p.add_argument("--drift", type=float, default=0.0, help="degrees added to the temperature each step (to provoke an alarm)")
+    p.add_argument("--ota-fail", action="store_true", help="finish every OTA with a failed result")
     a = p.parse_args()
     if a.fast:
         a.telemetry_s, a.health_s = 3, 15

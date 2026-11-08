@@ -9,12 +9,12 @@ the AWS service it replaces. An optional last step can bridge the same messages 
 
 | Piece | State |
 |---|---|
-| `backend/` ingest of every device message into SQLite | done, 13 tests |
+| `backend/` ingest of every device message into SQLite | done |
 | `backend/` HTTP API: devices, history, alarms, events, **downloads (CSV, JSON)**, live stream | done |
-| `sim/device_sim.py`: a device that speaks the firmware's schema 1.1 and answers `/config` and `/control` | done |
+| `sim/device_sim.py`: a device that speaks the firmware's schema 1.1 and answers `/config`, `/control` and an OTA (`--ota-fail` ends it in a failure) | done |
 | `dev/run-local.sh`: broker, backend and simulator on this machine | done |
-| Commands from the API (config, control) with request ids | next |
-| OTA service (the cloud side of the image update) | next |
+| Commands from the API (config, control): request id, result tracking, timeout | done |
+| OTA service: firmware store, jobs, chunk server, progress and result | done, 21 tests in all |
 | Web app | next |
 | Alerts to the phone, login, TLS and per-device permissions, Pi deployment | later |
 
@@ -85,10 +85,27 @@ curl http://127.0.0.1:8000/api/devices
 curl 'http://127.0.0.1:8000/api/devices/sim-0001/telemetry?limit=10'
 curl -OJ 'http://127.0.0.1:8000/api/devices/sim-0001/export?kind=alarms&format=csv'
 curl -N http://127.0.0.1:8000/api/stream          # live events
+
+# commands: the answer is a row you can poll, and an event on the stream
+curl -X POST localhost:8000/api/devices/sim-0001/config  -d '{"telemetry_interval_ms":10000}'
+curl -X POST localhost:8000/api/devices/sim-0001/control -d '{"command":"read"}'
+curl localhost:8000/api/devices/sim-0001/commands      # status: pending, applied/accepted, rejected (+ reason), timeout
+
+# OTA: upload one image per flash slot (tools/ota/make_image.py), start the job, follow it
+curl -X PUT --data-binary @a.ota localhost:8000/api/images/a.ota
+curl -X PUT --data-binary @b.ota localhost:8000/api/images/b.ota
+curl -X POST localhost:8000/api/devices/sim-0001/ota -d '{"image_a":"a.ota","image_b":"b.ota"}'
+curl localhost:8000/api/devices/sim-0001/ota           # state: sent, running, success/failed/rolled_back/rejected
+curl -X POST localhost:8000/api/ota/1/cancel           # stop serving chunks
 ```
 
 ## Limits to know
 
+- **OTA.** One update per device at a time. Cancel only stops the chunks; the device gives up by its own timeout,
+  because the protocol has no abort message. Images are not checked here: the device verifies the signature, and a
+  bad image shows up as a `failed` result.
+- **No login yet.** Anyone who can reach the API can send commands and start an update. Keep it on localhost or the
+  home network until the login and the broker's per-device permissions are in.
 - **Device logs.** The firmware publishes no log messages today (logs leave only on the serial console), so the
   "logs" you can download are what the cloud holds: readings, health, alarms, command results and OTA results.
   Real device logs need a firmware feature (a log topic fed by the logger sink, buffered like the other messages);

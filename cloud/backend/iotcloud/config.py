@@ -15,6 +15,9 @@ class Settings:
     topic_root: str = os.environ.get("IOTCLOUD_TOPIC_ROOT", "iotmonitor")
     # a device counts as online while its last message is younger than this (telemetry is every 60 s)
     online_window_s: int = int(os.environ.get("IOTCLOUD_ONLINE_WINDOW_S", "150"))
+    # firmware images (the S3 bucket of this system) and how long a command may stay unanswered
+    image_dir: str = os.environ.get("IOTCLOUD_IMAGE_DIR", "images")
+    command_timeout_s: int = int(os.environ.get("IOTCLOUD_COMMAND_TIMEOUT_S", "60"))
 
 
 def load() -> Settings:

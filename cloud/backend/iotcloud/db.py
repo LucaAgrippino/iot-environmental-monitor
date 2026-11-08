@@ -6,6 +6,9 @@ Tables (the AWS counterpart in brackets):
   health     device health reports                        [Timestream / DynamoDB]
   alarms     alarm events                                 [Timestream + SNS source]
   events     everything else: command results, OTA        [CloudWatch Logs / Jobs history]
+  commands   config / control commands and their outcome  [IoT Device Shadow / Jobs]
+  images     firmware images the operator uploaded        [S3 bucket]
+  ota_jobs   one OTA update of one device                 [IoT Jobs]
 """
 import json
 import sqlite3
@@ -31,7 +34,20 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, device TEXT NOT NULL, recv_ts INTEGER NOT NULL, kind TEXT NOT NULL,
   req INTEGER, result TEXT, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_dev_ts ON events(device, recv_ts);
+CREATE TABLE IF NOT EXISTS commands (
+  id INTEGER PRIMARY KEY, device TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL,
+  created INTEGER NOT NULL, status TEXT NOT NULL, reason TEXT, finished INTEGER);
+CREATE INDEX IF NOT EXISTS commands_dev ON commands(device, created);
+CREATE TABLE IF NOT EXISTS images (
+  name TEXT PRIMARY KEY, size INTEGER NOT NULL, sha256 TEXT NOT NULL, uploaded INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS ota_jobs (
+  id INTEGER PRIMARY KEY, device TEXT NOT NULL, image_a TEXT NOT NULL, image_b TEXT NOT NULL,
+  size_a INTEGER NOT NULL, size_b INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL,
+  state TEXT NOT NULL, sent_bytes INTEGER NOT NULL DEFAULT 0, detail TEXT);
+CREATE INDEX IF NOT EXISTS ota_jobs_dev ON ota_jobs(device, created);
 """
+# Tables of the cloud's own state (the AWS counterparts: IoT Jobs, S3 for the images)
+
 
 TABLES = {"telemetry", "health", "alarms", "events"}
 

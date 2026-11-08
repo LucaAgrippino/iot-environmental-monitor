@@ -4,7 +4,7 @@ import ssl
 
 import paho.mqtt.client as mqtt
 
-from . import ingest
+from . import ingest, ota
 from .config import Settings
 
 log = logging.getLogger("iotcloud.mqtt")
@@ -25,6 +25,9 @@ def make_client(settings: Settings, db, hub, client_id: str = "iotcloud") -> mqt
     def on_message(client, userdata, msg):
         try:
             event = ingest.handle(db, settings.topic_root, msg.topic, msg.payload)
+            if event and event["kind"] == "ota_request":
+                job = ota.on_request(db, client.publish, settings.image_dir, settings.topic_root, event["device"], msg.payload)
+                event = {**event, "job": job["id"], "sent_bytes": job["sent_bytes"], "size": job["size_b"]} if job else None
             if event:
                 hub.publish(event)
         except Exception:  # one bad message must not stop the stream

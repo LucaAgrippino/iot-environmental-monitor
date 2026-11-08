@@ -6,6 +6,8 @@ Topics follow the AWS IoT convention the firmware uses: dt/<root>/<device>/... f
 import json
 import time
 
+from . import commands, ota
+
 DEVICE_TOPICS = {
     "telemetry", "health", "alarms",
     "ota/result", "ota/request", "config/result", "control/result",
@@ -79,8 +81,13 @@ def handle(db, root: str, topic: str, payload: bytes, now: int | None = None):
     if kind == "ota/request":  # one per chunk: too many to store, the OTA service answers them
         return {"device": device, "kind": "ota_request", "ts": now}
 
+    if kind == "config/result" or kind == "control/result":
+        commands.on_result(db, device, msg, now)
+    if kind == "ota/result":
+        ota.on_result(db, device, msg, now)
     name = {"ota/result": "ota", "config/result": "config", "control/result": "control"}[kind]
     db.execute("INSERT INTO events(device, recv_ts, kind, req, result, payload) VALUES(?,?,?,?,?,?)",
                (device, now, name, msg.get("req") if isinstance(msg.get("req"), int) else msg.get("job"),
                 msg.get("result"), json.dumps(msg)))
-    return {"device": device, "kind": name, "ts": now, "result": msg.get("result")}
+    return {"device": device, "kind": name, "ts": now, "result": msg.get("result"),
+            "req": msg.get("req") if name != "ota" else msg.get("job")}
