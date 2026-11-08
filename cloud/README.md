@@ -15,7 +15,7 @@ the AWS service it replaces. An optional last step can bridge the same messages 
 | `dev/run-local.sh`: broker, backend and simulator on this machine | done |
 | Commands from the API (config, control): request id, result tracking, timeout | done |
 | OTA service: firmware store, jobs, chunk server, progress and result | done, 21 tests in all |
-| Web app | next |
+| `web/` web app (Svelte): devices, live values, charts, alarms, commands, firmware update with progress, downloads | done |
 | Alerts to the phone, login, TLS and per-device permissions, Pi deployment | later |
 
 ## Layout
@@ -66,6 +66,13 @@ cloud -> device   cmd/iotmonitor/<device>/config     {"temp_alarm_high":3000,"re
 
 Every message carries `schema_version` "1.1", `device_id`, `timestamp` and `sync_state`. A device whose clock is not
 synchronised has its time replaced by the time of reception.
+
+## The web app
+
+`web/` is a Svelte app, built into plain files that the backend serves at `/`. Node is not needed on this machine:
+`cloud/web/build.sh` runs the build in a `node:20-alpine` container and writes `cloud/web/dist`. Run it once, then
+`cloud/dev/run-local.sh --sim` and open <http://127.0.0.1:8000>. After a change to `web/src`, run `build.sh` again.
+A link such as `http://127.0.0.1:8000/#sim-0001/Firmware` opens a device on a given tab.
 
 ## Run it on this machine
 

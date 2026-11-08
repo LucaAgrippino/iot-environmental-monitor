@@ -11,4 +11,4 @@ def db(tmp_path):
 
 @pytest.fixture()
 def settings(tmp_path):
-    return Settings(db_path=str(tmp_path / "t.sqlite3"), online_window_s=150)
+    return Settings(db_path=str(tmp_path / "t.sqlite3"), online_window_s=150, web_dir="")

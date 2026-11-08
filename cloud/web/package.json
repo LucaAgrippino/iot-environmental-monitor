@@ -1,0 +1,12 @@
+{
+  "name": "iotcloud-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite --host", "build": "vite build" },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "4.0.4",
+    "svelte": "5.20.5",
+    "vite": "5.4.14"
+  }
+}

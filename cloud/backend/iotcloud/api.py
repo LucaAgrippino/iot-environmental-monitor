@@ -2,12 +2,14 @@
 import csv
 import io
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 
 import asyncio
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import commands, config, mqtt, ota
 from .db import TABLES, Database
@@ -214,6 +216,8 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
         return StreamingResponse(hub.stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    if os.path.isdir(settings.web_dir):  # last, so that it never shadows an /api route
+        app.mount("/", StaticFiles(directory=settings.web_dir, html=True), name="web")
     return app
 
 

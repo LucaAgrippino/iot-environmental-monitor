@@ -60,3 +60,11 @@ def test_export_csv_and_json(settings, db):
 
 def test_unknown_device_is_404(settings, db):
     assert client(settings, db, 0).get("/api/devices/nope").status_code == 404
+
+
+def test_web_app_is_served_without_hiding_the_api(settings, db, tmp_path):
+    from dataclasses import replace
+    (tmp_path / "index.html").write_text("<title>app</title>")
+    c = TestClient(create_app(replace(settings, web_dir=str(tmp_path)), db, start_mqtt=False))
+    assert "<title>app</title>" in c.get("/").text
+    assert c.get("/api/healthz").json() == {"ok": True}

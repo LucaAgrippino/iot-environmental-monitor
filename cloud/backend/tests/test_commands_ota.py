@@ -22,7 +22,7 @@ class Bus:
 
 @pytest.fixture()
 def env(tmp_path, db):
-    settings = Settings(db_path=str(tmp_path / "x.sqlite3"), image_dir=str(tmp_path / "img"), command_timeout_s=60)
+    settings = Settings(db_path=str(tmp_path / "x.sqlite3"), image_dir=str(tmp_path / "img"), command_timeout_s=60, web_dir="")
     bus = Bus()
     ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b'{"fw_version":"0.9.0"}', 1000)  # registers the device
     return TestClient(create_app(settings, db, start_mqtt=False, publisher=bus)), bus, db, settings
