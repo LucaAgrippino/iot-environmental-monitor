@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Write the Doxygen main page of each board to generated-docs/doxygen/mainpage-<board>.md.
 
-The module list and the integration-test list come from the folders, so they never go stale; every module name
-links to its public headers (a bad link shows up as a Doxygen warning). Called by scripts/gen-doxygen.sh.
+Generated from the folders (module list, integration tests) and from the #include lines (the dependency graph),
+so it does not go stale; the explanations and the command lists are the texts below. Every module name links to
+its public headers (a bad link shows up as a Doxygen warning). Needs graphviz (dot). Called by scripts/gen-doxygen.sh.
 """
+import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "generated-docs/doxygen"
-SKIP_HEADERS = {"lv_conf.h", "mbedtls_config_gateway.h"}  # excluded from the Doxygen input (third-party configuration)
+SKIP_HEADERS = {"lv_conf.h", "mbedtls_config_gateway.h"}  # not in the Doxygen input (third-party configuration)
 
 BOARDS = {
     "gateway": (
@@ -23,78 +26,232 @@ BOARDS = {
         "on the touch display, and serves them to the Gateway as a Modbus RTU slave.",
     ),
 }
+# used by almost every module: left out of the graph so the structure stays readable
+CROSS_CUTTING = {"logger"}
+
 LAYERS = {
-    "application": "Application layer: the services that implement the product behaviour.",
-    "middleware": "Middleware layer: reusable components built on the drivers.",
-    "drivers": "Driver layer: access to the hardware.",
+    "application": ("Application", "the services that implement the product behaviour", "#cfe8ff"),
+    "middleware": ("Middleware", "reusable components built on the drivers", "#d9f2d9"),
+    "drivers": ("Drivers", "access to the hardware", "#ffe9c7"),
 }
 
+REPO_MAP = [
+    ("firmware/gateway, firmware/field-device", "The two firmwares. Each has `application/`, `middleware/`, `drivers/` (the layers), `integration-tests/` (bring-up tests for the board), `Src/` (the product `main.c`) and the linker scripts."),
+    ("firmware/shared", "Headers used by both boards (Modbus frame, firmware version)."),
+    ("vendor", "Third-party code, used as delivered: FreeRTOS, coreMQTT, mbedTLS, LVGL, STM32 HAL."),
+    ("tests", "Host unit tests (Ceedling, Unity, CMock). `tests/gateway` and `tests/field-device` mirror the firmware folders."),
+    ("verification", "System tests (Robot Framework) that drive the real boards and the cloud broker."),
+    ("simulator/lcd-ui", "Runs the Field Device display on the PC (LVGL with SDL2) and renders every screen."),
+    ("scripts", "Build, flash, bench and check scripts."),
+    ("docs", "Requirements (`SRS.md`), design (`hld/`, `lld/`), test plan and results (`test/`), this Doxygen set (`doxygen/`)."),
+]
+
+# (title, summary, [(comment, command)])
 TOOLS = [
-    ("Build", "arm-none-eabi-gcc through STM32CubeIDE (headless) and `scripts/build-*.sh`", "Firmware images for both boards; one `main()` per build configuration is checked by `scripts/check-build-exclusions.sh`."),
-    ("Host unit tests", "Ceedling with Unity and CMock (`tests/`, `project.yml` and `project_gateway.yml`)", "Run on the PC with GCC, no hardware. The test cases are the `TC-...` of the module test plans."),
-    ("Static analysis", "cppcheck, and `scripts/check-hal-encapsulation.sh`", "Run in CI; the second one checks that HAL and BSP headers are included only by the LCD driver."),
-    ("Formatting", "clang-format 17 (`.clang-format`)", "Checked in CI on every change."),
-    ("Display simulator", "LVGL with SDL2 (`vendor/lvgl`, CI job `fd-gui`)", "Renders every screen and state of the Field Device display without the board."),
-    ("Flashing and debugging", "OpenOCD with ST-LINK; `scripts/*bench*.py` and `scripts/test-module.sh`", "Programs the boards and runs the bring-up and bench scripts."),
-    ("System verification", "Robot Framework (`verification/`, waves 0 to 7) with paho-mqtt and Mosquitto", "Drives both boards over their consoles and checks the cloud messages. Results: `docs/test/verification-results.md`."),
-    ("Documentation", "Doxygen with Graphviz (`scripts/gen-doxygen.sh`)", "This reference. The warning log of the script is the REQ-NF-505 check."),
-    ("Third-party code", "FreeRTOS kernel, coreMQTT, mbedTLS, LVGL, STM32 HAL (`vendor/`)", "Used as delivered; not documented here."),
+    ("Build the firmware images",
+     "Builds an image without the IDE, with the flags of the CubeIDE Debug configuration, and fails if it does not fit the chip. "
+     "Output goes to `firmware/<board>/Debug/app/` (not committed). Needs `arm-none-eabi-gcc`; run the version generator once first.",
+     [("version header, once", "python3 scripts/gen-version.py firmware/shared/firmware_version.h.in firmware/shared/firmware_version.h"),
+      ("Field Device with the display", "GUI=1 bash scripts/build-fd-app.sh"),
+      ("Field Device, build and program the board", "GUI=1 ST_SERIAL=<st-link serial> bash scripts/build-fd-app.sh --flash"),
+      ("Gateway (needs firmware/gateway/certs/, see scripts/bringup_secrets.h.example)", "bash scripts/build-gateway-app.sh"),
+      ("Gateway, build and program the board", "ST_SERIAL=<st-link serial> bash scripts/build-gateway-app.sh --flash"),
+      ("Gateway image for a firmware slot (A or B)", "SLOT=A bash scripts/build-gateway-app.sh"),
+      ("signed release images", "bash scripts/build-release.sh --version X.Y.Z --private KEY.pem --out DIR")]),
+    ("Host unit tests",
+     "Each module is compiled against mocks of its neighbours and run on the PC, with no hardware. Ceedling finds every `tests/**/test_*.c`. "
+     "The Gateway modules whose names collide with a Field Device module have their own project file. CI runs both on every push.",
+     [("Field Device and shared modules", "cd tests && ceedling test:all"),
+      ("Gateway modules", "cd tests && CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml ceedling test:all"),
+      ("one test file", "cd tests && ceedling test:test_modbus_register_map"),
+      ("one module: tests, cppcheck and clang-format together", "./scripts/test-module.sh -m gw-<module>    # or fd-<module>; add -f to apply the formatting")]),
+    ("Static analysis and formatting",
+     "cppcheck and clang-format 17 run on every module, the integration tests, the bootloader and the shared headers; CI fails on any finding. "
+     "Two more checks keep the build configurations honest.",
+     [("static analysis of a folder", "cppcheck --enable=style,warning,performance -I firmware/shared --suppressions-list=cppcheck-suppressions.txt --inline-suppr --error-exitcode=1 firmware/gateway/application/<module>"),
+      ("formatting, check", "clang-format-17 --dry-run --Werror <files>"),
+      ("formatting, apply", "clang-format-17 -i <files>"),
+      ("each CubeIDE configuration compiles exactly one main()", "bash scripts/check-build-exclusions.sh"),
+      ("HAL and BSP headers only in the LCD driver", "bash scripts/check-hal-encapsulation.sh")]),
+    ("Integration tests on the board",
+     "One bring-up image per module exercises it on the real hardware and prints PASS or FAIL lines on the serial console "
+     "(the header of each test says the wiring and the serial settings). On the Field Device the test replaces `Src/main.c` through `MAIN`; "
+     "on the Gateway the header of the test describes the project swap, which is bench-local and not committed.",
+     [("Field Device module test, build and program", "MAIN=firmware/field-device/integration-tests/<module>/test_<module>_main.c bash scripts/build-fd-app.sh --flash"),
+      ("watch the console (Field Device 115 200, Gateway 460 800)", "python3 -m serial.tools.miniterm /dev/ttyACM0 115200"),
+      ("scripted benches", "python3 scripts/console_bench.py ...   # also alarm_latency_bench.py, two_board_monitor.py, bootloader_bench.py")]),
+    ("Display simulator",
+     "Runs the Field Device user interface on the PC and renders every screen and state to PNG files, to review the display without the board.",
+     [("build and render (as CI does)", "cd simulator/lcd-ui && cmake -S . -B build-native -G Ninja && cmake --build build-native && bash shots.sh build-native/lcd_sim shots")]),
+    ("System verification",
+     "Robot Framework suites, in waves, drive both boards through their consoles and read the cloud messages from a Mosquitto broker. "
+     "Wave 0 needs no hardware; waves 1 to 6 need the boards; wave 6 is the 8 hour endurance run; wave 7 is the operator checklist. "
+     "The merger turns the runs into the requirement status.",
+     [("python environment, once", "python3 -m venv ~/.venvs/envmon-verify && ~/.venvs/envmon-verify/bin/pip install robotframework pyserial pillow paho-mqtt"),
+      ("a wave, or several", "verification/run.sh 0        # or: verification/run.sh 1 2 3"),
+      ("one test", "verification/run.sh --test 'TC-VER-GW-011*' 3"),
+      ("merge the results into the report", "python3 tools/merge-verification-results.py        # --check fails if a test failed")]),
+    ("This documentation",
+     "Doxygen with Graphviz. The default run documents the public headers and must end with 0 warnings (the REQ-NF-505 check).",
+     [("both boards", "scripts/gen-doxygen.sh"),
+      ("with the .c files, for call graphs", "scripts/gen-doxygen.sh --with-sources"),
+      ("one board", "scripts/gen-doxygen.sh gateway")]),
 ]
 
 
-def html_ref(path):
-    return f"\\ref {path.name}"
+def mangle(name):
+    return name.replace("_", "__").replace(".", "_8").replace("-", "_") + ".html"
+
+
+def headers_of(mod):
+    return sorted(h for h in mod.rglob("*.h") if h.name not in SKIP_HEADERS and "integration-tests" not in h.parts)
 
 
 def modules(board):
-    out = []
-    for layer, desc in LAYERS.items():
+    """{(layer, name): (path, [headers])}"""
+    res = {}
+    for layer in LAYERS:
         d = ROOT / "firmware" / board / layer
-        if not d.is_dir():
+        if d.is_dir():
+            for m in sorted(p for p in d.iterdir() if p.is_dir()):
+                res[(layer, m.name)] = (m, headers_of(m))
+    return res
+
+
+def main_header(name, headers):
+    for h in headers:
+        if h.stem == name:
+            return h
+    return headers[0] if headers else None
+
+
+def dependency_graph(board, mods):
+    owner = {}
+    for key, (path, hs) in mods.items():
+        for h in hs:
+            owner.setdefault(h.name, key)
+    edges = set()
+    inc = re.compile(r'#\s*include\s+"([^"]+)"')
+    for key, (path, _) in mods.items():
+        for f in list(path.rglob("*.c")) + list(path.rglob("*.h")):
+            if "integration-tests" in f.parts:
+                continue
+            for m in inc.finditer(f.read_text(errors="ignore")):
+                tgt = owner.get(Path(m.group(1)).name)
+                if tgt and tgt != key and tgt[1] not in CROSS_CUTTING:
+                    edges.add((key, tgt))
+    dot = ['digraph G {', 'rankdir=TB; compound=true; concentrate=true; nodesep=0.25; ranksep=0.9;',
+           'node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, height=0.3];',
+           'edge [color="#777777", arrowsize=0.6];']
+    for layer, (title, desc, colour) in LAYERS.items():
+        names = [k for k in mods if k[0] == layer]
+        if not names:
             continue
-        out.append(f"### {layer.capitalize()}\n{desc}\n")
-        for m in sorted(p for p in d.iterdir() if p.is_dir()):
-            headers = sorted(h for h in m.rglob("*.h") if h.name not in SKIP_HEADERS and "integration-tests" not in h.parts)
-            main = [h for h in headers if h.stem == m.name]
-            rest = [h for h in headers if h not in main]
-            links = ", ".join(html_ref(h) for h in main + rest) or "(no public header)"
-            out.append(f"- **{m.name}**: {links}")
-        out.append("")
+        dot.append(f'subgraph cluster_{layer} {{ label="{title}"; style="rounded"; color="#999999"; fontname="Helvetica-Bold"; fontsize=13;')
+        for k in names:
+            mh = main_header(k[1], mods[k][1])
+            url = f', URL="{mangle(mh.name)}", tooltip="{k[1]}"' if mh else ""
+            dot.append(f'"{k[0]}/{k[1]}" [label="{k[1]}", fillcolor="{colour}"{url}];')
+        dot.append("}")
+    for a, b in sorted(edges):
+        dot.append(f'"{a[0]}/{a[1]}" -> "{b[0]}/{b[1]}";')
+    dot.append("}")
+    return "\n".join(dot), len(edges)
+
+
+def repo_graph():
+    dot = ['digraph R { rankdir=LR; nodesep=0.3; node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11];',
+           '"fw" [label="firmware/gateway\\nfirmware/field-device\\n(application, middleware, drivers)", fillcolor="#cfe8ff"];',
+           '"shared" [label="firmware/shared", fillcolor="#cfe8ff"];',
+           '"vendor" [label="vendor\\n(FreeRTOS, coreMQTT, mbedTLS, LVGL, HAL)", fillcolor="#eeeeee"];',
+           '"tests" [label="tests\\n(Ceedling host unit tests)", fillcolor="#d9f2d9"];',
+           '"it" [label="firmware/*/integration-tests\\n(bring-up on the board)", fillcolor="#d9f2d9"];',
+           '"ver" [label="verification\\n(Robot Framework, both boards)", fillcolor="#d9f2d9"];',
+           '"sim" [label="simulator/lcd-ui\\n(display on the PC)", fillcolor="#d9f2d9"];',
+           '"scripts" [label="scripts\\n(build, flash, bench, checks)", fillcolor="#ffe9c7"];',
+           '"docs" [label="docs\\n(SRS, hld, lld, test, doxygen)", fillcolor="#fff3b0"];',
+           '"fw" -> "shared" [label="uses"]; "fw" -> "vendor" [label="uses"];',
+           '"tests" -> "fw" [label="mocks the neighbours"]; "it" -> "fw" [label="exercises on target"];',
+           '"ver" -> "fw" [label="drives the boards"]; "sim" -> "fw" [label="compiles lcd_ui"];',
+           '"scripts" -> "fw" [label="builds, flashes"]; "docs" -> "fw" [label="specifies", style=dashed]; }']
+    return "\n".join(dot)
+
+
+def svg(dot_text):
+    out = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True, text=True, check=True).stdout
+    out = out[out.index("<svg"):]
+    out = re.sub(r'<svg width="[^"]+" height="[^"]+"', '<svg style="max-width:100%;height:auto"', out, count=1)
     return out
 
 
-def integration_tests(board):
-    d = ROOT / "firmware" / board / "integration-tests"
-    names = sorted(p.name for p in d.iterdir() if p.is_dir()) if d.is_dir() else []
-    return names
+def md_modules(board, mods):
+    L = []
+    for layer, (title, desc, _) in LAYERS.items():
+        names = [k for k in mods if k[0] == layer]
+        if not names:
+            continue
+        L += [f"### {title}", f"The {desc}.", ""]
+        for k in names:
+            hs = mods[k][1]
+            main = [h for h in hs if h.stem == k[1]]
+            links = ", ".join(f"\\ref {h.name}" for h in main + [h for h in hs if h not in main]) or "(no public header)"
+            L.append(f"- **{k[1]}**: {links}")
+        L.append("")
+    return L
+
+
+def md_tools():
+    L = []
+    for title, summary, cmds in TOOLS:
+        L += [f"### {title}", "", summary, "", "```sh"]
+        for comment, cmd in cmds:
+            L += [f"# {comment}", cmd]
+        L += ["```", ""]
+    return L
 
 
 def page(board):
     title, blurb = BOARDS[board]
+    mods = modules(board)
+    dot, n_edges = dependency_graph(board, mods)
     L = [f"# IoT Environmental Monitor: {title}", "", blurb, "",
-         "This is the API reference of the **public headers** (one page per header and per struct), generated by "
-         "`scripts/gen-doxygen.sh`.", "",
-         "## How to find your way", "",
-         "- **Data Structures** (menu above): every struct and interface table (the `i...` vtables), with UML-style "
-         "diagrams of what each one contains and references.",
-         "- **Files**: the headers by folder, with include graphs.",
-         "- **Search** (top right): any function, type or macro.",
-         "- Start from the interface of the module you want, for example the `i...` header of its folder.", "",
-         "## Modules", ""]
-    L += modules(board)
-    L += ["## Tools", "", "| Purpose | Tool | Notes |", "|---|---|---|"]
-    L += [f"| {a} | {b} | {c} |" for a, b, c in TOOLS]
-    L += ["", "## Tests", "",
-          "Three levels, from the cheapest to the most complete:", "",
-          "1. **Unit tests on the host** (`tests/`): each module against mocks of its neighbours. Run by "
-          "`ceedling test:all` and by CI on every push.",
-          "2. **Integration tests on the board** (`firmware/" + board + "/integration-tests/`): one bring-up image per "
-          "module that exercises it on the real hardware and prints PASS or FAIL lines on the serial console. They are "
-          "not compiled by default; the harness to build is chosen in the project (see the header of each test).",
-          "3. **System verification** (`verification/`): Robot Framework suites that drive both boards together "
-          "(console, Modbus link, cloud messages), including an 8 hour endurance run.", "",
+         "This page is the starting point: how the code is organised, how to find things in this reference, and the command that runs each tool "
+         "and test. The reference itself covers the **public headers** (one page per header and per struct).", "",
+         "## The repository", "",
+         "```", "firmware/<board>/", "    application/   services: the product behaviour",
+         "    middleware/    reusable components on top of the drivers",
+         "    drivers/       hardware access",
+         "    integration-tests/   bring-up test per module, run on the board",
+         "    Src/           product main()", "```", ""]
+    L += ["| Folder | What is in it |", "|---|---|"] + [f"| `{a}` | {b} |" for a, b in REPO_MAP] + [""]
+    L += ["\\htmlonly", '<div style="overflow:auto;margin:1em 0">', svg(repo_graph()), "</div>", "\\endhtmlonly", ""]
+    L += ["## How the code is layered", "",
+          "Dependencies mostly point **downwards**: application services use middleware and drivers, middleware uses drivers, drivers touch the hardware. "
+          "The arrows that go up are the exceptions to look at: lower layers report their faults to `health_monitor`, an application service. "
+          "Modules reach each other through interface tables (the `i...` structs of Data Structures), which is also how the tests replace a neighbour with a mock. "
+          f"The graph below is generated from the `#include` lines of this board ({len(mods)} modules, {n_edges} dependencies; the `logger`, used by almost every module, is left out of the arrows); "
+          "click a module to open its header.", "",
+          "\\htmlonly", '<div style="overflow:auto;margin:1em 0;border:1px solid #ccc;padding:0.5em">', svg(dot), "</div>", "\\endhtmlonly", "",
+          "## How to navigate this reference", "",
+          "1. Find the module in the graph above or in the list below and open its main header: the first comment of the file says what the module is for.",
+          "2. Open the **interface** (`i...` header, or the vtable struct in the main header) to see what the rest of the system can call.",
+          "3. **Data Structures** (menu): every struct, with a UML-style diagram of its members and references. Use it to follow a type from one module to the next.",
+          "4. **Files**: the headers by folder, with the include graph of each. **Search** (top right) finds any function, type or macro.",
+          "5. For the behaviour behind a module, read its low-level design in `docs/lld/` and its test: the unit test in `tests/`, and the bring-up test in `firmware/" + board + "/integration-tests/`.", "",
+          "## Modules", ""]
+    L += md_modules(board, mods)
+    L += ["## Tools and how to run them", "",
+          "All commands run from the repository root unless a `cd` says otherwise. CI (`.github/workflows/ci.yml`) runs the host tests, "
+          "the firmware builds, the display simulator, cppcheck and clang-format on every push.", ""]
+    L += md_tools()
+    L += ["## Tests, from cheap to complete", "",
+          "| Level | Where | Runs on | Answers |", "|---|---|---|---|",
+          "| Unit | `tests/` | PC | Does the module do what its design says, with its neighbours mocked? |",
+          f"| Integration | `firmware/{board}/integration-tests/` | the board | Does the module work on the real hardware? |",
+          "| System | `verification/` | both boards, broker | Do the two boards and the cloud meet the requirements together? Includes the 8 hour endurance run. |", "",
           "### Integration tests of this board", ""]
-    names = integration_tests(board)
+    d = ROOT / "firmware" / board / "integration-tests"
+    names = sorted(p.name for p in d.iterdir() if p.is_dir()) if d.is_dir() else []
     L += [", ".join(f"`{n}`" for n in names) if names else "(none)", "",
           "## Related documents", "",
           "- Requirements and design: `docs/SRS.md`, `docs/hld/`, `docs/lld/`.",

@@ -1,3 +1,8 @@
+/**
+ * @file stm32469i_discovery_sdram.h
+ * @brief Shadow of the vendor BSP SDRAM header: delegates the BSP_SDRAM_* calls to our SDRAM
+ * driver.
+ */
 /*
  * SHADOW of vendor/stm32/f469-disco/Drivers/BSP/STM32469I-Discovery/
  *           stm32469i_discovery_sdram.h.
@@ -21,13 +26,39 @@
 #include "sdram_driver/sdram_driver.h"
 
 /* Status codes matching ST BSP convention. */
-#define SDRAM_OK ((uint8_t) 0x00U)
-#define SDRAM_ERROR ((uint8_t) 0x01U)
+#define SDRAM_OK ((uint8_t) 0x00U)    /**< BSP success code. */
+#define SDRAM_ERROR ((uint8_t) 0x01U) /**< BSP error code. */
 
 /* BSP entry points — shimmed in stm32469i_discovery_sdram.c. */
+
+/**
+ * @brief Initialise the SDRAM.
+ * @return SDRAM_OK, or SDRAM_ERROR.
+ */
 uint8_t BSP_SDRAM_Init(void);
+
+/**
+ * @brief Release the SDRAM.
+ * @return SDRAM_OK, or SDRAM_ERROR.
+ */
 uint8_t BSP_SDRAM_DeInit(void);
+
+/**
+ * @brief Read 32-bit words from the SDRAM.
+ * @param uwStartAddress  Address of the first word.
+ * @param pData           Receives the words.
+ * @param uwDataSize      Number of words.
+ * @return SDRAM_OK, or SDRAM_ERROR.
+ */
 uint8_t BSP_SDRAM_ReadData(uint32_t uwStartAddress, uint32_t *pData, uint32_t uwDataSize);
+
+/**
+ * @brief Write 32-bit words to the SDRAM.
+ * @param uwStartAddress  Address of the first word.
+ * @param pData           Words to write.
+ * @param uwDataSize      Number of words.
+ * @return SDRAM_OK, or SDRAM_ERROR.
+ */
 uint8_t BSP_SDRAM_WriteData(uint32_t uwStartAddress, const uint32_t *pData, uint32_t uwDataSize);
 
 #endif /* STM32469I_DISCOVERY_SDRAM_H */

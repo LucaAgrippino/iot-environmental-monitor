@@ -1,3 +1,7 @@
+/**
+ * @file cpu.h
+ * @brief CPU driver: platform initialisation, delays, reset and the panic (post-mortem) record.
+ */
 #ifndef CPU_H
 #define CPU_H
 
@@ -137,8 +141,8 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason);
 /* Assert macro                                                            */
 /* ====================================================================== */
 
-#define CPU_STRINGIFY_(x) #x
-#define CPU_STRINGIFY(x) CPU_STRINGIFY_(x)
+#define CPU_STRINGIFY_(x) #x               /**< Helper for CPU_STRINGIFY(). */
+#define CPU_STRINGIFY(x) CPU_STRINGIFY_(x) /**< Turn a macro argument into a string literal. */
 
 #ifdef DEBUG
 /**
@@ -155,7 +159,7 @@ _Noreturn void cpu_panic(cpu_panic_source_t source, const char *reason);
         }                                                                                          \
     } while (0)
 #else
-#define CPU_ASSERT(expr) ((void) 0)
+#define CPU_ASSERT(expr) ((void) 0) /**< Assertion; empty in this build. */
 #endif
 
 /* ====================================================================== */

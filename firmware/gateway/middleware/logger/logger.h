@@ -1,3 +1,7 @@
+/**
+ * @file logger.h
+ * @brief Logger: leveled log macros that queue a message and send it through a sink (the console).
+ */
 #ifndef LOGGER_H
 #define LOGGER_H
 
@@ -12,40 +16,42 @@
 /* Numeric level constants — preprocessor-visible so they can be used in
  * #if expressions for compile-time level filtering. Lower value = higher
  * severity. */
-#define LOG_LVL_ERROR (0)
-#define LOG_LVL_WARN (1)
-#define LOG_LVL_INFO (2)
-#define LOG_LVL_DEBUG (3)
+#define LOG_LVL_ERROR (0) /**< Numeric level of errors (most severe). */
+#define LOG_LVL_WARN (1)  /**< Numeric level of warnings. */
+#define LOG_LVL_INFO (2)  /**< Numeric level of information messages. */
+#define LOG_LVL_DEBUG (3) /**< Numeric level of debug messages (least severe). */
 
 /* Compile-time minimum severity. Levels less severe than this are stripped
  * at compile time — no function call, no argument evaluation, no local
  * buffer. Override per build with -DLOG_LEVEL_MIN=LOG_LVL_xxx. */
 #ifndef LOG_LEVEL_MIN
-#define LOG_LEVEL_MIN LOG_LVL_INFO
+#define LOG_LEVEL_MIN                                                                              \
+    LOG_LVL_INFO /**< Lowest severity compiled in; less severe messages cost nothing. */
 #endif
 
 /* ANSI colour codes around the level tag. Set to 0 for plain text. */
 #ifndef LOGGER_USE_ANSI_COLORS
-#define LOGGER_USE_ANSI_COLORS (1)
+#define LOGGER_USE_ANSI_COLORS (1) /**< 1 to colour the level tag with ANSI codes. */
 #endif
 
 /* Caller-side scratch buffer for printf substitution in the macros. The
  * substituted message is copied (truncated) into the queue entry. Sized
  * for longer bring-up diagnostic lines (e.g. wifi_driver's hardware
  * integration test), which were truncating mid-word at 64. */
-#define LOGGER_MESSAGE_MAX (128U)
-#define LOGGER_MODULE_WIDTH (16U)
+#define LOGGER_MESSAGE_MAX (128U) /**< Longest message, in characters. */
+#define LOGGER_MODULE_WIDTH (16U) /**< Width of the module column in a log line. */
 
 /* Final assembled line ("[LEVEL][timestamp][module] message\r\n"). Must
  * hold the ~36-byte prefix plus LOGGER_MESSAGE_MAX plus "\r\n" plus the
  * null terminator. Declared here (not logger.c) so tests can bound-check
  * against the same symbol instead of a duplicated literal. */
-#define LOGGER_OUT_BUF_MAX (200U)
+#define LOGGER_OUT_BUF_MAX (200U) /**< Size of the buffer that holds one formatted log line. */
 
 /* ====================================================================== */
 /* Types                                                                  */
 /* ====================================================================== */
 
+/** @brief Severity of a log message. */
 typedef enum
 {
     LOG_LEVEL_ERROR = LOG_LVL_ERROR,
@@ -54,6 +60,7 @@ typedef enum
     LOG_LEVEL_DEBUG = LOG_LVL_DEBUG
 } log_level_t;
 
+/** @brief Result codes of the logger. */
 typedef enum
 {
     LOGGER_OK = 0,
@@ -75,23 +82,51 @@ typedef bool (*logger_sink_t)(const uint8_t *data, uint16_t len);
 
 /**
  * @brief Route finished log lines to @p sink instead of the debug UART; NULL restores the UART.
+ * @param sink Function that receives each finished line, or NULL for the debug UART.
  * @note The console uses this to draw the lines in its log panel.
  */
 void logger_set_sink(logger_sink_t sink);
 
-/** @see logger.md §2.1 */
+/**
+ * @param initial_level Least severe level to log.
+ * @see logger.md §2.1
+ *
+ * @return LOGGER_OK, or LOGGER_ERR_INVALID_ARG for an unknown level.
+ */
 logger_err_t logger_init(log_level_t initial_level);
 
-/** @see logger.md §2.1 */
+/**
+ * @param level New least severe level to log.
+ * @see logger.md §2.1
+ *
+ * @return LOGGER_OK, LOGGER_ERR_NOT_INIT before init, or LOGGER_ERR_INVALID_ARG for an unknown
+ * level.
+ */
 logger_err_t logger_set_level(log_level_t level);
 
-/** @see logger.md §2.1 — plain message string, no varargs. Use the macros. */
+/**
+ * @param level Severity.
+ * @param module Short name of the module.
+ * @param msg Message text.
+ * @see logger.md §2.1 — plain message string, no varargs. Use the macros.
+ *
+ */
 void logger_log(log_level_t level, const char *module, const char *msg);
 
-/** @see logger.md §2.1 — ISR-safe entry; uptime timestamp; no formatting. */
+/**
+ * @param level Severity.
+ * @param module Short name of the module.
+ * @param msg Message text.
+ * @see logger.md §2.1 — ISR-safe entry; uptime timestamp; no formatting.
+ *
+ */
 void logger_log_from_isr(log_level_t level, const char *module, const char *msg);
 
-/** @see logger.md §2.1 — number of lines dropped due to a full queue. */
+/**
+ * @see logger.md §2.1 — number of lines dropped due to a full queue.
+ *
+ * @return Lines dropped so far.
+ */
 uint32_t logger_get_dropped_count(void);
 
 /* ====================================================================== */
@@ -99,6 +134,7 @@ uint32_t logger_get_dropped_count(void);
 /* ====================================================================== */
 
 #if (LOG_LVL_ERROR <= LOG_LEVEL_MIN)
+/** @brief Log an error from task context (printf-style). */
 #define LOG_ERROR(mod, fmt, ...)                                                                   \
     do                                                                                             \
     {                                                                                              \
@@ -111,6 +147,7 @@ uint32_t logger_get_dropped_count(void);
 #endif
 
 #if (LOG_LVL_WARN <= LOG_LEVEL_MIN)
+/** @brief Log a warning from task context (printf-style). */
 #define LOG_WARN(mod, fmt, ...)                                                                    \
     do                                                                                             \
     {                                                                                              \
@@ -123,6 +160,7 @@ uint32_t logger_get_dropped_count(void);
 #endif
 
 #if (LOG_LVL_INFO <= LOG_LEVEL_MIN)
+/** @brief Log an information message from task context (printf-style). */
 #define LOG_INFO(mod, fmt, ...)                                                                    \
     do                                                                                             \
     {                                                                                              \
@@ -135,6 +173,7 @@ uint32_t logger_get_dropped_count(void);
 #endif
 
 #if (LOG_LVL_DEBUG <= LOG_LEVEL_MIN)
+/** @brief Log a debug message from task context (printf-style). */
 #define LOG_DEBUG(mod, fmt, ...)                                                                   \
     do                                                                                             \
     {                                                                                              \
@@ -151,13 +190,17 @@ uint32_t logger_get_dropped_count(void);
 /* ====================================================================== */
 
 #if (LOG_LVL_ERROR <= LOG_LEVEL_MIN)
-#define LOG_ERROR_ISR(mod, msg) logger_log_from_isr(LOG_LEVEL_ERROR, (mod), (msg))
+#define LOG_ERROR_ISR(mod, msg)                                                                    \
+    logger_log_from_isr(LOG_LEVEL_ERROR, (mod),                                                    \
+                        (msg)) /**< Log an error from an interrupt (plain string). */
 #else
 #define LOG_ERROR_ISR(mod, msg) ((void) 0)
 #endif
 
 #if (LOG_LVL_WARN <= LOG_LEVEL_MIN)
-#define LOG_WARN_ISR(mod, msg) logger_log_from_isr(LOG_LEVEL_WARN, (mod), (msg))
+#define LOG_WARN_ISR(mod, msg)                                                                     \
+    logger_log_from_isr(LOG_LEVEL_WARN, (mod),                                                     \
+                        (msg)) /**< Log a warning from an interrupt (plain string). */
 #else
 #define LOG_WARN_ISR(mod, msg) ((void) 0)
 #endif
