@@ -27,7 +27,18 @@
  * (NULL, an mbedTLS ALLOC_FAILED error) instead of silently using the heap. */
 #include <stddef.h>
 
+/**
+ * @brief Default mbedTLS allocator until tls_arena_init(): refuses every request.
+ * @param[in] count  Number of elements (ignored).
+ * @param[in] size   Size of one element (ignored).
+ * @return Always NULL, which mbedTLS reports as an allocation failure.
+ */
 void *tls_arena_uninit_calloc(size_t count, size_t size);
+
+/**
+ * @brief Default mbedTLS free until tls_arena_init(): does nothing.
+ * @param[in] ptr  Block to release (ignored; nothing was ever handed out).
+ */
 void tls_arena_uninit_free(void *ptr);
 
 #define MBEDTLS_PLATFORM_C

@@ -8,6 +8,10 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | DEF-000 | TC-VER-FD-006 | REQ-AM-000, -010, -020, REQ-LD-280 | 2 | Closed: PR #180 (the Field Device pushed no alarm events to HealthMonitor: `alarms` always empty, red LED never lit) |
 | DEF-001 | TC-VER-CL-004 | REQ-AM-040 | 3 | Closed: PR #184 (the poller reads the channel's limits when a flag is raised; TC-VER-CL-004 passes) |
 | DEF-002 | wave 4 preparation, 2026-11-08 | REQ-NF-213 (boot), REQ-LD-* (display) | 2 | Closed: the fix branch `fix/fd-enable-dwt-at-boot` (the Field Device with the display did not boot after a power-up) |
+| DEF-003 | OP-09, 2026-11-08 | REQ-MB-070 | 4 | Closed: the register map document now says what the code does (sampling period range 100..10000, timeout counter reserved, device ID 0, slave address at 0x0150) |
+| DEF-004 | OP-09, 2026-11-08 | REQ-MB-070 | 4 | Closed: stale "INTENTIONAL BUG" comments about `read_pressure` removed (code and test were already right) |
+| DEF-005 | OP-12, 2026-11-08 | REQ-NF-505 | 4 | Closed: the seven public functions without description now have one; a default Doxygen run reports no function without a description in any header |
+| DEF-006 | OP-10, 2026-11-08 | REQ-DM-074 | 4 | Closed: the Field Device linker script limits the image to the 1 MB the flash-partition document gives it (was 2048 KB; the image uses 46.8%) |
 
 ## DEF-001: the alarm of a Field Device carried threshold 0
 
@@ -29,3 +33,13 @@ over a reset, so every flash-and-run worked; a cold power-up left it stopped and
 Fix: `system_clock_enable_dwt()` right after `system_clock_init()`. Checked on the board with the counter's enable bits
 cleared by hand and a reset without debugger: the Field Device reaches Operational. The earlier HardFault was probably
 the same missing counter (a stuck bring-up that then ran on garbage); the endurance run will show if it returns.
+
+## DEF-003 to DEF-006: findings of the wave 7 inspections (part C)
+
+Found by reading the code against the documents; no behaviour on the boards changed.
+DEF-003: for each of the four differences the document was amended, not the code, because the code is what the
+requirements ask for (REQ-NF-114 gives the 10 s upper bound of the sampling period) or what the hardware offers
+(the slave keeps no timeout counter; the device-ID source is not wired in). Two of them stay open as improvements, not
+defects: a real Field Device identifier (STM32 unique ID) and a timeout counter in `IModbusSlaveStats`.
+DEF-005: the remaining Doxygen warnings (about 1 700 per board) are undocumented macros, enumerators and `@return` /
+`@param` lines of functions that do have a description; none hides a missing function description in a public header.
