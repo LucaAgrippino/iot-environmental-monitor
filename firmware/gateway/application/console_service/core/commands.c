@@ -56,7 +56,7 @@ typedef enum
     CONFIRM_REBOOT,
 } confirm_kind_t;
 
-/* Operational parameters `config set` can stage (thresholds go through `set`). */
+/** Operational parameters `config set` can stage (thresholds go through `set`). */
 typedef enum
 {
     K_U32,
@@ -93,8 +93,8 @@ static const cfg_key_t s_cfg_keys[] = {
 typedef struct
 {
     bool dirty;
-    uint32_t mask;                /* bit i: s_cfg_keys[i] is staged */
-    int32_t value[CFG_KEY_COUNT]; /* fixed-point, in the key's scale */
+    uint32_t mask;                /**< bit i: s_cfg_keys[i] is staged */
+    int32_t value[CFG_KEY_COUNT]; /**< fixed-point, in the key's scale */
 } cfg_pending_t;
 
 typedef struct
@@ -105,9 +105,9 @@ typedef struct
     bool has_addr;
     uint8_t modbus_addr;
     bool has_baud;
-    uint16_t modbus_baud_div100; /* 12, 24, 48, 96 or 192 */
+    uint16_t modbus_baud_div100; /**< 12, 24, 48, 96 or 192 */
     bool has_parity;
-    uint8_t modbus_parity; /* 0 none, 1 even, 2 odd */
+    uint8_t modbus_parity; /**< 0 none, 1 even, 2 odd */
     bool has_ssid;
     char ssid[SSID_MAX_LEN + 1U];
     bool has_pass;
@@ -623,8 +623,8 @@ static console_service_err_t cmd_net(int argc, const char *argv[])
 /* Self-test                                                               */
 /* ---------------------------------------------------------------------- */
 
-/* The last self-test is kept in the stored configuration (REQ-LI-160): bit 0 a test ran, 1 sensors,
- * 2 comms, 3 flash checked, 4 flash pass, 5 overall. The uptime of the run is not kept. */
+/** The last self-test is kept in the stored configuration (REQ-LI-160): bit 0 a test ran, 1
+ * sensors, 2 comms, 3 flash checked, 4 flash pass, 5 overall. The uptime of the run is not kept. */
 #define ST_RAN (0x01U)
 #define ST_SENSORS (0x02U)
 #define ST_COMMS (0x04U)
@@ -1170,7 +1170,7 @@ static console_service_err_t cmd_prov_commit(int argc, const char *argv[])
 /* Certificates: `prov cert add <item> <base64>` ..., `prov cert end <item>` (REQ-LI-060)  */
 /* ---------------------------------------------------------------------- */
 
-#define CERT_ASSEMBLY_MAX (2560U) /* the largest item CertStore accepts (a private key) */
+#define CERT_ASSEMBLY_MAX (2560U) /**< the largest item CertStore accepts (a private key) */
 
 CONSOLE_BIG_BUFFER static uint8_t s_cert_buf[CERT_ASSEMBLY_MAX];
 static uint32_t s_cert_len;

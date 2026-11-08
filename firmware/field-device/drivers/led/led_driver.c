@@ -4,7 +4,7 @@
  *
  * GPIO access is delegated entirely to GpioDriver; no CMSIS registers are
  * touched here. Active-level polarity is read from the caller-supplied pin
- * table at runtime — the driver contains no board-conditional #if directives.
+ * table at runtime — the driver contains no board-conditional preprocessor directives.
  *
  * Layout:
  *   §1  Includes

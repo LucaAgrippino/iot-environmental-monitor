@@ -39,22 +39,23 @@ typedef struct
 {
     uint8_t count;       /**< Profiles in use, 0..DEVICE_PROFILE_MAX. */
     uint8_t reserved[3]; /**< Padding; zero. */
-    device_profile_t entries[DEVICE_PROFILE_MAX];
+    device_profile_t
+        entries[DEVICE_PROFILE_MAX]; /**< Profile slots; only the first count are valid. */
 } config_profiles_t;
 
 /** @brief Stored form of the configuration: schema version, the parameters, the profiles. */
 typedef struct
 {
-    uint32_t schema_version;
-    config_params_t params;
-    config_profiles_t profiles;
+    uint32_t schema_version; /**< Layout version of the stored record, to detect an old format. */
+    config_params_t params;  /**< Gateway parameters. */
+    config_profiles_t profiles; /**< Registered Field Device profiles. */
 } config_blob_t;
 
 /** @brief Schema 1 stored form: kept to recognise and migrate an older blob. */
 typedef struct
 {
-    uint32_t schema_version;
-    config_params_t params;
+    uint32_t schema_version; /**< Layout version of the stored record, to detect an old format. */
+    config_params_t params;  /**< Gateway parameters. */
 } config_blob_v1_t;
 
 _Static_assert(sizeof(config_blob_t) ==

@@ -38,7 +38,7 @@
 
 #define I2C_SCL_PIN (10U)
 #define I2C_SDA_PIN (11U)
-#define I2C_GPIO_AF (4U) /* AF4 = I2C2_SCL / I2C2_SDA on L475. */
+#define I2C_GPIO_AF (4U) /**< AF4 = I2C2_SCL / I2C2_SDA on L475. */
 
 /** I2C v2 NBYTES is an 8-bit field. */
 #define I2C_MAX_TRANSFER_BYTES (255U)
@@ -56,11 +56,11 @@
 #define I2C_RECOVERY_HALF_PERIOD_LOOPS (1U)
 #else
 #define I2C_TIMEOUT_COUNT (50000U)
-/* ~50 us at 80 MHz => SCL ~10 kHz during recovery. */
+/** ~50 us at 80 MHz => SCL ~10 kHz during recovery. */
 #define I2C_RECOVERY_HALF_PERIOD_LOOPS (1000U)
 #endif
 
-/* GPIO field encodings. */
+/** GPIO field encodings. */
 #define GPIO_MODER_INPUT (0UL)
 #define GPIO_MODER_OUTPUT (1UL)
 #define GPIO_MODER_AF (2UL)

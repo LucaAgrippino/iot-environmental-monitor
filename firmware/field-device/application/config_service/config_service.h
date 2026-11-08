@@ -41,6 +41,7 @@
 /* Error codes                                                               */
 /* ========================================================================= */
 
+/** @brief Result codes of the ConfigService API. */
 typedef enum
 {
     CONFIG_SERVICE_OK = 0,
@@ -54,6 +55,7 @@ typedef enum
 /* Parameter identifiers                                                     */
 /* ========================================================================= */
 
+/** @brief Identifier of a configuration parameter. */
 typedef enum
 {
     CONFIG_PARAM_POLL_INTERVAL = 0,
@@ -99,12 +101,13 @@ typedef void (*config_change_cb_t)(config_param_id_t param_id);
 /* Serialisation blob (§6)                                                   */
 /* ========================================================================= */
 
+/** @brief Record stored in flash: schema version and parameters. */
 typedef struct __attribute__((packed))
 {
     /* cppcheck-suppress unusedStructMember -- read in config_service_apply_loaded() */
     uint32_t schema_version; /**< Must equal CONFIG_SCHEMA_VERSION (CS-O1). */
     /* cppcheck-suppress unusedStructMember -- copied to/from s_cs.params in persist/load */
-    config_params_t params;
+    config_params_t params; /**< Operational configuration parameters. */
 } config_blob_t;
 
 /* ========================================================================= */
@@ -244,30 +247,32 @@ config_service_err_t config_service_register_change_callback(config_change_cb_t 
 /* Singleton vtables — IConfigProvider / IConfigManager (LLD-D10 pattern)  */
 /* ========================================================================= */
 
+/** @brief Read interface of ConfigService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called via vtable by SensorService, AlarmService */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by SensorService, AlarmService */
     const config_params_t *(*get_params)(void);
 } iconfig_provider_t;
 
+/** @brief Write interface of ConfigService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     config_service_err_t (*init)(const iconfig_store_t *store);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     config_service_err_t (*apply_loaded)(const void *blob, uint32_t len);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by ConsoleService,
+    /** cppcheck-suppress unusedStructMember -- called via vtable by ConsoleService,
      * ModbusRegisterMap */
     config_service_err_t (*set_param)(config_param_id_t id, const void *value);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by ConsoleService */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by ConsoleService */
     config_service_err_t (*validate_param)(config_param_id_t id, const void *value);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     config_service_err_t (*snapshot)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     config_service_err_t (*restore_snapshot)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     config_service_err_t (*flush)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by ModbusSlave, ModbusPoller,
+    /** cppcheck-suppress unusedStructMember -- called via vtable by ModbusSlave, ModbusPoller,
      * CloudPublisher */
     config_service_err_t (*register_change_callback)(config_change_cb_t cb);
 } iconfig_manager_t;
@@ -289,7 +294,9 @@ extern const iconfig_manager_t *const config_manager;
 #ifdef TEST
 #define CONFIG_SERVICE_TEST_VISIBLE
 #else
-#define CONFIG_SERVICE_TEST_VISIBLE static
+#define CONFIG_SERVICE_TEST_VISIBLE                                                                \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ========================================================================= */

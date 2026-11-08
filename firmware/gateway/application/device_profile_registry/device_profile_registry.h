@@ -25,9 +25,10 @@
 
 /** The profile seeded when nothing is stored (LLD §6.1). */
 #define DEVICE_PROFILE_DEFAULT_ADDR (1U)
-#define DEVICE_PROFILE_DEFAULT_MAP_VERSION (1U)
-#define DEVICE_PROFILE_DEFAULT_VENDOR_CODE (0x1A45U)
-#define DEVICE_PROFILE_DEFAULT_DESCRIPTION "Field Device 1 (default)"
+#define DEVICE_PROFILE_DEFAULT_MAP_VERSION (1U)      /**< Map version of the default profile. */
+#define DEVICE_PROFILE_DEFAULT_VENDOR_CODE (0x1A45U) /**< Vendor code of the default profile. */
+#define DEVICE_PROFILE_DEFAULT_DESCRIPTION                                                         \
+    "Field Device 1 (default)" /**< Description of the default profile. */
 
 /** @brief One provisioned Modbus slave and the identity it must present. */
 typedef struct
@@ -38,6 +39,7 @@ typedef struct
     char description[DEVICE_PROFILE_DESC_MAX]; /**< NUL-terminated label.                */
 } device_profile_t;
 
+/** @brief Result codes of the DeviceProfileRegistry API. */
 typedef enum
 {
     DEVICE_PROFILE_REGISTRY_OK = 0,
@@ -68,18 +70,26 @@ typedef struct
      * lock, so it is consistent even if a writer commits meanwhile.
      */
     bool (*get_next)(device_profile_t *out, uint8_t *index);
-    device_profile_registry_err_t (*get_by_addr)(uint8_t slave_addr, device_profile_t *out);
-    bool (*is_registered)(uint8_t slave_addr);
+    device_profile_registry_err_t (*get_by_addr)(
+        uint8_t slave_addr,
+        device_profile_t *out); /**< Copy the profile of a slave address into out. */
+    bool (*is_registered)(
+        uint8_t slave_addr); /**< True if a profile with this slave address is registered. */
 } idevice_profile_provider_t;
 
 /** @brief Write side. */
 typedef struct
 {
-    device_profile_registry_err_t (*add_or_update)(const device_profile_t *profile);
-    device_profile_registry_err_t (*remove)(uint8_t slave_addr);
+    device_profile_registry_err_t (*add_or_update)(
+        const device_profile_t
+            *profile); /**< Add a profile, or replace the one with the same slave address. */
+    device_profile_registry_err_t (*remove)(
+        uint8_t slave_addr); /**< Remove the profile of a slave address. */
 } idevice_profile_manager_t;
 
+/** @brief Read-only access to the registry. */
 extern const idevice_profile_provider_t *const device_profile_provider;
+/** @brief Read and write access to the registry. */
 extern const idevice_profile_manager_t *const device_profile_manager;
 
 /**
@@ -101,7 +111,11 @@ device_profile_registry_err_t device_profile_registry_init(const device_profile_
  */
 device_profile_registry_err_t device_profile_registry_load(void);
 
-/** @brief Number of registered profiles; 0 before init. */
+/**
+ * @brief Number of registered profiles; 0 before init.
+ *
+ * @return Number of profiles.
+ */
 uint8_t device_profile_registry_count(void);
 
 /** @brief Test hook: return to the un-initialised state. */

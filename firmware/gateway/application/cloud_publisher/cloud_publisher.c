@@ -42,7 +42,7 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #define CP_TASK_STACK_WORDS 768u
 #define CP_TASK_PRIORITY 3u
 
-/* CP-O6 / CP-D35: alarms are published by a task of their own, one priority above the publisher.
+/** CP-O6 / CP-D35: alarms are published by a task of their own, one priority above the publisher.
  * Its stack and JSON buffer live in SRAM2 (the main bank has no room, see mqtt_client.c). */
 #define CP_ALARM_TASK_STACK_WORDS 512u
 #define CP_ALARM_TASK_PRIORITY (CP_TASK_PRIORITY + 1u)
@@ -56,7 +56,7 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #define CP_TELEMETRY_PERIOD_MS_DEFAULT 60000u
 #define CP_HEALTH_PERIOD_MS_DEFAULT 300000u
 #define CP_STATS_PERIOD_MS 1000u
-#define CP_READ_WAIT_MS 300u /* longest wait for the cycle a "read" command asks for */
+#define CP_READ_WAIT_MS 300u /**< longest wait for the cycle a "read" command asks for */
 #define CP_READ_POLL_MS 10u
 
 /** CP-D9: retry backoff between failed reconnect attempts (stats ticks). */
@@ -92,11 +92,11 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
 #ifndef CP_DRAIN_PASS_INTERVAL_MS
 #define CP_DRAIN_PASS_INTERVAL_MS 1000u
 #endif
-/* CP-D32: after a failed replay publish on a live link the drain waits, doubling per consecutive
+/** CP-D32: after a failed replay publish on a live link the drain waits, doubling per consecutive
  * failure like the reconnect curve (CP-D13), instead of retrying every tick. */
 #define CP_DRAIN_BACKOFF_MIN_S 5u
 #define CP_DRAIN_BACKOFF_MAX_S 60u
-/* CP-D32: an entry whose publish fails this many times in a row on a live link is dropped, so one
+/** CP-D32: an entry whose publish fails this many times in a row on a live link is dropped, so one
  * entry the module cannot send cannot hold back everything behind it. */
 #define CP_DRAIN_POISON_FAILS 3u
 
@@ -113,7 +113,7 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
     (1u << 8) /**< UpdateService: an OTA request or report is queued (CPC-5). */
 #define CP_NOTIFY_CONFIG_CHANGED                                                                   \
     (1u << 9) /**< ConfigService: a publish interval changed (CP-D31). */
-/* Bit 5 (MQTT_CLIENT_WIFI_RECV_READY_BIT, mqtt_client.h) is set by MqttClient
+/** Bit 5 (MQTT_CLIENT_WIFI_RECV_READY_BIT, mqtt_client.h) is set by MqttClient
  * itself, not CloudPublisher — included here so xTaskNotifyWait()'s
  * clear-on-exit mask actually clears it (WIFITASK-O1 Phase 3). Leaving it
  * out of this mask would still wake the task on eSetBits (any bit change
@@ -156,7 +156,7 @@ typedef struct
 
 struct cloud_publisher_inst
 {
-    /* Injected dependencies (CP-D25) */
+    /** Injected dependencies (CP-D25) */
     mqtt_client_handle_t mqtt;
     saf_handle_t saf;
     health_monitor_handle_t health;
@@ -170,7 +170,7 @@ struct cloud_publisher_inst
     const iupdate_service_t *update_ops;
     update_service_t *update;
 
-    /* Working state */
+    /** Working state */
     char scratch_buf[CP_JSON_BUF_SIZE];
     uint32_t telemetry_ms; /**< Period the telemetry timer runs at (CP-D31). */
     uint32_t health_ms;    /**< Period the health timer runs at (CP-D31).    */
@@ -205,7 +205,7 @@ struct cloud_publisher_inst
     const char *sub_inflight_topic;
     volatile bool link_up; /**< Mirror of is_connected() for any task.  */
 
-    /* FreeRTOS objects */
+    /** FreeRTOS objects */
     QueueHandle_t alarm_queue;
     QueueHandle_t command_queue;
     QueueHandle_t ota_queue;
@@ -1234,7 +1234,9 @@ static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
 /* Field Device alarm flags (runs in the ModbusPoller task)              */
 /* ===================================================================== */
 
-#define CP_FD_ALARM_BITS (6u) /* TEMP_LOW, TEMP_HIGH, HUM_LOW, HUM_HIGH, PRESS_LOW, PRESS_HIGH */
+#define CP_FD_ALARM_BITS                                                                           \
+    (6u) /**< TEMP_LOW, TEMP_HIGH, HUM_LOW, HUM_HIGH, PRESS_LOW, PRESS_HIGH                        \
+          */
 
 /** One published alarm per changed ALARM_FLAGS bit; the threshold is the limit the poller read from
  * the Field Device. */

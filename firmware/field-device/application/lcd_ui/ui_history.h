@@ -16,8 +16,8 @@
 
 #include "lcd_ui/ui_format.h"
 
-#define UI_HISTORY_PERIOD_MS (5000U) /* REQ-SA-200: fixed 5 s sampling interval */
-#define UI_HISTORY_LEN (60U)         /* REQ-SA-190: 5 min window / 5 s = 60 samples */
+#define UI_HISTORY_PERIOD_MS (5000U) /**< REQ-SA-200: fixed 5 s sampling interval */
+#define UI_HISTORY_LEN (60U)         /**< REQ-SA-190: 5 min window / 5 s = 60 samples */
 
 /** Forget all samples. */
 void ui_history_reset(void);

@@ -16,7 +16,7 @@
 #ifndef MBEDTLS_CONFIG_GATEWAY_H
 #define MBEDTLS_CONFIG_GATEWAY_H
 
-/* Platform: bare-metal, no libc entropy source beyond the STM32L4
+/** Platform: bare-metal, no libc entropy source beyond the STM32L4
  * on-chip RNG (see prv_entropy_poll() in mqtt_client.c). */
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 
@@ -46,7 +46,7 @@ void tls_arena_uninit_free(void *ptr);
 #define MBEDTLS_PLATFORM_STD_CALLOC tls_arena_uninit_calloc
 #define MBEDTLS_PLATFORM_STD_FREE tls_arena_uninit_free
 
-/* The arena's debug dump prints to stderr, which does not exist: print nothing. Its corruption
+/** The arena's debug dump prints to stderr, which does not exist: print nothing. Its corruption
  * checks call exit(1): trap, so a damaged arena faults at once instead of running on. */
 #define MBEDTLS_PLATFORM_FPRINTF_MACRO(...) ((void) 0)
 #define MBEDTLS_PLATFORM_EXIT_MACRO(status) __builtin_trap()
@@ -84,7 +84,7 @@ void tls_arena_uninit_free(void *ptr);
 #define MBEDTLS_ECP_C
 #define MBEDTLS_ECP_DP_SECP256R1_ENABLED
 
-/* --- ECDSA-P256 verification of OTA images (FirmwareStore, FS-O4) ---
+/** --- ECDSA-P256 verification of OTA images (FirmwareStore, FS-O4) ---
  * Not used by the TLS handshake: the key exchange above stays ECDHE-RSA and no ECDSA
  * cipher suite is enabled. Only ota_crypto.c calls mbedtls_ecdsa_verify(). Needs ECP, BIGNUM
  * and the ASN.1 modules, all of which are on. */
@@ -112,7 +112,7 @@ void tls_arena_uninit_free(void *ptr);
 
 /* --- Big number support (RSA/ECC) ------------------------------------ */
 #define MBEDTLS_BIGNUM_C
-/* Performance (Phase 4 hardware finding, TC-HW-CP-004): at -O0 on the
+/** Performance (Phase 4 hardware finding, TC-HW-CP-004): at -O0 on the
  * 80 MHz M4 the client's RSA-2048 CertificateVerify signature plus the
  * P-256 ECDHE alone exceeded the 30 s handshake budget (MqttClient's
  * own deadline and Mosquitto's pre-CONNECT timeout are both 30 s). Both
@@ -123,7 +123,7 @@ void tls_arena_uninit_free(void *ptr);
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_ECP_NIST_OPTIM
 
-/* --- RNG: CTR_DRBG seeded from the on-chip hardware entropy source --- */
+/** --- RNG: CTR_DRBG seeded from the on-chip hardware entropy source --- */
 #define MBEDTLS_ENTROPY_C
 #define MBEDTLS_CTR_DRBG_C
 

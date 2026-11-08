@@ -18,6 +18,7 @@
 #include "lvgl.h"
 #endif
 
+/** @brief Splash overlay shown while the device boots. */
 typedef struct
 {
     lv_obj_t *root;      /**< Full-screen overlay. */
@@ -39,6 +40,9 @@ typedef struct
  * @param[in] footer_left  Text at the bottom left, e.g. "FW v1.0.0 . build 20261107 . LVGL
  * v8.3.11".
  * @param[in] footer_right Text at the bottom right, e.g. "STM32F469 . 800x480".
+ *
+ * @param s Overlay to build.
+ * @param parent Parent object.
  */
 void splash_view_create(splash_view_t *s, lv_obj_t *parent, const char *footer_left,
                         const char *footer_right);
@@ -48,13 +52,25 @@ void splash_view_create(splash_view_t *s, lv_obj_t *parent, const char *footer_l
  *
  * @param[in] percent  0-100; larger values are clamped.
  * @param[in] step     Step name, shown as given; NULL keeps the current name.
+ *
+ * @param s Overlay.
  */
 void splash_view_set(splash_view_t *s, uint8_t percent, const char *step);
 
-/** @brief Show or hide the overlay. */
+/**
+ * @brief Show or hide the overlay.
+ *
+ * @param s Overlay.
+ * @param visible true to show, false to hide.
+ */
 void splash_view_show(splash_view_t *s, bool visible);
 
-/** @brief True while the overlay is shown. */
+/**
+ * @brief True while the overlay is shown.
+ *
+ * @param s Overlay.
+ * @return true while the overlay is shown.
+ */
 bool splash_view_visible(const splash_view_t *s);
 
 #endif /* SPLASH_VIEW_H */

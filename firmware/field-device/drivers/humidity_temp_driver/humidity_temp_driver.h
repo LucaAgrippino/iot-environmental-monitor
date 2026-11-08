@@ -63,10 +63,10 @@ typedef enum
 typedef struct
 {
     // cppcheck-suppress unusedStructMember -- populated here, consumed by SensorService callers not
-    // in cppcheck's file set
+    /// in cppcheck's file set
     int32_t temperature_x100;
     // cppcheck-suppress unusedStructMember -- populated here, consumed by SensorService callers not
-    // in cppcheck's file set
+    /// in cppcheck's file set
     uint32_t humidity_x100;
 } ht_reading_t;
 
@@ -117,7 +117,9 @@ void humidity_temp_inject_fault(bool inject);
 #ifdef TEST
 #define HT_TEST_VISIBLE
 #else
-#define HT_TEST_VISIBLE static
+#define HT_TEST_VISIBLE                                                                            \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ------------------------------------------------------------------ */

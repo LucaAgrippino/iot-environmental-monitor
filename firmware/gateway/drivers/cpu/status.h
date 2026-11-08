@@ -2,12 +2,14 @@
 #define STATUS_H
 
 /**
+ * @file status.h
  * @brief Common status codes for Gateway drivers and middleware.
  *
  * Modules with their own error namespace (e.g. I2cDriver → i2c_err_t) retain
  * their own type.  CpuDriver uses status_t because its conditions (timeout,
  * hardware absent) are generic infrastructure concerns.
  */
+/** @brief Status code of the CPU driver. */
 typedef enum
 {
     STATUS_OK = 0,              /**< Operation completed successfully. */

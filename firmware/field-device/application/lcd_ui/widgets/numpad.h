@@ -19,24 +19,25 @@
 
 #include "lcd_ui/widgets/button.h"
 
-#define NUMPAD_W 280 /* .cfg-layout: grid-template-columns 1fr 280px */
-#define NUMPAD_TEXT_MAX 8U
+#define NUMPAD_W 280       /**< .cfg-layout: grid-template-columns 1fr 280px */
+#define NUMPAD_TEXT_MAX 8U /**< Longest text the keypad accepts, in characters. */
 
 /** Called after every key with the new entry text. */
 typedef void (*numpad_changed_cb_t)(const char *text);
 
+/** @brief Numeric keypad widget. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *display;
-    lv_obj_t *display_text;
-    button_t sign;
-    button_t key[12];
-    char buf[NUMPAD_TEXT_MAX + 1U];
-    uint32_t len;
-    bool active;
-    bool invalid;
-    numpad_changed_cb_t changed;
+    lv_obj_t *box;                  /**< Keypad surface. */
+    lv_obj_t *display;              /**< Display box. */
+    lv_obj_t *display_text;         /**< Text on the display. */
+    button_t sign;                  /**< Sign key. */
+    button_t key[12];               /**< Digit and control keys. */
+    char buf[NUMPAD_TEXT_MAX + 1U]; /**< Typed text. */
+    uint32_t len;                   /**< Number of characters in buf. */
+    bool active;                    /**< True while the keypad is attached to a field. */
+    bool invalid;                   /**< True when the typed value is not valid. */
+    numpad_changed_cb_t changed;    /**< Called when the text changes. */
 } numpad_t;
 
 /**
@@ -60,7 +61,12 @@ void numpad_create(numpad_t *np, lv_obj_t *parent, lv_coord_t x, lv_coord_t y, l
  */
 void numpad_load(numpad_t *np, const char *text);
 
-/** @brief Show the entry in the error colour or the accent colour. */
+/**
+ * @brief Show the entry in the error colour or the accent colour.
+ *
+ * @param np Keypad.
+ * @param invalid true to show the entry as invalid.
+ */
 void numpad_set_invalid(numpad_t *np, bool invalid);
 
 /**
@@ -71,7 +77,11 @@ void numpad_set_invalid(numpad_t *np, bool invalid);
  */
 void numpad_press(numpad_t *np, const char *key);
 
-/** @return The entry text. */
+/**
+ * @param np Keypad.
+ * @return The entry text.
+ *
+ */
 const char *numpad_text(const numpad_t *np);
 
 #endif /* NUMPAD_H */

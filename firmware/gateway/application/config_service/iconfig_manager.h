@@ -12,17 +12,18 @@
 
 #include "config_service_types.h"
 
+/** @brief Write interface of ConfigService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by the write-side consumers */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by the write-side consumers */
     config_service_err_t (*set_param)(void *ctx, config_param_id_t id, const void *value);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by the write-side consumers */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by the write-side consumers */
     config_service_err_t (*validate_param)(void *ctx, config_param_id_t id, const void *value);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by latency-sensitive callers */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by latency-sensitive callers */
     config_service_err_t (*set_param_deferred)(void *ctx, config_param_id_t id, const void *value);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by whoever owns the flush */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by whoever owns the flush */
     config_service_err_t (*persist_pending)(void *ctx);
 } iconfig_manager_t;
 

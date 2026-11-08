@@ -34,20 +34,20 @@
 /** @brief Internal instance state — hidden from consumers. */
 struct saf_inst
 {
-    /* Injected dependencies */
+    /** Injected dependencies */
     cfl_handle_t cfl;
     health_monitor_handle_t health;
 
-    /* Configuration and tracking */
+    /** Configuration and tracking */
     uint32_t capacity;
     uint32_t entry_count;
 
-    /* Two-phase drain state */
+    /** Two-phase drain state */
     bool has_pending;
     saf_entry_t pending_hdr;
     uint8_t pending_payload[SAF_PAYLOAD_MAX];
 
-    /* Serialisation / deserialisation scratch */
+    /** Serialisation / deserialisation scratch */
     uint8_t stage_buf[SAF_STAGE_BUF_SIZE];
 
     bool in_use;

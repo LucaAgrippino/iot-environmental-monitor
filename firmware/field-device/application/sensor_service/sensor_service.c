@@ -41,11 +41,11 @@
 /* Constants                                                                */
 /* ======================================================================= */
 
-/* Default IIR alpha as fraction: alpha = ALPHA_NUM / ALPHA_DEN = 0.1 */
+/** Default IIR alpha as fraction: alpha = ALPHA_NUM / ALPHA_DEN = 0.1 */
 #define SENSOR_ALPHA_NUM_DEFAULT (1U)
 #define SENSOR_ALPHA_DEN_DEFAULT (10U)
 
-/* Poll timer period.
+/** Poll timer period.
  * DEVIATION from companion §9: period is 200 ms instead of 100 ms.
  * See bug-log.md for details. */
 #define SENSOR_POLL_INTERVAL_MS (100U)
@@ -80,12 +80,13 @@ static const int32_t s_range_max[SENSOR_ID_COUNT] = {
 typedef struct
 {
     bool initialised;
-    sensor_snapshot_t snapshot;             /* guarded by taskENTER_CRITICAL for reads */
-    int32_t prev_filtered[SENSOR_ID_COUNT]; /* IIR filter state (same units as reading.value) */
-    bool filter_seeded[SENSOR_ID_COUNT]; /* the filter state holds a real sample, not the reset 0 */
-    uint8_t alpha_num;                   /* IIR coefficient numerator   */
-    uint8_t alpha_den;                   /* IIR coefficient denominator */
-    bool driver_failed[SENSOR_ID_COUNT]; /* permanent fail flag */
+    sensor_snapshot_t snapshot;             /**< guarded by taskENTER_CRITICAL for reads */
+    int32_t prev_filtered[SENSOR_ID_COUNT]; /**< IIR filter state (same units as reading.value) */
+    bool filter_seeded[SENSOR_ID_COUNT]; /**< the filter state holds a real sample, not the reset 0
+                                          */
+    uint8_t alpha_num;                   /**< IIR coefficient numerator */
+    uint8_t alpha_den;                   /**< IIR coefficient denominator */
+    bool driver_failed[SENSOR_ID_COUNT]; /**< permanent fail flag */
     void (*subscribers[SENSOR_MAX_SUBSCRIBERS])(const sensor_snapshot_t *);
     uint8_t subscriber_count;
     TimerHandle_t poll_timer;

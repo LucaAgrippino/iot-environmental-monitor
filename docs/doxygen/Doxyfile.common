@@ -1,0 +1,45 @@
+# Shared Doxygen settings for both firmwares: the PUBLIC API (headers only). Use scripts/gen-doxygen.sh.
+# Call graphs need the .c files; scripts/gen-doxygen.sh --with-sources adds them (Doxyfile.sources).
+OUTPUT_LANGUAGE        = English
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = NO
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.md
+EXCLUDE_PATTERNS       = */integration-tests/* */Debug/* */Release/* */build/* */test/* */lv_conf.h */mbedtls_config*.h
+OPTIMIZE_OUTPUT_FOR_C  = YES
+TYPEDEF_HIDES_STRUCT   = YES
+MARKDOWN_SUPPORT       = YES
+# Warnings: the gate for REQ-NF-505 is "no undocumented public function"
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+# Output
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = html
+SOURCE_BROWSER         = NO
+# Diagrams (needs graphviz: dot). C has no classes: the "class" diagrams are the struct
+# collaboration graphs (UML look: members and associations), plus include and call graphs.
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = NO
+UML_LOOK               = YES
+UML_LIMIT_NUM_FIELDS   = 20
+TEMPLATE_RELATIONS     = NO
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = YES
+GROUP_GRAPHS           = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+GRAPHICAL_HIERARCHY    = YES
+DIRECTORY_GRAPH        = YES
+DOT_GRAPH_MAX_NODES    = 60
+DOT_MULTI_TARGETS      = YES
+DOT_CLEANUP            = YES
+PREDEFINED             = "__attribute__(x)="
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+ENABLE_PREPROCESSING   = YES

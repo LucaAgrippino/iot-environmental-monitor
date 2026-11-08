@@ -55,19 +55,19 @@ typedef struct
 /** @brief Everything ConsoleService reads from or writes to. All pointers must be non-NULL. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- consumed by the service and the commands */
+    /** cppcheck-suppress unusedStructMember -- consumed by the service and the commands */
     const idebug_uart_t *uart;
-    /* cppcheck-suppress unusedStructMember -- consumed by the model */
+    /** cppcheck-suppress unusedStructMember -- consumed by the model */
     const isensor_service_t *sensors;
-    /* cppcheck-suppress unusedStructMember -- consumed by the model */
+    /** cppcheck-suppress unusedStructMember -- consumed by the model */
     const ialarm_service_t *alarms;
-    /* cppcheck-suppress unusedStructMember -- consumed by the model and the commands */
+    /** cppcheck-suppress unusedStructMember -- consumed by the model and the commands */
     const iconfig_provider_t *cfg_read;
-    /* cppcheck-suppress unusedStructMember -- consumed by the commands */
+    /** cppcheck-suppress unusedStructMember -- consumed by the commands */
     const iconfig_manager_t *cfg_write;
-    /* cppcheck-suppress unusedStructMember -- consumed by the model and the commands */
+    /** cppcheck-suppress unusedStructMember -- consumed by the model and the commands */
     health_monitor_handle_t health;
-    /* cppcheck-suppress unusedStructMember -- consumed by `profiles list` */
+    /** cppcheck-suppress unusedStructMember -- consumed by `profiles list` */
     const idevice_profile_provider_t *prof_read;
     /* cppcheck-suppress unusedStructMember -- consumed by `profiles add` and `profiles remove` */
     const idevice_profile_manager_t

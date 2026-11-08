@@ -24,6 +24,7 @@
 /** @brief Lifecycle state machine states (§5.1). */
 #ifndef LIFECYCLE_STATE_DEFINED
 #define LIFECYCLE_STATE_DEFINED
+/** @brief Guard: lifecycle_state_t is also defined by other modules. */
 typedef enum
 {
     LIFECYCLE_STATE_INIT = 0,
@@ -38,6 +39,7 @@ typedef enum
 /** @brief Cause of the most recent hardware reset (§5.2). */
 #ifndef LIFECYCLE_RESET_CAUSE_DEFINED
 #define LIFECYCLE_RESET_CAUSE_DEFINED
+/** @brief Guard: lifecycle_reset_cause_t is also defined by other modules. */
 typedef enum
 {
     LIFECYCLE_RESET_POWER_ON = 0,
@@ -79,13 +81,14 @@ typedef enum
 /** @brief Event payload (§5.4). */
 typedef struct
 {
-    lifecycle_event_type_t type;
-    uint32_t param; /**< Fault code, OTA job id, ... */
+    lifecycle_event_type_t type; /**< Kind of event. */
+    uint32_t param;              /**< Fault code, OTA job id, ... */
 } lifecycle_event_t;
 
 /** @brief Remote commands dispatched through handle_remote_command (§5.5). */
 #ifndef LC_REMOTE_CMD_DEFINED
 #define LC_REMOTE_CMD_DEFINED
+/** @brief Guard: lifecycle_remote_cmd_t is also defined by other modules. */
 typedef enum
 {
     LC_REMOTE_CMD_SOFT_RESTART = 0,  /**< Modbus 0x0202; two-step (REQ-DM-020).  */

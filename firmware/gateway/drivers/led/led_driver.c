@@ -4,7 +4,7 @@
  *
  * GPIO access is delegated entirely to GpioDriver; no CMSIS registers are
  * touched here. Polarity comes from the caller-supplied pin table at runtime —
- * the driver contains no board-conditional #if directives.
+ * the driver contains no board-conditional preprocessor directives.
  *
  * @see docs/lld/drivers/led-driver-lld.md
  */

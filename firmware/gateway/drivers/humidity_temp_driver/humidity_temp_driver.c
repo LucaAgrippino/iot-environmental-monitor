@@ -42,7 +42,7 @@
 /** Register address + value. */
 #define HTS221_WRITE_LEN (2U)
 
-/* Offsets into the calibration burst (register address minus 0x30). */
+/** Offsets into the calibration burst (register address minus 0x30). */
 #define CAL_H0_RH_X2 (0U)
 #define CAL_H1_RH_X2 (1U)
 #define CAL_T0_DEGC_X8 (2U)
@@ -64,8 +64,8 @@
 /** Retry delay when STATUS_REG reports data not ready. */
 #define HUMIDITY_TEMP_RETRY_DELAY_MS (2U)
 
-/* Fixed-point scaling. */
-#define HUMIDITY_X2_TO_X100 (50) /* H*_rH_x2 holds 2 x %RH; x100 / 2 = x50. */
+/** Fixed-point scaling. */
+#define HUMIDITY_X2_TO_X100 (50) /**< H*_rH_x2 holds 2 x %RH; x100 / 2 = x50. */
 #define TEMP_X8_TO_X100_NUM (100)
 #define TEMP_X8_DIVISOR (8)
 #define HUMIDITY_MIN_X100 (0)
@@ -90,7 +90,7 @@ typedef struct
 typedef struct
 {
     hts221_cal_t cal;
-    bool ready; /* set true after successful init */
+    bool ready; /**< set true after successful init */
 } humidity_temp_state_t;
 
 static humidity_temp_state_t s_ht;

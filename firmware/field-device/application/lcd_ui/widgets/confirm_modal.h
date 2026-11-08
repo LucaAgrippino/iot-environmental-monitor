@@ -16,17 +16,18 @@
 
 #include "lcd_ui/widgets/button.h"
 
-#define CONFIRM_MODAL_MAX_LINES 7U /* one line per editable field */
+#define CONFIRM_MODAL_MAX_LINES 7U /**< one line per editable field */
 
+/** @brief Confirmation dialog widget. */
 typedef struct
 {
-    lv_obj_t *backdrop;
-    lv_obj_t *panel;
-    lv_obj_t *lines;
-    lv_obj_t *body;
-    button_t cancel;
-    button_t confirm;
-    bool open;
+    lv_obj_t *backdrop; /**< Dimmed layer behind the dialog. */
+    lv_obj_t *panel;    /**< Dialog panel. */
+    lv_obj_t *lines;    /**< Container of the change lines. */
+    lv_obj_t *body;     /**< Body text. */
+    button_t cancel;    /**< CANCEL button. */
+    button_t confirm;   /**< CONFIRM button. */
+    bool open;          /**< True while the dialog is shown. */
 } confirm_modal_t;
 
 /**
@@ -49,10 +50,18 @@ void confirm_modal_create(confirm_modal_t *m, lv_obj_t *parent, lv_event_cb_t on
  */
 void confirm_modal_show(confirm_modal_t *m, const char *text, uint32_t count);
 
-/** @brief Hide the modal. */
+/**
+ * @brief Hide the modal.
+ *
+ * @param m Dialog.
+ */
 void confirm_modal_hide(confirm_modal_t *m);
 
-/** @return true while shown. */
+/**
+ * @param m Dialog.
+ * @return true while shown.
+ *
+ */
 bool confirm_modal_is_open(const confirm_modal_t *m);
 
 #endif /* CONFIRM_MODAL_H */

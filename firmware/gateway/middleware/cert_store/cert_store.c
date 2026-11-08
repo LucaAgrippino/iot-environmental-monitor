@@ -13,13 +13,15 @@
 #ifdef TEST
 #define CERT_STORE_RAM /* host builds: ordinary static storage */
 #else
-#define CERT_STORE_RAM __attribute__((section(".bss.sram2"))) /* the 96 KB bank is nearly full */
+#define CERT_STORE_RAM                                                                             \
+    __attribute__((section(".bss.sram2"))) /**< the 96 KB bank is nearly full                      \
+                                            */
 #endif
 
 #define SECTOR_SIZE (4096UL)
-#define SLOT_SIZE (2UL * SECTOR_SIZE) /* two erase sectors per slot */
+#define SLOT_SIZE (2UL * SECTOR_SIZE) /**< two erase sectors per slot */
 #define SLOT_COUNT (2U)
-#define MAGIC (0x54524543UL) /* "CERT" */
+#define MAGIC (0x54524543UL) /**< "CERT" */
 #define FORMAT_VERSION (2U)
 #define PAGE_SIZE (256UL)
 #define SHA256_BYTES (32U)
@@ -32,9 +34,9 @@ typedef struct
 {
     uint32_t magic;
     uint32_t sequence;
-    uint32_t crc; /* over the body as stored (pass and key encrypted) */
+    uint32_t crc; /**< over the body as stored (pass and key encrypted) */
     uint16_t version;
-    uint16_t reserved; /* zero */
+    uint16_t reserved; /**< zero */
 } slot_header_t;
 
 typedef struct
@@ -45,13 +47,13 @@ typedef struct
     uint16_t client_len;
     uint16_t key_len;
     uint8_t endpoint_len;
-    uint8_t reserved; /* zero */
+    uint8_t reserved; /**< zero */
     char endpoint[CERT_STORE_ENDPOINT_MAX + 1U];
     char ssid[CERT_STORE_SSID_MAX + 1U];
-    char pass[CERT_STORE_PASS_MAX + 1U]; /* encrypted on flash */
+    char pass[CERT_STORE_PASS_MAX + 1U]; /**< encrypted on flash */
     uint8_t ca[CERT_STORE_CERT_MAX];
     uint8_t client[CERT_STORE_CERT_MAX];
-    uint8_t key[CERT_STORE_KEY_MAX]; /* encrypted on flash */
+    uint8_t key[CERT_STORE_KEY_MAX]; /**< encrypted on flash */
 } slot_body_t;
 
 _Static_assert(sizeof(slot_header_t) == 16U, "slot header");

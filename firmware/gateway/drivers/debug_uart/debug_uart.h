@@ -199,7 +199,7 @@ debug_uart_err_t debug_uart_send(const uint8_t *data, size_t length, uint32_t ti
  * @brief Read the most recent complete line.
  *
  * Copies the latest accumulated line into the caller's buffer and
- * null-terminates it. The line terminator characters (\r and \n) are
+ * null-terminates it. The line terminator characters (CR and LF) are
  * stripped before copying. Resets the internal line-ready flag so that
  * the next callback invocation corresponds to a new line.
  *
@@ -291,14 +291,21 @@ debug_uart_err_t debug_uart_set_baud(uint32_t baud);
  */
 typedef struct idebug_uart_s
 {
-    debug_uart_err_t (*send)(const uint8_t *data, size_t length, uint32_t timeout_ms);
+    debug_uart_err_t (*send)(const uint8_t *data, size_t length,
+                             uint32_t timeout_ms); /**< Send bytes, waiting at most timeout_ms. */
+    /** Take the next complete line, if any. */
     debug_uart_err_t (*read_line)(uint8_t *out_buf, size_t buf_size, size_t *out_length,
                                   debug_uart_line_flag_t *out_flag);
-    debug_uart_err_t (*attach_rx)(debug_uart_line_callback_t callback, void *context);
-    debug_uart_err_t (*attach_rx_byte)(debug_uart_byte_callback_t callback, void *context);
-    debug_uart_err_t (*set_baud)(uint32_t baud);
+    debug_uart_err_t (*attach_rx)(
+        debug_uart_line_callback_t callback,
+        void *context); /**< Register the callback called when a line is complete. */
+    debug_uart_err_t (*attach_rx_byte)(
+        debug_uart_byte_callback_t callback,
+        void *context); /**< Register the callback called for every received byte (raw mode). */
+    debug_uart_err_t (*set_baud)(uint32_t baud); /**< Change the baud rate. */
 } idebug_uart_t;
 
+/** @brief The debug UART instance. */
 extern const idebug_uart_t *const debug_uart;
 
 /* ------------------------------------------------------------------ */

@@ -30,16 +30,16 @@
 /* Constants                                                                */
 /* ======================================================================= */
 
-/* Default IIR coefficient alpha = NUM / DEN = 0.1 (SS-O1). */
+/** Default IIR coefficient alpha = NUM / DEN = 0.1 (SS-O1). */
 #define SENSOR_ALPHA_NUM_DEFAULT (1U)
 #define SENSOR_ALPHA_DEN_DEFAULT (10U)
 
-/* ConfigService carries alpha in per-mille (config_params_t.filter_alpha, range 1..999). */
+/** ConfigService carries alpha in per-mille (config_params_t.filter_alpha, range 1..999). */
 #define CONFIG_ALPHA_DEN (1000U)
 #define CONFIG_ALPHA_MIN (1U)
 #define CONFIG_ALPHA_MAX (999U)
 
-/* Raw LSB -> engineering units. Sensitivities come from the sensor drivers' headers:
+/** Raw LSB -> engineering units. Sensitivities come from the sensor drivers' headers:
  * LSM6DSL +/-2 g = 16384 LSB/g, +/-250 dps = 8.75 mdps/LSB; LIS3MDL +/-4 gauss =
  * 6842 LSB/gauss. A raw int16 times the numerator stays inside int32_t. */
 #define ACCEL_MG_NUM (1000)
@@ -49,11 +49,11 @@
 #define MAG_MGAUSS_NUM (1000)
 #define MAG_MGAUSS_DEN (6842)
 
-/* HTS221 and LPS22HB run at 1 Hz (GPA-D2). Reading them every 100 ms makes nine reads in ten
+/** HTS221 and LPS22HB run at 1 Hz (GPA-D2). Reading them every 100 ms makes nine reads in ten
  * hit the driver's 2 ms not-ready retry sleep, so they are read every 10th cycle (SS-D19). */
 #define GROUP_A_PERIOD_CYCLES_DEFAULT (10U)
 
-/* Extra fractional bits kept in the IIR state: 16 steps per output unit (SS-D18). */
+/** Extra fractional bits kept in the IIR state: 16 steps per output unit (SS-D18). */
 #define FILTER_FRAC_BITS (4)
 #define FILTER_SCALE (1 << FILTER_FRAC_BITS)
 

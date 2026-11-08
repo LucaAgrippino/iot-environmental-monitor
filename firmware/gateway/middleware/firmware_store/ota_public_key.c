@@ -6,7 +6,7 @@
  * ota_ecdsa_p256_verify() fails closed and no image can be installed until a real
  * key is provisioned. Generate a key pair and regenerate this file with:
  *
- *   tools/ota/make_image.py genkey --private <path outside the repo> --public-c
+ *   tools/ota/make_image.py genkey --private (path outside the repo) --public-c
  * firmware/gateway/middleware/firmware_store/ota_public_key.c
  *
  * The private key never enters git (tools/ota/README.md).

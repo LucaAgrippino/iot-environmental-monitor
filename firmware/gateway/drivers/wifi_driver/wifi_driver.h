@@ -27,12 +27,12 @@
 #include "gpio/gpio_driver.h"
 #include "spi/spi.h"
 
-#define WIFI_MAX_SSID_LEN 32u
-#define WIFI_MAX_PASS_LEN 64u
-#define WIFI_IPV4_STR_LEN 16u /**< "255.255.255.255" plus the terminator. */
-#define WIFI_MAX_SOCKETS 4u   /**< ISM43362 supports up to 4 concurrent sockets. */
-#define WIFI_INVALID_SOCKET 255u
-#define WIFI_DRDY_EXTI_LINE 1u /**< PE1 — EXTI1. */
+#define WIFI_MAX_SSID_LEN 32u    /**< Longest SSID, in characters. */
+#define WIFI_MAX_PASS_LEN 64u    /**< Longest passphrase, in characters. */
+#define WIFI_IPV4_STR_LEN 16u    /**< "255.255.255.255" plus the terminator. */
+#define WIFI_MAX_SOCKETS 4u      /**< ISM43362 supports up to 4 concurrent sockets. */
+#define WIFI_INVALID_SOCKET 255u /**< Value of a socket that is not open. */
+#define WIFI_DRDY_EXTI_LINE 1u   /**< PE1 — EXTI1. */
 #define WIFI_EXTI_NVIC_PRIORITY                                                                    \
     6u /**< Suggested by exti-driver.md §4.4; must be                                             \
             >= configMAX_SYSCALL_INTERRUPT_PRIORITY. */
@@ -43,6 +43,7 @@ typedef struct wifi_inst *wifi_handle_t;
 /** @brief Socket identifier returned by wifi_open_socket(). */
 typedef uint8_t wifi_socket_t;
 
+/** @brief Result codes of the WiFi driver. */
 typedef enum
 {
     WIFI_ERR_OK = 0,            /**< Success. */
@@ -60,12 +61,14 @@ typedef enum
 /* Keep every wifi_err_t value below 0x100: WifiTask passes them through in its own error type,
  * whose own codes start at 0x100 (wifi_task.h). */
 
+/** @brief Transport protocol of a socket. */
 typedef enum
 {
     WIFI_SOCKET_TCP = 0,
     WIFI_SOCKET_UDP = 1,
 } wifi_socket_type_t;
 
+/** @brief State of the access point link. */
 typedef enum
 {
     WIFI_LINK_DOWN = 0,
@@ -224,6 +227,7 @@ wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip
 /**
  * @brief Ask the module whether it answers: sends "I?" and checks for a reply (GM-O22).
  *
+ * @param handle Driver handle.
  * @return WIFI_ERR_OK if it answered; WIFI_ERR_TIMEOUT if it did not accept the command or reply
  *         (a wedged module); WIFI_ERR_NOT_INIT before wifi_create() or after a failed reset.
  */
@@ -237,6 +241,7 @@ wifi_err_t wifi_ping(wifi_handle_t handle);
  * and open its sockets again. Blocks for the boot sequence, about 1 s when it works and up to
  * 3 s + 5 s when it does not. On failure the driver stays not ready until a later reset works.
  *
+ * @param handle Driver handle.
  * @return WIFI_ERR_OK, or the error of the boot step that failed.
  */
 wifi_err_t wifi_reset_module(wifi_handle_t handle);
@@ -244,8 +249,8 @@ wifi_err_t wifi_reset_module(wifi_handle_t handle);
 /**
  * @brief Open a TCP or UDP socket to a remote host.
  *
- * Issues the IWIN sequence P0=<slot> (select), P1=<type> (protocol),
- * P3=<host>, P4=<port>, P6=1 (start client) — there is no combined
+ * Issues the IWIN sequence P0=\<slot\> (select), P1=\<type\> (protocol),
+ * P3=\<host\>, P4=\<port\>, P6=1 (start client) — there is no combined
  * "open connection" command. Returns a socket identifier for use with
  * wifi_send(), wifi_recv(), and wifi_close_socket().
  *
@@ -264,7 +269,7 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
 /**
  * @brief Send data on an open socket.
  *
- * Issues P0=<socket> (select), then S3=<len> followed by the data
+ * Issues P0=\<socket\> (select), then S3=\<len\> followed by the data
  * payload in the same transaction.
  *
  * @param[in] handle  WifiDriver handle.
@@ -282,8 +287,8 @@ wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *
 /**
  * @brief Receive data from an open socket.
  *
- * Issues P0=<socket> (select), R1=<len> (expected packet size),
- * R2=<timeout_ms> (module-side read timeout), then R0 to read the
+ * Issues P0=\<socket\> (select), R1=\<len\> (expected packet size),
+ * R2=\<timeout_ms\> (module-side read timeout), then R0 to read the
  * response payload. Blocks until data is available or timeout expires —
  * enforced by the module itself via R2, plus one AT turnaround.
  *
@@ -304,7 +309,7 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
 /**
  * @brief Close an open socket.
  *
- * Issues P0=<socket> (select), then P6=0 (stop client) — there is no
+ * Issues P0=\<socket\> (select), then P6=0 (stop client) — there is no
  * dedicated close command — and frees the internal socket table entry.
  *
  * @param[in] handle  WifiDriver handle.

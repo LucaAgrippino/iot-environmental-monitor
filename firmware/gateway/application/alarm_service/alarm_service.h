@@ -138,20 +138,21 @@ alarm_service_err_t alarm_service_ack_all(void);
 /* Singleton vtable — IAlarmService                                         */
 /* ======================================================================= */
 
+/** @brief Read interface of AlarmService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called via vtable by the system layer */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by the system layer */
     alarm_service_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by consumers */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by consumers */
     alarm_service_err_t (*get_state)(sensor_id_t sensor, alarm_state_t *state_out);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
     alarm_service_err_t (*get_all_states)(alarm_state_t states[SENSOR_ID_COUNT]);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
     alarm_service_err_t (*subscribe)(void (*cb)(sensor_id_t, alarm_event_t,
                                                 const sensor_reading_t *));
-    /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
     alarm_service_err_t (*get_limit)(sensor_id_t sensor, alarm_event_t event, int32_t *limit_out);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by the command path */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by the command path */
     alarm_service_err_t (*ack_all)(void);
 } ialarm_service_t;
 

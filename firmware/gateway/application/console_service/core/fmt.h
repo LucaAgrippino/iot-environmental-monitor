@@ -39,6 +39,8 @@ bool fmt_parse_fixed(const char *text, int32_t scale, int32_t *out);
 
 /**
  * @brief Parse an unsigned decimal integer (digits only).
+ * @param text Text to parse.
+ * @param out Receives the value when the text is valid.
  * @return true if @p text is 1..9 digits.
  */
 bool fmt_parse_u32(const char *text, uint32_t *out);
@@ -49,11 +51,20 @@ bool fmt_parse_u32(const char *text, uint32_t *out);
  * Width is counted in UTF-8 code points, not bytes, so strings holding "●" or "°" align.
  * Longer text is copied whole (no truncation to the width).
  *
+ * @param dst Output buffer.
+ * @param size Size of dst, in bytes.
+ * @param text Text to copy.
+ * @param width Wanted width, in columns.
  * @return Bytes written (excluding the terminator).
  */
 size_t fmt_pad(char *dst, size_t size, const char *text, size_t width);
 
-/** @brief Number of UTF-8 code points in @p text. */
+/**
+ * @brief Number of UTF-8 code points in @p text.
+ *
+ * @param text Zero-terminated UTF-8 text.
+ * @return Width of the text in columns.
+ */
 size_t fmt_cols(const char *text);
 
 #endif /* FMT_H */

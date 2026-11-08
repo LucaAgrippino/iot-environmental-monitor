@@ -16,10 +16,11 @@
 #include "lvgl.h"
 #endif
 
+/** @brief Height of a status row, in pixels. */
 #define STATUS_ROW_HEIGHT                                                                          \
     30 /* 7 px padding top and bottom, 16 px text line; compact so the banner and all rows fit 340 \
           px */
-
+       /**< State of a status row. */
 typedef enum
 {
     ROW_OK = 0,
@@ -27,14 +28,15 @@ typedef enum
     ROW_ERR = 2
 } row_status_t;
 
+/** @brief Status row widget: a label and its value. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *glow;
-    lv_obj_t *dot;
-    lv_obj_t *label;
-    lv_obj_t *value;
-    lv_coord_t width;
+    lv_obj_t *box;    /**< Row surface. */
+    lv_obj_t *glow;   /**< Glow behind the dot. */
+    lv_obj_t *dot;    /**< Status dot. */
+    lv_obj_t *label;  /**< Name of the item. */
+    lv_obj_t *value;  /**< Value text. */
+    lv_coord_t width; /**< Width, in pixels. */
 } status_row_t;
 
 /**

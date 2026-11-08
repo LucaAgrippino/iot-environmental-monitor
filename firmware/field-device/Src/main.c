@@ -77,7 +77,7 @@
 #define CONSOLE_TASK_STACK_WORDS (768U)
 #define LC_TASK_PRIORITY (1U)
 #define LC_TASK_STACK_WORDS (2048U)
-/* UART interrupts call FromISR functions, so their NVIC priority must be numerically at or above
+/** UART interrupts call FromISR functions, so their NVIC priority must be numerically at or above
  * configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY (5). The drivers leave it at the reset value 0, the
  * highest, which lets the ISR run inside kernel critical sections. */
 #define MODBUS_UART_IRQ_PRIORITY (6U)
@@ -212,7 +212,7 @@ static void sensor_task(void *arg)
 /* Boot progress for the splash (a no-op in images without the display stack)  */
 /* ----------------------------------------------------------------------- */
 
-/* Boot steps shown on the splash (splash.html: the bar advances per sub-step, with the name).
+/** Boot steps shown on the splash (splash.html: the bar advances per sub-step, with the name).
  * The boot reaches them in this order; the UI task shows each for at least GUI_STEP_MS, so the
  * steps stay readable even though the real boot takes about a second. */
 typedef enum

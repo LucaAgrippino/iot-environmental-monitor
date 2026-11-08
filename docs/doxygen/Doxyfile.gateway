@@ -1,0 +1,7 @@
+@INCLUDE               = docs/doxygen/Doxyfile.common
+PROJECT_NAME           = "IoT Environmental Monitor: Gateway firmware"
+INPUT                  = generated-docs/doxygen/mainpage-gateway.md firmware/gateway/application firmware/gateway/drivers firmware/gateway/middleware firmware/gateway/Src
+OUTPUT_DIRECTORY       = generated-docs/doxygen/gateway
+WARN_LOGFILE           = generated-docs/doxygen/gateway.warnings
+PREDEFINED            += BOARD_GATEWAY
+USE_MDFILE_AS_MAINPAGE = generated-docs/doxygen/mainpage-gateway.md

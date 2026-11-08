@@ -3,7 +3,7 @@
  * @brief Binary-search implementation for panic_symbols.h.
  *
  * Filename matches the header deliberately (Ceedling auto-links a test's
- * #include "panic_symbols.h" to a same-named .c) — the generated data
+ * the include of "panic_symbols.h" in a same-named .c) — the generated data
  * table this searches lives in a separately-named file,
  * panic_symbols_data.c (gitignored), so the two never collide.
  */
@@ -55,7 +55,7 @@ bool panic_symbols_match(uint32_t anchor, uint32_t cpu_panic_addr, uint32_t text
            (anchor == (cpu_panic_addr & ~1u)) && (text_end == etext_addr);
 }
 
-/* Weak fallback table — an empty one — so the firmware links on a fresh
+/** Weak fallback table — an empty one — so the firmware links on a fresh
  * checkout (CI, a new machine) where panic_symbols_data.c has not been
  * generated yet: it needs a prior build's gateway.map, so a first build
  * cannot have it. When the generated file is present its strong

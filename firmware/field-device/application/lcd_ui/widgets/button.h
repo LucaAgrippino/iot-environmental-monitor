@@ -19,6 +19,7 @@
 #include "lvgl.h"
 #endif
 
+/** @brief Look of a button. */
 typedef enum
 {
     BUTTON_GHOST = 0,
@@ -32,13 +33,14 @@ typedef enum
     BUTTON_BAR_OFF = 8   /**< Action-bar APPLY, disabled: dim text, transparent. */
 } button_kind_t;
 
+/** @brief Button widget. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *label;
-    button_kind_t kind;
-    lv_coord_t w;
-    lv_coord_t h;
+    lv_obj_t *box;      /**< Button surface. */
+    lv_obj_t *label;    /**< Text of the button. */
+    button_kind_t kind; /**< Look of the button. */
+    lv_coord_t w;       /**< Width, in pixels. */
+    lv_coord_t h;       /**< Height, in pixels. */
 } button_t;
 
 /**
@@ -56,13 +58,29 @@ typedef struct
 void button_create(button_t *btn, lv_obj_t *parent, lv_coord_t x, lv_coord_t y, lv_coord_t w,
                    lv_coord_t h, const char *text, button_kind_t kind);
 
-/** @brief Change the look; a disabled button ignores taps (CLICKABLE flag removed). */
+/**
+ * @brief Change the look; a disabled button ignores taps (CLICKABLE flag removed).
+ *
+ * @param btn Button.
+ * @param kind New look.
+ */
 void button_set_kind(button_t *btn, button_kind_t kind);
 
-/** @brief Change the text; it stays centred. */
+/**
+ * @brief Change the text; it stays centred.
+ *
+ * @param btn Button.
+ * @param text New text.
+ */
 void button_set_text(button_t *btn, const char *text);
 
-/** @brief Register a tap handler (LV_EVENT_CLICKED). */
+/**
+ * @brief Register a tap handler (LV_EVENT_CLICKED).
+ *
+ * @param btn Button.
+ * @param cb Function called on a tap.
+ * @param user_data Passed to cb.
+ */
 void button_on_click(button_t *btn, lv_event_cb_t cb, void *user_data);
 
 #endif /* BUTTON_H */

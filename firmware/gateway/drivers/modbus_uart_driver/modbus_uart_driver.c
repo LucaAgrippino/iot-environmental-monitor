@@ -30,10 +30,10 @@
 /** BRR for 16x oversampling: fCK / baud, rounded to nearest (= 8333). */
 #define MBUART_BRR_VALUE ((MBUART_PCLK_HZ + (MODBUS_UART_BAUD / 2UL)) / MODBUS_UART_BAUD)
 
-#define MBUART_TX_PIN (0U)   /* PA0, UART4_TX */
-#define MBUART_RX_PIN (1U)   /* PA1, UART4_RX */
-#define MBUART_RTS_PIN (15U) /* PA15, UART4_RTS_DE (MBUART-O4) */
-#define MBUART_GPIO_AF (8U)  /* AF8 = UART4 */
+#define MBUART_TX_PIN (0U)   /**< PA0, UART4_TX */
+#define MBUART_RX_PIN (1U)   /**< PA1, UART4_RX */
+#define MBUART_RTS_PIN (15U) /**< PA15, UART4_RTS_DE (MBUART-O4) */
+#define MBUART_GPIO_AF (8U)  /**< AF8 = UART4 */
 #define MBUART_MODER_AF (0x2UL)
 #define MBUART_AFR_PINS_PER_REG (8U)
 #define MBUART_MODER_BITS (2U)

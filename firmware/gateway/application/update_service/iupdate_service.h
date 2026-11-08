@@ -14,6 +14,7 @@
 
 #include "update_service_types.h"
 
+/** @brief Command interface of UpdateService, used by the cloud publisher (vtable). */
 typedef struct
 {
     /** Copy the command into the 1-deep inbox and notify the task. Never blocks. */

@@ -9,10 +9,10 @@
 
 #include "lcd_ui/theme.h"
 
-#define ROW_DOT_GAP THEME_SP_4 /* 10 px dot to label */
-#define ROW_GLOW_D 14          /* outer glow circle */
-#define ROW_GLOW_OPA 102       /* 40 % of 255 */
-#define ROW_RADIUS_CIRCLE 7    /* half of the largest circle */
+#define ROW_DOT_GAP THEME_SP_4 /**< 10 px dot to label */
+#define ROW_GLOW_D 14          /**< outer glow circle */
+#define ROW_GLOW_OPA 102       /**< 40 % of 255 */
+#define ROW_RADIUS_CIRCLE 7    /**< half of the largest circle */
 
 static lv_color_t colour_of(row_status_t s)
 {

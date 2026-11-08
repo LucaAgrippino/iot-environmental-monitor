@@ -55,7 +55,7 @@ typedef enum
 typedef struct
 {
     // cppcheck-suppress unusedStructMember -- populated here, consumed by SensorService callers not
-    // in cppcheck's file set
+    /// in cppcheck's file set
     int32_t pressure_x10;
 } baro_reading_t;
 
@@ -110,7 +110,9 @@ void barometer_inject_fault(bool inject);
 #ifdef TEST
 #define BARO_TEST_VISIBLE
 #else
-#define BARO_TEST_VISIBLE static
+#define BARO_TEST_VISIBLE                                                                          \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ------------------------------------------------------------------ */

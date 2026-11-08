@@ -69,21 +69,21 @@
 /* ======================================================================= */
 
 /* Edit-session timeout per REQ-NF-214 */
-#define LC_EDIT_TIMEOUT_MS (5U * 60U * 1000U) /* 5 minutes */
+#define LC_EDIT_TIMEOUT_MS (5U * 60U * 1000U) /**< 5 minutes */
 
 /* Init watchdog timeout per LC-O2 (provisional) */
-#define LC_INIT_TIMEOUT_MS (10U * 1000U) /* 10 seconds */
+#define LC_INIT_TIMEOUT_MS (10U * 1000U) /**< 10 seconds */
 
 /* Restart confirmation window per LC-O4 (provisional, GW only) */
-#define LC_RESTART_TIMEOUT_MS (30U * 1000U) /* 30 seconds */
+#define LC_RESTART_TIMEOUT_MS (30U * 1000U) /**< 30 seconds */
 
-/* Event-queue depth */
+/** Event-queue depth */
 #define LC_QUEUE_DEPTH (4U)
 
-/* Queue receive timeout (watchdog kick period) */
+/** Queue receive timeout (watchdog kick period) */
 #define LC_QUEUE_WAIT_MS (1000U)
 
-/* Hardware watchdog timeout, REQ-NF-109 */
+/** Hardware watchdog timeout, REQ-NF-109 */
 #define LC_WATCHDOG_TIMEOUT_MS (10000U)
 
 /* ======================================================================= */

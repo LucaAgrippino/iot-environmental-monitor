@@ -16,9 +16,11 @@
 
 #include "update_service_types.h"
 
+/** @brief Interface through which UpdateService requests image chunks and reports results (vtable).
+ */
 typedef struct
 {
-    void *ctx;
+    void *ctx; /**< Context pointer passed back to the transport functions. */
 
     /** Volatile mirror of the MQTT connection state. Any task. */
     bool (*is_connected)(void *ctx);

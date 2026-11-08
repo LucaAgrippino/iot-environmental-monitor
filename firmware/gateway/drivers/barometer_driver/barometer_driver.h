@@ -89,9 +89,9 @@ barometer_err_t barometer_read(barometer_data_t *out);
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember; used via barometer_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via barometer_driver singleton */
     barometer_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember; used via barometer_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via barometer_driver singleton */
     barometer_err_t (*read)(barometer_data_t *out);
 } ibarometer_t;
 

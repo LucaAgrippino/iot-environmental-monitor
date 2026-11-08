@@ -42,13 +42,13 @@
 /* Constants                                                              */
 /* ===================================================================== */
 
-#define LCD_REFRESH_MS (200U) /* 03_SCREEN_SPECS.md refresh rate */
+#define LCD_REFRESH_MS (200U) /**< 03_SCREEN_SPECS.md refresh rate */
 #define LCD_SLOW_REFRESH_MS                                                                        \
     (1000U) /* Status and Alarms: "Refreshes every 1s", "Auto-refresh 1s"                          \
              */
-#define LCD_CONFIRM_TIMEOUT_MS (30000U) /* confirm modal auto-dismiss */
+#define LCD_CONFIRM_TIMEOUT_MS (30000U) /**< confirm modal auto-dismiss */
 #define LCD_TOAST_MS (3000U)
-#define LCD_STALE_AFTER_S (10U) /* a valid reading older than the newest by this is STALE */
+#define LCD_STALE_AFTER_S (10U) /**< a valid reading older than the newest by this is STALE */
 #define LCD_KIB (1024U)
 #define LCD_FOOTER_TEXT_MAX (96U)
 #define LCD_VERSION_SHORT_MAX (16U)
@@ -61,13 +61,13 @@
 #define LCD_LVGL_MINOR 3
 #define LCD_LVGL_PATCH 11
 #endif
-#define LCD_CPU_WARN_PCT (70U)             /* CPU load from this is a warning ... */
-#define LCD_CPU_ERR_PCT (90U)              /* ... and from this an error */
-#define LCD_RAM_WARN_BYTES (16U * LCD_KIB) /* free RAM below this is a warning ... */
-#define LCD_RAM_ERR_BYTES (4U * LCD_KIB)   /* ... and below this an error */
-#define LCD_TEMP_WARN_DECI_C (700)         /* MCU temperature (0.1 degC) from this: warning ... */
-#define LCD_TEMP_ERR_DECI_C (850)          /* ... and from this: error (85 degC, datasheet) */
-#define HISTORY_WINDOW_S (300U)            /* REQ-SA-190: five minutes */
+#define LCD_CPU_WARN_PCT (70U)             /**< CPU load from this is a warning ... */
+#define LCD_CPU_ERR_PCT (90U)              /**< ... and from this an error */
+#define LCD_RAM_WARN_BYTES (16U * LCD_KIB) /**< free RAM below this is a warning ... */
+#define LCD_RAM_ERR_BYTES (4U * LCD_KIB)   /**< ... and below this an error */
+#define LCD_TEMP_WARN_DECI_C (700)         /**< MCU temperature (0.1 degC) from this: warning ... */
+#define LCD_TEMP_ERR_DECI_C (850)          /**< ... and from this: error (85 degC, datasheet) */
+#define HISTORY_WINDOW_S (300U)            /**< REQ-SA-190: five minutes */
 #define POLL_MS_PER_S (1000U)
 
 #ifdef TEST
@@ -79,20 +79,20 @@
     LCD_UI_STR(LVGL_VERSION_MAJOR)                                                                 \
     "." LCD_UI_STR(LVGL_VERSION_MINOR) "." LCD_UI_STR(LVGL_VERSION_PATCH)
 #endif
-/* Footer right text on every screen (03_SCREEN_SPECS.md: the target string is a define) */
+/** Footer right text on every screen (03_SCREEN_SPECS.md: the target string is a define) */
 #define LCD_UI_TARGET_TEXT                                                                         \
     "STM32F469 \xC2\xB7 LVGL v" LCD_UI_LVGL_VERSION " \xC2\xB7 800\xC3\x97"                        \
     "480"
 
-#define S_DOT "\xE2\x97\x8F "     /* ● U+25CF */
-#define S_SQUARE "\xE2\x96\xA0 "  /* ■ U+25A0 */
-#define S_WARN "\xE2\x9A\xA0 "    /* ⚠ U+26A0 */
-#define S_CROSS "\xE2\x9C\x95 "   /* ✕ U+2715 */
-#define S_ELLIPSIS "\xE2\x80\xA6" /* … U+2026 */
-#define S_DASH "\xE2\x80\x94"     /* — U+2014 */
-#define S_MIDDOT " \xC2\xB7 "     /* · U+00B7 */
-#define S_TIMES "\xC3\x97 "       /* × U+00D7 */
-#define S_ARROW " \xE2\x86\x92 "  /* → U+2192 */
+#define S_DOT "\xE2\x97\x8F "     /**< ● U+25CF */
+#define S_SQUARE "\xE2\x96\xA0 "  /**< ■ U+25A0 */
+#define S_WARN "\xE2\x9A\xA0 "    /**< ⚠ U+26A0 */
+#define S_CROSS "\xE2\x9C\x95 "   /**< ✕ U+2715 */
+#define S_ELLIPSIS "\xE2\x80\xA6" /**< … U+2026 */
+#define S_DASH "\xE2\x80\x94"     /**< — U+2014 */
+#define S_MIDDOT " \xC2\xB7 "     /**< · U+00B7 */
+#define S_TIMES "\xC3\x97 "       /**< × U+00D7 */
+#define S_ARROW " \xE2\x86\x92 "  /**< → U+2192 */
 #define S_DEGC                                                                                     \
     "\xC2\xB0"                                                                                     \
     "C" /* °C */
@@ -119,7 +119,7 @@ static const char *const k_card_unit[SENSOR_DISPLAY_COUNT] = {S_DEGC, "%RH", "hP
 static const char *const k_trend_name[SENSOR_DISPLAY_COUNT] = {"TEMPERATURE", "HUMIDITY",
                                                                "PRESSURE"};
 
-/* Series colours, style-guide.md "Trend chart panel" */
+/** Series colours, style-guide.md "Trend chart panel" */
 #define TREND_COLOUR(i)                                                                            \
     (((i) == 0U) ? THEME_COL_ACCENT : (((i) == 1U) ? THEME_COL_OK : THEME_COL_WARN))
 
@@ -540,7 +540,7 @@ static void build_sensor_screen(sensor_screen_t *scr, lv_obj_t *panel)
 /* Trend screen                                                           */
 /* ===================================================================== */
 
-#define TREND_GAP THEME_SP_6 /* 14 px between panels and above the first */
+#define TREND_GAP THEME_SP_6 /**< 14 px between panels and above the first */
 
 static void trend_screen_on_enter(screen_t *self)
 {
@@ -652,13 +652,13 @@ static void build_trend_screen(trend_screen_t *scr, lv_obj_t *panel)
 /* ===================================================================== */
 
 #define STATUS_COLUMNS 3
-#define STATUS_COL_GAP THEME_SP_10 /* 24 px between the columns */
+#define STATUS_COL_GAP THEME_SP_10 /**< 24 px between the columns */
 #define STATUS_COL_W                                                                               \
     ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - ((STATUS_COLUMNS - 1) * STATUS_COL_GAP)) /         \
      STATUS_COLUMNS)
-#define STATUS_EYEBROW_H 22 /* eyebrow line plus 6 px margin */
+#define STATUS_EYEBROW_H 22 /**< eyebrow line plus 6 px margin */
 #define STATUS_SECTION_GAP THEME_SP_6
-#define STATUS_TOP 18 /* content padding-top */
+#define STATUS_TOP 18 /**< content padding-top */
 #define STATUS_BANNER_H 36
 #define STATUS_BANNER_TOP THEME_SP_6
 
@@ -920,7 +920,7 @@ static void build_status_screen(status_screen_t *scr, lv_obj_t *panel)
 /* Alarms screen                                                          */
 /* ===================================================================== */
 
-#define EMPTY_CIRCLE_D 78 /* 03_SCREEN_SPECS.md "Alarms . Empty" */
+#define EMPTY_CIRCLE_D 78 /**< 03_SCREEN_SPECS.md "Alarms . Empty" */
 
 static void alarm_screen_on_enter(screen_t *self)
 {
@@ -1092,10 +1092,12 @@ static void build_alarm_screen(alarm_screen_t *scr, lv_obj_t *panel)
 /* Config screen                                                          */
 /* ===================================================================== */
 
-#define CFG_PAD_TOP 20     /* .content padding: 20 px 22 px 0 */
-#define CFG_BAR_H 36       /* .cfg-footer-bar */
-#define CFG_GAP THEME_SP_6 /* gap between the field list and the keypad column is 22; fields 12 */
-#define CFG_COLUMN_GAP THEME_SP_9 /* grid gap 22 px */
+#define CFG_PAD_TOP 20 /**< .content padding: 20 px 22 px 0 */
+#define CFG_BAR_H 36   /**< .cfg-footer-bar */
+#define CFG_GAP                                                                                    \
+    THEME_SP_6 /**< gap between the field list and the keypad column is 22; fields 12              \
+                */
+#define CFG_COLUMN_GAP THEME_SP_9 /**< grid gap 22 px */
 #define CFG_LIST_W ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - NUMPAD_W - CFG_COLUMN_GAP))
 
 static void cfg_text_of(char *out, uint32_t len, uint32_t d, int32_t raw)

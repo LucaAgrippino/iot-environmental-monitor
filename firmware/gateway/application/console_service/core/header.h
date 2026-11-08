@@ -17,6 +17,12 @@
  *
  * Line 1: product, firmware, uptime, alarm count. Line 2: Wi-Fi, MQTT, Modbus, sensors, time.
  * A service whose data could not be read shows "?" in muted colour.
+ *
+ * @param m Live model.
+ * @param line1 Receives header line 1.
+ * @param size1 Size of line1, in bytes.
+ * @param line2 Receives header line 2.
+ * @param size2 Size of line2, in bytes.
  */
 void header_compose(const console_model_t *m, char *line1, size_t size1, char *line2, size_t size2);
 

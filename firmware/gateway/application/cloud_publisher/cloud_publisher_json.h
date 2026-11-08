@@ -26,17 +26,46 @@
 /** Longest key accepted in a /config command, with the terminator. */
 #define CP_CFG_KEY_LEN (33U)
 
-/** @brief Telemetry (SD-03a): onboard channels, and the Field Device when @p fd is not NULL. */
+/**
+ * @brief Telemetry (SD-03a): onboard channels, and the Field Device when @p fd is not NULL.
+ *
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param snap Onboard sensor readings.
+ * @param fd Field Device reading, or NULL to leave it out.
+ * @param ts Time of the message.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
+ */
 uint32_t cp_serialise_telemetry(char *buf, uint32_t buf_size, const sensor_snapshot_t *snap,
                                 const modbus_fd_reading_t *fd, const time_provider_ts_t *ts,
                                 const char *device_serial);
 
-/** @brief Health 1.1 (SD-03b): the snapshot, the firmware version and the stack headroom. */
+/**
+ * @brief Health 1.1 (SD-03b): the snapshot, the firmware version and the stack headroom.
+ *
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param snap Health snapshot.
+ * @param fw_version Firmware version, packed as major in bits 24 to 31, minor in 16 to 23, patch in
+ * 0 to 15.
+ * @param ts Time of the message.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
+ */
 uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const health_snapshot_t *snap,
                              uint32_t fw_version, const time_provider_ts_t *ts,
                              const char *device_serial);
 
-/** @brief Alarm (SD-05): the common block carries the time of detection (event->timestamp). */
+/**
+ * @brief Alarm (SD-05): the common block carries the time of detection (event->timestamp).
+ *
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param event Alarm event.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
+ */
 uint32_t cp_serialise_alarm(char *buf, uint32_t buf_size, const cp_alarm_event_t *event,
                             const char *device_serial);
 
@@ -79,16 +108,34 @@ typedef struct
  * Only the Tier 2 keys are accepted (REQ-NF-306); the other config_params_t fields are recognised
  * and refused with CP_CFG_NOT_REMOTE. Nested objects, strings, floats, duplicates, trailing data
  * and an empty object are CP_CFG_BAD_JSON. Nothing is applied here.
+ *
+ * @param payload JSON payload of the command.
+ * @param len Length of payload, in bytes.
+ * @param out Receives the parsed keys.
+ * @return CP_CFG_OK, or the reason the command is rejected.
  */
 cp_cfg_status_t cp_parse_config_command(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out);
 
-/** @brief Wire reason string of a status, or "bad_json" for CP_CFG_OK. */
+/**
+ * @brief Wire reason string of a status, or "bad_json" for CP_CFG_OK.
+ *
+ * @param status Result of cp_parse_config_command().
+ * @return Static string, never NULL.
+ */
 const char *cp_cfg_reason_string(cp_cfg_status_t status);
 
 /**
  * @brief Result of a /config command (SD-07): applied, or rejected with a reason and a key.
  * @param[in] req  Echoed when @p req_known.
  * @param[in] key  Included when not NULL.
+ *
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param req_known True when req holds a request id.
+ * @param status Outcome of the command.
+ * @param ts Time of the message.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
  */
 uint32_t cp_serialise_config_result(char *buf, uint32_t buf_size, bool req_known, uint32_t req,
                                     cp_cfg_status_t status, const char *key,
@@ -106,14 +153,23 @@ typedef enum
 } cp_control_cmd_t;
 
 /**
- * @brief Classify a /control payload: {"command":"<name>"[,"req":<n>]}.
+ * @brief Classify a /control payload: {"command":"<name>"[,"req":\<n\>]}.
  * @param[out] req_known  Set when a numeric "req" member is present (may be NULL).
  * @param[out] req        The request id, echoed in the result (may be NULL).
+ *
+ * @param payload JSON payload of the command.
+ * @param len Length of payload, in bytes.
+ * @return The command, CP_CTRL_UNKNOWN for an unknown name, or CP_CTRL_BAD_FORMAT.
  */
 cp_control_cmd_t cp_parse_control_command(const uint8_t *payload, uint32_t len, bool *req_known,
                                           uint32_t *req);
 
-/** @brief Wire name of a command, "unknown" for CP_CTRL_UNKNOWN and CP_CTRL_BAD_FORMAT. */
+/**
+ * @brief Wire name of a command, "unknown" for CP_CTRL_UNKNOWN and CP_CTRL_BAD_FORMAT.
+ *
+ * @param cmd Command.
+ * @return Static string, never NULL.
+ */
 const char *cp_control_name(cp_control_cmd_t cmd);
 
 /**
@@ -121,13 +177,30 @@ const char *cp_control_name(cp_control_cmd_t cmd);
  * @param[in] accepted  true: "result":"accepted" (executed or queued); false: "rejected".
  * @param[in] reason    Included when not NULL (rejected: "bad_format", "unknown_command",
  *                      "failed").
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param cmd Command the result is about.
+ * @param req_known True when req holds a request id.
+ * @param req Request id echoed in the result.
+ * @param ts Time of the message.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
  */
 uint32_t cp_serialise_control_result(char *buf, uint32_t buf_size, cp_control_cmd_t cmd,
                                      bool req_known, uint32_t req, bool accepted,
                                      const char *reason, const time_provider_ts_t *ts,
                                      const char *device_serial);
 
-/** @brief Serialise a chunk request (update-service-lld.md 6.2) with the common block. */
+/**
+ * @brief Serialise a chunk request (update-service-lld.md 6.2) with the common block.
+ *
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param req Chunk request.
+ * @param ts Time of the message.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
+ */
 uint32_t cp_serialise_ota_request(char *buf, uint32_t buf_size, const us_chunk_request_t *req,
                                   const time_provider_ts_t *ts, const char *device_serial);
 
@@ -137,6 +210,13 @@ uint32_t cp_serialise_ota_request(char *buf, uint32_t buf_size, const us_chunk_r
  * "job" is omitted when the report carries none, "reason" for accepted and success. A report whose
  * version is 0 comes from CloudPublisher itself (a command it rejected before UpdateService saw
  * it) and carries neither "version" nor "rollbacks".
+ *
+ * @param buf Output buffer.
+ * @param buf_size Size of buf, in bytes.
+ * @param rep Result report.
+ * @param ts Time of the message.
+ * @param device_serial Device serial number (the client ID).
+ * @return Number of characters written, or 0 if buf is too small.
  */
 uint32_t cp_serialise_ota_report(char *buf, uint32_t buf_size, const us_ota_report_t *rep,
                                  const time_provider_ts_t *ts, const char *device_serial);
@@ -149,6 +229,12 @@ uint32_t cp_serialise_ota_report(char *buf, uint32_t buf_size, const us_ota_repo
  *
  * @param[out] job_out  Receives "job" when it alone could be read, even if the command is bad;
  *                      @p job_known_out says whether it did. May be NULL.
+ *
+ * @param payload JSON payload of the command.
+ * @param len Length of payload, in bytes.
+ * @param out Receives the command when the three keys are valid.
+ * @param job_known_out Set when job_out holds a job number.
+ * @return true if the payload is a valid OTA command.
  */
 bool cp_parse_ota_command(const uint8_t *payload, uint32_t len, us_ota_command_t *out,
                           uint32_t *job_out, bool *job_known_out);

@@ -15,6 +15,7 @@
 
 #include "firmware_store_types.h"
 
+/** @brief Image staging and verification interface of FirmwareStore (vtable). */
 typedef struct
 {
     /** Start a fresh staging session. */

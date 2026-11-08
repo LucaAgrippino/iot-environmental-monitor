@@ -45,6 +45,7 @@ typedef struct mqtt_client_inst *mqtt_client_handle_t;
  *        (cloud_publisher.c); this must not collide with those. */
 #define MQTT_CLIENT_WIFI_RECV_READY_BIT (1u << 5)
 
+/** @brief Result codes of the MQTT client. */
 typedef enum
 {
     MQTT_CLIENT_ERR_OK = 0,
@@ -59,6 +60,7 @@ typedef enum
     MQTT_CLIENT_ERR_IN_PROGRESS = 9,    /**< connect_step(): more steps remain. */
 } mqtt_client_err_t;
 
+/** @brief MQTT quality of service levels in use. */
 typedef enum
 {
     MQTT_QOS_0 = 0, /**< Fire-and-forget (telemetry, health).              */
@@ -115,12 +117,12 @@ typedef struct
     uint16_t broker_port;           /**< 8883 (MQTT over TLS).                   */
     const char *client_id;          /**< Device serial number.                   */
     const uint8_t *client_cert_der; /**< DER-encoded client certificate.      */
-    uint32_t client_cert_len;
-    const uint8_t *client_key_der; /**< DER-encoded private key.              */
-    uint32_t client_key_len;
-    const uint8_t *ca_cert_der; /**< DER-encoded AWS root CA certificate.     */
-    uint32_t ca_cert_len;
-    uint16_t keep_alive_s; /**< MQTT keep-alive interval (seconds).           */
+    uint32_t client_cert_len;       /**< Length of client_cert_der, in bytes. */
+    const uint8_t *client_key_der;  /**< DER-encoded private key.              */
+    uint32_t client_key_len;        /**< Length of client_key_der, in bytes. */
+    const uint8_t *ca_cert_der;     /**< DER-encoded AWS root CA certificate.     */
+    uint32_t ca_cert_len;           /**< Length of ca_cert_der, in bytes. */
+    uint16_t keep_alive_s;          /**< MQTT keep-alive interval (seconds).           */
 } mqtt_connect_cfg_t;
 
 /**

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 /**
+ * @file cpu_hw.h
  * @brief Mockable indirection layer for CPU-level CMSIS intrinsics (Field Device).
  *
  * In firmware builds the macros expand to real ARM CMSIS calls. In host unit-test builds they
@@ -37,15 +38,17 @@ extern uint32_t g_cpu_hw_barriers_at_reset;
 #define CPU_HW_DATA_BARRIER() cpu_hw_data_barrier()
 #define CPU_HW_DEBUGGER_ATTACHED() cpu_hw_debugger_attached()
 
-#else /* TARGET BUILD */
+#else                                            /* TARGET BUILD */
 
 /* Real CMSIS intrinsics: available once stm32f469xx.h is included. */
-#define CPU_HW_DISABLE_IRQ() __disable_irq()
-#define CPU_HW_BREAKPOINT() __BKPT(0)
-#define CPU_HW_SYSTEM_RESET() NVIC_SystemReset()
-#define CPU_HW_DATA_BARRIER() __DSB()
+#define CPU_HW_DISABLE_IRQ() __disable_irq()     /**< Disable interrupts. */
+#define CPU_HW_BREAKPOINT() __BKPT(0)            /**< Execute a breakpoint instruction. */
+#define CPU_HW_SYSTEM_RESET() NVIC_SystemReset() /**< Reset the microcontroller. */
+#define CPU_HW_DATA_BARRIER() __DSB()            /**< Data synchronisation barrier. */
 /* C_DEBUGEN is set while a debugger is connected; a BKPT without one is itself a fault. */
-#define CPU_HW_DEBUGGER_ATTACHED() ((CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) != 0U)
+#define CPU_HW_DEBUGGER_ATTACHED()                                                                 \
+    ((CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) !=                                         \
+     0U) /**< True while a debugger is attached. */
 
 #endif /* TEST */
 

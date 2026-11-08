@@ -45,7 +45,7 @@
 #define LSM6DSL_WRITE_LEN (2U)
 #define BYTE_SHIFT (8U)
 
-/* Offsets into the 12-byte burst: gyro X/Y/Z first, then accel X/Y/Z. */
+/** Offsets into the 12-byte burst: gyro X/Y/Z first, then accel X/Y/Z. */
 #define OFF_GYRO_X (0U)
 #define OFF_GYRO_Y (2U)
 #define OFF_GYRO_Z (4U)

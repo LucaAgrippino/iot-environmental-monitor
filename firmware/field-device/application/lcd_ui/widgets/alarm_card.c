@@ -9,12 +9,12 @@
 
 #include "lcd_ui/theme.h"
 
-#define CARD_PAD_Y THEME_SP_6 /* padding 14 px / 18 px */
+#define CARD_PAD_Y THEME_SP_6 /**< padding 14 px / 18 px */
 #define CARD_PAD_X THEME_SP_8
-#define COL_GAP THEME_SP_6    /* grid gap 14 px */
-#define CHIP_PAD_X THEME_SP_4 /* chip padding 4 px / 10 px */
+#define COL_GAP THEME_SP_6    /**< grid gap 14 px */
+#define CHIP_PAD_X THEME_SP_4 /**< chip padding 4 px / 10 px */
 #define CHIP_PAD_Y THEME_SP_1
-#define TAG_GAP THEME_SP_2 /* 6 px left margin of the direction tag */
+#define TAG_GAP THEME_SP_2 /**< 6 px left margin of the direction tag */
 
 void alarm_card_create(alarm_card_t *card, lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
                        lv_coord_t w)

@@ -11,15 +11,16 @@
 
 #include "lcd_ui/widgets/status_pill.h"
 
+/** @brief Header bar widget: title, clock, state pill and alarm badge. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *title;
-    lv_obj_t *time;
-    status_pill_t pill;
+    lv_obj_t *box;      /**< Bar surface. */
+    lv_obj_t *title;    /**< Title of the current screen. */
+    lv_obj_t *time;     /**< Time of day. */
+    status_pill_t pill; /**< Device state pill. */
     lv_obj_t
         *badge_box; /**< Optional amber badge left of the clock, e.g. "ACCUMULATING 2:00 / 5:00". */
-    lv_obj_t *badge_label;
+    lv_obj_t *badge_label;  /**< Text of the alarm count badge. */
     lv_coord_t badge_right; /**< x of the badge's right edge. */
 } header_bar_t;
 
@@ -31,13 +32,28 @@ typedef struct
  */
 void header_bar_create(header_bar_t *hdr, lv_obj_t *parent);
 
-/** @brief Set the title (UPPERCASE text). */
+/**
+ * @brief Set the title (UPPERCASE text).
+ *
+ * @param hdr Header bar.
+ * @param title Title text.
+ */
 void header_bar_set_title(header_bar_t *hdr, const char *title);
 
-/** @brief Set the clock text, "HH:MM:SS". */
+/**
+ * @brief Set the clock text, "HH:MM:SS".
+ *
+ * @param hdr Header bar.
+ * @param time_text Clock text.
+ */
 void header_bar_set_time(header_bar_t *hdr, const char *time_text);
 
-/** @brief Set the status pill state. */
+/**
+ * @brief Set the status pill state.
+ *
+ * @param hdr Header bar.
+ * @param state New pill state.
+ */
 void header_bar_set_pill(header_bar_t *hdr, pill_state_t state);
 
 /**

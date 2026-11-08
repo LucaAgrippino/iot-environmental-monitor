@@ -19,40 +19,43 @@
 /* Register bits (RM0351 §3.7)                                             */
 /* ---------------------------------------------------------------------- */
 
-#define IFLASH_KEY1 (0x45670123UL)
-#define IFLASH_KEY2 (0xCDEF89ABUL)
+#define IFLASH_KEY1                                                                                \
+    (0x45670123UL) /**< First key written to FLASH_KEYR to unlock the controller.                  \
+                    */
+#define IFLASH_KEY2                                                                                \
+    (0xCDEF89ABUL) /**< Second key written to FLASH_KEYR to unlock the controller. */
 
-#define IFLASH_SR_EOP (1UL << 0)
-#define IFLASH_SR_OPERR (1UL << 1)
-#define IFLASH_SR_PROGERR (1UL << 3)
-#define IFLASH_SR_WRPERR (1UL << 4)
-#define IFLASH_SR_PGAERR (1UL << 5)
-#define IFLASH_SR_SIZERR (1UL << 6)
-#define IFLASH_SR_PGSERR (1UL << 7)
-#define IFLASH_SR_MISERR (1UL << 8)
-#define IFLASH_SR_FASTERR (1UL << 9)
-#define IFLASH_SR_RDERR (1UL << 14)
-#define IFLASH_SR_BSY (1UL << 16)
+#define IFLASH_SR_EOP (1UL << 0)     /**< FLASH_SR: end of operation. */
+#define IFLASH_SR_OPERR (1UL << 1)   /**< FLASH_SR: operation error. */
+#define IFLASH_SR_PROGERR (1UL << 3) /**< FLASH_SR: programming error. */
+#define IFLASH_SR_WRPERR (1UL << 4)  /**< FLASH_SR: write protection error. */
+#define IFLASH_SR_PGAERR (1UL << 5)  /**< FLASH_SR: programming alignment error. */
+#define IFLASH_SR_SIZERR (1UL << 6)  /**< FLASH_SR: size error. */
+#define IFLASH_SR_PGSERR (1UL << 7)  /**< FLASH_SR: programming sequence error. */
+#define IFLASH_SR_MISERR (1UL << 8)  /**< FLASH_SR: data mismatch error. */
+#define IFLASH_SR_FASTERR (1UL << 9) /**< FLASH_SR: fast programming error. */
+#define IFLASH_SR_RDERR (1UL << 14)  /**< FLASH_SR: read protection error. */
+#define IFLASH_SR_BSY (1UL << 16)    /**< FLASH_SR: busy. */
 
 /** Every error flag; all are cleared by writing 1. */
 #define IFLASH_SR_ERRORS                                                                           \
     (IFLASH_SR_OPERR | IFLASH_SR_PROGERR | IFLASH_SR_WRPERR | IFLASH_SR_PGAERR |                   \
      IFLASH_SR_SIZERR | IFLASH_SR_PGSERR | IFLASH_SR_MISERR | IFLASH_SR_FASTERR | IFLASH_SR_RDERR)
 
-#define IFLASH_CR_PG (1UL << 0)
-#define IFLASH_CR_PER (1UL << 1)
-#define IFLASH_CR_PNB_POS (3U)
-#define IFLASH_CR_PNB_MASK (0xFFUL << IFLASH_CR_PNB_POS)
-#define IFLASH_CR_BKER (1UL << 11)
-#define IFLASH_CR_START (1UL << 16)
-#define IFLASH_CR_LOCK (1UL << 31)
+#define IFLASH_CR_PG (1UL << 0)  /**< FLASH_CR: programming enable. */
+#define IFLASH_CR_PER (1UL << 1) /**< FLASH_CR: page erase enable. */
+#define IFLASH_CR_PNB_POS (3U)   /**< FLASH_CR: position of the page number field. */
+#define IFLASH_CR_PNB_MASK (0xFFUL << IFLASH_CR_PNB_POS) /**< FLASH_CR: page number field mask. */
+#define IFLASH_CR_BKER (1UL << 11)  /**< FLASH_CR: bank to erase (0 = bank 1, 1 = bank 2). */
+#define IFLASH_CR_START (1UL << 16) /**< FLASH_CR: start the erase. */
+#define IFLASH_CR_LOCK (1UL << 31)  /**< FLASH_CR: controller locked. */
 
-#define IFLASH_OPTR_DUALBANK (1UL << 21)
+#define IFLASH_OPTR_DUALBANK (1UL << 21) /**< FLASH_OPTR: dual-bank mode. */
 
-#define IFLASH_ACR_ICEN (1UL << 9)
-#define IFLASH_ACR_DCEN (1UL << 10)
-#define IFLASH_ACR_ICRST (1UL << 11)
-#define IFLASH_ACR_DCRST (1UL << 12)
+#define IFLASH_ACR_ICEN (1UL << 9)   /**< FLASH_ACR: instruction cache enable. */
+#define IFLASH_ACR_DCEN (1UL << 10)  /**< FLASH_ACR: data cache enable. */
+#define IFLASH_ACR_ICRST (1UL << 11) /**< FLASH_ACR: instruction cache reset. */
+#define IFLASH_ACR_DCRST (1UL << 12) /**< FLASH_ACR: data cache reset. */
 
 #ifdef TEST
 
@@ -139,19 +142,24 @@ static inline void iflash_hw_irq_restore(uint32_t primask)
     }
 }
 
-#define IFLASH_HW_KEYR_WRITE(v) (FLASH->KEYR = (v))
-#define IFLASH_HW_SR_READ() (FLASH->SR)
-#define IFLASH_HW_SR_WRITE(v) (FLASH->SR = (v))
-#define IFLASH_HW_CR_READ() (FLASH->CR)
-#define IFLASH_HW_CR_WRITE(v) (FLASH->CR = (v))
-#define IFLASH_HW_OPTR_READ() (FLASH->OPTR)
-#define IFLASH_HW_ACR_READ() (FLASH->ACR)
-#define IFLASH_HW_ACR_WRITE(v) (FLASH->ACR = (v))
-#define IFLASH_HW_STORE32(addr, v) (*(volatile uint32_t *) (addr) = (v))
-#define IFLASH_HW_LOAD(addr, buf, len) ((void) memcpy((buf), (const void *) (addr), (len)))
-#define IFLASH_HW_IRQ_SAVE() iflash_hw_irq_save()
-#define IFLASH_HW_IRQ_RESTORE(s) iflash_hw_irq_restore(s)
-#define IFLASH_HW_BARRIER() __DSB()
+#define IFLASH_HW_KEYR_WRITE(v) (FLASH->KEYR = (v)) /**< Write the unlock key register. */
+#define IFLASH_HW_SR_READ() (FLASH->SR)             /**< Read the status register. */
+#define IFLASH_HW_SR_WRITE(v) (FLASH->SR = (v))     /**< Write the status register. */
+#define IFLASH_HW_CR_READ() (FLASH->CR)             /**< Read the control register. */
+#define IFLASH_HW_CR_WRITE(v) (FLASH->CR = (v))     /**< Write the control register. */
+#define IFLASH_HW_OPTR_READ() (FLASH->OPTR)         /**< Read the option register. */
+#define IFLASH_HW_ACR_READ() (FLASH->ACR)           /**< Read the access control register. */
+#define IFLASH_HW_ACR_WRITE(v) (FLASH->ACR = (v))   /**< Write the access control register. */
+#define IFLASH_HW_STORE32(addr, v)                                                                 \
+    (*(volatile uint32_t *) (addr) = (v)) /**< Write one 32-bit word to flash memory. */
+#define IFLASH_HW_LOAD(addr, buf, len)                                                             \
+    ((void) memcpy((buf), (const void *) (addr),                                                   \
+                   (len))) /**< Copy len bytes from flash memory at addr into buf. */
+#define IFLASH_HW_IRQ_SAVE()                                                                       \
+    iflash_hw_irq_save() /**< Disable interrupts; returns the state to restore. */
+#define IFLASH_HW_IRQ_RESTORE(s)                                                                   \
+    iflash_hw_irq_restore(s) /**< Restore the interrupt state saved by IFLASH_HW_IRQ_SAVE(). */
+#define IFLASH_HW_BARRIER() __DSB() /**< Data synchronisation barrier. */
 
 #endif /* TEST */
 

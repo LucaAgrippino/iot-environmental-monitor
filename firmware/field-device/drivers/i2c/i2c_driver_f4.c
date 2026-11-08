@@ -27,19 +27,19 @@
 
 /* I2CD-O2: CCR and TRISE depend on PCLK1; resolve when clock-config.md  */
 /* lands. Values below assume PCLK1 = 42 MHz, fast-mode 400 kHz, DUTY=0. */
-#define I2C_CCR_VALUE (35U)   /* CCR for 400 kHz, DUTY=0, PCLK1=42 MHz. */
-#define I2C_TRISE_VALUE (13U) /* TRISE for 400 kHz, PCLK1=42 MHz.       */
+#define I2C_CCR_VALUE (35U)   /**< CCR for 400 kHz, DUTY=0, PCLK1=42 MHz. */
+#define I2C_TRISE_VALUE (13U) /**< TRISE for 400 kHz, PCLK1=42 MHz. */
 
 /* I2CD-O3: Confirm F469 I2C1 pin assignment against UM1932 schematic.   */
 /* Using PB8 (SCL) and PB9 (SDA) with AF4 as the most common F469 I2C1  */
-/* mapping; validate at board-level integration.                           */
+/** mapping; validate at board-level integration. */
 #define I2C_SCL_PORT GPIOB
 #define I2C_SCL_PIN (8U)
 #define I2C_SDA_PORT GPIOB
 #define I2C_SDA_PIN (9U)
-#define I2C_GPIO_AF (4U) /* AF4 = I2C1_SCL / I2C1_SDA on F469. */
+#define I2C_GPIO_AF (4U) /**< AF4 = I2C1_SCL / I2C1_SDA on F469. */
 
-/* Number of clock pulses for bus recovery (I2C spec: 9 clocks max). */
+/** Number of clock pulses for bus recovery (I2C spec: 9 clocks max). */
 #define I2C_RECOVERY_PULSES (9U)
 
 /* Polling-loop iteration limit for all flag-wait loops. */
@@ -49,12 +49,12 @@
 #define I2C_TIMEOUT_COUNT (50000U)
 #endif
 
-/* MODER field width per pin (2 bits each). */
+/** MODER field width per pin (2 bits each). */
 #define GPIO_MODER_INPUT (0U)
 #define GPIO_MODER_OUTPUT (1U)
 #define GPIO_MODER_AF (2U)
 
-/* OTYPER bit per pin (1 = open-drain). */
+/** OTYPER bit per pin (1 = open-drain). */
 #define GPIO_OTYPER_OD (1U)
 
 /* --------------------------------------------------------------------- */

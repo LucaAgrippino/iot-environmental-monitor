@@ -84,8 +84,8 @@
 #define WIFI_SPIN_WINDOW_US 2000u
 #define WIFI_SLEEP_STEP_US 1000u
 /** NAK — appended to an odd-length command to reach an even byte count.
- *  Confirmed against the quick reference's worked example (P0=0\r padded
- *  to "0P 0= 0x15\r"); NOT 0x0A as the general datasheet text suggested. */
+ *  Confirmed against the quick reference's worked example (P0=0 CR padded
+ *  to "0P 0= 0x15 CR"); NOT 0x0A as the general datasheet text suggested. */
 #define WIFI_CMD_PAD_BYTE 0x15u
 /** LF — clocked out by the host on MOSI while draining a Data Phase
  *  (datasheet §10.2.1/§10.2.4: "clock out 0x0A until DRDY lowers"). */
@@ -95,7 +95,7 @@
 
 struct wifi_inst
 {
-    /* Injected dependencies */
+    /** Injected dependencies */
     spi_handle_t spi;
     gpio_port_t nss_port;
     uint8_t nss_pin;
@@ -108,7 +108,7 @@ struct wifi_inst
     gpio_port_t boot0_port;
     uint8_t boot0_pin;
 
-    /* Runtime state */
+    /** Runtime state */
     wifi_link_state_t link_state;
     int8_t rssi_dbm;
     bool socket_open[WIFI_MAX_SOCKETS];
@@ -117,7 +117,7 @@ struct wifi_inst
     bool ready;
     bool in_use;
 
-    /* AT command working buffer — reused for both TX formatting and RX. */
+    /** AT command working buffer — reused for both TX formatting and RX. */
     char at_buf[WIFI_AT_BUF_SIZE];
 };
 
@@ -261,7 +261,7 @@ WIFI_TEST_VISIBLE wifi_err_t prv_check_firmware_version(const char *resp, size_t
 /* SPI / DRDY transaction engine                                           */
 /* ====================================================================== */
 
-/* Default: spin, as before. An image with a scheduler overrides it with a sleep of one tick
+/** Default: spin, as before. An image with a scheduler overrides it with a sleep of one tick
  * (main.c): a failing join or connect makes the module answer only after 10 to 19 s, and a spinning
  * poll at WifiTask's priority kept the lifecycle task from running, which kicks the watchdog (found
  * on the board with the broker unreachable: a reset loop). */

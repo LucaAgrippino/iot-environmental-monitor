@@ -28,6 +28,7 @@
 /** time_sync_state_t — authoritative definition in time_provider.h. */
 #ifndef TIME_SYNC_STATE_DEFINED
 #define TIME_SYNC_STATE_DEFINED
+/** @brief Whether the clock has been set from a time server. */
 typedef enum
 {
     TIME_SYNC_UNSYNCHRONISED = 0,
@@ -38,6 +39,7 @@ typedef enum
 /** sensor_id_t — authoritative definition in sensor_service.h. */
 #ifndef SENSOR_ID_DEFINED
 #define SENSOR_ID_DEFINED
+/** @brief Identifier of a sensor channel. */
 typedef enum
 {
     SENSOR_ID_TEMPERATURE = 0,
@@ -59,6 +61,7 @@ typedef enum
 /** alarm_state_t — authoritative definition in alarm_service.h. */
 #ifndef ALARM_STATE_DEFINED
 #define ALARM_STATE_DEFINED
+/** @brief State of the alarm of one channel. */
 typedef enum
 {
     ALARM_STATE_CLEAR = 0,
@@ -78,29 +81,29 @@ typedef enum
  */
 typedef struct
 {
-    /* ── System ── */
+    /** ── System ── */
     uint32_t uptime_s;
-    lifecycle_state_t lifecycle_state;
-    lifecycle_reset_cause_t last_reset_cause;
+    lifecycle_state_t lifecycle_state;        /**< Lifecycle state of the device. */
+    lifecycle_reset_cause_t last_reset_cause; /**< Cause of the last reset. */
 
-    /* ── Sensors ── */
+    /** ── Sensors ── */
     bool sensor_valid[SENSOR_ID_COUNT];
-    uint32_t sensor_fail_count;
-    time_sync_state_t time_sync_state;
+    uint32_t sensor_fail_count;        /**< Failed sensor reads since boot. */
+    time_sync_state_t time_sync_state; /**< Whether the clock has been set from a time server. */
 
-    /* ── Alarms ── */
+    /** ── Alarms ── */
     alarm_state_t alarm_state[SENSOR_ID_COUNT];
-    uint32_t alarm_raise_count;
+    uint32_t alarm_raise_count; /**< Alarms raised since boot. */
 
-    /* ── Config ── */
+    /** ── Config ── */
     bool config_write_failed;
 
-    /* ── Modbus slave (FD) ── */
+    /** ── Modbus slave (FD) ── */
     uint32_t modbus_valid_frames;
-    uint32_t modbus_crc_errors;
-    uint32_t modbus_addr_mismatches;
-    uint32_t modbus_exception_responses;
-    bool modbus_slave_ok;
+    uint32_t modbus_crc_errors;          /**< Frames discarded for a CRC error. */
+    uint32_t modbus_addr_mismatches;     /**< Frames for another slave address. */
+    uint32_t modbus_exception_responses; /**< Exception responses sent. */
+    bool modbus_slave_ok;                /**< True while the Modbus slave works. */
 
 #if defined(BOARD_GATEWAY)
     /* ── Modbus master (GW) ── */
@@ -124,7 +127,7 @@ typedef struct
     uint32_t last_ntp_sync_epoch;
 #endif /* BOARD_GATEWAY */
 
-    /* ── RTOS task stack watermarks ── */
+    /** ── RTOS task stack watermarks ── */
     uint16_t stack_watermark_words[HEALTH_TASK_COUNT];
 
     /* ── Resources (REQ-CC-010, REQ-LD-070) ── */
@@ -138,9 +141,11 @@ typedef struct
 /* IHealthSnapshot vtable — read side                                      */
 /* ======================================================================= */
 
+/** @brief Read interface of HealthMonitor (vtable). */
 typedef struct ihealth_snapshot_s
 {
-    health_monitor_err_t (*get_snapshot)(device_health_snapshot_t *snap_out);
+    health_monitor_err_t (*get_snapshot)(
+        device_health_snapshot_t *snap_out); /**< Copy the latest snapshot into snap_out. */
 } ihealth_snapshot_t;
 
 /** Singleton pointer — read side. */
