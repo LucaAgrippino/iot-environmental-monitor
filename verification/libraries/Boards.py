@@ -1,0 +1,107 @@
+"""Robot library: control of the two boards over SWD (openocd) and the build scripts.
+
+Keywords are plain functions of the class; Robot turns `flash_fd` into `Flash Fd`. Serial numbers and
+console ports are the bench's (docs/test/verification-plan.md section 4).
+"""
+import glob
+import os
+import re
+import subprocess
+import time
+
+from PIL import Image
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FD_SERIAL = "066BFF303435554157025015"
+GW_SERIAL = "0670FF575157877567154553"
+FD_CONSOLE = "/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_%s-if02" % FD_SERIAL
+GW_CONSOLE = "/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_%s-if02" % GW_SERIAL
+FD_ELF = os.path.join(ROOT, "firmware/field-device/Debug/app/field_device_app.elf")
+GW_ELF = os.path.join(ROOT, "firmware/gateway/Debug/app/gateway_app.elf")
+FB_BASE = 0xC0000000
+FB_W, FB_H = 800, 480
+TARGET = {"FD": ("stm32f4x", FD_SERIAL), "GW": ("stm32l4x", GW_SERIAL)}
+
+
+def _openocd():
+    return glob.glob("/opt/st/stm32cubeide_*/plugins/com.st.stm32cube.ide.mcu.externaltools.openocd.linux64_*/tools/bin/openocd")[0]
+
+
+def _scripts():
+    return glob.glob("/opt/st/stm32cubeide_*/plugins/com.st.stm32cube.ide.mcu.debug.openocd_*/resources/openocd/st_scripts")[0]
+
+
+def _run_openocd(board, commands, timeout=60):
+    target, serial = TARGET[board]
+    cmd = [_openocd(), "-s", _scripts(), "-f", "interface/stlink-dap.cfg", "-c", "adapter serial %s" % serial,
+           "-c", "transport select dapdirect_swd", "-f", "target/%s.cfg" % target, "-c", "init; %s; shutdown" % commands]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return r.stdout + r.stderr
+
+
+class Boards:
+    ROBOT_LIBRARY_SCOPE = "SUITE"
+
+    # ---- flashing ---------------------------------------------------------------------------
+    def flash_fd(self, gui=True):
+        """Build and flash the Field Device product image (with the display stack by default)."""
+        env = dict(os.environ, ST_SERIAL=FD_SERIAL, **({"GUI": "1"} if str(gui).lower() in ("true", "1", "yes") else {}))
+        r = subprocess.run(["bash", os.path.join(ROOT, "scripts/build-fd-app.sh"), "--flash"], env=env,
+                           capture_output=True, text=True, timeout=900, cwd=ROOT)
+        if "Verified OK" not in r.stdout + r.stderr:
+            raise AssertionError("Field Device flash failed:\n" + (r.stdout + r.stderr)[-800:])
+
+    def flash_gw(self):
+        """Build and flash the Gateway product image."""
+        env = dict(os.environ, ST_SERIAL=GW_SERIAL)
+        r = subprocess.run(["bash", os.path.join(ROOT, "scripts/build-gateway-app.sh"), "--flash"], env=env,
+                           capture_output=True, text=True, timeout=900, cwd=ROOT)
+        if "Verified OK" not in r.stdout + r.stderr:
+            raise AssertionError("Gateway flash failed:\n" + (r.stdout + r.stderr)[-800:])
+
+    # ---- SWD --------------------------------------------------------------------------------
+    def reset_board(self, board):
+        """Reset the board and let it run (a soft reset through SYSRESETREQ)."""
+        _run_openocd(board.upper(), "reset run")
+
+    def read_u32(self, board, address):
+        """Read one 32-bit word from the running or halted target."""
+        out = _run_openocd(board.upper(), "echo VAL=[read_memory %s 32 1]" % address)
+        m = re.search(r"VAL=(0x[0-9a-fA-F]+)", out)
+        if not m:
+            raise AssertionError("cannot read %s: %s" % (address, out[-200:]))
+        return int(m.group(1), 16)
+
+    def read_gpio_odr(self, board, port_base):
+        """Output data register of a GPIO port (LED pins)."""
+        return self.read_u32(board, hex(int(port_base, 0) + 0x14))
+
+    def symbol_address(self, board, symbol):
+        """Address of a (static) symbol, from the ELF with gdb."""
+        elf = FD_ELF if board.upper() == "FD" else GW_ELF
+        out = subprocess.run(["gdb-multiarch", "-batch", "-ex", "p/x (unsigned)&%s" % symbol, elf],
+                             capture_output=True, text=True, timeout=60).stdout
+        m = re.search(r"= (0x[0-9a-f]+)", out)
+        if not m:
+            raise AssertionError("symbol %s not found" % symbol)
+        return int(m.group(1), 16)
+
+    def select_fd_screen(self, index):
+        """Ask LcdUi for a screen (0 Sensors, 1 Trend, 2 Status, 3 Alarms, 4 Config) through its request field."""
+        base = self.symbol_address("FD", "'lcd_ui.c'::s_ui")
+        off = int(subprocess.run(["gdb-multiarch", "-batch", "-ex", "p/x &((struct lcd_ui*)0)->requested_screen", FD_ELF],
+                                 capture_output=True, text=True, timeout=60).stdout.split("= ")[-1].strip(), 16)
+        _run_openocd("FD", "mwh 0x%x %d" % (base + off, int(index) + 1))
+
+    def capture_framebuffer(self, path, settle=0.0):
+        """Halt the Field Device, dump the SDRAM framebuffer and save it as a PNG (halting avoids tearing)."""
+        if float(settle):
+            time.sleep(float(settle))
+        raw = path + ".bin"
+        _run_openocd("FD", "halt; dump_image %s 0x%x %d; resume" % (raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
+        data = open(raw, "rb").read()
+        os.remove(raw)
+        img = Image.new("RGB", (FB_W, FB_H))
+        img.frombytes(b"".join(bytes((data[i + 2], data[i + 1], data[i])) for i in range(0, len(data), 4)))
+        img.save(path)
+        return path
