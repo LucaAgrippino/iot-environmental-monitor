@@ -621,6 +621,9 @@ int main(void)
 
     /* 1. Clock tree (180 MHz) and drivers with no dependencies on each other. */
     system_clock_init();
+    /* The cycle counter drives HAL_GetTick/HAL_Delay of the LCD BSP. A debugger session leaves it
+     * running; after a cold power-up it is stopped and the LCD bring-up waits forever (DEF-002). */
+    system_clock_enable_dwt();
     /* Fault diagnostics and the previous boot's panic report; before rtc_init() so the backup
      * registers are read as the last boot left them. */
     (void) cpu_init();
