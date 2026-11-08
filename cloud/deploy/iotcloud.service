@@ -11,7 +11,8 @@ WorkingDirectory=/var/lib/iotcloud
 ExecStart=/opt/iotcloud/venv/bin/python -m uvicorn --factory iotcloud.api:app --host 127.0.0.1 --port 8000 --no-server-header
 Restart=on-failure
 RestartSec=5
-# The Pi 3 has 1 GB of RAM: a runaway process must not take the broker or the SSH session with it
+# The Pi 3 has 1 GB of RAM: a runaway process must not take the broker or the SSH session with it.
+# (Raspberry Pi OS boots with cgroup_disable=memory, so this is not enforced there: see deploy/README.md)
 MemoryMax=300M
 # State (database, firmware images) lives in /var/lib/iotcloud and nowhere else is writable
 StateDirectory=iotcloud
