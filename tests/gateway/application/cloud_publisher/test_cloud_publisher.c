@@ -1339,6 +1339,9 @@ void test_CP_T27_fd_alarm_flags_become_field_device_alarms(void)
     g_cfg.fd_slave_addr = 1u;
     g_spy_fd_return = MODBUS_POLLER_ERR_OK;
     g_spy_fd_reading.humidity_centi_pct = 8123u;
+    g_spy_fd_reading.limits_valid[1] = true; /* humidity limits, as the poller read them */
+    g_spy_fd_reading.limit_low[1] = 2000;
+    g_spy_fd_reading.limit_high[1] = 8000;
     TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
     TEST_ASSERT_NOT_NULL(g_spy_fd_alarm_cb);
 
@@ -1353,6 +1356,8 @@ void test_CP_T27_fd_alarm_flags_become_field_device_alarms(void)
     TEST_ASSERT_EQUAL(CP_ALARM_TYPE_HIGH, ev.alarm_type);
     TEST_ASSERT_EQUAL(CP_ALARM_SOURCE_FIELD_DEVICE, ev.source);
     TEST_ASSERT_EQUAL_INT32(8123, ev.measured_value_raw);
+    TEST_ASSERT_EQUAL_INT32(8000,
+                            ev.threshold_value_raw); /* REQ-AM-040: the limit that was crossed */
 
     /* The same bit falls, TEMP_LOW (bit 0) rises: two events, the clear first by bit order. */
     g_mock_xQueueSend_call_count = 0u;
