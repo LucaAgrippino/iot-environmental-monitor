@@ -53,7 +53,7 @@ struct modbus_register_map
     uint16_t cmd_ack_alarm_last;
     uint16_t cmd_reset_metrics_last;
     uint16_t cmd_soft_restart_last;
-    uint16_t cmd_set_time_hi_last; /* LLD-D16: read-after-write cells of the time pair */
+    uint16_t cmd_set_time_hi_last; /**< LLD-D16: read-after-write cells of the time pair */
     uint16_t cmd_set_time_lo_last;
     modbus_slave_stats_t last_stats_snapshot;
 };
@@ -68,9 +68,9 @@ static modbus_register_map_t s_mrm;
 #define MRM_DEVICE_ID_HI ((uint16_t) 0U)
 #define MRM_DEVICE_ID_LO ((uint16_t) 0U)
 #define MRM_HARDWARE_REV ((uint16_t) 1U)
-#define MRM_FW_VER_MAJOR ((uint16_t) FW_VERSION_MAJOR) /* firmware_version.h §0x0004 */
-#define MRM_FW_VER_MINOR ((uint16_t) FW_VERSION_MINOR) /* firmware_version.h §0x0005 */
-#define MRM_FW_VER_PATCH ((uint16_t) FW_VERSION_PATCH) /* firmware_version.h §0x0006 */
+#define MRM_FW_VER_MAJOR ((uint16_t) FW_VERSION_MAJOR) /**< firmware_version.h §0x0004 */
+#define MRM_FW_VER_MINOR ((uint16_t) FW_VERSION_MINOR) /**< firmware_version.h §0x0005 */
+#define MRM_FW_VER_PATCH ((uint16_t) FW_VERSION_PATCH) /**< firmware_version.h §0x0006 */
 #define MRM_VENDOR_CODE ((uint16_t) 0x1A45U)
 
 /* ===================================================================== */
@@ -86,7 +86,7 @@ static modbus_register_map_t s_mrm;
 #define PRESS_FIXED_MAX ((uint16_t) 11000U)
 #define PRESS_HYS_MAX ((uint16_t) 100U)
 #define SAMP_PERIOD_MIN ((uint16_t) 100U)
-#define SAMP_PERIOD_MAX ((uint16_t) 10000U) /* REQ-NF-114 */
+#define SAMP_PERIOD_MAX ((uint16_t) 10000U) /**< REQ-NF-114 */
 #define LCD_BRIGHT_MAX ((uint16_t) 100U)
 #define LCD_TIMEOUT_MAX ((uint16_t) 3600U)
 #define SLAVE_ADDR_MIN ((uint16_t) 1U)
@@ -104,8 +104,8 @@ static modbus_register_map_t s_mrm;
 
 /* The RTC driver documents the years 2000..2099 and does not check them (rtc_driver.h): an epoch
  * outside that span would program a wrong date, so it is refused here, at the bus boundary. */
-#define MRM_SET_TIME_MIN_EPOCH ((uint32_t) 946684800UL)  /* 2000-01-01T00:00:00Z */
-#define MRM_SET_TIME_MAX_EPOCH ((uint32_t) 4102444799UL) /* 2099-12-31T23:59:59Z */
+#define MRM_SET_TIME_MIN_EPOCH ((uint32_t) 946684800UL)  /**< 2000-01-01T00:00:00Z */
+#define MRM_SET_TIME_MAX_EPOCH ((uint32_t) 4102444799UL) /**< 2099-12-31T23:59:59Z */
 
 /* ===================================================================== */
 /* Slot-table type definitions                                          */

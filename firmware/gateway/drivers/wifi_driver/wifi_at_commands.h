@@ -21,42 +21,42 @@
  * §4.11.1). */
 #define WIFI_AT_INFO "I?"
 
-/* Network join (User Manual §4.6) */
+/** Network join (User Manual §4.6) */
 #define WIFI_AT_SET_SSID "C1"
-#define WIFI_AT_SET_PASSPHRASE "C2"
-#define WIFI_AT_SET_SECURITY "C3"
-#define WIFI_AT_SET_DHCP "C4"
-#define WIFI_AT_JOIN "C0"
-#define WIFI_AT_DISCONNECT "CD"
-#define WIFI_AT_GET_RSSI "CR"
+#define WIFI_AT_SET_PASSPHRASE "C2" /**< AT command: set the passphrase. */
+#define WIFI_AT_SET_SECURITY "C3"   /**< AT command: set the security type. */
+#define WIFI_AT_SET_DHCP "C4"       /**< AT command: enable or disable DHCP. */
+#define WIFI_AT_JOIN "C0"           /**< AT command: join the access point. */
+#define WIFI_AT_DISCONNECT "CD"     /**< AT command: leave the access point. */
+#define WIFI_AT_GET_RSSI "CR"       /**< AT command: get the signal strength. */
 
-/* Transport / sockets (User Manual §4.13-4.15) */
-#define WIFI_AT_DNS_LOOKUP "D0" /**< D0=<host name>: resolve to a dotted-quad address. */
-#define WIFI_AT_SET_SOCKET "P0"
-#define WIFI_AT_SET_PROTOCOL "P1"
-#define WIFI_AT_SET_REMOTE_HOST "P3"
-#define WIFI_AT_SET_REMOTE_PORT "P4"
-#define WIFI_AT_SET_CLIENT "P6"
-#define WIFI_AT_SET_RECV_PACKET_SIZE "R1"
-#define WIFI_AT_SET_RECV_TIMEOUT "R2" /**< Read transport timeout, ms (User Manual §4.14). */
-#define WIFI_AT_RECV_DATA "R0"
-#define WIFI_AT_SEND_DATA "S3"
+/** Transport / sockets (User Manual §4.13-4.15) */
+#define WIFI_AT_DNS_LOOKUP "D0"      /**< D0=\<host name\>: resolve to a dotted-quad address. */
+#define WIFI_AT_SET_SOCKET "P0"      /**< AT command: select the socket. */
+#define WIFI_AT_SET_PROTOCOL "P1"    /**< AT command: set the protocol (TCP or UDP). */
+#define WIFI_AT_SET_REMOTE_HOST "P3" /**< AT command: set the remote host. */
+#define WIFI_AT_SET_REMOTE_PORT "P4" /**< AT command: set the remote port. */
+#define WIFI_AT_SET_CLIENT "P6"      /**< AT command: start the client connection. */
+#define WIFI_AT_SET_RECV_PACKET_SIZE "R1" /**< AT command: set the receive packet size. */
+#define WIFI_AT_SET_RECV_TIMEOUT "R2"     /**< Read transport timeout, ms (User Manual §4.14). */
+#define WIFI_AT_RECV_DATA "R0"            /**< AT command: receive data. */
+#define WIFI_AT_SEND_DATA "S3"            /**< AT command: send data. */
 
 /* Fixed command values */
 /** C3= security type (IWIN: "WPA + WPA2" / "WPA2 Mixed"). */
 #define WIFI_SECURITY_WPA2_MIXED "4"
 #define WIFI_DHCP_ENABLE "1" /**< C4= DHCP enable. */
 
-/* Response framing (User Manual §1.4.2; datasheet §10.2.1). The error
+/** Response framing (User Manual §1.4.2; datasheet §10.2.1). The error
  * marker deliberately has no trailing "\r\n": real error responses carry
  * a description right after the word, e.g. "\r\nERROR: Unknown Error\r\n"
  * (confirmed on hardware, and matches the "MT" example in the quick
  * reference doc) — matching only "\r\nERROR" catches both that and the
  * bare "\r\nERROR\r\n" form. */
 #define WIFI_RESP_OK_MARKER "\r\nOK\r\n"
-#define WIFI_RESP_ERROR_MARKER "\r\nERROR"
+#define WIFI_RESP_ERROR_MARKER "\r\nERROR" /**< Text the module sends when a command fails. */
 
-/* Required module firmware (UM2153 §7.11.3) — substring-matched against
+/** Required module firmware (UM2153 §7.11.3) — substring-matched against
  * the WIFI_AT_INFO response's FW Revision field. */
 #define WIFI_FIRMWARE_VERSION "C3.5.2.3"
 

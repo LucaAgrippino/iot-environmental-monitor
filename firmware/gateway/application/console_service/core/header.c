@@ -10,7 +10,7 @@
 #include "firmware_version.h"
 #include "theme.h"
 
-#define DOT "\xE2\x97\x8F" /* ● */
+#define DOT "\xE2\x97\x8F" /**< ● */
 
 /* A coloured "label ●" cell; unknown data shows a muted "?" instead of a dot. */
 static int prv_cell(char *buf, size_t size, const char *label, bool known, bool good,

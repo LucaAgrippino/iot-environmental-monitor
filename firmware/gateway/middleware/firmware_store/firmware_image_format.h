@@ -38,15 +38,15 @@
 
 /** Boot metadata copy A and B (one page each). */
 #define FIRMWARE_META_A_ADDR (0x08004000UL)
-#define FIRMWARE_META_B_ADDR (0x08004800UL)
+#define FIRMWARE_META_B_ADDR (0x08004800UL) /**< Address of boot metadata copy B. */
 
 /** Slot descriptors (one page each, so neither erase touches the other). */
 #define FIRMWARE_DESC_A_ADDR (0x08005000UL)
-#define FIRMWARE_DESC_B_ADDR (0x08005800UL)
+#define FIRMWARE_DESC_B_ADDR (0x08005800UL) /**< Address of the descriptor of slot B. */
 
 /** Bootloader region (never written by the application). */
 #define FIRMWARE_BOOTLOADER_BASE (0x08000000UL)
-#define FIRMWARE_BOOTLOADER_SIZE (0x4000UL)
+#define FIRMWARE_BOOTLOADER_SIZE (0x4000UL) /**< Size of the bootloader region, in bytes. */
 
 /**
  * Offset of the staging journal in the QspiFlashDriver address convention
@@ -56,7 +56,8 @@
 
 /** Journal sector size and the offset of the image file behind it. */
 #define FIRMWARE_JOURNAL_SIZE (4096U)
-#define FIRMWARE_STAGING_IMAGE_OFFSET (0x1000UL)
+#define FIRMWARE_STAGING_IMAGE_OFFSET                                                              \
+    (0x1000UL) /**< Offset of the image file inside the staging area (after the journal). */
 
 /** Granularity of the resume checkpoints: one QSPI sector. */
 #define FIRMWARE_CHECKPOINT_STEP (4096U)
@@ -68,19 +69,22 @@
 /* Magics and enumerations                                                 */
 /* ---------------------------------------------------------------------- */
 
-#define FIRMWARE_IMAGE_MAGIC (0x4F544131UL) /**< Staged image header.   */
-#define FIRMWARE_IMAGE_HEADER_VERSION (1U)
+#define FIRMWARE_IMAGE_MAGIC (0x4F544131UL)   /**< Staged image header.   */
+#define FIRMWARE_IMAGE_HEADER_VERSION (1U)    /**< Version of the image header layout. */
 #define FIRMWARE_DESC_MAGIC (0x46574453UL)    /**< Slot descriptor.       */
 #define FIRMWARE_META_MAGIC (0xC0DEBEEFUL)    /**< Boot metadata record.  */
 #define FIRMWARE_JOURNAL_MAGIC (0x4F54414AUL) /**< Staging session record. */
 
-#define FIRMWARE_BANK_A (0x0AU)
-#define FIRMWARE_BANK_B (0x0BU)
+#define FIRMWARE_BANK_A (0x0AU) /**< Value that names bank (slot) A in the metadata. */
+#define FIRMWARE_BANK_B (0x0BU) /**< Value that names bank (slot) B in the metadata. */
 
-#define FIRMWARE_META_STATE_CONFIRMED (0x01U)
-#define FIRMWARE_META_STATE_TRIAL_PENDING (0x02U)
-#define FIRMWARE_META_STATE_TRIAL_RUNNING (0x03U)
-#define FIRMWARE_META_STATE_ROLLED_BACK (0x04U)
+#define FIRMWARE_META_STATE_CONFIRMED (0x01U) /**< Boot state: the running image is confirmed. */
+#define FIRMWARE_META_STATE_TRIAL_PENDING                                                          \
+    (0x02U) /**< Boot state: a new image is armed for a trial. */
+#define FIRMWARE_META_STATE_TRIAL_RUNNING                                                          \
+    (0x03U) /**< Boot state: the new image is running its trial. */
+#define FIRMWARE_META_STATE_ROLLED_BACK                                                            \
+    (0x04U) /**< Boot state: the trial failed and the previous image was restored. */
 
 /** Value of an erased flash word. */
 #define FIRMWARE_ERASED_WORD (0xFFFFFFFFUL)
@@ -90,7 +94,7 @@
 
 /** Signature and digest sizes. */
 #define FIRMWARE_SHA256_LEN (32U)
-#define FIRMWARE_SIGNATURE_LEN (64U)
+#define FIRMWARE_SIGNATURE_LEN (64U) /**< Length of the image signature, in bytes. */
 
 /** Bytes of the header covered by the signature (offsets 0x00..0x3F). */
 #define FIRMWARE_SIGNED_HEADER_LEN (0x40U)
@@ -99,6 +103,7 @@
 /* Image file header — staged, 128 B                                       */
 /* ---------------------------------------------------------------------- */
 
+/** @brief Header at the start of a signed firmware image file. */
 typedef struct
 {
     uint32_t magic;          /**< 0x00 FIRMWARE_IMAGE_MAGIC.                          */
@@ -116,6 +121,8 @@ typedef struct
 /* Slot descriptor — on-chip, 32 B                                         */
 /* ---------------------------------------------------------------------- */
 
+/** @brief Descriptor of one firmware slot: image length, version and CRC, written after the image.
+ */
 typedef struct
 {
     uint32_t magic;      /**< 0x00 FIRMWARE_DESC_MAGIC.                    */
@@ -135,6 +142,8 @@ typedef struct
 /* Boot metadata record — on-chip, 24 B, copies A and B                    */
 /* ---------------------------------------------------------------------- */
 
+/** @brief Boot metadata record: active bank, boot state, rollback count (one of two rotated
+ * copies). */
 typedef struct
 {
     uint32_t magic;          /**< 0x00 FIRMWARE_META_MAGIC.                      */
@@ -158,24 +167,26 @@ typedef struct
 /** Session record at offset 0: magic, image_id, file_len, crc32 over the first 12 B. */
 typedef struct
 {
-    uint32_t magic;
-    uint32_t image_id;
-    uint32_t file_len;
-    uint32_t crc32;
+    uint32_t magic;    /**< Magic number that marks a valid session record. */
+    uint32_t image_id; /**< Identifier of the image being staged. */
+    uint32_t file_len; /**< Length of the image file, in bytes. */
+    uint32_t crc32;    /**< CRC-32 over the first FIRMWARE_JOURNAL_SESSION_CRC_SPAN bytes. */
 } firmware_journal_session_t;
 
-#define FIRMWARE_JOURNAL_SESSION_CRC_SPAN (12U)
+#define FIRMWARE_JOURNAL_SESSION_CRC_SPAN                                                          \
+    (12U) /**< Number of bytes of the session record covered by its CRC. */
 
 /** Checkpoint entry: {value, ~value}; value = bytes of the file safely staged. */
 typedef struct
 {
-    uint32_t value;
-    uint32_t inverse;
+    uint32_t value;   /**< Bytes of the file safely staged. */
+    uint32_t inverse; /**< Bitwise inverse of value, to detect a torn write. */
 } firmware_journal_entry_t;
 
 /** Offset of the first checkpoint entry and the number the journal can hold. */
 #define FIRMWARE_JOURNAL_ENTRIES_OFFSET (0x10U)
-#define FIRMWARE_JOURNAL_ENTRY_COUNT (510U)
+#define FIRMWARE_JOURNAL_ENTRY_COUNT                                                               \
+    (510U) /**< Number of checkpoint entries the journal can hold. */
 
 /* ---------------------------------------------------------------------- */
 /* Compile-time layout checks                                              */

@@ -42,24 +42,24 @@ static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
 /* ========================================================================= */
 
 #define DEFAULT_POLL_INTERVAL_MS 1000U
-#define DEFAULT_FILTER_ALPHA 100U /* 0.100 × 1000 */
+#define DEFAULT_FILTER_ALPHA 100U /**< 0.100 × 1000 */
 
-#define DEFAULT_TEMP_RANGE_MIN (-4000) /* −40.0 °C × 100 */
-#define DEFAULT_TEMP_RANGE_MAX 8500    /*  85.0 °C × 100 */
+#define DEFAULT_TEMP_RANGE_MIN (-4000) /**< −40.0 °C × 100 */
+#define DEFAULT_TEMP_RANGE_MAX 8500    /**< 85.0 °C × 100 */
 #define DEFAULT_HUMIDITY_RANGE_MIN 0U
-#define DEFAULT_HUMIDITY_RANGE_MAX 10000U /* 100.0 %RH × 100 */
-#define DEFAULT_PRESSURE_RANGE_MIN 3000U  /*  300.0 hPa × 10 */
-#define DEFAULT_PRESSURE_RANGE_MAX 11000U /* 1100.0 hPa × 10 */
+#define DEFAULT_HUMIDITY_RANGE_MAX 10000U /**< 100.0 %RH × 100 */
+#define DEFAULT_PRESSURE_RANGE_MIN 3000U  /**< 300.0 hPa × 10 */
+#define DEFAULT_PRESSURE_RANGE_MAX 11000U /**< 1100.0 hPa × 10 */
 
-#define DEFAULT_TEMP_ALARM_HIGH 4000       /*  40.0 °C × 100 */
-#define DEFAULT_TEMP_ALARM_LOW 0           /*   0.0 °C × 100 */
-#define DEFAULT_TEMP_HYSTERESIS 100        /*   1.0 °C × 100 */
-#define DEFAULT_HUMIDITY_ALARM_HIGH 8000U  /*  80.0 %RH × 100 */
-#define DEFAULT_HUMIDITY_ALARM_LOW 2000U   /*  20.0 %RH × 100 */
-#define DEFAULT_HUMIDITY_HYSTERESIS 200U   /*   2.0 %RH × 100 */
-#define DEFAULT_PRESSURE_ALARM_HIGH 10500U /* 1050.0 hPa × 10 */
-#define DEFAULT_PRESSURE_ALARM_LOW 9500U   /*  950.0 hPa × 10 */
-#define DEFAULT_PRESSURE_HYSTERESIS 50U    /*    5.0 hPa × 10 */
+#define DEFAULT_TEMP_ALARM_HIGH 4000       /**< 40.0 °C × 100 */
+#define DEFAULT_TEMP_ALARM_LOW 0           /**< 0.0 °C × 100 */
+#define DEFAULT_TEMP_HYSTERESIS 100        /**< 1.0 °C × 100 */
+#define DEFAULT_HUMIDITY_ALARM_HIGH 8000U  /**< 80.0 %RH × 100 */
+#define DEFAULT_HUMIDITY_ALARM_LOW 2000U   /**< 20.0 %RH × 100 */
+#define DEFAULT_HUMIDITY_HYSTERESIS 200U   /**< 2.0 %RH × 100 */
+#define DEFAULT_PRESSURE_ALARM_HIGH 10500U /**< 1050.0 hPa × 10 */
+#define DEFAULT_PRESSURE_ALARM_LOW 9500U   /**< 950.0 hPa × 10 */
+#define DEFAULT_PRESSURE_HYSTERESIS 50U    /**< 5.0 hPa × 10 */
 
 #define DEFAULT_MODBUS_SLAVE_ADDR 1U
 #define DEFAULT_MODBUS_POLL_PERIOD_MS 1000U
@@ -69,24 +69,24 @@ static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
 /* ========================================================================= */
 
 #define POLL_INTERVAL_MIN_MS 100U
-#define POLL_INTERVAL_MAX_MS 10000U /* REQ-NF-114: 0.1 Hz */
+#define POLL_INTERVAL_MAX_MS 10000U /**< REQ-NF-114: 0.1 Hz */
 
 /* Temperature: int16_t ×100 centi-°C */
-#define TEMP_ABS_MIN (-5500)   /* −55.0 °C */
-#define TEMP_ABS_MAX 12500     /* 125.0 °C */
-#define TEMP_RANGE_GAP_MIN 100 /* minimum 1.0 °C gap between range_min and range_max */
+#define TEMP_ABS_MIN (-5500)   /**< −55.0 °C */
+#define TEMP_ABS_MAX 12500     /**< 125.0 °C */
+#define TEMP_RANGE_GAP_MIN 100 /**< minimum 1.0 °C gap between range_min and range_max */
 
-/* Humidity: uint16_t ×100 centi-%RH */
+/** Humidity: uint16_t ×100 centi-%RH */
 #define HUMIDITY_ABS_MIN 0U
-#define HUMIDITY_ABS_MAX 10000U     /* 100.0 %RH */
-#define HUMIDITY_RANGE_GAP_MIN 100U /* minimum 1.0 %RH gap */
+#define HUMIDITY_ABS_MAX 10000U     /**< 100.0 %RH */
+#define HUMIDITY_RANGE_GAP_MIN 100U /**< minimum 1.0 %RH gap */
 
-/* Pressure: uint16_t ×10 deci-hPa */
+/** Pressure: uint16_t ×10 deci-hPa */
 #define PRESSURE_ABS_MIN 0U
-#define PRESSURE_ABS_MAX 12000U    /* 1200.0 hPa */
-#define PRESSURE_RANGE_GAP_MIN 10U /* minimum 1.0 hPa gap */
+#define PRESSURE_ABS_MAX 12000U    /**< 1200.0 hPa */
+#define PRESSURE_RANGE_GAP_MIN 10U /**< minimum 1.0 hPa gap */
 
-/* Filter alpha: uint16_t ×1000 per-mille, range (0, 1000) exclusive */
+/** Filter alpha: uint16_t ×1000 per-mille, range (0, 1000) exclusive */
 #define FILTER_ALPHA_MAX 1000U
 
 #define MODBUS_ADDR_MIN 1U
@@ -102,8 +102,8 @@ static_assert(sizeof(config_blob_t) <= CONFIG_STORE_MAX_DATA_BYTES,
 typedef struct
 {
     bool initialised;
-    config_params_t params;   /* live in-memory config */
-    config_params_t snapshot; /* rollback copy (set by snapshot()) */
+    config_params_t params;   /**< live in-memory config */
+    config_params_t snapshot; /**< rollback copy (set by snapshot()) */
     bool snapshot_valid;
     const iconfig_store_t *store;
     SemaphoreHandle_t mutex;

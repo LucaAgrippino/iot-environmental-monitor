@@ -19,8 +19,8 @@ typedef enum
     WATCHDOG_ERR_RANGE = 1, /**< Timeout outside WATCHDOG_TIMEOUT_MIN_MS..MAX_MS. */
 } watchdog_err_t;
 
-#define WATCHDOG_TIMEOUT_MIN_MS (100U)
-#define WATCHDOG_TIMEOUT_MAX_MS (30000U)
+#define WATCHDOG_TIMEOUT_MIN_MS (100U)   /**< Shortest accepted watchdog timeout, in ms. */
+#define WATCHDOG_TIMEOUT_MAX_MS (30000U) /**< Longest accepted watchdog timeout, in ms. */
 
 /**
  * @brief Start the independent watchdog with the given timeout. It cannot be stopped.
@@ -40,7 +40,11 @@ watchdog_err_t watchdog_start(uint32_t timeout_ms);
  */
 void watchdog_kick(void);
 
-/** @brief true after a successful watchdog_start(). */
+/**
+ * @brief true after a successful watchdog_start().
+ *
+ * @return true if the watchdog is running.
+ */
 bool watchdog_is_running(void);
 
 #ifdef TEST

@@ -53,8 +53,8 @@ typedef struct
     lv_disp_drv_t disp_drv;
     lv_indev_drv_t indev_drv;
     lv_disp_draw_buf_t draw_buf;
-    lv_color_t buf_1[GFX_DRAW_BUF_PIXELS]; /* 16 KB SRAM */
-    lv_color_t buf_2[GFX_DRAW_BUF_PIXELS]; /* 16 KB SRAM */
+    lv_color_t buf_1[GFX_DRAW_BUF_PIXELS]; /**< 16 KB SRAM */
+    lv_color_t buf_2[GFX_DRAW_BUF_PIXELS]; /**< 16 KB SRAM */
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
     TimerHandle_t tick_timer;

@@ -21,7 +21,7 @@
 #include "qspi_flash/qspi_flash.h"
 
 #define CERT_STORE_SSID_MAX (63U) /**< Characters, without the terminator. */
-#define CERT_STORE_PASS_MAX (63U)
+#define CERT_STORE_PASS_MAX (63U) /**< Longest stored passphrase, in characters. */
 #define CERT_STORE_CERT_MAX                                                                        \
     (2048U) /**< DER bytes of a certificate (RSA-4096 certificates are about 1.4 KB). */
 #define CERT_STORE_KEY_MAX                                                                         \
@@ -33,6 +33,7 @@
 /** @brief Device offset of the CertStore partition in the QSPI flash. */
 #define CERT_STORE_BASE (0x00010000UL)
 
+/** @brief Result codes of the CertStore API. */
 typedef enum
 {
     CERT_STORE_OK = 0,
@@ -43,6 +44,7 @@ typedef enum
     CERT_STORE_ERR_FLASH = 5     /**< Erase or program failed; the previous copy is intact. */
 } cert_store_err_t;
 
+/** @brief Kind of item kept in the store. */
 typedef enum
 {
     CERT_STORE_CA = 0,     /**< Root CA certificate (DER). */
@@ -110,7 +112,12 @@ cert_store_err_t cert_store_set_wifi(const char *ssid, const char *pass);
  */
 cert_store_err_t cert_store_set_item(cert_store_item_t item, const uint8_t *der, uint32_t len);
 
-/** @brief Remove everything (WiFi credentials, certificates, key). */
+/**
+ * @brief Remove everything (WiFi credentials, certificates, key).
+ *
+ * @return CERT_STORE_OK; CERT_STORE_ERR_NOT_INIT before init; CERT_STORE_ERR_FLASH if the erase
+ * failed.
+ */
 cert_store_err_t cert_store_clear(void);
 
 /** @return Sequence number of the copy in use (0 when the store is empty); for diagnostics. */

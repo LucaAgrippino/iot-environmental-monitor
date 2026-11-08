@@ -171,9 +171,12 @@ qspi_flash_err_t qspi_flash_erase_sector(uint32_t addr);
  */
 typedef struct
 {
-    qspi_flash_err_t (*read)(uint32_t addr, uint8_t *buf, uint32_t len);
-    qspi_flash_err_t (*write_page)(uint32_t addr, const uint8_t *data, uint16_t len);
-    qspi_flash_err_t (*erase_sector)(uint32_t addr);
+    qspi_flash_err_t (*read)(uint32_t addr, uint8_t *buf,
+                             uint32_t len); /**< Read len bytes from addr into buf. */
+    qspi_flash_err_t (*write_page)(
+        uint32_t addr, const uint8_t *data,
+        uint16_t len); /**< Program one page (at most one page, not crossing a page boundary). */
+    qspi_flash_err_t (*erase_sector)(uint32_t addr); /**< Erase the sector that holds addr. */
 } iqspi_flash_t;
 
 /** Singleton pointer to the QspiFlashDriver vtable instance. */

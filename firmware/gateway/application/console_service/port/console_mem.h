@@ -13,7 +13,9 @@
 #ifdef TEST
 #define CONSOLE_BIG_BUFFER /* host builds: ordinary static storage */
 #else
-#define CONSOLE_BIG_BUFFER __attribute__((section(".bss.sram2")))
+#define CONSOLE_BIG_BUFFER                                                                         \
+    __attribute__((section(".bss.sram2"))) /**< Places a large console buffer in SRAM2 so it does  \
+                                              not take main RAM. */
 #endif
 
 #endif /* CONSOLE_MEM_H */

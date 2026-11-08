@@ -37,8 +37,8 @@ typedef struct
     uint8_t count;
     StaticSemaphore_t mutex_buf;
     StaticSemaphore_t write_mutex_buf;
-    SemaphoreHandle_t mutex;       /* the live table and count                    */
-    SemaphoreHandle_t write_mutex; /* one writer at a time, held across the save  */
+    SemaphoreHandle_t mutex;       /**< the live table and count */
+    SemaphoreHandle_t write_mutex; /**< one writer at a time, held across the save */
     device_profile_storage_t storage;
     bool initialised;
 } registry_t;
@@ -46,7 +46,7 @@ typedef struct
 #ifdef TEST
 #define REGISTRY_PLACEMENT /* host builds: ordinary static storage */
 #else
-/* SRAM2: the 96 KB main bank of the production image has almost no room left (GM-O13). */
+/** SRAM2: the 96 KB main bank of the production image has almost no room left (GM-O13). */
 #define REGISTRY_PLACEMENT __attribute__((section(".bss.sram2")))
 #endif
 static registry_t s_reg REGISTRY_PLACEMENT;

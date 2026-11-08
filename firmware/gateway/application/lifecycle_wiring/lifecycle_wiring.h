@@ -74,9 +74,12 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
  *  The /control topic carries {"command":"<name>"}. The restart is two-step (REQ-DM-020): the
  *  first request moves the Gateway to Restarting, the confirmation resets it.
  *  @{ */
-#define LIFECYCLE_REMOTE_CMD_RESTART "restart"
-#define LIFECYCLE_REMOTE_CMD_RESTART_CONFIRM "restart_confirm"
-#define LIFECYCLE_REMOTE_CMD_RESET_METRICS "reset_metrics"
+#define LIFECYCLE_REMOTE_CMD_RESTART                                                               \
+    "restart" /**< Remote command name: restart the Gateway (first step). */
+#define LIFECYCLE_REMOTE_CMD_RESTART_CONFIRM                                                       \
+    "restart_confirm" /**< Remote command name: confirm the restart. */
+#define LIFECYCLE_REMOTE_CMD_RESET_METRICS                                                         \
+    "reset_metrics" /**< Remote command name: reset the metrics counters. */
 /** @} */
 
 /**

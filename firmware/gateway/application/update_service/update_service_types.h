@@ -49,11 +49,12 @@ typedef enum
 
 /** Smallest file: header (128 B) plus one byte. Largest: header plus a full 480 KB slot. */
 #define US_FILE_MIN (129UL)
-#define US_FILE_MAX (491648UL)
+#define US_FILE_MAX (491648UL) /**< Largest accepted file: header plus a full slot, in bytes. */
 
 /** Job values that are never valid (0 and the erased pattern). */
 #define US_JOB_INVALID_LOW (0UL)
-#define US_JOB_INVALID_ERASED (0xFFFFFFFFUL)
+#define US_JOB_INVALID_ERASED                                                                      \
+    (0xFFFFFFFFUL) /**< Job value that is never valid: the erased flash pattern. */
 
 /* ---------------------------------------------------------------------- */
 /* Command, request, report (§8.1)                                         */
@@ -62,7 +63,7 @@ typedef enum
 /** @brief An OTA command as CloudPublisher parsed it (§6.1). */
 typedef struct
 {
-    uint32_t job;
+    uint32_t job;    /**< Job number given by the cloud. */
     uint32_t size_a; /**< Signed file length for Slot A. */
     uint32_t size_b; /**< Signed file length for Slot B. */
 } us_ota_command_t;
@@ -70,10 +71,10 @@ typedef struct
 /** @brief One chunk request (§6.2). */
 typedef struct
 {
-    uint32_t job;
+    uint32_t job;         /**< Job number of the update. */
     firmware_slot_t slot; /**< FIRMWARE_SLOT_A or _B. */
-    uint32_t offset;
-    uint32_t len; /**< 1 .. US_CHUNK_SIZE. */
+    uint32_t offset;      /**< Offset of the first byte of the chunk in the file. */
+    uint32_t len;         /**< 1 .. US_CHUNK_SIZE. */
 } us_chunk_request_t;
 
 /** @brief Outcome carried by a report (§6.4). */
@@ -114,18 +115,18 @@ typedef enum
 /** @brief One result report (§6.4); CloudPublisher serialises it. */
 typedef struct
 {
-    bool job_known;
-    uint32_t job;
-    us_result_t result;
-    us_reason_t reason;
-    uint32_t version; /**< Running version, major<<24 | minor<<16 | patch. */
-    uint32_t rollback_count;
+    bool job_known;          /**< True when the job number is known. */
+    uint32_t job;            /**< Job number the report is about. */
+    us_result_t result;      /**< Outcome of the update. */
+    us_reason_t reason;      /**< Reason, when the update failed. */
+    uint32_t version;        /**< Running version, major<<24 | minor<<16 | patch. */
+    uint32_t rollback_count; /**< Number of rollbacks so far. */
 } us_ota_report_t;
 
 /** @brief Self-check probes (§8.1). */
 typedef struct
 {
-    void *ctx;
+    void *ctx;                        /**< Context pointer passed back to the probe functions. */
     bool (*sensors_ready)(void *ctx); /**< SensorService initialised and producing. */
     bool (*modbus_ready)(void *ctx);  /**< modbus_poller_is_ready() (MBP-D7).       */
 } us_probe_if_t;

@@ -34,6 +34,7 @@
 /* Error codes                                                           */
 /* ===================================================================== */
 
+/** @brief Result codes of the graphics library. */
 typedef enum
 {
     GRAPHICS_ERR_OK = 0,        /**< Operation succeeded. */
@@ -113,7 +114,9 @@ lv_indev_t *graphics_get_indev(void);
 /** @brief Reset all internal state. Call from setUp() in each test. */
 void graphics_reset_for_test(void);
 #else
-#define GRAPHICS_TEST_VISIBLE static
-#endif /* TEST */
+#define GRAPHICS_TEST_VISIBLE                                                                      \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
+#endif     /* TEST */
 
 #endif /* GRAPHICS_LIBRARY_H */

@@ -31,7 +31,7 @@
 /*   [SP+28] xPSR                                                         */
 /* --------------------------------------------------------------------- */
 
-/* Source ids equal cpu_panic_source_t: HardFault 1, BusFault 2, MemManage 3, UsageFault 4. */
+/** Source ids equal cpu_panic_source_t: HardFault 1, BusFault 2, MemManage 3, UsageFault 4. */
 #define CPU_FAULT_STUB(name, source)                                                               \
     __attribute__((naked)) void name(void)                                                         \
     {                                                                                              \

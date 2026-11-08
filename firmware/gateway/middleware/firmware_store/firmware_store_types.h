@@ -63,19 +63,19 @@ typedef enum
 /** @brief Cached boot state reported by get_boot_info(). */
 typedef struct
 {
-    bool ota_capable;
-    firmware_slot_t running_slot;
-    firmware_boot_state_t state; /**< Meaningful only if ota_capable.   */
-    uint32_t rollback_count;
-    uint32_t running_version; /**< 0 if no valid descriptor.           */
+    bool ota_capable;             /**< True when the device can take an OTA update. */
+    firmware_slot_t running_slot; /**< Slot the running image was linked for. */
+    firmware_boot_state_t state;  /**< Meaningful only if ota_capable.   */
+    uint32_t rollback_count;      /**< Number of rollbacks so far. */
+    uint32_t running_version;     /**< 0 if no valid descriptor.           */
 } firmware_boot_info_t;
 
 /** @brief Facts about an authenticated staged image, filled by verify(). */
 typedef struct
 {
-    uint32_t version;
-    uint32_t image_len;
-    firmware_slot_t target_slot;
+    uint32_t version;            /**< Version of the staged image. */
+    uint32_t image_len;          /**< Length of the staged image, in bytes. */
+    firmware_slot_t target_slot; /**< Slot the staged image is linked for. */
 } firmware_image_info_t;
 
 #endif /* FIRMWARE_STORE_TYPES_H */

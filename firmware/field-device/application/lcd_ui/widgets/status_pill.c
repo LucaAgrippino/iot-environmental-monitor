@@ -9,10 +9,10 @@
 
 #include "lcd_ui/theme.h"
 
-#define PILL_PAD_X 10 /* 03_SCREEN_SPECS.md: padding 3 px / 10 px */
+#define PILL_PAD_X 10 /**< 03_SCREEN_SPECS.md: padding 3 px / 10 px */
 #define PILL_PAD_Y 3
-#define PILL_BLINK_PERIOD_MS 1000U /* style-guide.md section 8: 1 Hz */
-#define PILL_BLINK_ON_MS 500U      /* 50 % duty */
+#define PILL_BLINK_PERIOD_MS 1000U /**< style-guide.md section 8: 1 Hz */
+#define PILL_BLINK_ON_MS 500U      /**< 50 % duty */
 
 /* Text, border/text colour, tint fill per state — 03_SCREEN_SPECS.md "Status pill" table */
 static lv_color_t colour_of(pill_state_t s)

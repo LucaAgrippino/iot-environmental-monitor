@@ -50,7 +50,7 @@
 
 /** WifiDriver's own worst-case timing constants are private to
  *  wifi_driver.c (wifi-driver.md §3.1) — not part of its public header,
- *  so they can't be #included here. Mirrored from the published values
+ *  so they can't be included here. Mirrored from the published values
  *  in that companion doc; must be kept in sync if WifiDriver's change. */
 #define WIFITASK_WIFI_RESP_TIMEOUT_MS 5000u
 #define WIFITASK_WIFI_JOIN_TIMEOUT_MS 20000u

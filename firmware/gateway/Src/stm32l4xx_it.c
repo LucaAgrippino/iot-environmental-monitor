@@ -32,9 +32,9 @@
 #include "wifi_driver/wifi_driver.h"
 
 /* EXTI line numbers (UM2153 pin map; see each driver). */
-#define IT_LINE_WIFI_DATARDY (1U) /* PE1  — ISM43362 DATARDY */
-#define IT_LINE_MAG_DRDY (8U)     /* PC8  — LIS3MDL DRDY     */
-#define IT_LINE_IMU_INT1 (11U)    /* PD11 — LSM6DSL INT1     */
+#define IT_LINE_WIFI_DATARDY (1U) /**< PE1  — ISM43362 DATARDY */
+#define IT_LINE_MAG_DRDY (8U)     /**< PC8  — LIS3MDL DRDY */
+#define IT_LINE_IMU_INT1 (11U)    /**< PD11 — LSM6DSL INT1 */
 
 volatile uint32_t g_flash_ecc_nmi_count;
 

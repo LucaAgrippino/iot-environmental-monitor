@@ -21,7 +21,9 @@
 /* ===================================================================== */
 
 #ifndef MODBUS_EXCEPTION_DEFINED
-#define MODBUS_EXCEPTION_DEFINED
+#define MODBUS_EXCEPTION_DEFINED /**< Guard: modbus_exception_t is also defined by other modules.  \
+                                  */
+/** @brief Modbus exception codes. */
 typedef enum
 {
     MB_EXC_NONE = 0x00,
@@ -35,6 +37,7 @@ typedef enum
 /* Error codes                                                          */
 /* ===================================================================== */
 
+/** @brief Result codes of the ModbusRegisterMap API. */
 typedef enum
 {
     MRM_ERR_OK = 0,
@@ -48,19 +51,21 @@ typedef enum
 /* Register address constants                                           */
 /* ===================================================================== */
 
-/* MODBUS_SLAVE_ADDR is placed at 0x0150 (first address of the reserved
+/** MODBUS_SLAVE_ADDR is placed at 0x0150 (first address of the reserved
  * configuration range) to support the Mediator role. The HLD data-spec
  * lists 0x0150–0x01FF as reserved; this is a known deviation.          */
 #define MRM_REG_MODBUS_SLAVE_ADDR ((uint16_t) 0x0150U)
 
-/* Max registers per single Modbus PDU (per protocol spec §4.3) */
+/** Max registers per single Modbus PDU (per protocol spec §4.3) */
 #define MRM_MAX_REGS_PER_READ ((uint16_t) 125U)
-#define MRM_MAX_REGS_PER_WRITE ((uint16_t) 123U)
+#define MRM_MAX_REGS_PER_WRITE                                                                     \
+    ((uint16_t) 123U) /**< Largest number of registers in one write request. */
 
 /* ===================================================================== */
 /* Opaque type — concrete definition in modbus_register_map.c           */
 /* ===================================================================== */
 
+/** @brief ModbusRegisterMap instance (opaque). */
 typedef struct modbus_register_map modbus_register_map_t;
 
 /* ===================================================================== */
@@ -73,22 +78,23 @@ typedef struct modbus_register_map modbus_register_map_t;
  * be unified in a future ModbusSlave refactor (MRM-DEVIATION-001).     */
 
 struct imodbus_register_map_s;
+/** @brief Interface of the register map for the Modbus slave (vtable). */
 typedef struct imodbus_register_map_s
 {
-    void *ctx; /* concrete modbus_register_map_t * */
+    void *ctx; /**< concrete modbus_register_map_t * */
 
-    /* cppcheck-suppress unusedStructMember -- called by ModbusSlave FC04 */
+    /** cppcheck-suppress unusedStructMember -- called by ModbusSlave FC04 */
     modbus_exception_t (*read_input_regs)(void *ctx, uint16_t addr, uint16_t count,
                                           uint16_t *out_buf);
 
-    /* cppcheck-suppress unusedStructMember -- called by ModbusSlave FC03 */
+    /** cppcheck-suppress unusedStructMember -- called by ModbusSlave FC03 */
     modbus_exception_t (*read_holding_regs)(void *ctx, uint16_t addr, uint16_t count,
                                             uint16_t *out_buf);
 
-    /* cppcheck-suppress unusedStructMember -- called by ModbusSlave FC06 */
+    /** cppcheck-suppress unusedStructMember -- called by ModbusSlave FC06 */
     modbus_exception_t (*write_single_reg)(void *ctx, uint16_t addr, uint16_t value);
 
-    /* cppcheck-suppress unusedStructMember -- called by ModbusSlave FC16 */
+    /** cppcheck-suppress unusedStructMember -- called by ModbusSlave FC16 */
     modbus_exception_t (*write_multiple_regs)(void *ctx, uint16_t addr, uint16_t count,
                                               const uint16_t *values);
 } imodbus_register_map_t;
@@ -99,7 +105,7 @@ typedef struct imodbus_register_map_s
 
 #include "lifecycle_controller/ilifecycle.h"
 
-/* ilifecycle.h already defined the enumerators — alias the type. */
+/** ilifecycle.h already defined the enumerators — alias the type. */
 typedef lifecycle_remote_cmd_t lifecycle_remote_cmd_t;
 
 /* ===================================================================== */
@@ -122,9 +128,10 @@ typedef lifecycle_remote_cmd_t lifecycle_remote_cmd_t;
 /* ===================================================================== */
 
 /* imodbus_slave_stats_t: snapshots ModbusSlave counters for Modbus regs */
+/** @brief Statistics interface of the Modbus slave (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called by modbus_register_map_poll_stats */
+    /** cppcheck-suppress unusedStructMember -- called by modbus_register_map_poll_stats */
     void (*snapshot)(modbus_slave_stats_t *out);
 } imodbus_slave_stats_t;
 

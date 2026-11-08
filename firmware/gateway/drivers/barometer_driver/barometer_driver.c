@@ -60,7 +60,7 @@
 
 typedef struct
 {
-    bool ready; /* set true after successful init */
+    bool ready; /**< set true after successful init */
 } barometer_state_t;
 
 static barometer_state_t s_baro;

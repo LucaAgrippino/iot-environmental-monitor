@@ -23,6 +23,7 @@
 /** Lifecycle state machine states (§5.1). */
 #ifndef LIFECYCLE_STATE_DEFINED
 #define LIFECYCLE_STATE_DEFINED
+/** @brief Lifecycle state of the device. */
 typedef enum
 {
     LIFECYCLE_STATE_INIT = 0,
@@ -37,6 +38,7 @@ typedef enum
 /** Cause of the most recent hardware reset (§5.2). */
 #ifndef LIFECYCLE_RESET_CAUSE_DEFINED
 #define LIFECYCLE_RESET_CAUSE_DEFINED
+/** @brief Cause of the last reset. */
 typedef enum
 {
     LIFECYCLE_RESET_POWER_ON = 0,
@@ -76,13 +78,14 @@ typedef enum
 /** Event payload (§5.4). */
 typedef struct
 {
-    lifecycle_event_type_t type;
-    uint32_t param; /* fault code, OTA image size, etc. */
+    lifecycle_event_type_t type; /**< Kind of event. */
+    uint32_t param;              /**< fault code, OTA image size, etc. */
 } lifecycle_event_t;
 
 /** Remote commands dispatched through handle_remote_command (§5.5). */
 #ifndef LC_REMOTE_CMD_DEFINED
 #define LC_REMOTE_CMD_DEFINED
+/** @brief Command that can arrive from the Gateway. */
 typedef enum
 {
     LC_REMOTE_CMD_SOFT_RESTART = 0,
@@ -97,14 +100,18 @@ typedef enum
 /* Provided vtable — ILifecycle (§4.2)                                     */
 /* ======================================================================= */
 
+/** @brief Interface of the lifecycle controller (vtable). */
 typedef struct
 {
-    lifecycle_state_t (*get_state)(void);
-    lifecycle_reset_cause_t (*get_reset_cause)(void);
-    bool (*post_event)(lifecycle_event_t event);
-    lifecycle_err_t (*handle_remote_command)(lifecycle_remote_cmd_t cmd);
+    lifecycle_state_t (*get_state)(void);             /**< Current lifecycle state. */
+    lifecycle_reset_cause_t (*get_reset_cause)(void); /**< Cause of the last reset. */
+    bool (*post_event)(lifecycle_event_t event); /**< Post an event to the controller; false if the
+                                                    queue is full. */
+    lifecycle_err_t (*handle_remote_command)(
+        lifecycle_remote_cmd_t cmd); /**< Run a command that arrived from the Gateway. */
 } ilifecycle_t;
 
+/** @brief The lifecycle controller instance. */
 extern const ilifecycle_t *const lifecycle_controller;
 
 #endif /* ILIFECYCLE_H */

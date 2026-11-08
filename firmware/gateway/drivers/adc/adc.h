@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 
+/** @brief Result codes of the ADC driver. */
 typedef enum
 {
     ADC_OK = 0,

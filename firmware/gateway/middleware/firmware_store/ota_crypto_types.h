@@ -30,7 +30,7 @@
 /** @brief SHA-256 streaming context; opaque to callers. */
 typedef struct
 {
-    uint32_t opaque[OTA_SHA256_CTX_WORDS];
+    uint32_t opaque[OTA_SHA256_CTX_WORDS]; /**< Internal state words; do not access. */
 } ota_sha256_ctx_t;
 
 /** @brief Result of a crypto operation. */
@@ -41,13 +41,31 @@ typedef enum
     OTA_CRYPTO_ERR_FAILED = 2 /**< Library or resource failure; says nothing about the image. */
 } ota_crypto_err_t;
 
-/** @brief Start a SHA-256 computation. */
+/**
+ * @brief Start a SHA-256 computation.
+ *
+ * @param ctx Context to initialise.
+ * @return OTA_CRYPTO_OK, or an error code.
+ */
 ota_crypto_err_t ota_sha256_begin(ota_sha256_ctx_t *ctx);
 
-/** @brief Feed bytes into a SHA-256 computation. */
+/**
+ * @brief Feed bytes into a SHA-256 computation.
+ *
+ * @param ctx Context started by ota_sha256_begin().
+ * @param data Bytes to add.
+ * @param len Number of bytes.
+ * @return OTA_CRYPTO_OK, or an error code.
+ */
 ota_crypto_err_t ota_sha256_update(ota_sha256_ctx_t *ctx, const uint8_t *data, uint32_t len);
 
-/** @brief Finish a SHA-256 computation and write the 32-byte digest. */
+/**
+ * @brief Finish a SHA-256 computation and write the 32-byte digest.
+ *
+ * @param ctx Context started by ota_sha256_begin().
+ * @param digest Receives the 32-byte digest.
+ * @return OTA_CRYPTO_OK, or an error code.
+ */
 ota_crypto_err_t ota_sha256_finish(ota_sha256_ctx_t *ctx, uint8_t digest[OTA_SHA256_LEN]);
 
 /**

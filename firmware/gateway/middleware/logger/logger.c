@@ -39,10 +39,10 @@
 #endif
 
 #ifndef LOGGER_DRAIN_STACK_WORDS
-#define LOGGER_DRAIN_STACK_WORDS (384U) /* D-1 F: 218 of 256 words used (85 %) */
+#define LOGGER_DRAIN_STACK_WORDS (384U) /**< D-1 F: 218 of 256 words used (85 %) */
 #endif
 
-/* ANSI escape sequences — used by format_line when colours are enabled. */
+/** ANSI escape sequences — used by format_line when colours are enabled. */
 #define ANSI_RESET "\033[0m"
 #define ANSI_RED "\033[31m"
 #define ANSI_YELLOW "\033[33m"

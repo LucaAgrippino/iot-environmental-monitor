@@ -26,46 +26,46 @@
 /* Board-specific constants (companion §3.6, §4)                       */
 /* ------------------------------------------------------------------ */
 
-#define QSPI_DCR_FSIZE_VAL (22U)        /* 2^(22+1) = 8 MB              */
-#define QSPI_EXPECTED_RDID (0xC22817UL) /* Macronix 0xC2, MX25R 0x28, 64 Mbit 0x17 */
-#define QSPI_RDID_BYTE_SHIFT (8U)       /* MSB-first: mfr, type, capacity */
+#define QSPI_DCR_FSIZE_VAL (22U)        /**< 2^(22+1) = 8 MB */
+#define QSPI_EXPECTED_RDID (0xC22817UL) /**< Macronix 0xC2, MX25R 0x28, 64 Mbit 0x17 */
+#define QSPI_RDID_BYTE_SHIFT (8U)       /**< MSB-first: mfr, type, capacity */
 
-/* QSPI_CLK = HCLK / (PRESCALER + 1) = 80 MHz / 3 = 26.67 MHz.
+/** QSPI_CLK = HCLK / (PRESCALER + 1) = 80 MHz / 3 = 26.67 MHz.
  * The plain READ opcode (0x03) used by this driver is rated to 33 MHz on
  * the MX25R6435F (the 80 MHz figure applies to FAST_READ only), so
  * PRESCALER = 1 (40 MHz) would be out of spec. Resolves QSPID-O2. */
 #define QSPI_PRESCALER_VAL (2U)
-#define QSPI_CR_FTHRES_VAL (0U) /* FTF fires when >= 1 byte is in the FIFO */
-#define QSPI_CR_SSHIFT_VAL (1U) /* 1/2 clock sample shift                  */
-#define QSPI_CSHT_VAL (0U)      /* NCS high >= 1 QSPI clock between commands */
+#define QSPI_CR_FTHRES_VAL (0U) /**< FTF fires when >= 1 byte is in the FIFO */
+#define QSPI_CR_SSHIFT_VAL (1U) /**< 1/2 clock sample shift */
+#define QSPI_CSHT_VAL (0U)      /**< NCS high >= 1 QSPI clock between commands */
 
-/* QUADSPI pins on the B-L475E-IOT01A (UM2153 §6.x, resolves QSPID-O5):
+/** QUADSPI pins on the B-L475E-IOT01A (UM2153 §6.x, resolves QSPID-O5):
  * PE10 CLK, PE11 NCS, PE12 IO0, PE13 IO1, PE14 IO2, PE15 IO3 — all AF10. */
 #define QSPI_GPIO_PORT GPIOE
 #define QSPI_PIN_FIRST (10U)
 #define QSPI_PIN_COUNT (6U)
 #define QSPI_PIN_AF (10U)
-#define QSPI_GPIO_MODE_AF (2UL)         /* MODER[2n+1:2n] = 10b            */
-#define QSPI_GPIO_SPEED_VERY_HIGH (3UL) /* OSPEEDR[2n+1:2n] = 11b          */
+#define QSPI_GPIO_MODE_AF (2UL)         /**< MODER[2n+1:2n] = 10b */
+#define QSPI_GPIO_SPEED_VERY_HIGH (3UL) /**< OSPEEDR[2n+1:2n] = 11b */
 #define QSPI_GPIO_FIELD_MASK (3UL)
 #define QSPI_GPIO_BITS_PER_PIN (2U)
 #define QSPI_GPIO_AFR_BITS_PER_PIN (4U)
 #define QSPI_GPIO_AFR_PINS_PER_REG (8U)
 #define QSPI_GPIO_AFR_MASK (0xFUL)
-#define QSPI_GPIO_AFR_HIGH_IDX (1U) /* AFR[1] covers pins 8..15 */
+#define QSPI_GPIO_AFR_HIGH_IDX (1U) /**< AFR[1] covers pins 8..15 */
 
 /* ------------------------------------------------------------------ */
 /* Flash command opcodes                                               */
 /* ------------------------------------------------------------------ */
 
-#define QSPI_CMD_WREN (0x06U)  /* Write Enable                */
-#define QSPI_CMD_RDSR (0x05U)  /* Read Status Register        */
-#define QSPI_CMD_RDID (0x9FU)  /* Read Identification (JEDEC) */
-#define QSPI_CMD_READ (0x03U)  /* Read Data                   */
-#define QSPI_CMD_PP (0x02U)    /* Page Program                */
-#define QSPI_CMD_SE (0x20U)    /* Sector Erase (4 KB)         */
-#define QSPI_CMD_RSTEN (0x66U) /* Reset Enable                */
-#define QSPI_CMD_RST (0x99U)   /* Reset Memory                */
+#define QSPI_CMD_WREN (0x06U)  /**< Write Enable */
+#define QSPI_CMD_RDSR (0x05U)  /**< Read Status Register */
+#define QSPI_CMD_RDID (0x9FU)  /**< Read Identification (JEDEC) */
+#define QSPI_CMD_READ (0x03U)  /**< Read Data */
+#define QSPI_CMD_PP (0x02U)    /**< Page Program */
+#define QSPI_CMD_SE (0x20U)    /**< Sector Erase (4 KB) */
+#define QSPI_CMD_RSTEN (0x66U) /**< Reset Enable */
+#define QSPI_CMD_RST (0x99U)   /**< Reset Memory */
 
 /* ------------------------------------------------------------------ */
 /* CCR field encoding constants                                        */
@@ -84,20 +84,20 @@
 /* Timing and geometry constants                                       */
 /* ------------------------------------------------------------------ */
 
-#define QSPI_SECTOR_BASE_MASK (0xFFFFF000UL) /* addr aligned to 4 KB sector */
-#define QSPI_PAGE_BASE_MASK (0xFFFFFF00UL)   /* addr aligned to 256 B page  */
+#define QSPI_SECTOR_BASE_MASK (0xFFFFF000UL) /**< addr aligned to 4 KB sector */
+#define QSPI_PAGE_BASE_MASK (0xFFFFFF00UL)   /**< addr aligned to 256 B page */
 #define QSPI_RDID_BYTE_COUNT (3U)
-#define QSPI_WIP_BIT (0x01U)          /* Status register bit 0: Write-In-Progress */
-#define QSPI_FIFO_FULL_LEVEL (0x1FUL) /* FLEVEL saturates at 31 when full  */
+#define QSPI_WIP_BIT (0x01U)          /**< Status register bit 0: Write-In-Progress */
+#define QSPI_FIFO_FULL_LEVEL (0x1FUL) /**< FLEVEL saturates at 31 when full */
 
-/* Bounded poll windows. TCF/FTF/FLEVEL waits cover a single 256-byte
+/** Bounded poll windows. TCF/FTF/FLEVEL waits cover a single 256-byte
  * transfer (~80 us at 26.67 MHz) with wide margin. The WIP window must
  * outlast the worst-case sector erase (240 ms); one RDSR round trip is
  * ~1.2 us, so 400 000 polls is ~500 ms (companion §2.5, §3.7). */
 #define QSPI_FLAG_POLL_TIMEOUT (10000UL)
 #define QSPI_WIP_POLL_TIMEOUT (400000UL)
 
-/* tRST after Reset Memory is well under 100 us; ~10 000 iterations of a
+/** tRST after Reset Memory is well under 100 us; ~10 000 iterations of a
  * NOP loop at 80 MHz is > 300 us. */
 #define QSPI_TRST_LOOPS (10000U)
 

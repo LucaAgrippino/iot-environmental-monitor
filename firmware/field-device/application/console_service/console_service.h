@@ -52,6 +52,7 @@ typedef struct idevice_profile_mgr_s idevice_profile_mgr_t;
 /* Error codes                                                             */
 /* ======================================================================= */
 
+/** @brief Result codes of the ConsoleService API. */
 typedef enum
 {
     CONSOLE_SERVICE_ERR_OK = 0,
@@ -68,6 +69,7 @@ typedef enum
 /* Provided vtable — IConsoleService                                       */
 /* ======================================================================= */
 
+/** @brief Interface of ConsoleService (vtable). */
 typedef struct iconsole_service
 {
     /**
@@ -95,6 +97,7 @@ typedef struct iconsole_service
     console_service_err_t (*run_once)(void);
 } iconsole_service_t;
 
+/** @brief The console service instance. */
 extern const iconsole_service_t *const console_service;
 
 /* ======================================================================= */
@@ -113,8 +116,8 @@ extern const iconsole_service_t *const console_service;
  * @param cfg_read  IConfigProvider — must not be NULL.
  * @param cfg_write IConfigManager — must not be NULL.
  * @param health    IHealthSnapshot — must not be NULL.
- * @param profiles  IDeviceProfileManager (GW only). Must not be NULL on GW;
- *                  ignored / pass NULL on FD.
+ * @note The Gateway build takes one more parameter, `profiles` (IDeviceProfileManager, must not
+ *       be NULL), after @p health.
  *
  * @return CONSOLE_SERVICE_ERR_OK on success; CONSOLE_SERVICE_ERR_NULL_ARG if
  *         any required pointer is NULL.

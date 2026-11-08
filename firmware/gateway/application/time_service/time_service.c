@@ -25,20 +25,20 @@
 
 #define MODULE_TAG "TS"
 
-/* Notification bits for TimeServiceTask. */
+/** Notification bits for TimeServiceTask. */
 #define TS_NOTIFY_BIT_PERIODIC (1UL << 0)
 #define TS_NOTIFY_BIT_RETRY (1UL << 1)
-#define TS_NOTIFY_BIT_FD_LINK_UP (1UL << 2) /* the FD link came up: push the clock again */
+#define TS_NOTIFY_BIT_FD_LINK_UP (1UL << 2) /**< the FD link came up: push the clock again */
 
-/* Task sizing per task-breakdown.md §TimeServiceTask. */
-#define TS_TASK_STACK_WORDS (512U) /* D-1 F: 337 of 768 words used */
+/** Task sizing per task-breakdown.md §TimeServiceTask. */
+#define TS_TASK_STACK_WORDS (512U) /**< D-1 F: 337 of 768 words used */
 #define TS_TASK_PRIORITY (2U)
 
 #define TS_MS_PER_S (1000UL)
-#define TS_TIMER_PLACEHOLDER_MS (1000U) /* real period is set when the task starts */
+#define TS_TIMER_PLACEHOLDER_MS (1000U) /**< real period is set when the task starts */
 #define TS_FD_RESPONSE_TIMEOUT_MS (5000U)
 
-/* Field Device time push (REQ-TS-030): one FC16 write of the two-word CMD_SET_TIME block,
+/** Field Device time push (REQ-TS-030): one FC16 write of the two-word CMD_SET_TIME block,
  * docs/hld/modbus-register-map.md §6.5. The FD applies it when the low word lands (TS-O5). */
 #define TS_FD_SLAVE_ADDR (1U)
 #define TS_FD_FUNCTION_WRITE_MULTIPLE (0x10U)

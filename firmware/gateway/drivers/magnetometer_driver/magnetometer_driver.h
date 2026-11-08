@@ -115,11 +115,11 @@ magnetometer_err_t magnetometer_read(magnetometer_data_t *out);
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember; used via magnetometer_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via magnetometer_driver singleton */
     magnetometer_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember; used via magnetometer_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via magnetometer_driver singleton */
     magnetometer_err_t (*attach_drdy_callback)(magnetometer_drdy_cb_t cb, void *ctx);
-    /* cppcheck-suppress unusedStructMember; used via magnetometer_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via magnetometer_driver singleton */
     magnetometer_err_t (*read)(magnetometer_data_t *out);
 } imagnetometer_t;
 

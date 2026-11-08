@@ -6,7 +6,7 @@
 #include "chart.h"
 
 #define Q8 (256)
-#define NEAR_NUM (3) /* near from 0.6 = 3/5 */
+#define NEAR_NUM (3) /**< near from 0.6 = 3/5 */
 #define NEAR_DEN (5)
 
 int32_t chart_proximity_q8(int32_t v, const chart_limits_t *limits)

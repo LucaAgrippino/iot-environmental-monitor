@@ -7,7 +7,7 @@
  *
  * The caller supplies a pin table (led_pin_t array, one entry per led_id_t)
  * to led_init(). Active-level polarity is encoded per-entry in the active_high
- * field — the driver contains no board-conditional #if directives.
+ * field — the driver contains no board-conditional preprocessor directives.
  *
  * @note See docs/lld/drivers/led-driver.md for the full design.
  */
@@ -56,6 +56,7 @@ typedef enum
 /* LED state                                                           */
 /* ------------------------------------------------------------------ */
 
+/** @brief State of an LED. */
 typedef enum
 {
     LED_STATE_OFF = 0U, /**< LED is off. */
@@ -156,10 +157,10 @@ led_err_t led_get_state(led_id_t id, led_state_t *state);
  */
 typedef struct
 {
-    led_err_t (*on)(led_id_t id);
-    led_err_t (*off)(led_id_t id);
-    led_err_t (*toggle)(led_id_t id);
-    led_err_t (*get_state)(led_id_t id, led_state_t *state);
+    led_err_t (*on)(led_id_t id);                            /**< Switch the LED on. */
+    led_err_t (*off)(led_id_t id);                           /**< Switch the LED off. */
+    led_err_t (*toggle)(led_id_t id);                        /**< Toggle the LED. */
+    led_err_t (*get_state)(led_id_t id, led_state_t *state); /**< Read the state of the LED. */
 } iled_t;
 
 /** Singleton pointer to the LedDriver vtable instance. */
@@ -172,7 +173,9 @@ extern const iled_t *const led_driver;
 #ifdef TEST
 #define LED_TEST_VISIBLE
 #else
-#define LED_TEST_VISIBLE static
+#define LED_TEST_VISIBLE                                                                           \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 #ifdef TEST

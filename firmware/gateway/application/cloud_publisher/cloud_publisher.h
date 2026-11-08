@@ -38,6 +38,7 @@
 /** @brief Opaque handle to a CloudPublisher instance. */
 typedef struct cloud_publisher_inst *cloud_publisher_handle_t;
 
+/** @brief Result codes of the CloudPublisher API. */
 typedef enum
 {
     CP_ERR_OK = 0,
@@ -54,7 +55,8 @@ typedef enum
 /* --- Alarm payload (CloudPublisher's own wire model) ------------------ */
 
 #ifndef CP_ALARM_TYPE_T_DEFINED
-#define CP_ALARM_TYPE_T_DEFINED
+#define CP_ALARM_TYPE_T_DEFINED /**< Guard: cp_alarm_type_t is also defined by other modules. */
+/** @brief Kind of alarm event published to the cloud. */
 typedef enum
 {
     CP_ALARM_TYPE_HIGH = 0,
@@ -64,7 +66,9 @@ typedef enum
 #endif /* CP_ALARM_TYPE_T_DEFINED */
 
 #ifndef CP_ALARM_SOURCE_T_DEFINED
-#define CP_ALARM_SOURCE_T_DEFINED
+#define CP_ALARM_SOURCE_T_DEFINED /**< Guard: cp_alarm_source_t is also defined by other modules.  \
+                                   */
+/** @brief Device that raised an alarm. */
 typedef enum
 {
     CP_ALARM_SOURCE_GATEWAY = 0,
@@ -72,7 +76,8 @@ typedef enum
 } cp_alarm_source_t;
 #endif /* CP_ALARM_SOURCE_T_DEFINED */
 
-#define CP_ALARM_SENSOR_NAME_MAX 16u
+#define CP_ALARM_SENSOR_NAME_MAX                                                                   \
+    16u /**< Size of the sensor name field of an alarm event, with the terminator. */
 
 /**
  * @brief One alarm transition as published to the cloud (companion §7.3).
@@ -83,11 +88,16 @@ typedef enum
  */
 typedef struct
 {
-    char sensor_name[CP_ALARM_SENSOR_NAME_MAX];
-    cp_alarm_type_t alarm_type;
-    int32_t measured_value_raw;
-    int32_t threshold_value_raw;
-    cp_alarm_source_t source;
+    char sensor_name[CP_ALARM_SENSOR_NAME_MAX]; /**< Name of the sensor or channel that raised the
+                                                   alarm (zero terminated). */
+    cp_alarm_type_t alarm_type;  /**< Whether the alarm was raised above the high limit, below the
+                                    low limit, or cleared. */
+    int32_t measured_value_raw;  /**< Measured value at the event, in the channel's raw fixed-point
+                                    unit. */
+    int32_t threshold_value_raw; /**< Limit that was crossed, in the same unit as measured_value_raw
+                                    (REQ-AM-040). */
+    cp_alarm_source_t
+        source; /**< Device that raised the alarm: the Gateway itself or a Field Device. */
     time_provider_ts_t timestamp; /**< Time of detection, from the reading (REQ-AM-040).   */
 } cp_alarm_event_t;
 
@@ -196,6 +206,11 @@ cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle);
  *
  * The OTA chunk topic is handled here and now (a 1 KB payload does not fit the 128-byte command
  * queue, and UpdateService copies it in microseconds); every other command is queued for the task.
+ *
+ * @param topic Topic of the message (not zero terminated).
+ * @param topic_len Length of topic, in bytes.
+ * @param payload Message payload.
+ * @param payload_len Length of payload, in bytes.
  */
 void cloud_publisher_on_message(const char *topic, uint16_t topic_len, const uint8_t *payload,
                                 uint32_t payload_len);

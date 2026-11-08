@@ -13,7 +13,7 @@
 #define IWDG_KEY_START (0xCCCCU)
 #define IWDG_KEY_REFRESH (0xAAAAU)
 #define IWDG_PRESCALER_256 (6U)
-#define IWDG_TICK_HZ (125U) /* 32 kHz LSI / 256 */
+#define IWDG_TICK_HZ (125U) /**< 32 kHz LSI / 256 */
 #define IWDG_RELOAD_MAX (4095U)
 #define IWDG_SR_WAIT_LOOPS (200000U)
 

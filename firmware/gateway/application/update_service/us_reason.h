@@ -11,7 +11,12 @@
 
 #include "update_service_types.h"
 
-/** @brief Wire string of a reason (§8.4); "" for US_REASON_NONE or an unknown value. */
+/**
+ * @brief Wire string of a reason (§8.4); "" for US_REASON_NONE or an unknown value.
+ *
+ * @param reason Reason code.
+ * @return Static string, never NULL.
+ */
 const char *update_service_reason_string(us_reason_t reason);
 
 #endif /* US_REASON_H */

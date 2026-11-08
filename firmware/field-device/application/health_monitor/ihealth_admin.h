@@ -19,6 +19,7 @@
 /* Error codes                                                             */
 /* ======================================================================= */
 
+/** @brief Result codes of the HealthMonitor administration interface. */
 typedef enum
 {
     HEALTH_ADMIN_ERR_OK = 0,
@@ -29,9 +30,10 @@ typedef enum
 /* IHealthAdmin vtable — control side                                      */
 /* ======================================================================= */
 
+/** @brief Administration interface of HealthMonitor (vtable). */
 typedef struct ihealth_admin_s
 {
-    health_admin_err_t (*reset_metrics)(void);
+    health_admin_err_t (*reset_metrics)(void); /**< Reset all metric counters. */
 } ihealth_admin_t;
 
 /** Singleton pointer — control side. Consumed only by LifecycleController. */

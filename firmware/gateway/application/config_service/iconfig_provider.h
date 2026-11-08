@@ -10,11 +10,12 @@
 
 #include "config_params.h"
 
+/** @brief Read interface of ConfigService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by the read-side consumers */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by the read-side consumers */
     const config_params_t *(*get_params)(void *ctx);
 } iconfig_provider_t;
 

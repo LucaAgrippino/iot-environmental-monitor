@@ -37,7 +37,7 @@ typedef enum
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
 
     /**

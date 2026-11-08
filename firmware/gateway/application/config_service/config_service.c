@@ -29,14 +29,14 @@
 #define DEFAULT_POLLING_INTERVAL_MS (1000U)
 #define DEFAULT_FILTER_ALPHA (100U)
 #define DEFAULT_MODBUS_SLAVE_ADDR (1U)
-#define DEFAULT_MODBUS_POLL_PERIOD_MS (200U) /* alarm latency, REQ-NF-113 (B4) */
+#define DEFAULT_MODBUS_POLL_PERIOD_MS (200U) /**< alarm latency, REQ-NF-113 (B4) */
 #define DEFAULT_MQTT_PORT (8883U)
 #define DEFAULT_TELEMETRY_INTERVAL_MS (60000U)
 #define DEFAULT_HEALTH_INTERVAL_MS (300000U)
 #define DEFAULT_NTP_INTERVAL_MIN (60U)
 
 #define POLL_MS_MIN (100)
-#define POLL_MS_MAX (10000) /* REQ-NF-114: 0.1 Hz */
+#define POLL_MS_MAX (10000) /**< REQ-NF-114: 0.1 Hz */
 #define ALPHA_MIN (1)
 #define ALPHA_MAX (999)
 #define SLAVE_ADDR_MIN (1)
@@ -50,11 +50,11 @@
 #define NTP_COUNT_MIN (1)
 #define NTP_INTERVAL_MIN_MIN (1)
 #define NTP_INTERVAL_MIN_MAX (1440)
-#define DEFAULT_MODBUS_BAUD_DIV100 (96U) /* 9600 bps, REQ-MB-030 */
-#define MODBUS_PARITY_MAX (2)            /* 0 none, 1 even, 2 odd */
+#define DEFAULT_MODBUS_BAUD_DIV100 (96U) /**< 9600 bps, REQ-MB-030 */
+#define MODBUS_PARITY_MAX (2)            /**< 0 none, 1 even, 2 odd */
 #define SELFTEST_FLAGS_MAX (0x3F)
 
-/* Alarm band rule: high - low must exceed twice the hysteresis (CFG-D7). */
+/** Alarm band rule: high - low must exceed twice the hysteresis (CFG-D7). */
 #define HYSTERESIS_BAND_FACTOR (2)
 
 /* ======================================================================= */
@@ -116,7 +116,7 @@ static const field_desc_t s_fields[CONFIG_PARAM_COUNT] = {
     [CONFIG_PARAM_SELFTEST_FLAGS] = FIELD(selftest_flags, KIND_U8),
 };
 
-/* Sensor channels share one rule set: range, alarm band and hysteresis (CFG-D7, CFG-D10). */
+/** Sensor channels share one rule set: range, alarm band and hysteresis (CFG-D7, CFG-D10). */
 typedef struct
 {
     config_param_id_t range_min;
@@ -124,9 +124,9 @@ typedef struct
     config_param_id_t high;
     config_param_id_t low;
     config_param_id_t hysteresis;
-    int32_t abs_min; /* hard limit of the sensor, same unit as the parameters */
+    int32_t abs_min; /**< hard limit of the sensor, same unit as the parameters */
     int32_t abs_max;
-    int32_t gap; /* smallest allowed range_max - range_min */
+    int32_t gap; /**< smallest allowed range_max - range_min */
 } channel_rule_t;
 
 static const channel_rule_t s_channels[] = {
@@ -408,8 +408,8 @@ static void prv_apply_defaults(config_params_t *p)
 #ifdef TEST
 #define PERSIST_BLOB_PLACEMENT /* host builds: ordinary static storage */
 #else
-/* SRAM2, like the console's big buffers: the 96 KB main bank is full (gateway-main.md GM-O13) and a
- * 520-byte blob there made the production image fail to link. The blob is only read by the CPU
+/** SRAM2, like the console's big buffers: the 96 KB main bank is full (gateway-main.md GM-O13) and
+ * a 520-byte blob there made the production image fail to link. The blob is only read by the CPU
  * (ConfigStore copies it to flash), so the bank makes no difference. */
 #define PERSIST_BLOB_PLACEMENT __attribute__((section(".bss.sram2")))
 #endif

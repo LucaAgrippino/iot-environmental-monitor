@@ -30,11 +30,11 @@
 
 #define MODULE_TAG "CON"
 
-/* Notification bits for ConsoleTask. */
+/** Notification bits for ConsoleTask. */
 #define NOTIFY_RX (1UL << 0)
 #define NOTIFY_DATA_TICK (1UL << 1)
 
-#define RING_SIZE (256U) /* power of two: masked-index arithmetic */
+#define RING_SIZE (256U) /**< power of two: masked-index arithmetic */
 #define RING_MASK (RING_SIZE - 1U)
 #define TX_TIMEOUT_MS (200U)
 #define DATA_TICK_MS (1000U)

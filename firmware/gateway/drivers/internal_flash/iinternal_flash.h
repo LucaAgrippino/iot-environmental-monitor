@@ -50,9 +50,11 @@ typedef enum
  */
 typedef struct
 {
-    internal_flash_err_t (*erase_page)(uint32_t addr);
-    internal_flash_err_t (*program)(uint32_t addr, const uint8_t *data, uint32_t len);
-    internal_flash_err_t (*read)(uint32_t addr, uint8_t *buf, uint32_t len);
+    internal_flash_err_t (*erase_page)(uint32_t addr); /**< Erase the page that holds addr. */
+    internal_flash_err_t (*program)(uint32_t addr, const uint8_t *data,
+                                    uint32_t len); /**< Program len bytes at addr. */
+    internal_flash_err_t (*read)(uint32_t addr, uint8_t *buf,
+                                 uint32_t len); /**< Read len bytes from addr into buf. */
 } iinternal_flash_t;
 
 #endif /* IINTERNAL_FLASH_H */

@@ -121,7 +121,7 @@ static void fmc_pins_configure(void)
 #define SDCR_RBURST_ENABLED (0x01UL) /**< Burst read enabled.          */
 #define SDCR_RPIPE_NO_DELAY (0x00UL) /**< No read pipe delay.          */
 
-/* SDCR1 bit positions (RM0386 §37.7.1) */
+/** SDCR1 bit positions (RM0386 §37.7.1) */
 #define SDCR_NC_POS (0U)
 #define SDCR_NR_POS (2U)
 #define SDCR_MWID_POS (4U)
@@ -151,7 +151,7 @@ static void fmc_pins_configure(void)
 #define SDTR_TRP (1UL)  /**< Precharge period: 2 cycles (≥18ns). */
 #define SDTR_TRCD (1UL) /**< Row-to-column: 2 cycles (≥18ns).   */
 
-/* SDTR bit positions (RM0386 §37.7.2) */
+/** SDTR bit positions (RM0386 §37.7.2) */
 #define SDTR_TMRD_POS (0U)
 #define SDTR_TXSR_POS (4U)
 #define SDTR_TRAS_POS (8U)
@@ -179,7 +179,7 @@ static void fmc_pins_configure(void)
 #define SDCMR_NRFS_POS (5U)
 #define SDCMR_MRD_POS (9U)
 
-/* Mode register value: CAS=3, burst length=1, sequential, no write burst */
+/** Mode register value: CAS=3, burst length=1, sequential, no write burst */
 #define SDRAM_MRD_BURST_LENGTH_1 (0x0000UL)
 #define SDRAM_MRD_BURST_TYPE_SEQ (0x0000UL)
 #define SDRAM_MRD_CAS_LATENCY_3 (0x0030UL)
@@ -189,7 +189,7 @@ static void fmc_pins_configure(void)
     (SDRAM_MRD_BURST_LENGTH_1 | SDRAM_MRD_BURST_TYPE_SEQ | SDRAM_MRD_CAS_LATENCY_3 |               \
      SDRAM_MRD_NO_WRITE_BURST)
 
-/* Number of auto-refresh cycles issued during init sequence */
+/** Number of auto-refresh cycles issued during init sequence */
 #define SDRAM_AUTOREFRESH_COUNT (8UL)
 
 /* ===================================================================== */
@@ -205,7 +205,7 @@ static void fmc_pins_configure(void)
 /* FMC SDSR busy flag                                                   */
 /* ===================================================================== */
 
-/* Bounded-wait iteration limit for BUSY flag polling */
+/** Bounded-wait iteration limit for BUSY flag polling */
 #define SDRAM_BUSY_TIMEOUT_ITERS (0xFFFFUL)
 
 /* ===================================================================== */

@@ -40,7 +40,8 @@
 /* ====================================================================== */
 
 #ifndef LIFECYCLE_STATE_DEFINED
-#define LIFECYCLE_STATE_DEFINED
+#define LIFECYCLE_STATE_DEFINED /**< Guard: lifecycle_state_t is also defined by other modules. */
+/** @brief Lifecycle state of the device. */
 typedef enum
 {
     LIFECYCLE_STATE_INIT = 0,
@@ -53,7 +54,9 @@ typedef enum
 #endif /* LIFECYCLE_STATE_DEFINED */
 
 #ifndef LIFECYCLE_RESET_CAUSE_DEFINED
-#define LIFECYCLE_RESET_CAUSE_DEFINED
+#define LIFECYCLE_RESET_CAUSE_DEFINED /**< Guard: lifecycle_reset_cause_t is also defined by other \
+                                         modules. */
+/** @brief Cause of the last reset. */
 typedef enum
 {
     LIFECYCLE_RESET_POWER_ON = 0,
@@ -64,7 +67,8 @@ typedef enum
 #endif /* LIFECYCLE_RESET_CAUSE_DEFINED */
 
 #ifndef SENSOR_ID_DEFINED
-#define SENSOR_ID_DEFINED
+#define SENSOR_ID_DEFINED /**< Guard: sensor_id_t is also defined by other modules. */
+/** @brief Identifier of a sensor channel. */
 typedef enum
 {
     SENSOR_ID_TEMPERATURE = 0,
@@ -84,7 +88,8 @@ typedef enum
 #endif /* SENSOR_ID_DEFINED */
 
 #ifndef ALARM_STATE_DEFINED
-#define ALARM_STATE_DEFINED
+#define ALARM_STATE_DEFINED /**< Guard: alarm_state_t is also defined by other modules. */
+/** @brief State of the alarm of one channel. */
 typedef enum
 {
     ALARM_STATE_CLEAR = 0,
@@ -94,7 +99,8 @@ typedef enum
 #endif /* ALARM_STATE_DEFINED */
 
 #ifndef TIME_SYNC_STATE_DEFINED
-#define TIME_SYNC_STATE_DEFINED
+#define TIME_SYNC_STATE_DEFINED /**< Guard: time_sync_state_t is also defined by other modules. */
+/** @brief Whether the clock has been set from a time server. */
 typedef enum
 {
     TIME_SYNC_UNSYNCHRONISED = 0,
@@ -107,7 +113,8 @@ typedef enum
 /* ====================================================================== */
 
 #ifndef HEALTH_MONITOR_HANDLE_T_DEFINED
-#define HEALTH_MONITOR_HANDLE_T_DEFINED
+#define HEALTH_MONITOR_HANDLE_T_DEFINED /**< Guard: health_monitor_handle_t is also defined by     \
+                                           other modules. */
 /** @brief Opaque handle to a HealthMonitor instance. */
 typedef struct health_monitor_inst *health_monitor_handle_t;
 #endif /* HEALTH_MONITOR_HANDLE_T_DEFINED */
@@ -191,23 +198,23 @@ typedef struct
     /* ── Config ── */
     bool config_write_failed; /**< Sticky flag.                   */
 
-    /* ── Modbus master ── */
+    /** ── Modbus master ── */
     uint32_t modbus_transactions_ok;
-    uint32_t modbus_timeouts;
-    bool modbus_link_online;
+    uint32_t modbus_timeouts; /**< Modbus requests that timed out since boot. */
+    bool modbus_link_online;  /**< True while the Field Device link is up. */
 
-    /* ── Cloud ── */
+    /** ── Cloud ── */
     uint32_t mqtt_publishes_sent;
-    uint32_t mqtt_publishes_failed;
-    uint32_t mqtt_reconnect_count;
-    int32_t wifi_rssi_dbm;
-    bool cloud_connected;
+    uint32_t mqtt_publishes_failed; /**< MQTT publishes that failed since boot. */
+    uint32_t mqtt_reconnect_count;  /**< MQTT reconnections since boot. */
+    int32_t wifi_rssi_dbm;          /**< Wi-Fi signal strength in dBm. */
+    bool cloud_connected;           /**< True while the MQTT connection to the broker is up. */
 
-    /* ── Store-and-forward buffer ── */
+    /** ── Store-and-forward buffer ── */
     uint32_t buffer_entry_count;
     uint32_t buffer_overflow_count; /**< Cumulative drops.              */
 
-    /* ── NTP ── */
+    /** ── NTP ── */
     uint32_t ntp_sync_fail_count;
     uint32_t last_ntp_sync_epoch; /**< 0 if never synced.             */
 
@@ -219,7 +226,7 @@ typedef struct
     bool mcu_temp_valid;     /**< mcu_temp_deci_c holds a reading.                   */
     int16_t mcu_temp_deci_c; /**< MCU die temperature in 0.1 degC (AdcDriver).        */
 
-    /* ── RTOS task stack watermarks ── */
+    /** ── RTOS task stack watermarks ── */
     uint16_t stack_watermark_words[HEALTH_MONITOR_MAX_TASKS];
 } health_snapshot_t;
 

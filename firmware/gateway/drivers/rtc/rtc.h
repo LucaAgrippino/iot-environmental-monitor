@@ -51,12 +51,12 @@
  */
 typedef struct
 {
-    uint16_t year;
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
+    uint16_t year;  /**< Year, for example 2026. */
+    uint8_t month;  /**< Month, 1 to 12. */
+    uint8_t day;    /**< Day of the month, 1 to 31. */
+    uint8_t hour;   /**< Hour, 0 to 23. */
+    uint8_t minute; /**< Minute, 0 to 59. */
+    uint8_t second; /**< Second, 0 to 59. */
 } rtc_datetime_t;
 
 /* --------------------------------------------------------------------- */
@@ -235,12 +235,12 @@ void rtc_set_tick_source(rtc_tick_source_fn fn);
  */
 typedef struct
 {
-    rtc_err_t (*init)(void);
-    rtc_err_t (*get_time)(rtc_datetime_t *dt);
-    rtc_err_t (*set_time)(const rtc_datetime_t *dt);
-    bool (*is_backup_valid)(void);
-    rtc_err_t (*read_backup)(uint8_t idx, uint32_t *out);
-    rtc_err_t (*write_backup)(uint8_t idx, uint32_t value);
+    rtc_err_t (*init)(void);                         /**< Initialise the RTC. */
+    rtc_err_t (*get_time)(rtc_datetime_t *dt);       /**< Read the date and time. */
+    rtc_err_t (*set_time)(const rtc_datetime_t *dt); /**< Set the date and time. */
+    bool (*is_backup_valid)(void); /**< True if the backup domain kept its content. */
+    rtc_err_t (*read_backup)(uint8_t idx, uint32_t *out);   /**< Read a backup register. */
+    rtc_err_t (*write_backup)(uint8_t idx, uint32_t value); /**< Write a backup register. */
 } irtc_t;
 
 /** Singleton pointer to the RtcDriver vtable instance. */

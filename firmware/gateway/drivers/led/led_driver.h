@@ -9,7 +9,7 @@
  *
  * The caller supplies a pin table (one led_pin_t per led_id_t) to led_init().
  * Active-level polarity is encoded per entry in the active_high field, so the
- * driver contains no board-conditional #if directives.
+ * driver contains no board-conditional conditional-compilation directives.
  *
  * This is the Gateway build (B-L475E-IOT01A): one fitted LED, LD2 on PB14. The
  * Field Device counterpart lives in firmware/field-device/drivers/led/ — the

@@ -22,32 +22,32 @@
 
 #include <stddef.h>
 
-/* Pin numbers within GPIOB. */
+/** Pin numbers within GPIOB. */
 #define DEBUG_UART_TX_PIN (6U)
 #define DEBUG_UART_RX_PIN (7U)
 
-/* Alternate-function 7 = USART1 on the L4 family. */
+/** Alternate-function 7 = USART1 on the L4 family. */
 #define DEBUG_UART_AF (7U)
 
-/* PCLK2 assumed value (80 MHz system clock, no APB2 prescaler). Resolved
+/** PCLK2 assumed value (80 MHz system clock, no APB2 prescaler). Resolved
  * properly when clock-config lands; see DUART-O2. */
 #define DEBUG_UART_PCLK2_HZ (80000000U)
 #define DEBUG_UART_BAUD (115200U)
 
-/* GPIO MODER value for alternate function. */
+/** GPIO MODER value for alternate function. */
 #define GPIO_MODER_AF (0x2U)
-/* GPIO PUPDR value for pull-up. */
+/** GPIO PUPDR value for pull-up. */
 #define GPIO_PUPDR_UP (0x1U)
-/* GPIO OSPEEDR value for high speed. */
+/** GPIO OSPEEDR value for high speed. */
 #define GPIO_OSPEEDR_HIGH (0x2U)
 
-/* UART error mask (L4 ISR bits). */
+/** UART error mask (L4 ISR bits). */
 #define USART_ISR_ERR_MASK (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE)
-/* Matching ICR clear bits for the error mask above. */
+/** Matching ICR clear bits for the error mask above. */
 #define USART_ICR_ERR_CLEAR_MASK                                                                   \
     (USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF)
 
-/* Line-terminator characters. */
+/** Line-terminator characters. */
 #define DEBUG_UART_CR ((uint8_t) '\r')
 #define DEBUG_UART_LF ((uint8_t) '\n')
 
@@ -198,10 +198,10 @@ void debug_uart_set_tick_source(uint32_t (*get_ms)(void))
     s_debug_uart.get_ms = get_ms;
 }
 
-/* Longest wait for the last byte to leave the shifter: 8 bit times at 300 baud would be ~33 ms;
+/** Longest wait for the last byte to leave the shifter: 8 bit times at 300 baud would be ~33 ms;
  * a bounded spin keeps the call safe if the line is stuck. */
 #define DEBUG_UART_TC_SPIN_LIMIT (2000000U)
-#define DEBUG_UART_BRR_MIN (16U) /* 16x oversampling: BRR below 16 is not allowed */
+#define DEBUG_UART_BRR_MIN (16U) /**< 16x oversampling: BRR below 16 is not allowed */
 
 debug_uart_err_t debug_uart_set_baud(uint32_t baud)
 {

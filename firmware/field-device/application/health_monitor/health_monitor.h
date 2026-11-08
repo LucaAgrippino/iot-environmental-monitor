@@ -183,7 +183,9 @@ health_monitor_err_t health_monitor_register_task(const char *name, void *task_h
 #ifdef TEST
 #define HEALTH_MONITOR_TEST_VISIBLE
 #else
-#define HEALTH_MONITOR_TEST_VISIBLE static
+#define HEALTH_MONITOR_TEST_VISIBLE                                                                \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 #ifdef TEST

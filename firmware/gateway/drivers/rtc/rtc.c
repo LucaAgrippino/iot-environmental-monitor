@@ -6,7 +6,7 @@
  * See docs/lld/drivers/rtc-driver.md for the full design.
  *
  * Field Device and Gateway are separate CubeIDE projects with separate
- * source trees, so this is a dedicated copy — not an #ifdef branch inside
+ * source trees, so this is a dedicated copy — not a conditional-compilation branch inside
  * the Field Device's rtc_driver.c — even though RTC_TypeDef's register
  * layout is identical across both boards (companion §4.4). Same split as
  * DebugUartDriver's two implementation files. Register *names* differ from

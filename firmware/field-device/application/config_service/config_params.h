@@ -37,6 +37,7 @@
 /* config_params_t                                                           */
 /* ========================================================================= */
 
+/** @brief Operational configuration parameters of the device. */
 typedef struct __attribute__((packed))
 {
     /* ── Sensor acquisition (REQ-SA-070, SA-140) ── */
@@ -73,7 +74,7 @@ typedef struct __attribute__((packed))
     uint32_t telemetry_interval_ms; /**< default 60000  */
     uint32_t health_interval_ms;    /**< default 300000 */
 
-    /* ── Time sync (GW only) ── */
+    /** ── Time sync (GW only) ── */
     char ntp_servers[CONFIG_MAX_NTP_SERVERS][CONFIG_MAX_NTP_HOST_LEN];
     uint8_t ntp_server_count;
 #endif /* BOARD_GATEWAY */

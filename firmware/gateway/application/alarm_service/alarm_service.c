@@ -26,19 +26,19 @@
  * config_params_t defaults, so a device without a stored configuration behaves identically
  * whether or not alarm_service_reconfigure() has run. (SS-O6: replaced by
  * IConfigProvider values once the Gateway has one). */
-#define ALARM_TEMP_HIGH_DEFAULT (4000)      /*   40.00 degC */
-#define ALARM_TEMP_LOW_DEFAULT (0)          /*    0.00 degC */
-#define ALARM_TEMP_HYST_DEFAULT (100)       /*    1.00 degC */
-#define ALARM_HUMIDITY_HIGH_DEFAULT (8000)  /*   80.00 %RH  */
-#define ALARM_HUMIDITY_LOW_DEFAULT (2000)   /*   20.00 %RH  */
-#define ALARM_HUMIDITY_HYST_DEFAULT (200)   /*    2.00 %RH  */
-#define ALARM_PRESSURE_HIGH_DEFAULT (10500) /* 1050.0 hPa   */
-#define ALARM_PRESSURE_LOW_DEFAULT (9500)   /*  950.0 hPa   */
-#define ALARM_PRESSURE_HYST_DEFAULT (50)    /*    5.0 hPa   */
+#define ALARM_TEMP_HIGH_DEFAULT (4000)      /**< 40.00 degC */
+#define ALARM_TEMP_LOW_DEFAULT (0)          /**< 0.00 degC */
+#define ALARM_TEMP_HYST_DEFAULT (100)       /**< 1.00 degC */
+#define ALARM_HUMIDITY_HIGH_DEFAULT (8000)  /**< 80.00 %RH */
+#define ALARM_HUMIDITY_LOW_DEFAULT (2000)   /**< 20.00 %RH */
+#define ALARM_HUMIDITY_HYST_DEFAULT (200)   /**< 2.00 %RH */
+#define ALARM_PRESSURE_HIGH_DEFAULT (10500) /**< 1050.0 hPa */
+#define ALARM_PRESSURE_LOW_DEFAULT (9500)   /**< 950.0 hPa */
+#define ALARM_PRESSURE_HYST_DEFAULT (50)    /**< 5.0 hPa */
 
 typedef struct
 {
-    bool enabled; /* false: never evaluated (IMU / magnetometer, SS-O3) */
+    bool enabled; /**< false: never evaluated (IMU / magnetometer, SS-O3) */
     int32_t high;
     int32_t low;
     int32_t hysteresis;

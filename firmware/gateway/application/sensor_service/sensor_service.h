@@ -51,7 +51,7 @@ typedef struct
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- accessed by get_snapshot() callers */
+    /** cppcheck-suppress unusedStructMember -- accessed by get_snapshot() callers */
     sensor_reading_t readings[SENSOR_ID_COUNT];
     /* cppcheck-suppress unusedStructMember -- read by CloudPublisher */
     uint32_t cycle_count; /**< Increments on every sensor_service_run_cycle() call. */
@@ -169,21 +169,22 @@ sensor_service_err_t sensor_service_read_on_demand(void);
 /* Singleton vtable — ISensorService                                        */
 /* ======================================================================= */
 
+/** @brief Read interface of SensorService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called via vtable by the system layer */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by the system layer */
     sensor_service_err_t (*init)(health_monitor_handle_t health);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by SensorTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by SensorTask */
     sensor_service_err_t (*run_cycle)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
     sensor_service_err_t (*get_snapshot)(sensor_snapshot_t *snap);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by AlarmService */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by AlarmService */
     sensor_service_err_t (*subscribe)(void (*cb)(const sensor_snapshot_t *));
-    /* cppcheck-suppress unusedStructMember -- called via vtable by on-demand read paths */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by on-demand read paths */
     sensor_service_err_t (*read_on_demand)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     bool (*is_ready)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     sensor_service_err_t (*reconfigure)(const config_params_t *params);
 } isensor_service_t;
 

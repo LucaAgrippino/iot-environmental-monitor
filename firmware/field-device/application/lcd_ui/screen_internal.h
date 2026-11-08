@@ -32,17 +32,17 @@
 /* Screen identifiers: the order of the tab bar (style-guide.md section 5) */
 /* ===================================================================== */
 
-#define SCR_SENSOR (0U)
-#define SCR_TREND (1U)
-#define SCR_STATUS (2U)
-#define SCR_ALARM (3U)
-#define SCR_CONFIG (4U)
-#define SCR_COUNT (5U)
+#define SCR_SENSOR (0U) /**< Index of the sensor screen. */
+#define SCR_TREND (1U)  /**< Index of the trend screen. */
+#define SCR_STATUS (2U) /**< Index of the status screen. */
+#define SCR_ALARM (3U)  /**< Index of the alarm screen. */
+#define SCR_CONFIG (4U) /**< Index of the configuration screen. */
+#define SCR_COUNT (5U)  /**< Number of screens. */
 
 /** Requests to the splash overlay, written by any task and carried out by lcd_ui_tick(). */
 #define SPLASH_REQ_NONE (0U)
-#define SPLASH_REQ_SHOW (1U)
-#define SPLASH_REQ_HIDE (2U)
+#define SPLASH_REQ_SHOW (1U) /**< Request to show the splash screen. */
+#define SPLASH_REQ_HIDE (2U) /**< Request to hide the splash screen. */
 /** Longest boot step name kept, with its terminator. */
 #define SPLASH_STEP_MAX (40U)
 
@@ -53,8 +53,10 @@
 /* Editable configuration parameters                                      */
 /* ===================================================================== */
 
-#define N_EDITABLE_FIELDS (7U)
+#define N_EDITABLE_FIELDS                                                                          \
+    (7U) /**< Number of fields the user can edit on the configuration screen. */
 
+/** @brief The parameters the user can edit on the configuration screen. */
 typedef struct
 {
     uint32_t polling_interval_ms;     /**< [100, 10000] ms               */
@@ -80,120 +82,130 @@ typedef enum
 
 typedef struct screen_s screen_t;
 
+/** @brief Common part of every screen: its root object and the functions the UI calls. */
 struct screen_s
 {
-    void (*on_enter)(screen_t *self);
-    void (*on_exit)(screen_t *self);
-    void (*on_refresh)(screen_t *self);
+    void (*on_enter)(screen_t *self);   /**< Called when the screen becomes the current one. */
+    void (*on_exit)(screen_t *self);    /**< Called when the screen stops being the current one. */
+    void (*on_refresh)(screen_t *self); /**< Called periodically to refresh the content. */
 };
 
 /* ===================================================================== */
 /* Screen contexts                                                        */
 /* ===================================================================== */
 
+/** @brief Sensor screen: one card per sensor. */
 typedef struct
 {
-    screen_t base;
-    sensor_card_t cards[SENSOR_DISPLAY_COUNT];
-    bool ever_valid[SENSOR_DISPLAY_COUNT];    /**< A valid reading was seen since boot. */
-    int32_t last_value[SENSOR_DISPLAY_COUNT]; /**< Last valid reading, shown faded on error. */
+    screen_t base;                             /**< Common screen part. */
+    sensor_card_t cards[SENSOR_DISPLAY_COUNT]; /**< One card per sensor. */
+    bool ever_valid[SENSOR_DISPLAY_COUNT];     /**< A valid reading was seen since boot. */
+    int32_t last_value[SENSOR_DISPLAY_COUNT];  /**< Last valid reading, shown faded on error. */
     uint32_t last_valid_epoch[SENSOR_DISPLAY_COUNT]; /**< Its timestamp. */
     uint32_t spark_gen_seen;                         /**< History generation drawn last. */
 } sensor_screen_t;
 
+/** @brief Trend screen: one chart panel per sensor. */
 typedef struct
 {
-    screen_t base;
-    trend_panel_t panel[SENSOR_DISPLAY_COUNT];
-    uint32_t gen_seen;
+    screen_t base;                             /**< Common screen part. */
+    trend_panel_t panel[SENSOR_DISPLAY_COUNT]; /**< One chart panel per sensor. */
+    uint32_t gen_seen; /**< Generation of the history already drawn, to skip a redraw when nothing
+                          changed. */
 } trend_screen_t;
 
-#define STATUS_ROWS (16U) /* SENSORS 4, SYSTEM 3, MODBUS 4, DEVICE 2, RESOURCES 3 */
-#define STATUS_SECTIONS (5U)
+#define STATUS_ROWS (16U)    /**< SENSORS 4, SYSTEM 3, MODBUS 4, DEVICE 2, RESOURCES 3 */
+#define STATUS_SECTIONS (5U) /**< Number of sections on the status screen. */
 
+/** @brief Status screen: system, link and alarm rows. */
 typedef struct
 {
-    screen_t base;
-    lv_obj_t *eyebrow[STATUS_SECTIONS];
-    status_row_t row[STATUS_ROWS];
-    lv_obj_t *banner_box;
-    lv_obj_t *banner_text;
-    lv_obj_t *banner_time;
-    bool banner_shown;
-    uint32_t last_refresh_ms;
+    screen_t base;                      /**< Common screen part. */
+    lv_obj_t *eyebrow[STATUS_SECTIONS]; /**< Section titles. */
+    status_row_t row[STATUS_ROWS];      /**< Status rows. */
+    lv_obj_t *banner_box;               /**< Box of the alarm banner. */
+    lv_obj_t *banner_text;              /**< Text of the alarm banner. */
+    lv_obj_t *banner_time;              /**< Time shown in the alarm banner. */
+    bool banner_shown;                  /**< True while the banner is visible. */
+    uint32_t last_refresh_ms;           /**< Time of the last refresh, in ms. */
 } status_screen_t;
 
+/** @brief Alarm screen: one card per active alarm, or the empty view. */
 typedef struct
 {
-    screen_t base;
-    alarm_card_t card[SENSOR_DISPLAY_COUNT];
-    lv_obj_t *empty_circle;
-    lv_obj_t *empty_icon;
-    lv_obj_t *empty_title;
-    lv_obj_t *empty_sub;
-    lv_obj_t *empty_last;
+    screen_t base;                           /**< Common screen part. */
+    alarm_card_t card[SENSOR_DISPLAY_COUNT]; /**< One card per sensor. */
+    lv_obj_t *empty_circle;                  /**< Circle of the "no active alarm" view. */
+    lv_obj_t *empty_icon;                    /**< Icon of the "no active alarm" view. */
+    lv_obj_t *empty_title;                   /**< Title of the "no active alarm" view. */
+    lv_obj_t *empty_sub;                     /**< Subtitle of the "no active alarm" view. */
+    lv_obj_t *empty_last;                    /**< Last-alarm line of the "no active alarm" view. */
     uint32_t triggered_epoch[SENSOR_DISPLAY_COUNT]; /**< When the alarm was first seen active. */
     int32_t prev_state[SENSOR_DISPLAY_COUNT];       /**< alarm_state_t last seen, -1 unknown. */
     uint32_t last_clear_epoch;                      /**< When the last alarm went away; 0 never. */
-    uint32_t active_count;
-    uint32_t last_refresh_ms;
+    uint32_t active_count;                          /**< Number of alarms shown. */
+    uint32_t last_refresh_ms;                       /**< Time of the last refresh, in ms. */
 } alarm_screen_t;
 
+/** @brief Configuration screen: editable fields, keypad, and the apply/cancel flow. */
 typedef struct
 {
-    screen_t base;
+    screen_t base;                           /**< Common screen part. */
     lv_obj_t *list;                          /**< Scrolling list of the fields. */
     config_field_t field[N_EDITABLE_FIELDS]; /**< In display order. */
-    numpad_t numpad;
-    button_t cancel_btn;
-    button_t apply_btn;
-    confirm_modal_t modal;
-    cfg_screen_state_t sub_state;
-    lcd_ui_editable_params_t committed;
-    lcd_ui_editable_params_t pending;
+    numpad_t numpad;                         /**< Numeric keypad. */
+    button_t cancel_btn;                     /**< CANCEL button of the action bar. */
+    button_t apply_btn;                      /**< APPLY button of the action bar. */
+    confirm_modal_t modal;                   /**< Confirmation dialog. */
+    cfg_screen_state_t
+        sub_state; /**< Current sub-state of the screen (editing, asking for confirmation). */
+    lcd_ui_editable_params_t committed;    /**< Values currently stored in the configuration. */
+    lcd_ui_editable_params_t pending;      /**< Values the user has typed and not applied yet. */
     bool entry_invalid[N_EDITABLE_FIELDS]; /**< Display order. */
-    bool entry_edited[N_EDITABLE_FIELDS];
-    char entry_text[N_EDITABLE_FIELDS][NUMPAD_TEXT_MAX + 1U];
+    bool entry_edited[N_EDITABLE_FIELDS];  /**< True for each field the user changed. */
+    char entry_text[N_EDITABLE_FIELDS][NUMPAD_TEXT_MAX + 1U]; /**< Text typed in each field. */
     int32_t focus; /**< Display index of the focused field, -1 none. */
-    lv_timer_t *confirm_timeout_timer;
-    const iconfig_provider_t *cfg_read;
-    const iconfig_manager_t *cfg_write;
-    const ihealth_report_t *report;
+    lv_timer_t *
+        confirm_timeout_timer; /**< Timer that discards the edit when the dialog is not answered. */
+    const iconfig_provider_t *cfg_read; /**< Read access to the configuration. */
+    const iconfig_manager_t *cfg_write; /**< Write access to the configuration. */
+    const ihealth_report_t *report;     /**< Health event sink, to report a configuration change. */
 } config_screen_t;
 
 /* ===================================================================== */
 /* lcd_ui_t: module context                                               */
 /* ===================================================================== */
 
+/** @brief State of the display user interface. */
 typedef struct lcd_ui
 {
-    bool initialised;
-    tab_bar_t tab_bar;
-    header_bar_t header;
-    footer_bar_t footer;
-    lv_obj_t *content[SCR_COUNT]; /* per-screen panels: y = 104, h = 340 */
-    lv_obj_t *toast_label;
-    uint32_t toast_until_ms;
-    screen_t *current;
-    uint16_t current_tab_idx;
-    screen_t *screens[SCR_COUNT];
-    sensor_screen_t sensor_screen;
-    trend_screen_t trend_screen;
-    status_screen_t status_screen;
-    alarm_screen_t alarm_screen;
-    config_screen_t config_screen;
-    const isensor_service_t *sensors;
-    const ialarm_service_t *alarms;
-    const iconfig_provider_t *cfg_read;
-    const iconfig_manager_t *cfg_write;
-    const ihealth_snapshot_t *health;
-    const ihealth_report_t *report;
-    sensor_snapshot_t snap; /**< Snapshot taken at the start of the current tick. */
-    bool snap_ok;
-    uint32_t now_ms;        /**< Millisecond clock of the current tick. */
-    uint32_t hist_gen;      /**< Increments whenever the history stores a sample. */
-    uint32_t last_cycle;    /**< sensor cycle_count seen last. */
-    uint32_t last_cycle_ms; /**< When it changed. */
+    bool initialised;                   /**< True once lcd_ui_init() has succeeded. */
+    tab_bar_t tab_bar;                  /**< Tab bar at the top. */
+    header_bar_t header;                /**< Header bar. */
+    footer_bar_t footer;                /**< Footer bar. */
+    lv_obj_t *content[SCR_COUNT];       /**< per-screen panels: y = 104, h = 340 */
+    lv_obj_t *toast_label;              /**< Label of the toast message. */
+    uint32_t toast_until_ms;            /**< Time at which the toast disappears, in ms. */
+    screen_t *current;                  /**< Screen being shown. */
+    uint16_t current_tab_idx;           /**< Index of the active tab. */
+    screen_t *screens[SCR_COUNT];       /**< All screens, by index. */
+    sensor_screen_t sensor_screen;      /**< Sensor screen. */
+    trend_screen_t trend_screen;        /**< Trend screen. */
+    status_screen_t status_screen;      /**< Status screen. */
+    alarm_screen_t alarm_screen;        /**< Alarm screen. */
+    config_screen_t config_screen;      /**< Configuration screen. */
+    const isensor_service_t *sensors;   /**< Sensor readings source. */
+    const ialarm_service_t *alarms;     /**< Alarm state source. */
+    const iconfig_provider_t *cfg_read; /**< Read access to the configuration. */
+    const iconfig_manager_t *cfg_write; /**< Write access to the configuration. */
+    const ihealth_snapshot_t *health;   /**< Health snapshot source. */
+    const ihealth_report_t *report;     /**< Health event sink. */
+    sensor_snapshot_t snap;             /**< Snapshot taken at the start of the current tick. */
+    bool snap_ok;                       /**< True when the last read of the sensors succeeded. */
+    uint32_t now_ms;                    /**< Millisecond clock of the current tick. */
+    uint32_t hist_gen;                  /**< Increments whenever the history stores a sample. */
+    uint32_t last_cycle;                /**< sensor cycle_count seen last. */
+    uint32_t last_cycle_ms;             /**< When it changed. */
     const char
         *fault_text;     /**< Most important soft fault, NULL when none (banner and ALARM pill). */
     bool modbus_seen_ok; /**< The Modbus link was up once: only then is "down" a fault. */

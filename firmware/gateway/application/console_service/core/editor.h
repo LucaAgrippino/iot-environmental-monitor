@@ -16,13 +16,14 @@
 
 #include "input.h"
 
-#define EDITOR_LINE_MAX (120U) /* buffer size including the terminator */
+#define EDITOR_LINE_MAX (120U) /**< buffer size including the terminator */
 
+/** @brief Line editor state: the line being typed and the last line run. */
 typedef struct
 {
     char line[EDITOR_LINE_MAX]; /**< The line being typed.                  */
     char last[EDITOR_LINE_MAX]; /**< The last line that was run (Up key).   */
-    uint8_t len;
+    uint8_t len;                /**< Number of characters in line. */
 } editor_t;
 
 /** @brief What the caller must do after a key was handled. */
@@ -37,10 +38,18 @@ typedef enum
     ED_CONFIRM_NO,    /**< Answer to a y/N prompt: anything but y declines.            */
 } editor_action_t;
 
-/** @brief Empty the line and forget the history. */
+/**
+ * @brief Empty the line and forget the history.
+ *
+ * @param ed Editor to reset.
+ */
 void editor_init(editor_t *ed);
 
-/** @brief Empty the line (history stays). */
+/**
+ * @brief Empty the line (history stays).
+ *
+ * @param ed  Editor to clear.
+ */
 void editor_clear(editor_t *ed);
 
 /**
@@ -48,6 +57,10 @@ void editor_clear(editor_t *ed);
  *
  * @param[in] confirm  A y/N prompt is waiting: y / Y answers yes, Enter, Escape or any other
  *                     character answers no, and nothing is typed into the line.
+ *
+ * @param ed Editor that receives the key.
+ * @param key Key event.
+ * @return What the caller must do next.
  */
 editor_action_t editor_key(editor_t *ed, const key_event_t *key, bool confirm);
 

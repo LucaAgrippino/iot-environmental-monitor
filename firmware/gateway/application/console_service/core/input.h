@@ -39,10 +39,10 @@ typedef enum
 /** @brief One decoded key. */
 typedef struct
 {
-    key_kind_t kind;
-    uint8_t ch;
-    uint16_t rows;
-    uint16_t cols;
+    key_kind_t kind; /**< Kind of key. */
+    uint8_t ch;      /**< Character or digit value, for the key kinds that carry one. */
+    uint16_t rows;   /**< New terminal height in rows, for a resize report. */
+    uint16_t cols;   /**< New terminal width in columns, for a resize report. */
 } key_event_t;
 
 /** Window after a lone ESC before it is reported as the Escape key. */
@@ -66,6 +66,8 @@ bool input_feed(uint8_t byte, uint32_t now_ms, key_event_t *out);
  *
  * Call when no byte arrived for a while.
  *
+ * @param now_ms Current time, in milliseconds.
+ * @param out Receives KEY_ESCAPE when the function returns true.
  * @return true if @p out holds KEY_ESCAPE.
  */
 bool input_poll_timeout(uint32_t now_ms, key_event_t *out);
@@ -76,11 +78,16 @@ bool input_poll_timeout(uint32_t now_ms, key_event_t *out);
  * When ESC is followed at once by a byte that does not continue a sequence, input_feed()
  * reports the Escape and keeps that byte; call this after every key to receive it.
  *
+ * @param out Receives the key when the function returns true.
  * @return true if @p out holds a key (a byte that decodes to nothing yields false).
  */
 bool input_take_pending(key_event_t *out);
 
-/** @brief Whether a lone ESC is waiting for its window to expire (needs a timed wake-up). */
+/**
+ * @brief Whether a lone ESC is waiting for its window to expire (needs a timed wake-up).
+ *
+ * @return true if a timed wake-up is needed.
+ */
 bool input_esc_pending(void);
 
 #endif /* INPUT_H */

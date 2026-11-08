@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 /**
+ * @file qspi_flash_hw.h
  * @brief Mockable indirection layer for the QUADSPI accesses that a plain
  *        register-struct mock cannot observe.
  *
@@ -42,9 +43,13 @@ void qspi_hw_write_dr_byte(uint8_t value);
 /* Real register accesses — available once stm32l475xx.h is included     */
 /* --------------------------------------------------------------------- */
 
-#define QSPI_HW_WRITE_CCR(v) (QUADSPI->CCR = (v))
-#define QSPI_HW_READ_DR_BYTE() (*((volatile uint8_t *) &(QUADSPI->DR)))
-#define QSPI_HW_WRITE_DR_BYTE(b) (*((volatile uint8_t *) &(QUADSPI->DR)) = (uint8_t) (b))
+#define QSPI_HW_WRITE_CCR(v)                                                                       \
+    (QUADSPI->CCR = (v)) /**< Write the QUADSPI communication configuration register. */
+#define QSPI_HW_READ_DR_BYTE()                                                                     \
+    (*((volatile uint8_t *) &(QUADSPI->DR))) /**< Read one byte from the QUADSPI data register. */
+#define QSPI_HW_WRITE_DR_BYTE(b)                                                                   \
+    (*((volatile uint8_t *) &(QUADSPI->DR)) =                                                      \
+         (uint8_t) (b)) /**< Write one byte to the QUADSPI data register. */
 
 #endif /* TEST */
 

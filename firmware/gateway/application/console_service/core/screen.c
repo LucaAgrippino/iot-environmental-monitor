@@ -14,7 +14,7 @@
 #define ESC_BYTE (0x1BU)
 #define SCRATCH_MAX (704U)
 #define PROMPT_LABEL_MAX (16U)
-#define CLIP_TAIL_RESERVE (12U) /* room for the closing reset and one escape */
+#define CLIP_TAIL_RESERVE (12U) /**< room for the closing reset and one escape */
 
 static screen_port_t s_port;
 static uint16_t s_rows = SCREEN_ROWS_DEFAULT;

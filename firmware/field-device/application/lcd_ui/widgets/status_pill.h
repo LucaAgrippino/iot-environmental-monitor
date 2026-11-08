@@ -19,6 +19,7 @@
 #include "lvgl.h"
 #endif
 
+/** @brief State of the device pill. */
 typedef enum
 {
     PILL_RUNNING = 0, /**< "● RUNNING", COL_OK     */
@@ -27,16 +28,17 @@ typedef enum
     PILL_UPDATE = 3   /**< "⇪ UPDATE",  COL_ACCENT */
 } pill_state_t;
 
+/** @brief Status pill widget: the device state in the header. */
 typedef struct
 {
-    lv_obj_t *box;   /**< Bordered chip. */
-    lv_obj_t *label; /**< Text inside the chip. */
-    pill_state_t state;
+    lv_obj_t *box;      /**< Bordered chip. */
+    lv_obj_t *label;    /**< Text inside the chip. */
+    pill_state_t state; /**< State of the pill. */
     lv_coord_t
         right_edge; /**< x of the chip's right edge in the parent (the chip grows leftwards). */
     lv_coord_t
         w; /**< Current chip size, kept here because LVGL reports 0 before the first layout. */
-    lv_coord_t h;
+    lv_coord_t h;       /**< Current chip height, in pixels. */
     bool visible_phase; /**< Current blink phase. */
 } status_pill_t;
 

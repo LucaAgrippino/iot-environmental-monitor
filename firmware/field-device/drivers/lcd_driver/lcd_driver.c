@@ -37,7 +37,7 @@
 
 #define LCD_HEIGHT (480U)
 #define LCD_WIDTH (800U)
-#define LCD_BLANK_PIXEL (0xFF000000U) /* opaque black, ARGB8888 */
+#define LCD_BLANK_PIXEL (0xFF000000U) /**< opaque black, ARGB8888 */
 
 /* ===================================================================== */
 /* Stage markers (private in production; exposed in test via .h)        */
@@ -65,7 +65,7 @@ typedef struct
     uint32_t *framebuffer;
     lcd_frame_done_cb_t frame_done_cb;
     void *frame_done_ctx;
-    volatile uint32_t error_count; /* LTDC FIFO underruns + transfer errors (ISR-updated) */
+    volatile uint32_t error_count; /**< LTDC FIFO underruns + transfer errors (ISR-updated) */
     bool initialised;
 } lcd_driver_t;
 

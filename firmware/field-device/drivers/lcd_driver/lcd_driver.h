@@ -24,6 +24,7 @@
 /* Public types                                                          */
 /* ===================================================================== */
 
+/** @brief Result codes of the LCD driver. */
 typedef enum
 {
     LCD_ERR_OK = 0,
@@ -167,7 +168,9 @@ extern volatile lcd_init_stage_t s_lcd_init_stage;
 void lcd_driver_reset(void);
 
 #else
-#define LCD_TEST_VISIBLE static
-#endif /* TEST */
+#define LCD_TEST_VISIBLE                                                                           \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
+#endif     /* TEST */
 
 #endif /* LCD_DRIVER_H */

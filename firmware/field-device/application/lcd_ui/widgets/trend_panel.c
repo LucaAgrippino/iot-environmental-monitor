@@ -10,13 +10,14 @@
 #include "lcd_ui/theme.h"
 #include "lcd_ui/ui_history.h"
 
-#define PLOT_TOP 8         /* space above the plot inside the chart */
-#define PLOT_BOTTOM 22     /* space below: the time-axis labels */
-#define PLOT_MARGIN_PCT 10 /* headroom above and below the data, per cent of the span */
-#define FILL_OPA 26        /* 10 % of 255, style-guide.md "Area fill" */
-#define GRID_LINES 3       /* horizontal grid lines in the plot */
-#define LINE_W 2           /* 1.5 px in the design, rounded up for the pixel grid */
-#define LABEL_X THEME_SP_4 /* label column inner padding, 10 px: the name column is 120 px wide */
+#define PLOT_TOP 8         /**< space above the plot inside the chart */
+#define PLOT_BOTTOM 22     /**< space below: the time-axis labels */
+#define PLOT_MARGIN_PCT 10 /**< headroom above and below the data, per cent of the span */
+#define FILL_OPA 26        /**< 10 % of 255, style-guide.md "Area fill" */
+#define GRID_LINES 3       /**< horizontal grid lines in the plot */
+#define LINE_W 2           /**< 1.5 px in the design, rounded up for the pixel grid */
+#define LABEL_X THEME_SP_4 /**< label column inner padding, 10 px: the name column is 120 px wide  \
+                            */
 
 #ifndef TEST
 /** Map a raw value to a y pixel inside the chart for the current autoscale. */

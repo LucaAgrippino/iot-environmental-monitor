@@ -7,16 +7,16 @@
 
 #include "lcd_ui/theme.h"
 
-#define MODAL_W 380            /* .modal width */
-#define MODAL_PAD THEME_SP_10  /* padding 24 px */
-#define MODAL_BACKDROP_OPA 153 /* 60 % of 255 */
+#define MODAL_W 380            /**< .modal width */
+#define MODAL_PAD THEME_SP_10  /**< padding 24 px */
+#define MODAL_BACKDROP_OPA 153 /**< 60 % of 255 */
 #define MODAL_TITLE_H 24
-#define MODAL_TITLE_GAP THEME_SP_5 /* margin-bottom 12 px */
-#define MODAL_BODY_H 36            /* two 13 px lines at line-height 1.5 */
-#define MODAL_LINE_H 17            /* one change line, 12 px mono */
-#define MODAL_BLOCK_GAP 20         /* margin-bottom of the body */
-#define MODAL_BTN_H 33             /* padding 10 px, 11 px text */
-#define MODAL_BTN_GAP THEME_SP_4   /* grid gap 10 px */
+#define MODAL_TITLE_GAP THEME_SP_5 /**< margin-bottom 12 px */
+#define MODAL_BODY_H 36            /**< two 13 px lines at line-height 1.5 */
+#define MODAL_LINE_H 17            /**< one change line, 12 px mono */
+#define MODAL_BLOCK_GAP 20         /**< margin-bottom of the body */
+#define MODAL_BTN_H 33             /**< padding 10 px, 11 px text */
+#define MODAL_BTN_GAP THEME_SP_4   /**< grid gap 10 px */
 
 void confirm_modal_create(confirm_modal_t *m, lv_obj_t *parent, lv_event_cb_t on_cancel,
                           lv_event_cb_t on_confirm)
