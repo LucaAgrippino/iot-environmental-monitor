@@ -99,4 +99,9 @@ class ConsoleLib:
                 return
             if self.board == "FD" and ("fd>" in self.buf or "help" in self.buf.lower()):
                 return
+            if self.board == "FD":
+                # the image without the display prints no prompt for an empty line: ask for something
+                self.send_command("help", 0.8)
+                if "Available commands" in self.buf:
+                    return
         raise AssertionError("%s console did not come up" % self.board)

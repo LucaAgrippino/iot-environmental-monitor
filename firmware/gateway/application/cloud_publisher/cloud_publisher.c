@@ -1236,7 +1236,8 @@ static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
 
 #define CP_FD_ALARM_BITS (6u) /* TEMP_LOW, TEMP_HIGH, HUM_LOW, HUM_HIGH, PRESS_LOW, PRESS_HIGH */
 
-/** One published alarm per changed ALARM_FLAGS bit; the threshold lives on the Field Device (0). */
+/** One published alarm per changed ALARM_FLAGS bit; the threshold is the limit the poller read from
+ * the Field Device. */
 static void prv_fd_alarm_cb(uint8_t slave_addr, uint16_t flags_before, uint16_t flags_now)
 {
     static const char *const k_names[3] = {"temperature", "humidity", "pressure"};
@@ -1274,6 +1275,12 @@ static void prv_fd_alarm_cb(uint8_t slave_addr, uint16_t flags_before, uint16_t 
             ev.measured_value_raw = (channel == 0u)   ? (int32_t) fd.temperature_centi_c
                                     : (channel == 1u) ? (int32_t) fd.humidity_centi_pct
                                                       : (int32_t) fd.pressure_deci_hpa;
+            if (fd.limits_valid[channel])
+            {
+                /* even bit = low condition, odd = high; a CLEAR keeps the side it was raised on */
+                ev.threshold_value_raw =
+                    ((bit % 2u) == 0u) ? fd.limit_low[channel] : fd.limit_high[channel];
+            }
         }
         prv_enqueue_alarm(inst, &ev);
     }

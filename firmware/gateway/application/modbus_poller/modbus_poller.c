@@ -32,6 +32,7 @@
 #define MODBUS_MAX_SLAVES (4U)      /* max provisioned slaves */
 #define MODBUS_CMD_QUEUE_DEPTH (4U) /* provisional; confirm at integration (MBP-O1) */
 #define FC_READ_INPUT_REGS (0x04U)
+#define FC_READ_HOLDING_REGS (0x03U)
 
 #define HYSTERESIS_THRESHOLD (3U) /* consecutive results before a link transition */
 #define BITS_PER_BYTE (8U)
@@ -57,6 +58,9 @@
 #define FD_REG_PRESSURE (0x0012U)
 #define FD_SENTINEL_INT16 (0x8000U)
 #define FD_SENTINEL_UINT16 (0xFFFFU)
+#define FD_REG_LIMITS_BASE (0x0100U) /* TEMP_ALARM_LOW; humidity at +0x10, pressure at +0x20 */
+#define FD_REG_LIMITS_STRIDE (0x10U)
+#define FD_CHANNELS (3U)
 #define FD_REG_ALARM_FLAGS (0x0031U) /* ALARM_FLAGS, input register (register map 6.3.1) */
 #define FC04_BYTE_COUNT_BYTES (1U)   /* the byte count that precedes the register words */
 
@@ -93,6 +97,16 @@ typedef struct
 } fd_cache_t;
 
 static fd_cache_t s_fd_cache[MODBUS_MAX_SLAVES];
+
+/** Alarm limits read from the Field Device when a channel raised an alarm (REQ-AM-040). */
+typedef struct
+{
+    int32_t low[FD_CHANNELS];
+    int32_t high[FD_CHANNELS];
+    bool valid[FD_CHANNELS];
+} fd_limits_t;
+
+static fd_limits_t s_fd_limits[MODBUS_MAX_SLAVES];
 
 /* Static queue storage — no heap allocation after init (BARR-C, REQ-NF-201). */
 static QueueHandle_t s_cmd_queue;
@@ -391,6 +405,41 @@ static void forward_response_to_consumers(const device_profile_t *profile, const
     taskEXIT_CRITICAL();
 }
 
+/** Read the low and high alarm limit of one channel (two FC03 registers) into the limits cache. */
+static void read_alarm_limits(uint8_t slave_addr, uint8_t slot, uint8_t channel)
+{
+    modbus_frame_t request = {0};
+    modbus_frame_t response = {0};
+    const uint16_t reg =
+        (uint16_t) (FD_REG_LIMITS_BASE + ((uint16_t) channel * FD_REG_LIMITS_STRIDE));
+
+    request.slave_addr = slave_addr;
+    request.function_code = FC_READ_HOLDING_REGS;
+    request.data[0] = (uint8_t) (reg >> BITS_PER_BYTE);
+    request.data[1] = (uint8_t) (reg & BYTE_MASK);
+    request.data[2] = 0U;
+    request.data[3] = 2U;
+    request.data_len = POLL_REQUEST_DATA_BYTES;
+
+    if ((modbus_master_transact(&request, &response) != MODBUS_MASTER_ERR_OK) ||
+        (response.data_len != (FC04_BYTE_COUNT_BYTES + (2U * BYTES_PER_REG))))
+    {
+        return; /* the alarm is still reported, with the limit it had before (or 0) */
+    }
+
+    const uint16_t low =
+        (uint16_t) (((uint16_t) response.data[1] << BITS_PER_BYTE) | response.data[2]);
+    const uint16_t high =
+        (uint16_t) (((uint16_t) response.data[3] << BITS_PER_BYTE) | response.data[4]);
+
+    taskENTER_CRITICAL();
+    /* temperature limits are signed (int16), the others unsigned */
+    s_fd_limits[slot].low[channel] = (channel == 0U) ? (int32_t) (int16_t) low : (int32_t) low;
+    s_fd_limits[slot].high[channel] = (channel == 0U) ? (int32_t) (int16_t) high : (int32_t) high;
+    s_fd_limits[slot].valid[channel] = true;
+    taskEXIT_CRITICAL();
+}
+
 /** Read ALARM_FLAGS (one FC04 register) and report the bits that changed since the last poll. */
 static void poll_alarm_flags(const device_profile_t *profile)
 {
@@ -422,6 +471,20 @@ static void poll_alarm_flags(const device_profile_t *profile)
     const uint16_t before = s_alarm_flags[slot];
 
     s_alarm_flags[slot] = now;
+    if (now != before)
+    {
+        /* A channel that has just raised a condition: fetch its limits, so the alarm can say
+         * which threshold was crossed (at most three short reads, only on a transition). */
+        for (uint8_t ch = 0U; ch < FD_CHANNELS; ch++)
+        {
+            const uint16_t pair = (uint16_t) (3U << (2U * ch));
+
+            if ((((now ^ before) & pair) != 0U) && ((now & pair) != 0U))
+            {
+                read_alarm_limits(profile->slave_addr, slot, ch);
+            }
+        }
+    }
     if ((now != before) && (s_alarm_cb != NULL))
     {
         s_alarm_cb(profile->slave_addr, before, now);
@@ -668,6 +731,14 @@ modbus_poller_err_t modbus_poller_get_fd_reading(uint8_t slave_addr, modbus_fd_r
         reading.humidity_valid = cached.humidity_valid;
         reading.pressure_valid = cached.pressure_valid;
         reading.has_data = cached.has_data;
+        taskENTER_CRITICAL();
+        for (uint8_t ch = 0U; ch < FD_CHANNELS; ch++)
+        {
+            reading.limit_low[ch] = s_fd_limits[slot].low[ch];
+            reading.limit_high[ch] = s_fd_limits[slot].high[ch];
+            reading.limits_valid[ch] = s_fd_limits[slot].valid[ch];
+        }
+        taskEXIT_CRITICAL();
         reading.updated_tick = cached.updated_tick;
         reading.link_online = online;
     }
@@ -695,6 +766,7 @@ modbus_poller_err_t modbus_poller_init(uint32_t poll_period_ms, health_monitor_h
 
     (void) memset(s_slave_states, 0, sizeof(s_slave_states));
     (void) memset(s_alarm_flags, 0, sizeof(s_alarm_flags));
+    (void) memset(s_fd_limits, 0, sizeof(s_fd_limits));
     (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     s_poller.poll_period_ms = poll_period_ms;
     s_poller.health = health;
@@ -793,6 +865,7 @@ void modbus_poller_reset_for_test(void)
     s_alarm_cb = NULL;
     s_link_up_cb = NULL;
     (void) memset(s_alarm_flags, 0, sizeof(s_alarm_flags));
+    (void) memset(s_fd_limits, 0, sizeof(s_fd_limits));
     (void) memset(s_fd_cache, 0, sizeof(s_fd_cache));
     (void) memset(&s_poller, 0, sizeof(s_poller));
 }

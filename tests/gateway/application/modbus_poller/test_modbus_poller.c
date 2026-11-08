@@ -71,6 +71,9 @@ static uint16_t s_alarm_cb_before;
 static uint16_t s_alarm_cb_now;
 static uint8_t s_alarm_cb_slave;
 static uint32_t s_alarm_cb_calls;
+static uint16_t
+    s_limit_regs[3][2]; /* [channel][low, high] answered to FC03 at 0x0100 + 0x10 * channel */
+static uint32_t s_limit_reads;
 
 static void alarm_cb_spy(uint8_t slave_addr, uint16_t flags_before, uint16_t flags_now)
 {
@@ -94,6 +97,23 @@ modbus_master_err_t modbus_master_transact(const modbus_frame_t *request, modbus
         response->data[2] = (uint8_t) (s_alarm_word & 0xFFU);
         response->data_len = 3U;
         return s_alarm_result;
+    }
+
+    if ((request->function_code == 3U) && (request->data[0] == 0x01U) && (request->data[3] == 2U))
+    {
+        const uint8_t ch = (uint8_t) (request->data[1] >> 4U);
+
+        s_limit_reads++;
+        (void) memset(response, 0, sizeof(*response));
+        response->slave_addr = request->slave_addr;
+        response->function_code = request->function_code;
+        response->data[0] = 4U;
+        response->data[1] = (uint8_t) (s_limit_regs[ch][0] >> 8U);
+        response->data[2] = (uint8_t) (s_limit_regs[ch][0] & 0xFFU);
+        response->data[3] = (uint8_t) (s_limit_regs[ch][1] >> 8U);
+        response->data[4] = (uint8_t) (s_limit_regs[ch][1] & 0xFFU);
+        response->data_len = 5U;
+        return MODBUS_MASTER_ERR_OK;
     }
 
     if (s_transact_calls < MAX_STEPS)
@@ -221,6 +241,8 @@ void setUp(void)
     s_alarm_result = MODBUS_MASTER_ERR_OK;
     s_alarm_reads = 0U;
     s_alarm_cb_calls = 0U;
+    s_limit_reads = 0U;
+    (void) memset(s_limit_regs, 0, sizeof(s_limit_regs));
     s_default_result = MODBUS_MASTER_ERR_OK;
     s_start_calls = 0U;
     s_start_result = MODBUS_MASTER_ERR_OK;
@@ -970,6 +992,38 @@ void test_TC_MP_050_alarm_flag_change_calls_back_once_per_change(void)
     TEST_ASSERT_EQUAL_HEX16(0x0008U, s_alarm_cb_before);
     TEST_ASSERT_EQUAL_HEX16(0x0000U, s_alarm_cb_now);
     TEST_ASSERT_EQUAL_UINT32(4U, s_alarm_reads);
+}
+
+void test_TC_MP_052_a_raised_channel_has_its_limits_read_from_the_field_device(void)
+{
+    s_profiles[0] =
+        (device_profile_t){.slave_addr = SLAVE_A, .map_version = 1U, .vendor_code = 0x1A45U};
+    s_profile_count = 1U;
+    init_ok();
+    modbus_poller_set_alarm_callback(alarm_cb_spy);
+    s_limit_regs[0][0] = (uint16_t) (int16_t) -2000; /* TEMP_ALARM_LOW, signed */
+    s_limit_regs[0][1] = 2039U;                      /* TEMP_ALARM_HIGH */
+    s_limit_regs[1][1] = 8000U;
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(0U, s_limit_reads); /* no transition, no extra read */
+
+    s_alarm_word = 0x0002U; /* TEMP_HIGH */
+    modbus_poller_cycle_for_test();
+
+    modbus_fd_reading_t fd;
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &fd));
+    TEST_ASSERT_EQUAL_UINT32(1U, s_limit_reads);
+    TEST_ASSERT_TRUE(fd.limits_valid[0]);
+    TEST_ASSERT_EQUAL_INT32(-2000, fd.limit_low[0]);
+    TEST_ASSERT_EQUAL_INT32(2039, fd.limit_high[0]);
+    TEST_ASSERT_FALSE(fd.limits_valid[1]); /* humidity did not alarm: not read */
+    TEST_ASSERT_EQUAL_UINT32(1U, s_alarm_cb_calls);
+
+    s_alarm_word = 0x0000U; /* clearing needs no read; the limits stay for the CLEAR event */
+    modbus_poller_cycle_for_test();
+    TEST_ASSERT_EQUAL_UINT32(1U, s_limit_reads);
+    TEST_ASSERT_EQUAL(MODBUS_POLLER_ERR_OK, modbus_poller_get_fd_reading(SLAVE_A, &fd));
+    TEST_ASSERT_EQUAL_INT32(2039, fd.limit_high[0]);
 }
 
 void test_TC_MP_051_alarm_read_failure_is_not_a_transition(void)

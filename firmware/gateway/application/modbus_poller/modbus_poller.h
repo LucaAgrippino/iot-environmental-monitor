@@ -146,6 +146,12 @@ typedef struct
     bool link_online;            /**< Hysteresis state (REQ-NF-103/-104/-215).           */
     bool has_data;               /**< At least one response decoded since boot.          */
     uint32_t updated_tick;       /**< xTaskGetTickCount() of the last decode.            */
+    /** Alarm limits the Field Device holds (0x0100.., 0x0110.., 0x0120..), in the units above,
+     *  indexed temperature, humidity, pressure. The poller reads a channel's pair when one of
+     *  its ALARM_FLAGS bits is raised (REQ-AM-040: the alarm carries its threshold). */
+    int32_t limit_low[3];
+    int32_t limit_high[3];
+    bool limits_valid[3]; /**< false until the channel has raised an alarm since boot. */
 } modbus_fd_reading_t;
 
 /**
