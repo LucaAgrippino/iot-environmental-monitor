@@ -31,7 +31,8 @@ class Broker:
 
     def broker_publishes_in_last(self, seconds, topic_part=""):
         """Number of PUBLISH lines of the broker log in the last `seconds` (optionally only a topic)."""
-        out = _docker("logs", "--since", "%ds" % int(float(seconds)), NAME).stdout
+        r = _docker("logs", "--since", "%ds" % int(float(seconds)), NAME)
+        out = r.stdout + r.stderr  # Mosquitto logs to stderr, which docker replays on stderr
         return sum(1 for l in out.split("\n") if "Received PUBLISH" in l and topic_part in l)
 
     def wait_for_broker_publish(self, timeout, topic_part=""):
