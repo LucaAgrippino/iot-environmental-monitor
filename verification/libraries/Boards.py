@@ -18,6 +18,9 @@ FD_CONSOLE = "/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_%s-if02" % F
 GW_CONSOLE = "/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_%s-if02" % GW_SERIAL
 FD_ELF = os.path.join(ROOT, "firmware/field-device/Debug/app/field_device_app.elf")
 GW_ELF = os.path.join(ROOT, "firmware/gateway/Debug/app/gateway_app.elf")
+# The Field Device's independent watchdog (10 s) would reset the board during a long debug halt: DBGMCU_APB1_FZ
+# bit 12 stops it while the core is halted (reset by a power-on only, set again before every halt).
+FD_FREEZE_WDG = "mmw 0xE0042008 0x1000 0"
 FB_BASE = 0xC0000000
 FB_W, FB_H = 800, 480
 TARGET = {"FD": ("stm32f4x", FD_SERIAL), "GW": ("stm32l4x", GW_SERIAL)}
@@ -34,7 +37,8 @@ def _scripts():
 def _run_openocd(board, commands, timeout=60):
     target, serial = TARGET[board]
     cmd = [_openocd(), "-s", _scripts(), "-f", "interface/stlink-dap.cfg", "-c", "adapter serial %s" % serial,
-           "-c", "transport select dapdirect_swd", "-f", "target/%s.cfg" % target, "-c", "init; %s; shutdown" % commands]
+           "-c", "transport select dapdirect_swd", "-f", "target/%s.cfg" % target, "-c", "adapter speed 4000",
+           "-c", "init; %s; shutdown" % commands]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return r.stdout + r.stderr
 
@@ -97,7 +101,7 @@ class Boards:
         """Reset the Field Device, let it run `delay_ms`, halt it and save the framebuffer as a PNG (splash timing)."""
         raw = path + ".bin"
         for attempt in range(3):
-            _run_openocd("FD", "reset run; sleep %d; halt; dump_image %s 0x%x %d; resume" % (int(delay_ms), raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
+            _run_openocd("FD", "reset run; %s; sleep %d; halt; dump_image %s 0x%x %d; resume" % (FD_FREEZE_WDG, int(delay_ms), raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
             try:
                 return self._save_png(raw, path)
             except (IOError, FileNotFoundError):
@@ -120,7 +124,7 @@ class Boards:
             time.sleep(float(settle))
         raw = path + ".bin"
         for attempt in range(3):
-            _run_openocd("FD", "halt; dump_image %s 0x%x %d; resume" % (raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
+            _run_openocd("FD", "%s; halt; dump_image %s 0x%x %d; resume" % (FD_FREEZE_WDG, raw, FB_BASE, FB_W * FB_H * 4), timeout=90)
             try:
                 return self._save_png(raw, path)
             except (IOError, FileNotFoundError):

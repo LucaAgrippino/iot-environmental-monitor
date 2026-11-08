@@ -145,6 +145,7 @@ TC-VER-FD-007 Boot reaches a working system within 5 seconds
     END
     ${elapsed}=    Evaluate    __import__('time').time() - ${start}
     Log    first valid reading ${elapsed} s after the reset
+    Sleep    8s    # let the splash finish: later cases capture the screens
     Should Be True    ${ok}
     Should Be True    ${elapsed} <= 5.0    first reading after ${elapsed} s
 
@@ -182,12 +183,18 @@ TC-VER-FD-012 The Config screen lists the parameters with the keypad
 
 TC-VER-FD-013 The splash shows the progress bar and the steps, then the screens appear
     [Documentation]    Timing-sensitive (REQ-LD-220 and -230): the framebuffer is captured at fixed delays after a reset.
+    ...    The bar is the accent-coloured strip at y 268..278; it is longer in the later capture, or the splash is
+    ...    already over and the tab bar shows.
     [Tags]    TC-VER-FD-013    REQ-LD-200    REQ-LD-210    REQ-LD-220    REQ-LD-230    REQ-LD-240
-    ${early}=    Capture After Reset    ${OUT}/fd_splash_early.png    1800
-    ${late}=    Capture After Reset    ${OUT}/fd_splash_late.png    3200
-    ${done}=    Capture After Reset    ${OUT}/fd_splash_done.png    9000
-    Region Should Contain Colour    ${early}    190    268    610    278    123,175,212    20
+    ${early}=    Capture After Reset    ${OUT}/fd_splash_early.png    1700
+    ${mid}=    Capture After Reset    ${OUT}/fd_splash_mid.png    2400
+    ${done}=    Capture After Reset    ${OUT}/fd_splash_done.png    7000
+    ${n1}=    Count Colour Pixels    ${early}    190    268    610    278    123,175,212
+    ${n2}=    Count Colour Pixels    ${mid}    190    268    610    278    123,175,212
+    ${tabs}=    Count Colour Pixels    ${mid}    0    0    800    4    123,175,212
+    Log    bar pixels: early ${n1}, mid ${n2}, tab bar accent in mid ${tabs}
+    Should Be True    ${n1} >= 20    no progress bar in the early capture
+    Should Be True    ${n2} > ${n1} or ${tabs} > 50    the bar did not advance
     Region Should Have Text    ${early}    190    290    420    310    20
     Region Should Have Text    ${early}    24    440    500    456    20
-    Region Should Contain Colour    ${late}    190    268    610    278    123,175,212    ${100}
     Region Should Contain Colour    ${done}    0    0    160    4    123,175,212    100

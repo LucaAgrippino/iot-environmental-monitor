@@ -29,6 +29,12 @@ class Screens:
         if n < int(min_pixels):
             raise AssertionError("only %d pixels near %s in the box (need %s)" % (n, want, min_pixels))
 
+    def count_colour_pixels(self, path, x1, y1, x2, y2, rgb, tolerance=10):
+        """Number of pixels in the box within `tolerance` of the colour 'R,G,B'."""
+        want = tuple(int(v) for v in str(rgb).split(","))
+        img = Image.open(path).convert("RGB").crop((int(x1), int(y1), int(x2), int(y2)))
+        return sum(1 for p in img.getdata() if _near(p, want, int(tolerance)))
+
     def region_should_have_text(self, path, x1, y1, x2, y2, min_bright=30):
         """The box holds bright text pixels (luminance above 150)."""
         img = Image.open(path).convert("L").crop((int(x1), int(y1), int(x2), int(y2)))
