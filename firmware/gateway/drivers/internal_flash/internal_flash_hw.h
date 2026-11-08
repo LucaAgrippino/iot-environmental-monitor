@@ -19,8 +19,9 @@
 /* Register bits (RM0351 §3.7)                                             */
 /* ---------------------------------------------------------------------- */
 
-#define IFLASH_KEY1 (0x45670123UL) /**< First key written to FLASH_KEYR to unlock the controller.  \
-                                    */
+#define IFLASH_KEY1                                                                                \
+    (0x45670123UL) /**< First key written to FLASH_KEYR to unlock the controller.                  \
+                    */
 #define IFLASH_KEY2                                                                                \
     (0xCDEF89ABUL) /**< Second key written to FLASH_KEYR to unlock the controller. */
 

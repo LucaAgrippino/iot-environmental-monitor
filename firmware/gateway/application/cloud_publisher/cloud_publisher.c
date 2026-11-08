@@ -1234,8 +1234,9 @@ static void prv_alarm_event_cb(sensor_id_t sensor, alarm_event_t event,
 /* Field Device alarm flags (runs in the ModbusPoller task)              */
 /* ===================================================================== */
 
-#define CP_FD_ALARM_BITS (6u) /**< TEMP_LOW, TEMP_HIGH, HUM_LOW, HUM_HIGH, PRESS_LOW, PRESS_HIGH   \
-                               */
+#define CP_FD_ALARM_BITS                                                                           \
+    (6u) /**< TEMP_LOW, TEMP_HIGH, HUM_LOW, HUM_HIGH, PRESS_LOW, PRESS_HIGH                        \
+          */
 
 /** One published alarm per changed ALARM_FLAGS bit; the threshold is the limit the poller read from
  * the Field Device. */

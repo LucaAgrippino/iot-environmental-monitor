@@ -13,8 +13,9 @@
 #ifdef TEST
 #define CERT_STORE_RAM /* host builds: ordinary static storage */
 #else
-#define CERT_STORE_RAM __attribute__((section(".bss.sram2"))) /**< the 96 KB bank is nearly full   \
-                                                               */
+#define CERT_STORE_RAM                                                                             \
+    __attribute__((section(".bss.sram2"))) /**< the 96 KB bank is nearly full                      \
+                                            */
 #endif
 
 #define SECTOR_SIZE (4096UL)

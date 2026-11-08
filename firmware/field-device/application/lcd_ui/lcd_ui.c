@@ -1092,10 +1092,11 @@ static void build_alarm_screen(alarm_screen_t *scr, lv_obj_t *panel)
 /* Config screen                                                          */
 /* ===================================================================== */
 
-#define CFG_PAD_TOP 20     /**< .content padding: 20 px 22 px 0 */
-#define CFG_BAR_H 36       /**< .cfg-footer-bar */
-#define CFG_GAP THEME_SP_6 /**< gap between the field list and the keypad column is 22; fields 12  \
-                            */
+#define CFG_PAD_TOP 20 /**< .content padding: 20 px 22 px 0 */
+#define CFG_BAR_H 36   /**< .cfg-footer-bar */
+#define CFG_GAP                                                                                    \
+    THEME_SP_6 /**< gap between the field list and the keypad column is 22; fields 12              \
+                */
 #define CFG_COLUMN_GAP THEME_SP_9 /**< grid gap 22 px */
 #define CFG_LIST_W ((THEME_CANVAS_W - (2 * THEME_SCREEN_PAD) - NUMPAD_W - CFG_COLUMN_GAP))
 
