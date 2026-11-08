@@ -1,0 +1,13 @@
+[project]
+name = "iotcloud"
+version = "0.1.0"
+description = "Local replacement for the AWS IoT services of the IoT Environmental Monitor"
+requires-python = ">=3.11"
+dependencies = ["fastapi", "uvicorn[standard]", "paho-mqtt>=2"]
+
+[project.optional-dependencies]
+test = ["pytest", "httpx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
