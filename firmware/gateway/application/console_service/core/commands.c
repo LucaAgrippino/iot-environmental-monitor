@@ -1073,6 +1073,12 @@ static console_service_err_t prv_prov_apply(void)
         return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
                         "the broker address was refused; changes stay staged");
     }
+    if (s_prov_pending.has_endpoint && (s_deps->prov_store != NULL) &&
+        (s_deps->prov_store->set_endpoint(s_prov_pending.mqtt_endpoint) != 0))
+    {
+        return prv_fail(CONSOLE_SERVICE_ERR_APPLY_FAILED,
+                        "the broker address could not be stored; changes stay staged");
+    }
     if (s_prov_pending.has_addr)
     {
         const uint8_t addr = s_prov_pending.modbus_addr;
@@ -1164,7 +1170,7 @@ static console_service_err_t cmd_prov_commit(int argc, const char *argv[])
 /* Certificates: `prov cert add <item> <base64>` ..., `prov cert end <item>` (REQ-LI-060)  */
 /* ---------------------------------------------------------------------- */
 
-#define CERT_ASSEMBLY_MAX (1536U) /* the largest item CertStore accepts */
+#define CERT_ASSEMBLY_MAX (2560U) /* the largest item CertStore accepts (a private key) */
 
 CONSOLE_BIG_BUFFER static uint8_t s_cert_buf[CERT_ASSEMBLY_MAX];
 static uint32_t s_cert_len;
@@ -1283,7 +1289,7 @@ static console_service_err_t cmd_prov_cert_add(int argc, const char *argv[])
         s_cert_item = -1;
         s_cert_len = 0U;
         return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
-                        "bad chunk: base64 in groups of 4 characters, at most 1536 bytes in all");
+                        "bad chunk: base64 in groups of 4 characters, at most 2560 bytes in all");
     }
     s_cert_len += n;
     SAY(PAL_MUTED, "  %s: %u bytes so far", argv[0], (unsigned) s_cert_len);
@@ -1370,6 +1376,13 @@ static console_service_err_t cmd_prov_cert(int argc, const char *argv[])
     {
         return cmd_prov_cert_end(1, &argv[1]);
     }
+    if (prv_ieq(argv[0], "reset") && (argc == 1))
+    {
+        s_cert_item = -1; /* drop a half-built assembly, keep what is stored */
+        s_cert_len = 0U;
+        SAY(PAL_MUTED, "  certificate assembly reset");
+        return CONSOLE_SERVICE_ERR_OK;
+    }
     if (prv_ieq(argv[0], "clear") && (argc == 1))
     {
         return cmd_prov_cert_clear(0, &argv[1]);
@@ -1379,7 +1392,7 @@ static console_service_err_t cmd_prov_cert(int argc, const char *argv[])
         return cmd_prov_cert_status(0, &argv[1]);
     }
     return prv_fail(CONSOLE_SERVICE_ERR_VALIDATION,
-                    "prov cert add <ca|client|key> <b64> | end <item> | clear | status");
+                    "prov cert add <ca|client|key> <b64> | end <item> | reset | clear | status");
 }
 
 static console_service_err_t cmd_prov_discard(int argc, const char *argv[])

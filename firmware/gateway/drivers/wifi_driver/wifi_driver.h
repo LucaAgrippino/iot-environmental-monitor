@@ -380,4 +380,12 @@ wifi_err_t prv_parse_ipv4(const char *resp, size_t resp_len, char *out_ip, size_
 wifi_err_t prv_check_firmware_version(const char *resp, size_t resp_len);
 #endif
 
+/**
+ * @brief Called once per millisecond of a long wait for the module (after a 2 ms spin).
+ *
+ * The default (weak) spins for 1 ms. An image with a scheduler defines it as a one-tick sleep so a
+ * slow join, lookup or connect does not starve the other tasks and the watchdog.
+ */
+void wifi_driver_wait_1ms(void);
+
 #endif /* WIFI_DRIVER_H */

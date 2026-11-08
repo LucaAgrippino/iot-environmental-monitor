@@ -19,6 +19,8 @@ static const uint8_t k_other_uid[CERT_STORE_UID_BYTES] = {9, 9, 9, 9, 9, 9, 9, 9
 #define SLOT0 (CERT_STORE_BASE)
 #define SLOT1 (CERT_STORE_BASE + 8192UL)
 #define PASS "correct-horse-battery"
+#define PASS_OFFSET                                                                                \
+    (10U + 128U + 64U) /* in the body: lengths, endpoint, SSID, then the passphrase */
 
 /* A DER SEQUENCE of the given total length, filled with a pattern. */
 static uint32_t make_der(uint8_t *out, uint32_t total, uint8_t fill)
@@ -174,6 +176,18 @@ void test_an_rsa_2048_private_key_of_1218_bytes_fits(void)
     TEST_ASSERT_EQUAL_UINT32(sizeof(key), len);
 }
 
+void test_an_rsa_4096_private_key_of_2375_bytes_fits_and_survives_a_restart(void)
+{
+    uint8_t key[2375];
+    uint32_t len = 0U;
+
+    make_der(key, sizeof(key), 0x42U);
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_item(CERT_STORE_KEY, key, sizeof(key)));
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_init(&fake_qspi_flash_if, k_uid));
+    TEST_ASSERT_EQUAL_MEMORY(key, cert_store_item(CERT_STORE_KEY, &len), sizeof(key));
+    TEST_ASSERT_EQUAL_UINT32(sizeof(key), len);
+}
+
 void test_a_certificate_of_exactly_the_maximum_size_is_accepted(void)
 {
     uint8_t cert[CERT_STORE_CERT_MAX];
@@ -300,11 +314,11 @@ void test_replacing_the_passphrase_uses_a_new_keystream(void)
 {
     (void) cert_store_set_wifi("Lab-2G", PASS);
     uint8_t first[64];
-    memcpy(first, fake_qspi_mem() + SLOT0 + 16U + 8U + 64U, sizeof(first));
+    memcpy(first, fake_qspi_mem() + SLOT0 + 16U + PASS_OFFSET, sizeof(first));
 
     (void) cert_store_set_wifi("Lab-2G", PASS); /* same value, next sequence, other slot */
     uint8_t second[64];
-    memcpy(second, fake_qspi_mem() + SLOT1 + 16U + 8U + 64U, sizeof(second));
+    memcpy(second, fake_qspi_mem() + SLOT1 + 16U + PASS_OFFSET, sizeof(second));
 
     TEST_ASSERT_NOT_EQUAL(0, memcmp(first, second, sizeof(first)));
 }
@@ -314,4 +328,29 @@ void test_the_calls_before_init_are_refused(void)
     /* a fresh module state is not reachable after setUp, so use a null re-init to check the guard
      */
     TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_init(NULL, NULL));
+}
+
+void test_the_broker_endpoint_is_stored_and_survives_a_restart(void)
+{
+    TEST_ASSERT_EQUAL_STRING("", cert_store_endpoint());
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_endpoint("192.168.0.218"));
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_init(&fake_qspi_flash_if, k_uid));
+
+    TEST_ASSERT_EQUAL_STRING("192.168.0.218", cert_store_endpoint());
+}
+
+void test_the_broker_endpoint_is_validated_and_cleared_with_the_rest(void)
+{
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_set_endpoint(""));
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_set_endpoint(NULL));
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_set_endpoint("bad host"));
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_set_endpoint("under_score"));
+    char big[130];
+    memset(big, 'a', sizeof(big) - 1U);
+    big[sizeof(big) - 1U] = '\0';
+    TEST_ASSERT_EQUAL(CERT_STORE_ERR_ARG, cert_store_set_endpoint(big));
+
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_set_endpoint("broker.example.org"));
+    TEST_ASSERT_EQUAL(CERT_STORE_OK, cert_store_clear());
+    TEST_ASSERT_EQUAL_STRING("", cert_store_endpoint());
 }

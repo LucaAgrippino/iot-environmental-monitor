@@ -78,6 +78,11 @@
 #define WIFI_DNS_TIMEOUT_MS 60000u
 #endif
 #define WIFI_POLL_INTERVAL_US 100u
+
+/** A module reply that takes longer than this is a slow operation (join, lookup, connect: seconds):
+ *  from here on the wait sleeps instead of spinning, so lower-priority tasks keep running. */
+#define WIFI_SPIN_WINDOW_US 2000u
+#define WIFI_SLEEP_STEP_US 1000u
 /** NAK — appended to an odd-length command to reach an even byte count.
  *  Confirmed against the quick reference's worked example (P0=0\r padded
  *  to "0P 0= 0x15\r"); NOT 0x0A as the general datasheet text suggested. */
@@ -256,6 +261,15 @@ WIFI_TEST_VISIBLE wifi_err_t prv_check_firmware_version(const char *resp, size_t
 /* SPI / DRDY transaction engine                                           */
 /* ====================================================================== */
 
+/* Default: spin, as before. An image with a scheduler overrides it with a sleep of one tick
+ * (main.c): a failing join or connect makes the module answer only after 10 to 19 s, and a spinning
+ * poll at WifiTask's priority kept the lifecycle task from running, which kicks the watchdog (found
+ * on the board with the broker unreachable: a reset loop). */
+__attribute__((weak)) void wifi_driver_wait_1ms(void)
+{
+    cpu_delay_us(WIFI_SLEEP_STEP_US);
+}
+
 static bool prv_wait_drdy(const struct wifi_inst *inst, bool want_high, uint32_t timeout_ms)
 {
     const uint32_t timeout_us = timeout_ms * 1000u;
@@ -280,8 +294,16 @@ static bool prv_wait_drdy(const struct wifi_inst *inst, bool want_high, uint32_t
             return false;
         }
 
-        cpu_delay_us(WIFI_POLL_INTERVAL_US);
-        elapsed_us += WIFI_POLL_INTERVAL_US;
+        if (elapsed_us < WIFI_SPIN_WINDOW_US)
+        {
+            cpu_delay_us(WIFI_POLL_INTERVAL_US);
+            elapsed_us += WIFI_POLL_INTERVAL_US;
+        }
+        else
+        {
+            wifi_driver_wait_1ms();
+            elapsed_us += WIFI_SLEEP_STEP_US;
+        }
     }
 }
 

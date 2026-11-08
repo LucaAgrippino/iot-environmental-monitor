@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Write protection of the Gateway bootloader pages (BL-O4, bootloader.md BL-D12).
 #
-# usage: scripts/gateway-bootloader-wrp.sh status|set|clear
+# usage: scripts/gateway-bootloader-wrp.sh status|set|clear|rdp1
 #   status  print the protection register (WRP1AR) and the read-out protection level
 #   set     protect flash pages 0 to 7 (0x0800_0000..0x0800_3FFF, the 16 KB bootloader): erase and
 #           program there, and a mass erase, are refused until `clear`
 #   clear   remove the protection (needed before flashing the bootloader or an unslotted image)
+#   rdp1    production lock (CST-O3): read-out protection level 1. A probe can then no longer read the
+#           internal flash, the RAM or the chip's unique ID, which is what the CertStore key is derived
+#           from, so a dump of the external QSPI flash cannot be decrypted. Needs CONFIRM_RDP1=yes.
+#           Going back to level 0 (`stm32l4x unlock`) erases the whole internal flash: the bootloader and
+#           the application must be flashed again. The CertStore lives in the external QSPI flash and
+#           survives. Never level 2: it is permanent.
 # Environment: ST_SERIAL = ST-LINK serial number of the Gateway (default: the project's Gateway).
 #
 # Measured on the board (2026-11-08): with protection set, erasing page 0 fails with "device
@@ -25,8 +31,18 @@ ocd() {
 }
 
 status() {
-    ocd 'echo WRP1AR=[read_memory 0x4002202C 32 1]; echo OPTR=[read_memory 0x40022020 32 1]' |
-        grep -E '^(WRP1AR|OPTR)='
+    local out
+    out=$(ocd 'echo WRP1AR=[read_memory 0x4002202C 32 1]; echo OPTR=[read_memory 0x40022020 32 1]' |
+        grep -E '^(WRP1AR|OPTR)=' || true)
+    echo "$out"
+    local optr
+    optr=$(echo "$out" | sed -n 's/^OPTR=0x[0-9a-fA-F]*\([0-9a-fA-F][0-9a-fA-F]\)$/\1/p')
+    case "${optr,,}" in
+    aa) echo "read-out protection: level 0 (a probe can read everything)" ;;
+    cc) echo "read-out protection: level 2 (permanent)" ;;
+    "") echo "read-out protection: not readable (the chip may already be at level 1)" ;;
+    *) echo "read-out protection: level 1" ;;
+    esac
 }
 
 case "${1:-}" in
@@ -39,8 +55,17 @@ clear)
     ocd 'stm32l4x option_write 0 0x2C 0x000000FF 0x00FF00FF; stm32l4x option_load 0' > /dev/null
     status
     ;;
+rdp1)
+    if [[ "${CONFIRM_RDP1:-}" != "yes" ]]; then
+        echo "refusing: this locks the debug read-out. Read the header of this script, then run" >&2
+        echo "  CONFIRM_RDP1=yes $0 rdp1" >&2
+        exit 3
+    fi
+    ocd 'stm32l4x lock 0' > /dev/null
+    echo "read-out protection level 1 requested; power-cycle the board, then run status"
+    ;;
 *)
-    echo "usage: $0 status|set|clear" >&2
+    echo "usage: $0 status|set|clear|rdp1" >&2
     exit 2
     ;;
 esac

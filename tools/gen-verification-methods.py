@@ -100,7 +100,7 @@ LI-010|T|S|BOTH|A|run each Appendix A command, expect an answer|-
 LI-020|T|S|BOTH|A|the result of each diagnostic is displayed|-
 LI-030|T|S|GW|A|the provisioning menu is reachable|-
 LI-040|T|S|GW|A|`prov set wifi-ssid` and `wifi-pass`, then reset: the board uses them (negative and positive case)|-
-LI-050|T|S|GW|A|`prov set mqtt-endpoint`, reset: the endpoint is used|-
+LI-050|T|S|GW|A|`prov set mqtt-endpoint`, reset: the endpoint is used (a wrong one gives no connection)|-
 LI-060|T|S|GW|A|provision the certificates over the console|-
 LI-070|T|S|BOTH|A|`prov set modbus-addr` takes effect|-
 LI-080|T|S|GW|A|`prov set modbus-baud` and `modbus-parity` take effect|-
@@ -194,7 +194,7 @@ NF-111|T|S|SYS|A|telemetry period 60 s|-
 NF-112|T|S|SYS|A|health period 5 min|-
 NF-113|T|S|SYS|A|alarm latency at most 500 ms (the Raspberry Pi bench)|-
 NF-114|T|S|BOTH|A|100 ms and 10 s accepted, outside refused|-
-NF-200|T|S|GW|A|network off: sensors and alarms keep running|-
+NF-200|T|S|GW|A|network off and broker unreachable: sensors and alarms keep running, no reset loop|-
 NF-201|T|S|SYS|A|a short bus interruption recovers without a restart|-
 NF-202|T|S|BOTH|A|watchdog reset: Operational within 5 s|-
 NF-203|T|S|BOTH|A|normal reset: Operational within 5 s|-

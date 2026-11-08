@@ -86,6 +86,22 @@
  * ---------------------------- The provisioned values (console, CertStore) are used when they
  * exist; otherwise the build-time bring-up values stay in force, so a board that was never
  * provisioned still works. */
+/* A failing join, lookup or connect makes the module answer after 10 to 19 s; the driver waits for
+ * it with this hook after a short spin. Sleeping here lets the lifecycle task (priority 1) run and
+ * kick the watchdog: with the broker unreachable the spinning wait made the Gateway reset in a
+ * loop. */
+void wifi_driver_wait_1ms(void)
+{
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+    {
+        vTaskDelay(1U);
+    }
+    else
+    {
+        cpu_delay_us(1000U);
+    }
+}
+
 static const char *wifi_ssid(void)
 {
     return cert_store_has_wifi() ? cert_store_ssid() : BRINGUP_WIFI_SSID;
@@ -125,7 +141,13 @@ static bool prov_identity_complete(void)
     return cert_store_identity_complete();
 }
 
+static int prov_set_endpoint(const char *host)
+{
+    return (cert_store_set_endpoint(host) == CERT_STORE_OK) ? 0 : 1;
+}
+
 static const console_prov_store_t s_prov_store = {.set_wifi = prov_set_wifi,
+                                                  .set_endpoint = prov_set_endpoint,
                                                   .set_item = prov_set_item,
                                                   .clear = prov_clear,
                                                   .has_wifi = prov_has_wifi,
@@ -493,16 +515,24 @@ static bool join_access_point(wifitask_handle_t wifitask)
     return join == WIFITASK_ERR_OK;
 }
 
+/* The broker named by `prov set mqtt-endpoint` (REQ-LI-050), kept in CertStore with the other
+ * network identity data and already in RAM at boot; else the build-time one. A change takes effect
+ * after the next restart, like the certificates. */
+static const char *broker_name(void)
+{
+    return (cert_store_endpoint()[0] != '\0') ? cert_store_endpoint()
+                                              : BRINGUP_CERTS_BROKER_ENDPOINT;
+}
+
 /* D-7: the module's socket command takes an address, so the broker name is resolved before each
  * connect attempt. It goes through WifiTask, which is the only user of the module's command
  * channel. A failing lookup holds the module for about 10 s before it answers ERROR (WIFI-O18). */
 static bool resolve_once(void)
 {
     char ip[WIFI_IPV4_STR_LEN];
-    const wifitask_err_t r =
-        wifitask_resolve(s_wifitask, BRINGUP_CERTS_BROKER_ENDPOINT, ip, sizeof(ip));
+    const wifitask_err_t r = wifitask_resolve(s_wifitask, broker_name(), ip, sizeof(ip));
 
-    LOG_INFO("Main", "resolve %s -> %d (%s)", BRINGUP_CERTS_BROKER_ENDPOINT, (int) r,
+    LOG_INFO("Main", "resolve %s -> %d (%s)", broker_name(), (int) r,
              (r == WIFITASK_ERR_OK) ? ip : "");
     if (r != WIFITASK_ERR_OK)
     {
@@ -572,6 +602,10 @@ static void boot_task(void *arg)
         LOG_INFO("Main", "BootTask: Phase B starts, reset cause %s",
                  k_cause[((unsigned) s_reset_cause < 4U) ? (unsigned) s_reset_cause : 3U]);
     }
+
+    /* Not in main(): the main stack is only what the nearly full 96 KB bank leaves (about 1 KB),
+     * and config_store_load needs more. This task's stack has room for the load alone (no apply).
+     */
 
     /* WifiTask is created in task context, after the scheduler (F-1). */
     const wifitask_config_t wifitask_cfg = {.wifi = s_wifi};
@@ -663,7 +697,7 @@ static void boot_task(void *arg)
     /* D-7: connect to the resolved address, check the certificate against the endpoint's name. */
     const mqtt_connect_cfg_t connect_cfg = {
         .broker_endpoint = s_broker_ip,
-        .tls_server_name = BRINGUP_CERTS_BROKER_ENDPOINT,
+        .tls_server_name = broker_name(),
         .broker_port = 8883U,
         .client_id = NULL, /* GM-O19: CloudPublisher uses the CPU unique id */
         .client_cert_der = cl_der,
