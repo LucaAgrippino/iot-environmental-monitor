@@ -7,7 +7,8 @@ import time
 import paho.mqtt.client as mqtt
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-CERTS = os.path.join(ROOT, "local-test/mosquitto-broker")
+# VERIFY_CERTS: a directory with ca.crt, operator.crt, operator.key (the Raspberry Pi keeps them outside the repository)
+CERTS = os.environ.get("VERIFY_CERTS", os.path.join(ROOT, "local-test/mosquitto-broker"))
 
 
 class Cloud:
@@ -27,7 +28,7 @@ class Cloud:
                   tls_version=ssl.PROTOCOL_TLSv1_2)
         c.tls_insecure_set(True)
         c.on_message = lambda cl, u, m: self.messages.append((time.monotonic(), m.topic, m.qos, bytes(m.payload)))
-        c.connect("127.0.0.1", 8883)
+        c.connect(os.environ.get("VERIFY_BROKER_HOST", "127.0.0.1"), 8883)
         c.subscribe("#", 1)
         c.loop_start()
         self.client = c

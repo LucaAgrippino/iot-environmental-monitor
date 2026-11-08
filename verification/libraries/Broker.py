@@ -16,7 +16,13 @@ class Broker:
     ROBOT_LIBRARY_SCOPE = "SUITE"
 
     def start_broker(self):
-        """Start the broker detached (a no-op when it already runs)."""
+        """Start the broker detached (a no-op when it already runs).
+        VERIFY_BROKER=system: the broker is the system Mosquitto service (the Raspberry Pi); it is only checked."""
+        if os.environ.get("VERIFY_BROKER") == "system":
+            if subprocess.run(["systemctl", "is-active", "--quiet", "mosquitto"]).returncode != 0:
+                subprocess.run(["sudo", "-n", "systemctl", "start", "mosquitto"], check=True)
+                time.sleep(2)
+            return
         if NAME in _docker("ps", "--format", "{{.Names}}").stdout.split():
             return
         r = _docker("run", "-d", "--rm", "--name", NAME, "-p", "8883:8883", "-v", "%s:/mosquitto/certs:ro" % BROKER_DIR,
