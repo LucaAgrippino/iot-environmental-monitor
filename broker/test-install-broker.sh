@@ -12,7 +12,7 @@ SERIAL=002d004f3442501020323848
 "$py" "$here/iotpki.py" server --san DNS:localhost --san IP:127.0.0.1 >/dev/null
 "$py" "$here/iotpki.py" service iotcloud >/dev/null
 "$py" "$here/iotpki.py" device $SERIAL >/dev/null
-PATH="$(dirname "$py"):$PATH" "$here/build-bundle.sh" >/dev/null
+PATH="$(dirname "$(command -v "$py")"):$PATH" "$here/build-bundle.sh" >/dev/null
 cp -r "$IOTPKI_DIR/issued" "$work/issued"
 docker run --rm -v "$here/out:/in:ro" -v "$work/issued:/issued:ro" -e S=$SERIAL debian:trixie bash -euo pipefail -c '
     apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mosquitto mosquitto-clients procps >/dev/null

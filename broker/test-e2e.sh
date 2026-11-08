@@ -19,7 +19,8 @@ docker run -d --rm --name "$name" -u "$(id -u):$(id -g)" -p 127.0.0.1:18884:8883
     -v "$work/data:/mosquitto/data" eclipse-mosquitto:2 mosquitto -c /mosquitto/iot/mosquitto.conf >/dev/null
 sleep 2
 c="$work/pki/issued"
-(cd "$repo/cloud/backend" && env -u PYTHONPATH IOTCLOUD_AUTH=off IOTCLOUD_DB="$work/db.sqlite3" IOTCLOUD_IMAGE_DIR="$work/img" \
+# exec: the background job must BE the server, or the cleanup kills the subshell and leaves the server running
+(cd "$repo/cloud/backend" && exec env -u PYTHONPATH IOTCLOUD_AUTH=off IOTCLOUD_DB="$work/db.sqlite3" IOTCLOUD_IMAGE_DIR="$work/img" \
     IOTCLOUD_MQTT_HOST=localhost IOTCLOUD_MQTT_PORT=18884 IOTCLOUD_MQTT_CA="$c/iotcloud/ca.crt" \
     IOTCLOUD_MQTT_CERT="$c/iotcloud/iotcloud.crt" IOTCLOUD_MQTT_KEY="$c/iotcloud/iotcloud.key" \
     "$py" -m uvicorn --factory iotcloud.api:app --port 18000 >"$work/api.log" 2>&1) &
@@ -36,4 +37,4 @@ sleep 6
 cmd=$(curl -s $A/api/devices/sim-0001/commands | grep -o '"status":"[a-z]*"' | head -1)
 ota=$(curl -s $A/api/devices/sim-0001/ota | grep -o '"state":"[a-z_]*"' | head -1)
 echo "command: $cmd   ota: $ota"
-[ "$cmd" = '"status":"accepted"' ] && [ "$ota" = '"state":"success"' ] && echo OK || { echo FAIL; tail -5 "$work/api.log" "$work/sim.log"; exit 1; }
+[ "$cmd" = '"status":"accepted"' ] && [ "$ota" = '"state":"success"' ] && echo OK || { echo FAIL; for f in api sim; do echo "--- $f.log"; tail -n 8 "$work/$f.log"; done; exit 1; }

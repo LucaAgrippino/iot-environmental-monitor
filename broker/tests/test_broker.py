@@ -20,8 +20,10 @@ IMAGE = "eclipse-mosquitto:2"
 PORT = 18883
 A, B = "002d004f3442501020323848", "0033001f3442501020323849"
 
+# Skipped on a machine without Docker; CI sets REQUIRE_DOCKER=1 so that a missing Docker is a failure, not a silent skip.
 pytestmark = pytest.mark.skipif(
-    shutil.which("docker") is None or subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True).returncode != 0,
+    not os.environ.get("REQUIRE_DOCKER")
+    and (shutil.which("docker") is None or subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True).returncode != 0),
     reason=f"needs docker and the {IMAGE} image")
 
 
