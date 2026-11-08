@@ -30,10 +30,10 @@
 
 #define CPU_PANIC_MAGIC (0xDEADC0DEU)
 
-/* SCB->CFSR bit 15: BFAR holds the faulting address. */
+/** SCB->CFSR bit 15: BFAR holds the faulting address. */
 #define CPU_CFSR_BFARVALID (1UL << 15U)
 
-/* Post-mortem record: CPU_PANIC_RECORD_WORDS consecutive RTC backup registers starting at
+/** Post-mortem record: CPU_PANIC_RECORD_WORDS consecutive RTC backup registers starting at
  * CPU_PANIC_BKP_BASE. Register 0 is TimeProvider's sync flag (TIME_PROVIDER_BKUP_REG), so the
  * record starts at 2; the F469 has registers 0 to 19 (cpu-driver.md section 3.3, CPU-D2). */
 #define CPU_PANIC_BKP_BASE (2U)
@@ -60,10 +60,10 @@ enum
 };
 
 #define CPU_PANIC_UART_BAUD (115200U)
-/* BRR (oversampling by 16) = PCLK1 / baud, rounded: 45 000 000 / 115 200 = 391. */
+/** BRR (oversampling by 16) = PCLK1 / baud, rounded: 45 000 000 / 115 200 = 391. */
 #define CPU_PANIC_UART_BRR ((CPU_PCLK1_HZ + (CPU_PANIC_UART_BAUD / 2U)) / CPU_PANIC_UART_BAUD)
 
-/* AF7 = USART3 on PB10 (same pin as DebugUartDriver). */
+/** AF7 = USART3 on PB10 (same pin as DebugUartDriver). */
 #define CPU_PANIC_UART_TX_PIN (10U)
 #define CPU_PANIC_UART_TX_AF (7U)
 

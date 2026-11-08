@@ -40,26 +40,26 @@ typedef enum
 /** @brief IConfigStore — what Init needs from the persistent store. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*check_integrity)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*load)(void *ctx, void *buf, uint32_t *len_out, uint32_t max_len);
 } lc_config_store_if_t;
 
 /** @brief IConfigManager — loading, and the EditingConfig snapshot workflow. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*apply_loaded)(void *ctx, const void *buf, uint32_t len);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*snapshot)(void *ctx, void *buf, uint32_t *len_out, uint32_t max_len);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*restore_snapshot)(void *ctx, const void *buf, uint32_t len);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*commit)(void *ctx);
     /**
      * Write a deferred configuration change to flash if one is waiting. Does nothing and
@@ -77,22 +77,22 @@ typedef struct
 /** @brief ISensorService. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     bool (*is_ready)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*reconfigure)(void *ctx);
 } lc_sensors_if_t;
 
 /** @brief IAlarmService. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
 } lc_alarms_if_t;
 
@@ -103,81 +103,81 @@ typedef struct
 /** @brief IConsoleService. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init_finalise)(void *ctx);
 } lc_console_if_t;
 
 /** @brief ICloudPublisher. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*flush)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     bool (*is_ready)(void *ctx);
 } lc_cloud_if_t;
 
 /** @brief IModbusPoller. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     bool (*is_ready)(void *ctx);
 } lc_modbus_poller_if_t;
 
 /** @brief ITimeService. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
 } lc_time_service_if_t;
 
 /** @brief IUpdateService. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*start)(void *ctx, uint32_t job);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*resume_self_checking)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*resume_rollback)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*resume_after_rollback)(void *ctx);
 } lc_update_service_if_t;
 
 /** @brief IFirmwareStore. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*get_pending_flags)(void *ctx, bool *self_check_out, bool *rollback_out);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*confirm_self_check)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*rollback)(void *ctx);
 } lc_firmware_store_if_t;
 
 /** @brief IResetDriver. @c soft_reset does not return on the target. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     void (*soft_reset)(void *ctx);
 } lc_reset_driver_if_t;
 
@@ -188,33 +188,33 @@ typedef struct
 /** @brief IHealthReport — the write side LifecycleController uses. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*init)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*push_fault)(void *ctx, uint32_t fault_code);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*update_lifecycle)(void *ctx, lifecycle_state_t state);
 } lc_health_report_if_t;
 
 /** @brief IHealthAdmin — the control side, LifecycleController only. */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*reset_metrics)(void *ctx);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     lc_dep_status_t (*set_led_fault)(void *ctx);
 } lc_health_admin_if_t;
 
 /** @brief Watchdog kick (optional). The Gateway has no watchdog driver yet (LC-O8). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
+    /** cppcheck-suppress unusedStructMember -- opaque pointer handed back to each call */
     void *ctx;
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleTask */
     void (*kick)(void *ctx);
 } lc_watchdog_if_t;
 
@@ -230,20 +230,20 @@ typedef struct
  */
 typedef struct
 {
-    const lc_config_store_if_t *config_store;
-    const lc_config_manager_if_t *config_manager;
-    const lc_sensors_if_t *sensors;
-    const lc_alarms_if_t *alarms;
-    const lc_console_if_t *console;
-    const lc_health_report_if_t *health_report;
-    const lc_health_admin_if_t *health_admin;
-    const lc_cloud_if_t *cloud;
-    const lc_modbus_poller_if_t *modbus_poller;
-    const lc_update_service_if_t *update_service;
-    const lc_time_service_if_t *time_service;
-    const lc_firmware_store_if_t *firmware_store;
-    const lc_reset_driver_if_t *reset_driver;
-    const lc_watchdog_if_t *watchdog; /**< Optional; NULL = no watchdog to kick. */
+    const lc_config_store_if_t *config_store;     /**< ConfigStore read side. */
+    const lc_config_manager_if_t *config_manager; /**< ConfigService write side. */
+    const lc_sensors_if_t *sensors;               /**< SensorService read side. */
+    const lc_alarms_if_t *alarms;                 /**< AlarmService read side. */
+    const lc_console_if_t *console;               /**< Console control (screen, prompts). */
+    const lc_health_report_if_t *health_report;   /**< HealthMonitor report side. */
+    const lc_health_admin_if_t *health_admin; /**< HealthMonitor administration (reset counters). */
+    const lc_cloud_if_t *cloud;               /**< CloudPublisher control. */
+    const lc_modbus_poller_if_t *modbus_poller;   /**< ModbusPoller control. */
+    const lc_update_service_if_t *update_service; /**< UpdateService control (OTA). */
+    const lc_time_service_if_t *time_service;     /**< TimeService control. */
+    const lc_firmware_store_if_t *firmware_store; /**< FirmwareStore access (boot control). */
+    const lc_reset_driver_if_t *reset_driver;     /**< Reset driver (software reset). */
+    const lc_watchdog_if_t *watchdog;             /**< Optional; NULL = no watchdog to kick. */
 } lifecycle_deps_t;
 
 #endif /* LIFECYCLE_DEPS_H */

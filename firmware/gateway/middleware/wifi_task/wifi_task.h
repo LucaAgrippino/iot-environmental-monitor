@@ -32,8 +32,8 @@
  * does). */
 #define WIFITASK_MAX_SEND_BYTES 1460u
 
-#define WIFITASK_MAX_SSID_LEN WIFI_MAX_SSID_LEN
-#define WIFITASK_MAX_PASS_LEN WIFI_MAX_PASS_LEN
+#define WIFITASK_MAX_SSID_LEN WIFI_MAX_SSID_LEN /**< Longest SSID, in characters. */
+#define WIFITASK_MAX_PASS_LEN WIFI_MAX_PASS_LEN /**< Longest passphrase, in characters. */
 
 /** @brief Opaque handle to a WifiTask instance. */
 typedef struct wifitask_inst *wifitask_handle_t;
@@ -55,6 +55,7 @@ typedef enum
                                             WifiTask within a bounded wait.        */
 } wifitask_err_t;
 
+/** @brief Operation a request asks the WiFi task to perform. */
 typedef enum
 {
     WIFITASK_OP_CONNECT_AP = 0,
@@ -85,39 +86,39 @@ typedef enum
  */
 typedef struct
 {
-    wifitask_op_t op;
-    TaskHandle_t caller;
+    wifitask_op_t op;    /**< Operation to perform. */
+    TaskHandle_t caller; /**< Task to notify when the operation is done. */
 
-    /* CONNECT_AP */
+    /** CONNECT_AP */
     const char *ssid;
-    const char *password;
+    const char *password; /**< Passphrase of the access point. */
 
-    /* GET_LINK_STATE (out) */
+    /** GET_LINK_STATE (out) */
     wifi_link_state_t link_state;
 
-    /* GET_RSSI (out) */
+    /** GET_RSSI (out) */
     int8_t rssi_dbm;
 
-    /* OPEN_SOCKET */
+    /** OPEN_SOCKET */
     wifi_socket_type_t socket_type;
-    const char *remote_addr;
-    uint16_t remote_port;
+    const char *remote_addr; /**< Address of the remote host. */
+    uint16_t remote_port;    /**< Port of the remote host. */
 
-    /* SEND / RECV / CLOSE_SOCKET */
+    /** SEND / RECV / CLOSE_SOCKET */
     wifi_socket_t socket;
-    const uint8_t *tx_buf;
-    size_t tx_len;
-    uint8_t *rx_buf;
-    size_t rx_buf_len;
-    size_t rx_len;
-    uint32_t timeout_ms;
+    const uint8_t *tx_buf; /**< Data to send. */
+    size_t tx_len;         /**< Number of bytes to send. */
+    uint8_t *rx_buf;       /**< Buffer that receives data. */
+    size_t rx_buf_len;     /**< Size of rx_buf, in bytes. */
+    size_t rx_len;         /**< Number of bytes received. */
+    uint32_t timeout_ms;   /**< Longest time to wait, in ms. */
 
-    /* RESOLVE: hostname in, dotted-quad address out */
+    /** RESOLVE: hostname in, dotted-quad address out */
     const char *hostname;
-    char *ip_out;
-    size_t ip_out_len;
+    char *ip_out;      /**< Buffer that receives the IP address text. */
+    size_t ip_out_len; /**< Size of ip_out, in bytes. */
 
-    wifi_err_t wifi_status;
+    wifi_err_t wifi_status; /**< Result of the operation in the WiFi driver. */
 } wifitask_request_t;
 
 /**
@@ -146,9 +147,9 @@ typedef enum
  */
 typedef struct
 {
-    wifi_socket_t socket;
-    TaskHandle_t caller;
-    uint32_t ready_notify_bit;
+    wifi_socket_t socket;      /**< Socket to wait on. */
+    TaskHandle_t caller;       /**< Task to notify when data is ready. */
+    uint32_t ready_notify_bit; /**< Notification bit to set. */
 } wifitask_recv_arm_t;
 
 /**
@@ -205,16 +206,21 @@ wifitask_err_t wifitask_connect_ap(wifitask_handle_t handle, const char *ssid,
 /**
  * @brief Disconnect from the current access point (routed through WifiTask).
  *
+ * @param handle WifiTask handle.
  * @note Same blocking/threading contract as wifitask_connect_ap().
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_disconnect_ap(wifitask_handle_t handle);
 
 /**
  * @brief Query the current WiFi link state (routed through WifiTask).
  *
+ * @param handle WifiTask handle.
+ * @param state Receives the link state.
  * @note Same blocking/threading contract as wifitask_connect_ap(), though
  *       the underlying wifi_get_link_state() call itself is non-blocking
  *       (cached read) — only the queue round trip adds latency here.
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_get_link_state(wifitask_handle_t handle, wifi_link_state_t *state);
 
@@ -222,16 +228,25 @@ wifitask_err_t wifitask_get_link_state(wifitask_handle_t handle, wifi_link_state
  * @brief Read the current RSSI from the access point (routed through
  *        WifiTask).
  *
+ * @param handle WifiTask handle.
+ * @param rssi_dbm Receives the signal strength, in dBm.
  * @note Same blocking/threading contract as wifitask_connect_ap().
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_get_rssi(wifitask_handle_t handle, int8_t *rssi_dbm);
 
 /**
  * @brief Open a TCP or UDP socket (routed through WifiTask).
  *
+ * @param handle WifiTask handle.
+ * @param type TCP or UDP.
+ * @param remote_addr Address of the remote host.
+ * @param remote_port Port of the remote host.
+ * @param out_socket Receives the socket.
  * @note Same blocking/threading contract as wifitask_connect_ap().
  *       Mirrors wifi_open_socket()'s parameters and worst-case timing
  *       (WIFI_SOCKET_CONNECT_TIMEOUT_MS, 15 s).
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_open_socket(wifitask_handle_t handle, wifi_socket_type_t type,
                                     const char *remote_addr, uint16_t remote_port,
@@ -240,8 +255,13 @@ wifitask_err_t wifitask_open_socket(wifitask_handle_t handle, wifi_socket_type_t
 /**
  * @brief Send data on an open socket (routed through WifiTask).
  *
+ * @param handle WifiTask handle.
+ * @param socket Open socket.
+ * @param data Bytes to send.
+ * @param len Number of bytes.
  * @note Same blocking/threading contract as wifitask_connect_ap().
  *       Mirrors wifi_send()'s parameters.
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, const uint8_t *data,
                              size_t len);
@@ -249,11 +269,18 @@ wifitask_err_t wifitask_send(wifitask_handle_t handle, wifi_socket_t socket, con
 /**
  * @brief Receive data from an open socket (routed through WifiTask).
  *
+ * @param handle WifiTask handle.
+ * @param socket Open socket.
+ * @param buf Receives the data.
+ * @param buf_len Size of buf, in bytes.
+ * @param out_len Receives the number of bytes read.
+ * @param timeout_ms Longest time to wait, in ms.
  * @note Same blocking/threading contract as wifitask_connect_ap().
  *       Mirrors wifi_recv()'s parameters and worst-case timing (floored
  *       at WIFI_RESP_TIMEOUT_MS, 5 s — this is MQTT-O7's unresolved
  *       stall, now relocated but not shortened; see companion §10,
  *       WIFITASK-O1).
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_recv(wifitask_handle_t handle, wifi_socket_t socket, uint8_t *buf,
                              size_t buf_len, size_t *out_len, uint32_t timeout_ms);
@@ -299,7 +326,10 @@ wifitask_err_t wifitask_try_recv(wifitask_handle_t handle, wifi_socket_t socket,
 /**
  * @brief Close an open socket (routed through WifiTask).
  *
+ * @param handle WifiTask handle.
+ * @param socket Open socket.
  * @note Same blocking/threading contract as wifitask_connect_ap().
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t socket);
 
@@ -310,6 +340,7 @@ wifitask_err_t wifitask_close_socket(wifitask_handle_t handle, wifi_socket_t soc
  * The ISM43362 takes only addresses in its socket commands. A lookup that fails holds the module
  * for about 10 s before it answers ERROR (WIFI-O18), so this call can block that long.
  *
+ * @param[in]  handle     WifiTask handle.
  * @param[in]  hostname   Null-terminated host name (a literal address returns itself).
  * @param[out] ip_out     Receives the null-terminated address.
  * @param[in]  ip_out_len Capacity of ip_out (WIFI_IPV4_STR_LEN is enough).
@@ -321,6 +352,7 @@ wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, 
 
 /**
  * @brief Ask the Wi-Fi module whether it answers (wifi_ping(), routed through WifiTask).
+ * @param handle WifiTask handle.
  * @return WIFITASK_ERR_OK if it did; WIFI_ERR_TIMEOUT (passed through) if it is wedged.
  */
 wifitask_err_t wifitask_ping(wifitask_handle_t handle);
@@ -331,6 +363,9 @@ wifitask_err_t wifitask_ping(wifitask_handle_t handle);
  * Last-resort recovery for a module that stopped answering. The association and every socket are
  * gone afterwards, so the caller joins the access point again. WifiTask's pending receive state is
  * cleared. Blocks for the boot sequence (about 1 s, up to 8 s when it fails).
+ *
+ * @param handle WifiTask handle.
+ * @return WIFITASK_ERR_OK, or the error of the operation.
  */
 wifitask_err_t wifitask_reset_module(wifitask_handle_t handle);
 

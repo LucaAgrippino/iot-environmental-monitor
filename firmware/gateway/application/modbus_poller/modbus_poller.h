@@ -78,12 +78,12 @@ typedef enum
 /** @brief Per-slave runtime state; exposed for test observability only. */
 typedef struct
 {
-    uint8_t slave_addr;
-    uint8_t consecutive_successes;
-    uint8_t consecutive_failures;
-    bool link_online;
-    modbus_slave_identity_t identity;
-    uint8_t recheck_cycles; /**< Cycles until a rejected slave is checked again. */
+    uint8_t slave_addr;               /**< Modbus slave address of the Field Device. */
+    uint8_t consecutive_successes;    /**< Successful polls in a row. */
+    uint8_t consecutive_failures;     /**< Failed polls in a row. */
+    bool link_online;                 /**< True while the link counts as online. */
+    modbus_slave_identity_t identity; /**< Identity read from the Field Device registers. */
+    uint8_t recheck_cycles;           /**< Cycles until a rejected slave is checked again. */
 } modbus_slave_state_t;
 
 /**
@@ -150,12 +150,13 @@ typedef struct
      *  indexed temperature, humidity, pressure. The poller reads a channel's pair when one of
      *  its ALARM_FLAGS bits is raised (REQ-AM-040: the alarm carries its threshold). */
     int32_t limit_low[3];
-    int32_t limit_high[3];
-    bool limits_valid[3]; /**< false until the channel has raised an alarm since boot. */
+    int32_t limit_high[3]; /**< High alarm limit of each channel, in the units above. */
+    bool limits_valid[3];  /**< false until the channel has raised an alarm since boot. */
 } modbus_fd_reading_t;
 
 /**
  * @brief Change the poll period while running (WP12 D-13); the next cycle uses it.
+ * @param poll_period_ms New period, in milliseconds (not 0).
  * @return MODBUS_POLLER_ERR_OK; _NOT_INIT; _INVALID_ARG if @p poll_period_ms is 0.
  * @note Threading: any task; one aligned 32-bit store.
  */
@@ -172,7 +173,11 @@ modbus_poller_err_t modbus_poller_set_poll_period(uint32_t poll_period_ms);
 typedef void (*modbus_poller_alarm_cb_t)(uint8_t slave_addr, uint16_t flags_before,
                                          uint16_t flags_now);
 
-/** @brief Register the single ALARM_FLAGS change callback (NULL removes it). */
+/**
+ * @brief Register the single ALARM_FLAGS change callback (NULL removes it).
+ *
+ * @param callback Function to call, or NULL to remove it.
+ */
 void modbus_poller_set_alarm_callback(modbus_poller_alarm_cb_t callback);
 
 /**
@@ -191,6 +196,8 @@ typedef void (*modbus_poller_link_up_cb_t)(uint8_t slave_addr);
  * @brief Register the single link-up callback (NULL removes it).
  *
  * May be called before modbus_poller_init(); init does not clear it.
+ *
+ * @param callback Function to call, or NULL to remove it.
  */
 void modbus_poller_set_link_up_callback(modbus_poller_link_up_cb_t callback);
 

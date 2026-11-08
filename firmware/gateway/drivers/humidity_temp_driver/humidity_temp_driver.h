@@ -90,9 +90,9 @@ humidity_temp_err_t humidity_temp_read(humidity_temp_data_t *out);
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember; used via humidity_temp_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via humidity_temp_driver singleton */
     humidity_temp_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember; used via humidity_temp_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via humidity_temp_driver singleton */
     humidity_temp_err_t (*read)(humidity_temp_data_t *out);
 } ihumidity_temp_t;
 

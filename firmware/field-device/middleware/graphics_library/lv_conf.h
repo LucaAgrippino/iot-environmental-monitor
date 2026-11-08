@@ -22,7 +22,7 @@
 /* Colour format (GL-D2)                                                 */
 /* ===================================================================== */
 
-/* 32 bpp ARGB8888 — matches the OTM8009A framebuffer pipeline. */
+/** 32 bpp ARGB8888 — matches the OTM8009A framebuffer pipeline. */
 #define LV_COLOR_DEPTH 32
 
 /* ===================================================================== */
@@ -36,18 +36,18 @@
 /* Memory (P5 — no dynamic allocation)                                   */
 /* ===================================================================== */
 
-/* Use LVGL's internal static heap (no malloc). */
+/** Use LVGL's internal static heap (no malloc). */
 #define LV_MEM_CUSTOM 0
 /* 96 KB on the target; the simulator overrides it to 512 KB via -DLV_MEM_SIZE=524288. */
 #ifndef LV_MEM_SIZE
-#define LV_MEM_SIZE (98304U) /* 96 KB: the five-screen LcdUi builds about 600 objects */
+#define LV_MEM_SIZE (98304U) /**< 96 KB: the five-screen LcdUi builds about 600 objects */
 #endif
 
 /* ===================================================================== */
 /* Tick source (§6.4 — driven by lv_tick_inc from FreeRTOS timer)        */
 /* ===================================================================== */
 
-/* 0 = application drives the tick via lv_tick_inc() calls.
+/** 0 = application drives the tick via lv_tick_inc() calls.
  * SysTick is owned by FreeRTOS; do not use LV_TICK_CUSTOM = 1. */
 #define LV_TICK_CUSTOM 0
 
@@ -57,11 +57,11 @@
 
 #define LV_USE_LOG 1
 
-/* Log level: show warnings and above during integration; lower to
+/** Log level: show warnings and above during integration; lower to
  * LV_LOG_LEVEL_ERROR for production. */
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
 
-/* Route LVGL log output via lv_log_register_print_cb() in graphics_init.
+/** Route LVGL log output via lv_log_register_print_cb() in graphics_init.
  * Setting LV_LOG_PRINTF to 0 disables the default printf path so the
  * registered callback receives all log messages. */
 #define LV_LOG_PRINTF 0
@@ -70,28 +70,28 @@
 /* Display driver                                                        */
 /* ===================================================================== */
 
-/* LVGL internal redraw period in ms — screen content refreshed at ~33 Hz. */
+/** LVGL internal redraw period in ms — screen content refreshed at ~33 Hz. */
 #define LV_DISP_DEF_REFR_PERIOD 30
 
 /* ===================================================================== */
 /* Input device                                                          */
 /* ===================================================================== */
 
-/* Touch polling period in ms — aligns with LVGL's internal debounce. */
+/** Touch polling period in ms — aligns with LVGL's internal debounce. */
 #define LV_INDEV_DEF_READ_PERIOD 30
 
 /* ===================================================================== */
 /* Animations                                                            */
 /* ===================================================================== */
 
-/* Required for screen transitions in LcdUi. Disable if SRAM is tight. */
+/** Required for screen transitions in LcdUi. Disable if SRAM is tight. */
 #define LV_USE_ANIMATION 1
 
 /* ===================================================================== */
 /* GPU acceleration (GL-O3 — benchmark at integration)                   */
 /* ===================================================================== */
 
-/* Enable DMA2D blending. STM32F469 supports DMA2D natively. Benchmark
+/** Enable DMA2D blending. STM32F469 supports DMA2D natively. Benchmark
  * lv_task_handler() time with and without to confirm the gain. */
 #define LV_USE_GPU_STM32_DMA2D 0
 
@@ -103,16 +103,16 @@
  * Enable additional sizes required for LcdUi design-token bindings.
  * Flash budget impact: ~25 KB total on F469 (well within the 2 MB app
  * partition). — 01_DESIGN_TOKENS.md §Typography scale */
-#define LV_FONT_MONTSERRAT_10 1 /* FONT_EYEBROW, FONT_PILL, FONT_FOOTER   */
-#define LV_FONT_MONTSERRAT_12 1 /* FONT_META, FONT_CAPTION_MONO, FONT_TAB */
-#define LV_FONT_MONTSERRAT_18 1 /* FONT_HEAD, FONT_VALUE (status rows)     */
-#define LV_FONT_MONTSERRAT_48 1 /* FONT_HERO — sensor card primary value   */
+#define LV_FONT_MONTSERRAT_10 1 /**< FONT_EYEBROW, FONT_PILL, FONT_FOOTER */
+#define LV_FONT_MONTSERRAT_12 1 /**< FONT_META, FONT_CAPTION_MONO, FONT_TAB */
+#define LV_FONT_MONTSERRAT_18 1 /**< FONT_HEAD, FONT_VALUE (status rows) */
+#define LV_FONT_MONTSERRAT_48 1 /**< FONT_HERO — sensor card primary value */
 
 /* ===================================================================== */
 /* Theme — disabled; LcdUi owns all styles via theme_init()             */
 /* ===================================================================== */
 
-/* Disable the built-in default theme. LcdUi applies its own
+/** Disable the built-in default theme. LcdUi applies its own
  * design-token styles in theme_init(). Leaving this at the LVGL default
  * (1) causes the grey default theme to re-apply on every
  * lv_obj_remove_style_all() call (via LV_EVENT_STYLE_CHANGED), overriding

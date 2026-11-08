@@ -19,6 +19,7 @@
 /* Error codes                                                           */
 /* ===================================================================== */
 
+/** @brief Result codes of the touchscreen driver. */
 typedef enum
 {
     TS_ERR_OK = 0,      /**< Operation succeeded. */
@@ -32,6 +33,7 @@ typedef enum
 /* Touch event                                                           */
 /* ===================================================================== */
 
+/** @brief Kind of touch event. */
 typedef enum
 {
     TS_EVENT_PRESS = 0,   /**< New touch point detected. */
@@ -50,9 +52,9 @@ typedef enum
  */
 typedef struct
 {
-    uint16_t x;
-    uint16_t y;
-    ts_event_t event;
+    uint16_t x;       /**< Horizontal position, in pixels. */
+    uint16_t y;       /**< Vertical position, in pixels. */
+    ts_event_t event; /**< Kind of event. */
 } ts_touch_t;
 
 /* ===================================================================== */

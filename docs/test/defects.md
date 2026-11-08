@@ -10,7 +10,7 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | DEF-002 | wave 4 preparation, 2026-11-08 | REQ-NF-213 (boot), REQ-LD-* (display) | 2 | Closed: the fix branch `fix/fd-enable-dwt-at-boot` (the Field Device with the display did not boot after a power-up) |
 | DEF-003 | OP-09, 2026-11-08 | REQ-MB-070 | 4 | Closed: the register map document now says what the code does (sampling period range 100..10000, timeout counter reserved, device ID 0, slave address at 0x0150) |
 | DEF-004 | OP-09, 2026-11-08 | REQ-MB-070 | 4 | Closed: stale "INTENTIONAL BUG" comments about `read_pressure` removed (code and test were already right) |
-| DEF-005 | OP-12, 2026-11-08 | REQ-NF-505 | 4 | Closed: the seven public functions without description now have one; `scripts/gen-doxygen.sh` reports no undocumented function in any header |
+| DEF-005 | OP-12, 2026-11-08 | REQ-NF-505 | 4 | Closed: all Doxygen warnings of the public headers removed; `scripts/gen-doxygen.sh` reports 0 for both boards |
 | DEF-006 | OP-10, 2026-11-08 | REQ-DM-074 | 4 | Closed: the Field Device linker script limits the image to the 1 MB the flash-partition document gives it (was 2048 KB; the image uses 46.8%) |
 
 ## DEF-001: the alarm of a Field Device carried threshold 0
@@ -41,5 +41,8 @@ DEF-003: for each of the four differences the document was amended, not the code
 requirements ask for (REQ-NF-114 gives the 10 s upper bound of the sampling period) or what the hardware offers
 (the slave keeps no timeout counter; the device-ID source is not wired in). Two of them stay open as improvements, not
 defects: a real Field Device identifier (STM32 unique ID) and a timeout counter in `IModbusSlaveStats`.
-DEF-005: the remaining Doxygen warnings (about 1 700 per board) are undocumented macros, enumerators and `@return` /
-`@param` lines of functions that do have a description; none hides a missing function description in a public header.
+DEF-005: first the seven public functions without a description were documented, then every other warning of the
+public headers was removed (about 1 700 per board: members, macros, enumerators, `@param` and `@return`). `scripts/gen-doxygen.sh`
+now ends with 0 warnings for both boards; the descriptions of members and macros were written from the names and the
+surrounding code, so they deserve a read when a module is next touched. The `.c` files are outside the gate (their
+file-local items are not public API); `--with-sources` documents them with call graphs.

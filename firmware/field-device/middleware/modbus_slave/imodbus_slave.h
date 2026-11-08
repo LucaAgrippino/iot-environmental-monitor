@@ -24,6 +24,7 @@
 
 #ifndef MODBUS_SLAVE_ERR_DEFINED
 #define MODBUS_SLAVE_ERR_DEFINED
+/** @brief Result codes of the Modbus slave API. */
 typedef enum
 {
     MODBUS_SLAVE_ERR_OK = 0,
@@ -39,9 +40,10 @@ typedef enum
 /* IModbusSlave vtable                                                   */
 /* ===================================================================== */
 
+/** @brief Interface of the Modbus slave (vtable). */
 typedef struct
 {
-    modbus_slave_err_t (*set_address)(uint8_t new_addr);
+    modbus_slave_err_t (*set_address)(uint8_t new_addr); /**< Change the slave address. */
 } imodbus_slave_t;
 
 /** Singleton — implemented by modbus_slave.c. */

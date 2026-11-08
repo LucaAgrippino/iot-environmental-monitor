@@ -6,14 +6,14 @@
  * number) and a fixed per-message suffix, per companion §6:
  *
  *   Publish:
- *     dt/iotmonitor/<client_id>/telemetry
- *     dt/iotmonitor/<client_id>/health
- *     dt/iotmonitor/<client_id>/alarms
- *     dt/iotmonitor/<client_id>/ota/result
+ *     dt/iotmonitor/\<client_id\>/telemetry
+ *     dt/iotmonitor/\<client_id\>/health
+ *     dt/iotmonitor/\<client_id\>/alarms
+ *     dt/iotmonitor/\<client_id\>/ota/result
  *
  *   Subscribe:
- *     cmd/iotmonitor/<client_id>/config
- *     cmd/iotmonitor/<client_id>/ota
+ *     cmd/iotmonitor/\<client_id\>/config
+ *     cmd/iotmonitor/\<client_id\>/ota
  *
  * "dt/" = device-to-cloud, "cmd/" = cloud-to-device (AWS IoT Core
  * convention). CloudPublisher owns topic assembly (it holds the
@@ -25,22 +25,25 @@
 #ifndef MQTT_TOPIC_CONFIG_H
 #define MQTT_TOPIC_CONFIG_H
 
-#define MQTT_TOPIC_PREFIX_PUBLISH "dt/iotmonitor/"
-#define MQTT_TOPIC_PREFIX_SUBSCRIBE "cmd/iotmonitor/"
+#define MQTT_TOPIC_PREFIX_PUBLISH                                                                  \
+    "dt/iotmonitor/" /**< Prefix of the topics the device publishes to. */
+#define MQTT_TOPIC_PREFIX_SUBSCRIBE                                                                \
+    "cmd/iotmonitor/" /**< Prefix of the topics the device subscribes to. */
 
-#define MQTT_TOPIC_SUFFIX_TELEMETRY "/telemetry"
-#define MQTT_TOPIC_SUFFIX_HEALTH "/health"
-#define MQTT_TOPIC_SUFFIX_ALARMS "/alarms"
-#define MQTT_TOPIC_SUFFIX_OTA_RESULT "/ota/result"
+#define MQTT_TOPIC_SUFFIX_TELEMETRY "/telemetry" /**< Suffix of the telemetry topic. */
+#define MQTT_TOPIC_SUFFIX_HEALTH "/health"       /**< Suffix of the health topic. */
+#define MQTT_TOPIC_SUFFIX_ALARMS "/alarms"       /**< Suffix of the alarm topic. */
+#define MQTT_TOPIC_SUFFIX_OTA_RESULT                                                               \
+    "/ota/result" /**< Suffix of the topic that carries the OTA result. */
 #define MQTT_TOPIC_SUFFIX_CONFIG_RESULT                                                            \
     "/config/result" /**< Result of a /config command (CP-D30).  */
 #define MQTT_TOPIC_SUFFIX_CONTROL_RESULT                                                           \
     "/control/result" /**< Result of a /control command (CP-O8).           */
 #define MQTT_TOPIC_SUFFIX_OTA_REQUEST "/ota/request" /**< Chunk request, device to cloud.   */
 
-#define MQTT_TOPIC_SUFFIX_CONFIG "/config"
-#define MQTT_TOPIC_SUFFIX_CONTROL "/control" /**< Remote restart etc., cloud to device. */
-#define MQTT_TOPIC_SUFFIX_OTA "/ota"
+#define MQTT_TOPIC_SUFFIX_CONFIG "/config"     /**< Suffix of the configuration command topic. */
+#define MQTT_TOPIC_SUFFIX_CONTROL "/control"   /**< Remote restart etc., cloud to device. */
+#define MQTT_TOPIC_SUFFIX_OTA "/ota"           /**< Suffix of the OTA command topic. */
 #define MQTT_TOPIC_SUFFIX_OTA_DATA "/ota/data" /**< Binary chunk, cloud to device.        */
 
 /** @brief Longest assembled topic string length, excluding the null

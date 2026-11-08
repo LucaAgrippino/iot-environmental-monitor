@@ -1,5 +1,5 @@
 /**
- * @file spi_driver.c
+ * @file spi.c
  * @brief SPI driver implementation — SPI3 on STM32L475 (Gateway).
  *
  * ADT pattern: opaque handle backed by a static pool. Pool size is 1 —

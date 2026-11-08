@@ -22,23 +22,24 @@
 
 #include "lcd_ui/ui_format.h"
 
-#define TREND_AXIS_LABELS 6U /* 0 m, 1 m .. 5 m */
-#define TREND_LABEL_COL_W 120
+#define TREND_AXIS_LABELS 6U  /**< 0 m, 1 m .. 5 m */
+#define TREND_LABEL_COL_W 120 /**< Width of the label column, in pixels. */
 
+/** @brief Trend panel widget: a chart of one sensor's history. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *name;
-    lv_obj_t *value;
-    lv_obj_t *unit;
-    lv_obj_t *max_lbl;
-    lv_obj_t *min_lbl;
-    lv_obj_t *chart;
-    lv_obj_t *axis[TREND_AXIS_LABELS];
-    ui_channel_t channel;
-    lv_color_t colour;
-    lv_coord_t chart_w;
-    lv_coord_t chart_h;
+    lv_obj_t *box;                     /**< Panel surface. */
+    lv_obj_t *name;                    /**< Name of the sensor. */
+    lv_obj_t *value;                   /**< Latest value. */
+    lv_obj_t *unit;                    /**< Unit text. */
+    lv_obj_t *max_lbl;                 /**< Label of the chart maximum. */
+    lv_obj_t *min_lbl;                 /**< Label of the chart minimum. */
+    lv_obj_t *chart;                   /**< Chart object. */
+    lv_obj_t *axis[TREND_AXIS_LABELS]; /**< Time-axis labels. */
+    ui_channel_t channel;              /**< Channel shown. */
+    lv_color_t colour;                 /**< Line colour. */
+    lv_coord_t chart_w;                /**< Chart width, in pixels. */
+    lv_coord_t chart_h;                /**< Chart height, in pixels. */
 } trend_panel_t;
 
 /**
@@ -70,7 +71,11 @@ void trend_panel_create(trend_panel_t *p, lv_obj_t *parent, lv_coord_t x, lv_coo
 void trend_panel_set_texts(trend_panel_t *p, const char *value, const char *max_text,
                            const char *min_text);
 
-/** @brief Redraw the chart from ui_history (call after a sample was stored). */
+/**
+ * @brief Redraw the chart from ui_history (call after a sample was stored).
+ *
+ * @param p Panel.
+ */
 void trend_panel_invalidate(trend_panel_t *p);
 
 #endif /* TREND_PANEL_H */

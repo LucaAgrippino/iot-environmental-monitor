@@ -23,6 +23,7 @@
 /** Most points a sparkline holds: the 5 min history at 5 s (REQ-SA-190, REQ-SA-200). */
 #define SPARK_MAX_POINTS (60U)
 
+/** @brief State of a sensor card. */
 typedef enum
 {
     CARD_WAIT = 0,  /**< No data yet: "Waiting for data…". */
@@ -32,18 +33,19 @@ typedef enum
     CARD_ALARM = 4  /**< Threshold alarm: value and stripe in the error colour. */
 } card_state_t;
 
+/** @brief Sensor card widget: value, unit, sparkline and status. */
 typedef struct
 {
-    lv_obj_t *box;         /**< Card surface. */
-    lv_obj_t *stripe;      /**< 4 px left status stripe. */
-    lv_obj_t *eyebrow;     /**< "TEMPERATURE · S1". */
-    lv_obj_t *value_lbl;   /**< Hero number. */
-    lv_obj_t *unit_lbl;    /**< Unit, baseline-aligned next to the number. */
-    lv_obj_t *waiting_lbl; /**< "Waiting for data…" in place of the value row. */
-    lv_obj_t *spark;       /**< Sparkline drawing area. */
-    lv_obj_t *status_lbl;  /**< "● VALID · 12:34:56". */
-    lv_obj_t *delta_lbl;   /**< "+0.3 / 5m", right-aligned. */
-    card_state_t state;
+    lv_obj_t *box;                     /**< Card surface. */
+    lv_obj_t *stripe;                  /**< 4 px left status stripe. */
+    lv_obj_t *eyebrow;                 /**< "TEMPERATURE · S1". */
+    lv_obj_t *value_lbl;               /**< Hero number. */
+    lv_obj_t *unit_lbl;                /**< Unit, baseline-aligned next to the number. */
+    lv_obj_t *waiting_lbl;             /**< "Waiting for data…" in place of the value row. */
+    lv_obj_t *spark;                   /**< Sparkline drawing area. */
+    lv_obj_t *status_lbl;              /**< "● VALID · 12:34:56". */
+    lv_obj_t *delta_lbl;               /**< "+0.3 / 5m", right-aligned. */
+    card_state_t state;                /**< State of the card. */
     lv_coord_t inner_w;                /**< Width available inside the padding. */
     int16_t spark_y[SPARK_MAX_POINTS]; /**< Normalised y per point, 0 = top, or SPARK_GAP. */
     uint32_t spark_n;                  /**< Points in use. */

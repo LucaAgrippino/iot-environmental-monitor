@@ -6,7 +6,7 @@
 #include "input.h"
 
 #define ESC_BYTE (0x1BU)
-#define FORM_FEED (0x0CU) /* Ctrl-L */
+#define FORM_FEED (0x0CU) /**< Ctrl-L */
 #define CSI_MAX_LEN (12U)
 #define SIZE_REPORT_PARAMS (3U)
 #define SIZE_REPORT_KIND (8U)

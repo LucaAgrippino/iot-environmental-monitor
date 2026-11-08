@@ -25,7 +25,7 @@
 
 /** First address and size of the main flash. */
 #define INTERNAL_FLASH_BASE_ADDR (0x08000000UL)
-#define INTERNAL_FLASH_SIZE_BYTES (0x100000UL)
+#define INTERNAL_FLASH_SIZE_BYTES (0x100000UL) /**< Size of the on-chip flash, in bytes. */
 
 /**
  * First address erase and program accept: the bootloader (pages 0 to 7, 16 KB) is below it and

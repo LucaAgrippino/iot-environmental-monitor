@@ -26,6 +26,7 @@
 /* Error codes                                                             */
 /* ======================================================================= */
 
+/** @brief Result codes of the HealthMonitor API. */
 typedef enum
 {
     HEALTH_MONITOR_ERR_OK = 0,
@@ -37,6 +38,7 @@ typedef enum
 /* Health events                                                           */
 /* ======================================================================= */
 
+/** @brief Event a producer reports to HealthMonitor. */
 typedef enum
 {
     HEALTH_EVENT_TIME_SYNC_ACQUIRED = 0,
@@ -66,7 +68,9 @@ typedef enum
  * duplicate-definition error when modbus_slave.h is also included in the
  * same translation unit (e.g. in lifecycle_controller.h production build). */
 #ifndef MODBUS_SLAVE_STATS_S_DEFINED
-#define MODBUS_SLAVE_STATS_S_DEFINED
+#define MODBUS_SLAVE_STATS_S_DEFINED /**< Guard: modbus_slave_stats_s is also defined by           \
+                                        modbus_slave.h. */
+/** @brief Statistics of the Modbus slave. */
 typedef struct modbus_slave_stats_s
 {
     uint32_t valid_frames;
@@ -100,18 +104,23 @@ typedef struct mqtt_stats_s
 /* IHealthReport vtable — write side                                       */
 /* ======================================================================= */
 
+/** @brief Event sink interface of HealthMonitor (vtable). */
 typedef struct ihealth_report_s
 {
-    health_monitor_err_t (*init)(void);
-    health_monitor_err_t (*push_event)(health_event_t event, uint32_t param);
-    health_monitor_err_t (*update_modbus_slave_stats)(const modbus_slave_stats_t *stats);
+    health_monitor_err_t (*init)(void); /**< Initialise the HealthMonitor. */
+    health_monitor_err_t (*push_event)(health_event_t event,
+                                       uint32_t param); /**< Report an event. */
+    health_monitor_err_t (*update_modbus_slave_stats)(
+        const modbus_slave_stats_t *stats); /**< Hand over the Modbus slave statistics. */
 #if defined(BOARD_GATEWAY)
     health_monitor_err_t (*update_modbus_master_stats)(const modbus_master_stats_t *stats);
     health_monitor_err_t (*update_mqtt_stats)(const mqtt_stats_t *stats);
     health_monitor_err_t (*update_buffer_occupancy)(uint32_t entry_count);
 #endif /* BOARD_GATEWAY */
-    health_monitor_err_t (*update_stack_watermarks)(const uint16_t watermarks[HEALTH_TASK_COUNT]);
-    void (*set_led_fault)(void);
+    health_monitor_err_t (*update_stack_watermarks)(
+        const uint16_t watermarks[HEALTH_TASK_COUNT]); /**< Hand over the stack high-water marks of
+                                                          the tasks. */
+    void (*set_led_fault)(void);                       /**< Light the fault LED. */
 } ihealth_report_t;
 
 /** Singleton pointer — write side. */

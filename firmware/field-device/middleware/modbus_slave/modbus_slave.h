@@ -34,7 +34,9 @@
 #ifdef TEST
 #define MODBUS_SLAVE_TEST_VISIBLE
 #else
-#define MODBUS_SLAVE_TEST_VISIBLE static
+#define MODBUS_SLAVE_TEST_VISIBLE                                                                  \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ===================================================================== */
@@ -50,6 +52,7 @@
  */
 #ifndef MODBUS_SLAVE_ERR_DEFINED
 #define MODBUS_SLAVE_ERR_DEFINED
+/** @brief Result codes of the Modbus slave. */
 typedef enum
 {
     MODBUS_SLAVE_ERR_OK = 0,       /**< Operation succeeded. */
@@ -75,6 +78,7 @@ typedef enum
  */
 #ifndef MODBUS_SLAVE_STATS_S_DEFINED
 #define MODBUS_SLAVE_STATS_S_DEFINED
+/** @brief Statistics of the Modbus slave. */
 typedef struct modbus_slave_stats_s
 {
     uint32_t valid_frames;         /**< Frames received with correct address + CRC. */
@@ -100,12 +104,15 @@ typedef struct modbus_slave_stats_s
  * The concrete binding is established in LifecycleController at init.
  */
 typedef modbus_slave_err_t (*fn_read_input_reg_t)(uint16_t addr, uint16_t *value_out);
+/** @brief Read one holding register. */
 typedef modbus_slave_err_t (*fn_read_holding_reg_t)(uint16_t addr, uint16_t *value_out);
+/** @brief Write one holding register. */
 typedef modbus_slave_err_t (*fn_write_holding_reg_t)(uint16_t addr, uint16_t value);
 /** Optional block write: all @p count registers reach the map in one call (FC16, MRM-D16). */
 typedef modbus_slave_err_t (*fn_write_holding_block_t)(uint16_t addr, const uint16_t *values,
                                                        uint16_t count);
 
+/** @brief Register access functions the Modbus slave calls. */
 typedef struct
 {
     fn_read_input_reg_t read_input;       /**< FC04 dispatch. */

@@ -11,13 +11,21 @@
 
 #include <stdint.h>
 
-/** @brief Read the 96-bit unique device ID. */
+/**
+ * @brief Read the 96-bit unique device ID.
+ *
+ * @param uid Receives the three words of the unique ID.
+ */
 void console_port_uid(uint32_t uid[3]);
 
 /** @brief Reset the MCU. Does not return on target. */
 void console_port_reset(void);
 
-/** @brief Milliseconds since boot (monotonic). */
+/**
+ * @brief Milliseconds since boot (monotonic).
+ *
+ * @return Time since boot, in milliseconds.
+ */
 uint32_t console_port_millis(void);
 
 #endif /* CONSOLE_PORT_H */

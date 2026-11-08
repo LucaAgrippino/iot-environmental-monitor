@@ -12,7 +12,7 @@
 
 #include "console_service/console_types.h"
 
-#define REPL_TEXT_MAX (64U) /* UTF-8 bytes of one line, including the terminator */
+#define REPL_TEXT_MAX (64U) /**< UTF-8 bytes of one line, including the terminator */
 
 /** @brief Print the greeting into the south panel. */
 void repl_init(void);
@@ -20,7 +20,12 @@ void repl_init(void);
 /** @brief Empty the south panel (the `clear` command). */
 void repl_clear(void);
 
-/** @brief Print one line in the south panel; text longer than the buffer is cut at a character. */
+/**
+ * @brief Print one line in the south panel; text longer than the buffer is cut at a character.
+ *
+ * @param fg Palette token of the text colour.
+ * @param text Line to print.
+ */
 void repl_puts(uint8_t fg, const char *text);
 
 /**

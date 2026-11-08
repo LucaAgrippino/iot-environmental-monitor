@@ -27,7 +27,8 @@
 /* ======================================================================= */
 
 #ifndef ALARM_STATE_DEFINED
-#define ALARM_STATE_DEFINED
+#define ALARM_STATE_DEFINED /**< Guard: alarm_state_t is also defined by other modules. */
+/** @brief State of the alarm of one channel. */
 typedef enum
 {
     ALARM_STATE_CLEAR = 0,
@@ -36,6 +37,7 @@ typedef enum
 } alarm_state_t;
 #endif /* ALARM_STATE_DEFINED */
 
+/** @brief Alarm event passed to subscribers. */
 typedef enum
 {
     ALARM_EVENT_RAISED_HIGH = 0,
@@ -43,6 +45,7 @@ typedef enum
     ALARM_EVENT_CLEARED = 2,
 } alarm_event_t;
 
+/** @brief Result codes of the AlarmService API. */
 typedef enum
 {
     ALARM_SERVICE_ERR_OK = 0,
@@ -136,18 +139,19 @@ alarm_service_err_t alarm_service_set_thresholds(sensor_id_t sensor, int32_t hig
 /* Singleton vtable — IAlarmService (LLD-D10, LLD-D14)                    */
 /* ======================================================================= */
 
+/** @brief Read interface of AlarmService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called via vtable by SensorTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by SensorTask */
     alarm_service_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LcdUi, ModbusRegisterMap */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LcdUi, ModbusRegisterMap */
     alarm_service_err_t (*get_state)(sensor_id_t sensor, alarm_state_t *state_out);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by CloudPublisher */
     alarm_service_err_t (*get_all_states)(alarm_state_t states[SENSOR_ID_COUNT]);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LcdUi, Cloud */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LcdUi, Cloud */
     alarm_service_err_t (*subscribe)(void (*cb)(sensor_id_t, alarm_event_t,
                                                 const sensor_reading_t *));
-    /* cppcheck-suppress unusedStructMember -- called via vtable by ModbusRegisterMap */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by ModbusRegisterMap */
     alarm_service_err_t (*ack_all)(void);
 } ialarm_service_t;
 
@@ -165,7 +169,9 @@ extern const ialarm_service_t *const alarm_service;
 #ifdef TEST
 #define ALARM_SERVICE_TEST_VISIBLE
 #else
-#define ALARM_SERVICE_TEST_VISIBLE static
+#define ALARM_SERVICE_TEST_VISIBLE                                                                 \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ======================================================================= */

@@ -29,40 +29,40 @@
 
 #define MODULE_TAG "MBP"
 
-#define MODBUS_MAX_SLAVES (4U)      /* max provisioned slaves */
-#define MODBUS_CMD_QUEUE_DEPTH (4U) /* provisional; confirm at integration (MBP-O1) */
+#define MODBUS_MAX_SLAVES (4U)      /**< max provisioned slaves */
+#define MODBUS_CMD_QUEUE_DEPTH (4U) /**< provisional; confirm at integration (MBP-O1) */
 #define FC_READ_INPUT_REGS (0x04U)
 #define FC_READ_HOLDING_REGS (0x03U)
 
-#define HYSTERESIS_THRESHOLD (3U) /* consecutive results before a link transition */
+#define HYSTERESIS_THRESHOLD (3U) /**< consecutive results before a link transition */
 #define BITS_PER_BYTE (8U)
 #define BYTE_MASK (0xFFU)
 #define BYTES_PER_REG (2U)
-#define FC06_DATA_BYTES (4U)         /* reg(2) + value(2) */
-#define FC16_HEADER_BYTES (5U)       /* reg(2) + count(2) + byte count(1) */
-#define POLL_REQUEST_DATA_BYTES (4U) /* start(2) + count(2) */
+#define FC06_DATA_BYTES (4U)         /**< reg(2) + value(2) */
+#define FC16_HEADER_BYTES (5U)       /**< reg(2) + count(2) + byte count(1) */
+#define POLL_REQUEST_DATA_BYTES (4U) /**< start(2) + count(2) */
 
-/* Identity block read before a slave is polled for data (device-profile-registry-lld.md §7.1):
+/** Identity block read before a slave is polled for data (device-profile-registry-lld.md §7.1):
  * FC04 0x0000..0x0007 = map version, device ID (2), hardware revision, firmware version (3),
  * vendor. */
 #define IDENTITY_REG_START (0x0000U)
 #define IDENTITY_REG_COUNT (8U)
 #define IDENTITY_MAP_VERSION_REG (0x0000U)
 #define IDENTITY_VENDOR_CODE_REG (0x0007U)
-#define REJECTED_RECHECK_CYCLES (10U) /* a rejected slave is checked again every 10th cycle */
+#define REJECTED_RECHECK_CYCLES (10U) /**< a rejected slave is checked again every 10th cycle */
 
-/* Field Device sensor registers (docs/hld/modbus-register-map.md 6.2) and their invalid sentinels.
+/** Field Device sensor registers (docs/hld/modbus-register-map.md 6.2) and their invalid sentinels.
  */
 #define FD_REG_TEMPERATURE (0x0010U)
 #define FD_REG_HUMIDITY (0x0011U)
 #define FD_REG_PRESSURE (0x0012U)
 #define FD_SENTINEL_INT16 (0x8000U)
 #define FD_SENTINEL_UINT16 (0xFFFFU)
-#define FD_REG_LIMITS_BASE (0x0100U) /* TEMP_ALARM_LOW; humidity at +0x10, pressure at +0x20 */
+#define FD_REG_LIMITS_BASE (0x0100U) /**< TEMP_ALARM_LOW; humidity at +0x10, pressure at +0x20 */
 #define FD_REG_LIMITS_STRIDE (0x10U)
 #define FD_CHANNELS (3U)
-#define FD_REG_ALARM_FLAGS (0x0031U) /* ALARM_FLAGS, input register (register map 6.3.1) */
-#define FC04_BYTE_COUNT_BYTES (1U)   /* the byte count that precedes the register words */
+#define FD_REG_ALARM_FLAGS (0x0031U) /**< ALARM_FLAGS, input register (register map 6.3.1) */
+#define FC04_BYTE_COUNT_BYTES (1U)   /**< the byte count that precedes the register words */
 
 /* ========================================================================= */
 /* Module state                                                              */
@@ -193,8 +193,8 @@ static void record_poll_outcome(modbus_slave_state_t *slave, modbus_master_err_t
 typedef struct
 {
     uint16_t map_version;
-    uint16_t input_reg_start; /* FC04 range start  */
-    uint16_t input_reg_count; /* FC04 range length */
+    uint16_t input_reg_start; /**< FC04 range start */
+    uint16_t input_reg_count; /**< FC04 range length */
 } map_entry_t;
 
 /** Map versions this poller knows.  Version 1: temperature, humidity, pressure. */

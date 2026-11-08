@@ -21,11 +21,11 @@
 #define NTP_CLIENT_MAX_INSTANCES (1U)
 #define NTP_SERVER_PORT (123U)
 #define NTP_PACKET_BYTES (48U)
-#define NTP_REQUEST_LI_VN_MODE (0x1BU) /* LI=0, VN=3, Mode=3 (client) */
+#define NTP_REQUEST_LI_VN_MODE (0x1BU) /**< LI=0, VN=3, Mode=3 (client) */
 #define NTP_MODE_MASK (0x07U)
 #define NTP_MODE_SERVER (4U)
-#define NTP_STRATUM_MAX (15U)      /* 0 is Kiss-of-Death, 16 is unsynchronised */
-#define NTP_TX_TS_SEC_OFFSET (40U) /* transmit timestamp, seconds */
+#define NTP_STRATUM_MAX (15U)      /**< 0 is Kiss-of-Death, 16 is unsynchronised */
+#define NTP_TX_TS_SEC_OFFSET (40U) /**< transmit timestamp, seconds */
 
 #define BITS_PER_BYTE (8U)
 #define BYTE_MASK (0xFFU)

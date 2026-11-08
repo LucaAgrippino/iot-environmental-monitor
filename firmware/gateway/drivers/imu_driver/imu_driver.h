@@ -117,11 +117,11 @@ imu_err_t imu_read(imu_data_t *out);
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember; used via imu_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via imu_driver singleton */
     imu_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember; used via imu_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via imu_driver singleton */
     imu_err_t (*attach_int1_callback)(imu_int1_cb_t cb, void *ctx);
-    /* cppcheck-suppress unusedStructMember; used via imu_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via imu_driver singleton */
     imu_err_t (*read)(imu_data_t *out);
 } iimu_t;
 

@@ -63,6 +63,7 @@
 /* Error codes                                                          */
 /* ===================================================================== */
 
+/** @brief Result codes of the LcdUi API. */
 typedef enum
 {
     LCD_UI_ERR_OK = 0,
@@ -138,7 +139,11 @@ void lcd_ui_set_boot_progress(uint8_t percent, const char *step);
 /** @brief Remove the splash (REQ-LD-200: shown until the Operational state). */
 void lcd_ui_dismiss_splash(void);
 
-/** @brief True while the splash overlay is shown (as of the last lcd_ui_tick()). */
+/**
+ * @brief True while the splash overlay is shown (as of the last lcd_ui_tick()).
+ *
+ * @return true while the splash overlay is shown.
+ */
 bool lcd_ui_splash_visible(void);
 
 /**
@@ -182,7 +187,9 @@ void lcd_ui_test_fire_modal_cancel(void);
 /** Invoke the confirm-timeout timer handler. */
 void lcd_ui_test_fire_confirm_timeout(void);
 #else
-#define LCD_UI_TEST_VISIBLE static
-#endif /* TEST */
+#define LCD_UI_TEST_VISIBLE                                                                        \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
+#endif     /* TEST */
 
 #endif /* LCD_UI_H */

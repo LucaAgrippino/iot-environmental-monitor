@@ -80,7 +80,7 @@
 #define MQTT_INCOMING_PUBLISH_RECORDS 4u
 
 /** Timeout budget handed to the TEST-only transport recv path
- *  (prv_transport_recv()'s #ifdef TEST body, still wifitask_recv()-based
+ *  (prv_transport_recv()'s TEST-only body, still wifitask_recv()-based
  *  — the production path, prv_mbedtls_net_recv(), moved to the
  *  non-blocking wifitask_try_recv() under WIFITASK-O1 Phase 2 and no
  *  longer uses this constant). Below WIFI_RESP_TIMEOUT_MS (5000 ms) this
@@ -154,35 +154,35 @@ typedef enum
 /** @brief Internal instance state — hidden from consumers (companion §8.1). */
 struct mqtt_client_inst
 {
-    /* Injected dependencies */
+    /** Injected dependencies */
     wifitask_handle_t wifi;
     mqtt_message_cb_t msg_cb;
     mqtt_disconnect_cb_t disconnect_cb;
 
-    /* coreMQTT / mbedTLS contexts */
+    /** coreMQTT / mbedTLS contexts */
     MQTTContext_t mqtt_ctx;
     NetworkContext_t net_ctx;
     MQTTFixedBuffer_t fixed_buf;
     uint8_t pkt_buf[MQTT_PKT_BUF_SIZE];
 
-    /* QoS 1 state engine records (MQTT_InitStatefulQoS) */
+    /** QoS 1 state engine records (MQTT_InitStatefulQoS) */
     MQTTPubAckInfo_t outgoing_records[MQTT_OUTGOING_PUBLISH_RECORDS];
     MQTTPubAckInfo_t incoming_records[MQTT_INCOMING_PUBLISH_RECORDS];
 
-    /* Runtime state */
+    /** Runtime state */
     bool connected;
     mqtt_stats_t stats;
     bool in_use;
 
-    /* MQTT-D8: mqtt_client_connect_step() ticking state */
+    /** MQTT-D8: mqtt_client_connect_step() ticking state */
     mqtt_conn_state_t connect_state;
     uint32_t tls_handshake_deadline_ms;
 
-    /* Blocking-wait bookkeeping for publish()/subscribe() */
+    /** Blocking-wait bookkeeping for publish()/subscribe() */
     bool suback_received;
     MQTTSubAckStatus_t suback_status;
 
-    /* MQTT-D15: the one non-blocking SUBSCRIBE */
+    /** MQTT-D15: the one non-blocking SUBSCRIBE */
     mqtt_sub_state_t sub_state;
     uint16_t sub_packet_id;
     uint32_t sub_start_ms;

@@ -9,10 +9,10 @@
 
 #include "lcd_ui/theme.h"
 
-#define FIELD_PAD_X THEME_SP_5 /* input padding 9 px / 12 px */
+#define FIELD_PAD_X THEME_SP_5 /**< input padding 9 px / 12 px */
 #define FIELD_PAD_Y 9
-#define FIELD_ERR_GAP THEME_SP_1 /* 4 px above the error line */
-#define BLINK_PERIOD_MS 1000U    /* style-guide.md section 8: 1 Hz, 50 % duty */
+#define FIELD_ERR_GAP THEME_SP_1 /**< 4 px above the error line */
+#define BLINK_PERIOD_MS 1000U    /**< style-guide.md section 8: 1 Hz, 50 % duty */
 #define BLINK_ON_MS 500U
 
 static void apply_look(config_field_t *f)

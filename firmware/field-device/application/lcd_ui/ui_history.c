@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 
-#define MS_PER_MINUTE (60000U) /* 60 s * 1000 */
+#define MS_PER_MINUTE (60000U) /**< 60 s * 1000 */
 
 static int32_t s_value[UI_CH_COUNT][UI_HISTORY_LEN];
 static bool s_valid[UI_CH_COUNT][UI_HISTORY_LEN];

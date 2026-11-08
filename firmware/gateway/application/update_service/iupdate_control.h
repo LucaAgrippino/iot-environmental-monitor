@@ -15,6 +15,7 @@
 
 #include "update_service_types.h"
 
+/** @brief Control interface of UpdateService, used by the lifecycle controller (vtable). */
 typedef struct
 {
     /** True once update_service_create() has succeeded. */

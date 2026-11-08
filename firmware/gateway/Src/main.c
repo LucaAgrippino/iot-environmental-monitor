@@ -197,24 +197,26 @@ static const console_prov_store_t s_prov_store = {.set_wifi = prov_set_wifi,
 /* Tasks main() creates (D-1 option F: 1.5x the measured use)               */
 /* ---------------------------------------------------------------------- */
 
-#define BOOT_STACK_WORDS (896U) /* becomes LifecycleTask (D-6); measured 566 words for Phase B */
+#define BOOT_STACK_WORDS (896U) /**< becomes LifecycleTask (D-6); measured 566 words for Phase B   \
+                                 */
 #define BOOT_PRIORITY (1U)
-#define POLLER_STACK_WORDS (768U) /* measured 507 of 512 words (99 %), no Field Device attached */
+#define POLLER_STACK_WORDS (768U) /**< measured 507 of 512 words (99 %), no Field Device attached  \
+                                   */
 #define POLLER_PRIORITY (4U)
-#define REPORT_STACK_WORDS (320U) /* measured 169 words used */
+#define REPORT_STACK_WORDS (320U) /**< measured 169 words used */
 #define REPORT_PRIORITY (1U)
 #define REPORT_PERIOD_MS (60000U)
-/* The same task keeps HealthMonitor's WiFi signal strength current: the console header and
+/** The same task keeps HealthMonitor's WiFi signal strength current: the console header and
  * `wifi status` read it, and nothing else feeds it. */
 #define RSSI_PERIOD_MS (5000U)
 #define REPORT_MAX_TASKS (20U)
-#define REPORT_LOW_WORDS (48U) /* below this many free words a task gets a warning */
+#define REPORT_LOW_WORDS (48U) /**< below this many free words a task gets a warning */
 
 /* ---------------------------------------------------------------------- */
 /* Boot policy                                                             */
 /* ---------------------------------------------------------------------- */
 
-#define JOIN_ATTEMPTS (3U) /* D-3: the first join after a module reset usually fails */
+#define JOIN_ATTEMPTS (3U) /**< D-3: the first join after a module reset usually fails */
 #define RETRY_DELAY_MS (2000U)
 #define MQTT_KEEP_ALIVE_S (60U)
 #define SAF_CAPACITY (254U)
@@ -368,8 +370,8 @@ static void feed_wifi_rssi(void)
 static const char *const s_health_task_names[] = {"lifecycle", "SensorTask",      "ModbusPoller",
                                                   "WifiTask",  "CloudPublisherT", "TS",
                                                   "console",   "Tmr Svc"};
-#define WATCHDOG_TIMEOUT_MS (10000U)   /* REQ-NF-109 */
-#define HEALTH_TASKS_READY_MS (20000U) /* BootTask has created every task by then */
+#define WATCHDOG_TIMEOUT_MS (10000U)   /**< REQ-NF-109 */
+#define HEALTH_TASKS_READY_MS (20000U) /**< BootTask has created every task by then */
 
 /* CPU load over the last RSSI period, from the idle task's share of the run-time counter, and the
  * TLS arena headroom, for the health message (REQ-CC-010). */

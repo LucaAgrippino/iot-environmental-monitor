@@ -10,23 +10,23 @@
 
 #include "lcd_ui/theme.h"
 
-/* Layout of splash.html on the 800 x 480 canvas (the content is centred as a flex column) */
+/** Layout of splash.html on the 800 x 480 canvas (the content is centred as a flex column) */
 #define SPLASH_LOGO_W 56
 #define SPLASH_LOGO_H 52
-#define SPLASH_BRAND_GAP 14  /* logo to text */
-#define SPLASH_BRAND_Y 172   /* top of the brand row */
-#define SPLASH_WORDMARK_DY 0 /* wordmark offset in the brand row */
-#define SPLASH_SUB_DY 36     /* subtitle offset in the brand row */
-#define SPLASH_BAR_Y 270     /* top of the progress track */
+#define SPLASH_BRAND_GAP 14  /**< logo to text */
+#define SPLASH_BRAND_Y 172   /**< top of the brand row */
+#define SPLASH_WORDMARK_DY 0 /**< wordmark offset in the brand row */
+#define SPLASH_SUB_DY 36     /**< subtitle offset in the brand row */
+#define SPLASH_BAR_Y 270     /**< top of the progress track */
 #define SPLASH_BAR_H 4
-#define SPLASH_BAR_LABEL_DY 14 /* labels below the track */
-#define SPLASH_BADGE_INSET 24  /* badge from the top and right edges */
+#define SPLASH_BAR_LABEL_DY 14 /**< labels below the track */
+#define SPLASH_BADGE_INSET 24  /**< badge from the top and right edges */
 #define SPLASH_DOT_D 8
 #define SPLASH_FOOTER_INSET 24
 #define SPLASH_FOOTER_H 12
 #define SPLASH_PCT_MAX 100U
-#define SPLASH_PCT_TEXT_W 36 /* room for "100%" in the 11 px mono face */
-#define SPLASH_SUB_TRACK 2   /* letter spacing of the subtitle, 0.22 em at 11 px */
+#define SPLASH_PCT_TEXT_W 36 /**< room for "100%" in the 11 px mono face */
+#define SPLASH_SUB_TRACK 2   /**< letter spacing of the subtitle, 0.22 em at 11 px */
 #define SPLASH_FOOTER_TRACK 1
 
 #define SPLASH_PRODUCT "ENVMON"

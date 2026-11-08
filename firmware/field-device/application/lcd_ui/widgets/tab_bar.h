@@ -25,15 +25,16 @@
 /** Called with the tab index when a tab is tapped. */
 typedef void (*tab_bar_change_cb_t)(uint16_t new_idx);
 
+/** @brief Tab bar widget. */
 typedef struct
 {
-    lv_obj_t *box;
+    lv_obj_t *box;                         /**< Bar surface. */
     lv_obj_t *column[THEME_TAB_COL_COUNT]; /**< Touch area and fill of each tab. */
     lv_obj_t *stripe[THEME_TAB_COL_COUNT]; /**< 3 px top accent, shown on the active tab only. */
-    lv_obj_t *icon[THEME_TAB_COL_COUNT];
-    lv_obj_t *label[THEME_TAB_COL_COUNT];
-    uint16_t active;
-    tab_bar_change_cb_t on_change;
+    lv_obj_t *icon[THEME_TAB_COL_COUNT];   /**< Icon of each tab. */
+    lv_obj_t *label[THEME_TAB_COL_COUNT];  /**< Label of each tab. */
+    uint16_t active;                       /**< Index of the active tab. */
+    tab_bar_change_cb_t on_change;         /**< Called when the user selects another tab. */
 } tab_bar_t;
 
 /**

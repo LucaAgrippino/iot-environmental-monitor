@@ -9,7 +9,7 @@
 
 #include "lcd_ui/theme.h"
 
-#define HEADER_TIME_W 64 /* "HH:MM:SS" in FONT_META is 8 glyphs of 7.2 px */
+#define HEADER_TIME_W 64 /**< "HH:MM:SS" in FONT_META is 8 glyphs of 7.2 px */
 
 void header_bar_create(header_bar_t *hdr, lv_obj_t *parent)
 {

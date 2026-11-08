@@ -59,11 +59,11 @@
  *         stack buffer during the boot scan. */
 #define CFL_SCAN_CHUNK_BYTES (64U)
 
-/* CRC-16/IBM (a.k.a. CRC-16/ARC): reflected, poly 0x8005, init 0x0000. */
+/** CRC-16/IBM (a.k.a. CRC-16/ARC): reflected, poly 0x8005, init 0x0000. */
 #define CFL_CRC16_POLY_REFLECTED (0xA001U)
 #define CFL_CRC16_INIT (0x0000U)
 
-/* CRC-32 (IEEE 802.3): reflected, poly 0x04C11DB7, init and final XOR all-ones. */
+/** CRC-32 (IEEE 802.3): reflected, poly 0x04C11DB7, init and final XOR all-ones. */
 #define CFL_CRC32_POLY_REFLECTED (0xEDB88320UL)
 #define CFL_CRC32_INIT (0xFFFFFFFFUL)
 #define CFL_CRC32_FINAL_XOR (0xFFFFFFFFUL)
@@ -89,11 +89,11 @@ typedef struct
 /** @brief Internal instance state — hidden from consumers. */
 struct cfl_inst
 {
-    /* Injected dependencies */
+    /** Injected dependencies */
     const iqspi_flash_t *qspi;
     health_monitor_handle_t health;
 
-    /* Ring state */
+    /** Ring state */
     uint8_t head_sector;  /**< Ring index (0..253) of the oldest record.   */
     uint32_t head_offset; /**< Byte offset of the oldest record.           */
     uint8_t tail_sector;  /**< Ring index of the next write location.      */

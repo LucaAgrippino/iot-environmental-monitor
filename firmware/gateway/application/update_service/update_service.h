@@ -32,12 +32,13 @@
 /** @brief Everything UpdateService needs, bound by the wiring code (§7.1). */
 typedef struct
 {
-    const ifirmware_image_store_t *fs_image;
-    const ifirmware_boot_control_t *fs_boot;
-    firmware_store_t *fs; /**< FirmwareStore handle. */
-    const iota_transport_t *transport;
-    const us_probe_if_t *probes;
-    const ilifecycle_t *lifecycle; /**< Normally the LifecycleController vtable. */
+    const ifirmware_image_store_t
+        *fs_image; /**< Where received image bytes are written (FirmwareStore image side). */
+    const ifirmware_boot_control_t *fs_boot; /**< Boot control (FirmwareStore boot side). */
+    firmware_store_t *fs;                    /**< FirmwareStore handle. */
+    const iota_transport_t *transport;       /**< Source of the image chunks. */
+    const us_probe_if_t *probes;             /**< Self-check probes run after an update. */
+    const ilifecycle_t *lifecycle;           /**< Normally the LifecycleController vtable. */
 } update_service_config_t;
 
 /**
@@ -75,7 +76,9 @@ update_service_t *update_service_get_instance(void);
  * 4 KB stack of the companion (US-O6) is enough. Reads it from FreeRTOS; 0 for an instance that
  * was not created.
  *
+ * @param self UpdateService instance.
  * @note Threading: any task.
+ * @return Free stack words, or 0 if self is NULL or the task does not exist.
  */
 uint32_t update_service_stack_free_words(const update_service_t *self);
 

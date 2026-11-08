@@ -24,7 +24,8 @@
 /* ======================================================================= */
 
 #ifndef SENSOR_ID_DEFINED
-#define SENSOR_ID_DEFINED
+#define SENSOR_ID_DEFINED /**< Guard: sensor_id_t is also defined by other modules. */
+/** @brief Identifier of a sensor channel. */
 typedef enum
 {
     SENSOR_ID_TEMPERATURE = 0,
@@ -66,12 +67,13 @@ typedef struct
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- accessed by get_snapshot() callers */
+    /** cppcheck-suppress unusedStructMember -- accessed by get_snapshot() callers */
     sensor_reading_t readings[SENSOR_ID_COUNT];
     /* cppcheck-suppress unusedStructMember -- read by LcdUi, ModbusRegisterMap */
     uint32_t cycle_count; /**< Increments on every sensor_service_run_cycle() call. */
 } sensor_snapshot_t;
 
+/** @brief Result codes of the SensorService API. */
 typedef enum
 {
     SENSOR_SERVICE_ERR_OK = 0,
@@ -167,21 +169,22 @@ sensor_service_err_t sensor_service_reconfigure(void);
 /* Singleton vtable — ISensorService (LLD-D10)                             */
 /* ======================================================================= */
 
+/** @brief Read interface of SensorService (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember -- called via vtable by consumers */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by consumers */
     sensor_service_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by SensorTask */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by SensorTask */
     sensor_service_err_t (*run_cycle)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LcdUi, Modbus, Cloud */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LcdUi, Modbus, Cloud */
     sensor_service_err_t (*get_snapshot)(sensor_snapshot_t *snap);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by AlarmService */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by AlarmService */
     sensor_service_err_t (*subscribe)(void (*cb)(const sensor_snapshot_t *));
-    /* cppcheck-suppress unusedStructMember -- called via vtable by ModbusRegisterMap */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by ModbusRegisterMap */
     sensor_service_err_t (*read_on_demand)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController */
     bool (*is_ready)(void);
-    /* cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController on config
+    /** cppcheck-suppress unusedStructMember -- called via vtable by LifecycleController on config
      * APPLY */
     sensor_service_err_t (*reconfigure)(void);
 } isensor_service_t;
@@ -200,7 +203,9 @@ extern const isensor_service_t *const sensor_service;
 #ifdef TEST
 #define SENSOR_SERVICE_TEST_VISIBLE
 #else
-#define SENSOR_SERVICE_TEST_VISIBLE static
+#define SENSOR_SERVICE_TEST_VISIBLE                                                                \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ======================================================================= */

@@ -31,15 +31,15 @@
 
 #define MODULE_TAG "MBM"
 
-/* Task-notification bits set by the UART RX callback. */
+/** Task-notification bits set by the UART RX callback. */
 #define NOTIFY_RX_DONE (1UL << 0)
 #define NOTIFY_RX_ERROR (1UL << 1)
 #define NOTIFY_ALL_BITS (0xFFFFFFFFUL)
 
 #define MBM_CRC_BYTES (2U)
-#define MBM_HEADER_BYTES (2U)                                  /* address + function code */
-#define MBM_MIN_FRAME_BYTES (MBM_HEADER_BYTES + MBM_CRC_BYTES) /* smallest valid response */
-#define MBM_EXCEPTION_FRAME_BYTES (MBM_MIN_FRAME_BYTES + 1U)   /* + exception code */
+#define MBM_HEADER_BYTES (2U)                                  /**< address + function code */
+#define MBM_MIN_FRAME_BYTES (MBM_HEADER_BYTES + MBM_CRC_BYTES) /**< smallest valid response */
+#define MBM_EXCEPTION_FRAME_BYTES (MBM_MIN_FRAME_BYTES + 1U)   /**< + exception code */
 #define MBM_EXCEPTION_FLAG (0x80U)
 #define MBM_BITS_PER_BYTE (8U)
 

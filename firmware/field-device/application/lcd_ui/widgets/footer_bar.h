@@ -15,11 +15,12 @@
 #include "lvgl.h"
 #endif
 
+/** @brief Footer bar widget. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *left;
-    lv_obj_t *right;
+    lv_obj_t *box;   /**< Bar surface. */
+    lv_obj_t *left;  /**< Text at the left. */
+    lv_obj_t *right; /**< Text at the right. */
 } footer_bar_t;
 
 /**

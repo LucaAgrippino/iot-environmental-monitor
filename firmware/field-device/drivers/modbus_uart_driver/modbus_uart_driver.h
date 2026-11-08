@@ -33,7 +33,9 @@
 #ifdef TEST
 #define MODBUS_UART_TEST_VISIBLE
 #else
-#define MODBUS_UART_TEST_VISIBLE static
+#define MODBUS_UART_TEST_VISIBLE                                                                   \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ===================================================================== */

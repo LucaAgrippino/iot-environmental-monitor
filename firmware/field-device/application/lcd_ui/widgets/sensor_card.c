@@ -9,16 +9,16 @@
 
 #include "lcd_ui/theme.h"
 
-#define CARD_PAD_Y THEME_SP_7 /* 03_SCREEN_SPECS.md: inner padding 16 px / 18 px */
+#define CARD_PAD_Y THEME_SP_7 /**< 03_SCREEN_SPECS.md: inner padding 16 px / 18 px */
 #define CARD_PAD_X THEME_SP_8
-#define CARD_VALUE_Y 34   /* top of the hero label: digits start about 50 px below the card top */
-#define CARD_WAITING_Y 56 /* "Waiting for data…" sits in the value row */
-#define CARD_UNIT_GAP THEME_SP_3 /* 8 px between number and unit */
-#define CARD_SPARK_Y 116         /* sparkline top: label, value row (54) and 14 px gaps */
-#define CARD_STATUS_Y 164        /* status row: sparkline bottom plus 14 px */
-#define SPARK_STROKE_W 2         /* 1.5 px in the design, rounded up for the pixel grid */
-#define SPARK_FILL_OPA 31        /* 12 % of 255, 03_SCREEN_SPECS.md "Filled area" */
-#define SPARK_DASH 3             /* "stroke dash 3 3" */
+#define CARD_VALUE_Y 34   /**< top of the hero label: digits start about 50 px below the card top */
+#define CARD_WAITING_Y 56 /**< "Waiting for data…" sits in the value row */
+#define CARD_UNIT_GAP THEME_SP_3 /**< 8 px between number and unit */
+#define CARD_SPARK_Y 116         /**< sparkline top: label, value row (54) and 14 px gaps */
+#define CARD_STATUS_Y 164        /**< status row: sparkline bottom plus 14 px */
+#define SPARK_STROKE_W 2         /**< 1.5 px in the design, rounded up for the pixel grid */
+#define SPARK_FILL_OPA 31        /**< 12 % of 255, 03_SCREEN_SPECS.md "Filled area" */
+#define SPARK_DASH 3             /**< "stroke dash 3 3" */
 
 static lv_color_t stripe_colour(card_state_t s)
 {

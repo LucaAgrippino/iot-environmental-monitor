@@ -12,9 +12,9 @@
 
 #define NP_COLS 3
 #define NP_ROWS 4
-#define NP_GAP THEME_SP_2 /* 6 px */
-#define NP_DISPLAY_H 42   /* .numpad-display min-height */
-#define NP_SIGN_W 44      /* touch target of the +/- toggle */
+#define NP_GAP THEME_SP_2 /**< 6 px */
+#define NP_DISPLAY_H 42   /**< .numpad-display min-height */
+#define NP_SIGN_W 44      /**< touch target of the +/- toggle */
 #define NP_KEY_W ((NUMPAD_W - ((NP_COLS - 1) * NP_GAP)) / NP_COLS)
 
 typedef struct

@@ -1,5 +1,5 @@
 /**
- * @file spi_driver.h
+ * @file spi.h
  * @brief SPI driver — full-duplex word transfer over SPI3 (Gateway).
  *
  * Provides ISpi (per components.md): create an SPI3 instance and exchange

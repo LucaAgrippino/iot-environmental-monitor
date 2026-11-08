@@ -37,12 +37,17 @@
 #ifdef BOARD_FIELD_DEVICE
 #include "modbus_slave/modbus_slave.h"
 #else  /* BOARD_GATEWAY */
-/* GW-specific headers — forward declarations until those modules land. */
+/** GW-specific headers — forward declarations until those modules land. */
 typedef struct icloud_publisher_s icloud_publisher_t;
+/** @brief Forward declaration: the Gateway's Modbus poller interface (not used on this board). */
 typedef struct imodbus_poller_s imodbus_poller_t;
+/** @brief Forward declaration: the Gateway's UpdateService interface (not used on this board). */
 typedef struct iupdate_service_s iupdate_service_t;
+/** @brief Forward declaration: the Gateway's TimeService interface (not used on this board). */
 typedef struct itime_service_s itime_service_t;
+/** @brief Forward declaration: the Gateway's FirmwareStore interface (not used on this board). */
 typedef struct ifirmware_store_s ifirmware_store_t;
+/** @brief Forward declaration: the Gateway's reset driver interface (not used on this board). */
 typedef struct ireset_driver_s ireset_driver_t;
 #endif /* BOARD_FIELD_DEVICE */
 #include "FreeRTOS.h"
@@ -77,6 +82,8 @@ typedef struct ireset_driver_s ireset_driver_t;
  *
  * In TEST builds this function is compiled as a normal (non-static) symbol
  * so TC-LC-010..015 can call it directly with the CMSIS mock.
+ *
+ * @return The cause of the reset.
  */
 lifecycle_reset_cause_t lifecycle_detect_reset_cause(void);
 
@@ -90,6 +97,17 @@ lifecycle_reset_cause_t lifecycle_detect_reset_cause(void);
  * Stores all injected interface pointers, creates the event queue, timers,
  * and start-gate event group. Does not run the state machine.
  *
+ * @param reset_cause    Cause of the reset, from lifecycle_detect_reset_cause().
+ * @param config_store   ConfigStore access.
+ * @param cfg_read       Configuration read side.
+ * @param cfg_write      Configuration write side.
+ * @param sensors        SensorService read side.
+ * @param alarms         AlarmService read side.
+ * @param console        Console control.
+ * @param health_report  HealthMonitor event sink.
+ * @param modbus_slave   Modbus slave (Field Device build).
+ * @note The Gateway build takes further interfaces instead of @p modbus_slave: cloud,
+ * modbus_poller, update_service, time_service, firmware_store, reset_driver and health_admin.
  * @return LIFECYCLE_ERR_OK or LIFECYCLE_ERR_NULL_ARG on any null pointer.
  */
 lifecycle_err_t
@@ -113,7 +131,10 @@ lifecycle_controller_init(lifecycle_reset_cause_t reset_cause, const iconfig_sto
 /* ======================================================================= */
 
 /** FreeRTOS task body — drives boot sequence then event loop. Never returns
- *  in production; in TEST mode processes one event and returns (LC-O5). */
+ * in production; in TEST mode processes one event and returns (LC-O5).
+ *
+ * @param arg Unused.
+ */
 void lifecycle_task_body(void *arg);
 
 /* ======================================================================= */
@@ -124,7 +145,11 @@ void lifecycle_task_body(void *arg);
  *  Operational entry. Other tasks block on this bit before their work loop. */
 #define LIFECYCLE_START_GATE_BIT (1U << 0)
 
-/** Returns the start-gate event group handle. */
+/**
+ * Returns the start-gate event group handle.
+ *
+ * @return Handle of the event group.
+ */
 EventGroupHandle_t lifecycle_get_start_gate(void);
 
 /* ======================================================================= */

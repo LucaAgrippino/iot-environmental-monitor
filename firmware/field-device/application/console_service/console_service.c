@@ -75,7 +75,7 @@ typedef struct
 typedef struct
 {
     bool dirty;
-    uint16_t staged; /* bit i = s_cfg_keys[i] was set; commit writes only these */
+    uint16_t staged; /**< bit i = s_cfg_keys[i] was set; commit writes only these */
     uint32_t polling_interval_ms;
     int16_t temp_alarm_high;
     int16_t temp_alarm_low;

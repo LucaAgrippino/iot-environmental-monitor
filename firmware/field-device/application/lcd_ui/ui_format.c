@@ -10,12 +10,12 @@
 
 #define SECONDS_PER_MINUTE (60U)
 #define SECONDS_PER_HOUR (3600U)
-#define SECONDS_PER_DAY (86400U) /* 24 * 3600 */
+#define SECONDS_PER_DAY (86400U) /**< 24 * 3600 */
 #define HOURS_PER_DAY (24U)
 
 /* Channel scales: units per whole number (SensorService fixed-point formats). */
-#define SCALE_CENTI (100U) /* temperature, humidity: 0.01 units */
-#define SCALE_DECI (10U)   /* pressure: 0.1 hPa */
+#define SCALE_CENTI (100U) /**< temperature, humidity: 0.01 units */
+#define SCALE_DECI (10U)   /**< pressure: 0.1 hPa */
 
 static uint32_t abs_u32(int32_t v)
 {
@@ -162,7 +162,7 @@ void ui_fmt_ago(char *out, uint32_t out_len, uint32_t seconds)
     }
 }
 
-#define PARSE_MAX_TENTHS (214748364) /* INT32_MAX / 10: leaves room for the last digit */
+#define PARSE_MAX_TENTHS (214748364) /**< INT32_MAX / 10: leaves room for the last digit */
 
 bool ui_parse_tenths(const char *text, int32_t *tenths)
 {

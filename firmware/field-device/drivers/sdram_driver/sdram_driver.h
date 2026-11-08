@@ -35,13 +35,16 @@
 #ifdef TEST
 #define SDRAM_TEST_VISIBLE
 #else
-#define SDRAM_TEST_VISIBLE static
+#define SDRAM_TEST_VISIBLE                                                                         \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
 #endif
 
 /* ===================================================================== */
 /* Public types                                                          */
 /* ===================================================================== */
 
+/** @brief Result codes of the SDRAM driver. */
 typedef enum
 {
     SDRAM_ERR_OK = 0,

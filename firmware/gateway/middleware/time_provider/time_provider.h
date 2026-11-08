@@ -29,6 +29,7 @@
 /* Error codes                                                               */
 /* ========================================================================= */
 
+/** @brief Result codes of the TimeProvider API. */
 typedef enum
 {
     TIME_PROVIDER_ERR_OK = 0,
@@ -43,6 +44,7 @@ typedef enum
 
 #ifndef TIME_SYNC_STATE_DEFINED
 #define TIME_SYNC_STATE_DEFINED
+/** @brief Guard: time_sync_state_t is also defined by other modules. */
 typedef enum
 {
     TIME_SYNC_UNSYNCHRONISED = 0,
@@ -63,9 +65,9 @@ typedef enum
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     uint32_t epoch;
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     time_sync_state_t sync_state;
 } time_provider_ts_t;
 
@@ -142,17 +144,18 @@ time_sync_state_t time_provider_get_sync_state(void);
 /* Singleton vtable — ITimeProvider (LLD-D10)                                */
 /* ========================================================================= */
 
+/** @brief Interface of TimeProvider (vtable). */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     time_provider_err_t (*init)(health_monitor_handle_t health);
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     time_provider_err_t (*get)(time_provider_ts_t *ts_out);
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     time_provider_err_t (*set_time)(uint32_t new_epoch);
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     time_provider_err_t (*mark_unsynchronised)(void);
-    /* cppcheck-suppress unusedStructMember */
+    /** cppcheck-suppress unusedStructMember */
     time_sync_state_t (*get_sync_state)(void);
 } itime_provider_t;
 

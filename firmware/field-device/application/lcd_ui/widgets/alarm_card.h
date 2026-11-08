@@ -17,26 +17,28 @@
 #include "lvgl.h"
 #endif
 
+/** @brief Height of an alarm card, in pixels. */
 #define ALARM_CARD_HEIGHT                                                                          \
     66                    /* 14 px padding, two text lines, 14 px padding, rounded to the grid     \
                            */
-#define ALARM_CARD_GAP 10 /* margin-bottom */
+#define ALARM_CARD_GAP 10 /**< margin-bottom */
 
+/** @brief Alarm card widget: one active alarm. */
 typedef struct
 {
-    lv_obj_t *box;
-    lv_obj_t *stripe;
-    lv_obj_t *name;
-    lv_obj_t *tag; /**< HIGH or LOW, in the severity colour. */
-    lv_obj_t *time;
-    lv_obj_t *cur_title;
-    lv_obj_t *cur_value;
-    lv_obj_t *thr_title;
-    lv_obj_t *thr_value;
-    lv_obj_t *chip_box;
-    lv_obj_t *chip_label;
-    lv_coord_t w;
-    lv_coord_t name_x; /**< Left edge of the name column (the tag follows the name). */
+    lv_obj_t *box;        /**< Card surface. */
+    lv_obj_t *stripe;     /**< Status stripe at the left edge. */
+    lv_obj_t *name;       /**< Name of the sensor. */
+    lv_obj_t *tag;        /**< HIGH or LOW, in the severity colour. */
+    lv_obj_t *time;       /**< Time the alarm was raised. */
+    lv_obj_t *cur_title;  /**< Title of the current value. */
+    lv_obj_t *cur_value;  /**< Current value. */
+    lv_obj_t *thr_title;  /**< Title of the threshold. */
+    lv_obj_t *thr_value;  /**< Threshold value. */
+    lv_obj_t *chip_box;   /**< Box of the state chip. */
+    lv_obj_t *chip_label; /**< Text of the state chip. */
+    lv_coord_t w;         /**< Width, in pixels. */
+    lv_coord_t name_x;    /**< Left edge of the name column (the tag follows the name). */
 } alarm_card_t;
 
 /**
@@ -65,7 +67,11 @@ void alarm_card_create(alarm_card_t *card, lv_obj_t *parent, lv_coord_t x, lv_co
 void alarm_card_show(alarm_card_t *card, bool critical, const char *name, const char *tag,
                      const char *triggered, const char *current, const char *threshold);
 
-/** @brief Hide the row. */
+/**
+ * @brief Hide the row.
+ *
+ * @param card Card to hide.
+ */
 void alarm_card_hide(alarm_card_t *card);
 
 #endif /* ALARM_CARD_H */

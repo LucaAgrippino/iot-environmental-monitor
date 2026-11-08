@@ -57,14 +57,14 @@
 /* Flash command opcodes                                               */
 /* ------------------------------------------------------------------ */
 
-#define QSPI_CMD_WREN (0x06U)  /* Write Enable               */
-#define QSPI_CMD_RDSR (0x05U)  /* Read Status Register       */
-#define QSPI_CMD_RDID (0x9FU)  /* Read Identification (JEDEC) */
-#define QSPI_CMD_READ (0x03U)  /* Read Data                  */
-#define QSPI_CMD_PP (0x02U)    /* Page Program               */
-#define QSPI_CMD_SE (0x20U)    /* Sector Erase (4 KB)        */
-#define QSPI_CMD_RSTEN (0x66U) /* Reset Enable               */
-#define QSPI_CMD_RST (0x99U)   /* Reset Memory               */
+#define QSPI_CMD_WREN (0x06U)  /**< Write Enable */
+#define QSPI_CMD_RDSR (0x05U)  /**< Read Status Register */
+#define QSPI_CMD_RDID (0x9FU)  /**< Read Identification (JEDEC) */
+#define QSPI_CMD_READ (0x03U)  /**< Read Data */
+#define QSPI_CMD_PP (0x02U)    /**< Page Program */
+#define QSPI_CMD_SE (0x20U)    /**< Sector Erase (4 KB) */
+#define QSPI_CMD_RSTEN (0x66U) /**< Reset Enable */
+#define QSPI_CMD_RST (0x99U)   /**< Reset Memory */
 
 /* ------------------------------------------------------------------ */
 /* CCR field encoding constants                                        */
@@ -86,22 +86,22 @@
 
 #define QSPI_PAGE_SIZE_BYTES (256U)
 #define QSPI_SECTOR_SIZE_BYTES (4096U)
-#define QSPI_SECTOR_BASE_MASK (0xFFFFF000UL) /* addr aligned to 4 KB sector */
-#define QSPI_PAGE_BASE_MASK (0xFFFFFF00UL)   /* addr aligned to 256 B page  */
+#define QSPI_SECTOR_BASE_MASK (0xFFFFF000UL) /**< addr aligned to 4 KB sector */
+#define QSPI_PAGE_BASE_MASK (0xFFFFFF00UL)   /**< addr aligned to 256 B page */
 #define QSPI_RDID_BYTE_COUNT (3U)
-#define QSPI_WIP_BIT (0x01U) /* SR bit 0: Write-In-Progress  */
-#define QSPI_CSHT_VAL (0U)   /* CS high time: 1 QSPI clock   */
+#define QSPI_WIP_BIT (0x01U) /**< SR bit 0: Write-In-Progress */
+#define QSPI_CSHT_VAL (0U)   /**< CS high time: 1 QSPI clock */
 #define QSPI_CR_PRESCALER_Pos (24U)
 #define QSPI_CR_FTHRES_Pos (8U)
 #define QSPI_CR_SSHIFT_Pos (4U)
-#define QSPI_PRESCALER_VAL (2U) /* QSPI_CLK = HCLK/3 = 60 MHz   */
-#define QSPI_CR_FTHRES_VAL (0U) /* FTF fires when >= 1 byte ready */
-#define QSPI_CR_SSHIFT_VAL (1U) /* 1/2 clock sample shift         */
+#define QSPI_PRESCALER_VAL (2U) /**< QSPI_CLK = HCLK/3 = 60 MHz */
+#define QSPI_CR_FTHRES_VAL (0U) /**< FTF fires when >= 1 byte ready */
+#define QSPI_CR_SSHIFT_VAL (1U) /**< 1/2 clock sample shift */
 #define QSPI_TCF_POLL_TIMEOUT (10000UL)
 #define QSPI_WIP_POLL_TIMEOUT (100000UL)
-#define QSPI_TRST_CYCLES (28000U) /* tRST >= 100 us at 180 MHz HCLK */
-#define QSPI_FIFO_DEPTH (32U)     /* QUADSPI FIFO depth in bytes    */
-#define QSPI_SR_FLEVEL_Pos (8U)   /* SR bits [12:8]: FIFO level     */
+#define QSPI_TRST_CYCLES (28000U) /**< tRST >= 100 us at 180 MHz HCLK */
+#define QSPI_FIFO_DEPTH (32U)     /**< QUADSPI FIFO depth in bytes */
+#define QSPI_SR_FLEVEL_Pos (8U)   /**< SR bits [12:8]: FIFO level */
 #define QSPI_SR_FLEVEL_MASK (0x1FUL)
 
 /* ------------------------------------------------------------------ */

@@ -18,11 +18,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** @brief One entry of the symbol table used to name the program counter in a panic report. */
 typedef struct
 {
-    uint32_t addr;
-    uint32_t size;
-    const char *name;
+    uint32_t addr;      /**< Address of the symbol. */
+    uint32_t size;      /**< Size of the symbol in bytes. */
+    const char *name;   /**< Name of the symbol. */
     uint8_t file_index; /**< Index into a caller-supplied file-name table. */
 } panic_symbol_t;
 
@@ -33,7 +34,9 @@ typedef struct
  * which takes any table as a parameter instead (see its own doc comment
  * below). */
 extern const panic_symbol_t g_panic_symbols[];
+/** @brief Number of entries in g_panic_symbols. */
 extern const uint32_t g_panic_symbol_count;
+/** @brief File names that file_index refers to. */
 extern const char *const g_panic_files[];
 
 /** Address of cpu_panic() in the image the table was generated from (0 if there is no table). The

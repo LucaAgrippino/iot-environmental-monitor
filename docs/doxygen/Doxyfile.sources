@@ -1,0 +1,8 @@
+# Overlay for --with-sources: also parse the .c files so that call and caller graphs exist.
+# Their file-local macros, variables and helpers are not public API, so undocumented-member warnings are off.
+FILE_PATTERNS          = *.h *.c
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+SOURCE_BROWSER         = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_NO_PARAMDOC       = NO

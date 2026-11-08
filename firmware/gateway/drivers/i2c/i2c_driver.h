@@ -136,13 +136,13 @@ i2c_err_t i2c_write_read(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_l
  */
 typedef struct
 {
-    /* cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
     i2c_err_t (*init)(void);
-    /* cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
     i2c_err_t (*write)(uint8_t dev_addr, const uint8_t *data, uint16_t len);
-    /* cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
     i2c_err_t (*read)(uint8_t dev_addr, uint8_t *buf, uint16_t len);
-    /* cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
+    /** cppcheck-suppress unusedStructMember; used via i2c_driver singleton */
     i2c_err_t (*write_read)(uint8_t dev_addr, const uint8_t *tx_data, uint16_t tx_len,
                             uint8_t *rx_buf, uint16_t rx_len);
 } ii2c_t;

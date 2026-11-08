@@ -34,17 +34,17 @@
 /* Units match sensor_reading_t.value per sensor ID:
  *   TEMPERATURE / HUMIDITY: x100 (0.01 °C / 0.01 %RH)
  *   PRESSURE: x10 (0.1 hPa) */
-#define ALARM_TEMP_HIGH_DEFAULT (3500) /*  35.00 °C  */
-#define ALARM_TEMP_LOW_DEFAULT (0)     /*   0.00 °C  */
-#define ALARM_TEMP_HYST_DEFAULT (200)  /*   2.00 °C  */
+#define ALARM_TEMP_HIGH_DEFAULT (3500) /**< 35.00 °C */
+#define ALARM_TEMP_LOW_DEFAULT (0)     /**< 0.00 °C */
+#define ALARM_TEMP_HYST_DEFAULT (200)  /**< 2.00 °C */
 
-#define ALARM_HUMIDITY_HIGH_DEFAULT (8000) /* 80.00 %RH */
-#define ALARM_HUMIDITY_LOW_DEFAULT (2000)  /* 20.00 %RH */
-#define ALARM_HUMIDITY_HYST_DEFAULT (500)  /*  5.00 %RH */
+#define ALARM_HUMIDITY_HIGH_DEFAULT (8000) /**< 80.00 %RH */
+#define ALARM_HUMIDITY_LOW_DEFAULT (2000)  /**< 20.00 %RH */
+#define ALARM_HUMIDITY_HYST_DEFAULT (500)  /**< 5.00 %RH */
 
-#define ALARM_PRESSURE_HIGH_DEFAULT (10500) /* 1050.0 hPa */
-#define ALARM_PRESSURE_LOW_DEFAULT (9500)   /*  950.0 hPa */
-#define ALARM_PRESSURE_HYST_DEFAULT (50)    /*    5.0 hPa */
+#define ALARM_PRESSURE_HIGH_DEFAULT (10500) /**< 1050.0 hPa */
+#define ALARM_PRESSURE_LOW_DEFAULT (9500)   /**< 950.0 hPa */
+#define ALARM_PRESSURE_HYST_DEFAULT (50)    /**< 5.0 hPa */
 
 /* ======================================================================= */
 /* Internal types                                                           */

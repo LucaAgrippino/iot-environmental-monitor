@@ -32,6 +32,7 @@
 /* Error codes                                                               */
 /* ========================================================================= */
 
+/** @brief Result codes of the ConfigStore API. */
 typedef enum
 {
     CONFIG_STORE_OK = 0,                /**< Operation succeeded. */
@@ -67,11 +68,12 @@ typedef enum
  */
 typedef struct
 {
-    config_store_err_t (*init)(const ihealth_report_t *health);
-    config_store_err_t (*load)(void *data_out, uint32_t *len_out, uint32_t max_len);
-    config_store_err_t (*save)(const void *data, uint32_t len);
-    config_store_err_t (*check_integrity)(void);
-    config_store_err_t (*erase)(void);
+    config_store_err_t (*init)(const ihealth_report_t *health); /**< Initialise the store. */
+    config_store_err_t (*load)(void *data_out, uint32_t *len_out,
+                               uint32_t max_len); /**< Load the newest valid record. */
+    config_store_err_t (*save)(const void *data, uint32_t len); /**< Save a record. */
+    config_store_err_t (*check_integrity)(void); /**< Check that the stored record is intact. */
+    config_store_err_t (*erase)(void);           /**< Erase the stored record. */
 } iconfig_store_t;
 
 /** Singleton pointer to the ConfigStore vtable instance. */
@@ -182,7 +184,9 @@ qspi_flash_err_t stub_cs_flash_read(uint8_t *flash, uint32_t addr, uint8_t *buf,
 /** Reset internal state to post-BSS defaults.  Call from setUp(). */
 void config_store_reset_for_test(void);
 #else
-#define CONFIG_STORE_TEST_VISIBLE static
-#endif /* TEST */
+#define CONFIG_STORE_TEST_VISIBLE                                                                  \
+    static /**< Makes a function visible to unit tests (empty in tests, `static` in the product).  \
+            */
+#endif     /* TEST */
 
 #endif /* CONFIG_STORE_H */

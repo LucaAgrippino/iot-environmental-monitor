@@ -14,6 +14,7 @@
 
 #include "firmware_store_types.h"
 
+/** @brief Boot control interface of FirmwareStore (vtable). */
 typedef struct
 {
     /** Report the cached boot state; performs no flash access. */

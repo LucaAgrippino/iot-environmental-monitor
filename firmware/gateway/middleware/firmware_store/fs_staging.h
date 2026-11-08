@@ -19,7 +19,14 @@
 /** Scratch bytes the journal routines need from the caller. */
 #define FS_STAGING_SCRATCH_LEN (256U)
 
-/** @brief Read from the staged image file. @param pos Byte position within the file. */
+/**
+ * @brief Read from the staged image file. @param pos Byte position within the file.
+ *
+ * @param q QSPI flash driver.
+ * @param buf Receives the data.
+ * @param len Number of bytes.
+ * @return FIRMWARE_STORE_ERR_OK, or the error of the read.
+ */
 firmware_store_err_t fs_stage_read(const iqspi_flash_t *q, uint32_t pos, uint8_t *buf,
                                    uint32_t len);
 
@@ -34,13 +41,23 @@ firmware_store_err_t fs_stage_read(const iqspi_flash_t *q, uint32_t pos, uint8_t
  * @param[in]     pos       File position of data[0].
  * @param[in]     file_len  Total length of the file being staged.
  * @param[in,out] next      Byte offset of the next free journal entry.
+ * @param q QSPI flash driver.
+ * @param data Bytes to stage.
+ * @param len Number of bytes.
  * @return OK; FLASH_ERASE; FLASH_WRITE.
  */
 firmware_store_err_t fs_stage_write(const iqspi_flash_t *q, uint32_t pos, const uint8_t *data,
                                     uint32_t len, uint32_t file_len, uint32_t *next);
 
 /** @brief Erase the journal sector and write a fresh session record. @param[out] next First free
- * entry. */
+ * entry.
+ *
+ * @param q QSPI flash driver.
+ * @param image_id Identifier of the image.
+ * @param file_len Length of the image file, in bytes.
+ * @param scratch Work buffer.
+ * @return FIRMWARE_STORE_ERR_OK, or the error of the erase or program.
+ */
 firmware_store_err_t fs_journal_begin(const iqspi_flash_t *q, uint32_t image_id, uint32_t file_len,
                                       uint8_t *scratch, uint32_t *next);
 
@@ -50,13 +67,22 @@ firmware_store_err_t fs_journal_begin(const iqspi_flash_t *q, uint32_t image_id,
  * @param[out] session_ok   False when the session record is absent, torn or for another file.
  * @param[out] checkpoint   Bytes of the file safely staged (0 if no valid entry).
  * @param[out] next         Byte offset of the first erased entry.
+ * @param q QSPI flash driver.
+ * @param image_id Identifier of the image.
+ * @param file_len Length of the image file, in bytes.
+ * @param scratch Work buffer.
  * @return OK; FLASH_READ.
  */
 firmware_store_err_t fs_journal_scan(const iqspi_flash_t *q, uint32_t image_id, uint32_t file_len,
                                      uint8_t *scratch, bool *session_ok, uint32_t *checkpoint,
                                      uint32_t *next);
 
-/** @brief Erase the journal sector (image sectors are left; lazy erase handles their reuse). */
+/**
+ * @brief Erase the journal sector (image sectors are left; lazy erase handles their reuse).
+ *
+ * @param q QSPI flash driver.
+ * @return FIRMWARE_STORE_ERR_OK, or the error of the erase.
+ */
 firmware_store_err_t fs_journal_erase(const iqspi_flash_t *q);
 
 #endif /* FS_STAGING_H */

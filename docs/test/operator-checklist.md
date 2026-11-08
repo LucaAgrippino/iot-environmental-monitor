@@ -36,7 +36,7 @@ Restore the sensor after OP-06/07.
 | OP-09 | REQ-MB-070 | Compare `modbus-register-map.md` with the register tables in the Field Device and Gateway code (`modbus_register_map.c`, `modbus_poller.c` constants) | Addresses, types and scaling are equal | PASS 2026-11-08 (Claude): addresses, types, scaling and alarm bits equal; deviations closed as DEF-003/004 |
 | OP-10 | REQ-DM-074 | Compare the dual-bank layout document with the linker scripts and `FirmwareStore` partition constants | Same bank sizes and addresses | PASS 2026-11-08 (Claude): Gateway equal; Field Device linker limit fixed, DEF-006 |
 | OP-11 | REQ-NF-303 | Search both firmwares for a network listener on the console (`grep -rn "listen\|accept" firmware/*/`) and confirm the console goes only through the UART driver | No network console exists | PASS 2026-11-08 (Claude): no listener; sockets are client only (NTP, MQTT); console is UART only |
-| OP-12 | REQ-NF-505 | Run `doxygen` on both firmwares and read the warnings | No warnings that hide a missing public-function description; list the rest as DEF-nnn severity 4 | PASS 2026-11-08 (Claude) after DEF-005: 7 missing descriptions added, none left in any header |
+| OP-12 | REQ-NF-505 | Run `doxygen` on both firmwares and read the warnings | No warnings that hide a missing public-function description; list the rest as DEF-nnn severity 4 | PASS 2026-11-08 (Claude) after DEF-005: Doxygen reports 0 warnings for the public headers of both boards |
 
 ### C findings (2026-11-08)
 

@@ -48,10 +48,10 @@ uint8_t g_config_store_flash_sim[CONFIG_STORE_PARTITION_SIZE];
 /* ========================================================================= */
 
 #define CS_HEADER_SIZE (16U)
-#define CS_CRC_OFFSET (0x7FF8U)                            /* byte offset of CRC within a slot */
-#define CS_CRC_COVERAGE (0x7FF8U)                          /* bytes 0x0000..0x7FF7 are covered */
-#define CS_DATA_AREA_SIZE (CS_CRC_OFFSET - CS_HEADER_SIZE) /* 32744 */
-#define CS_SECTORS_PER_SLOT (CONFIG_STORE_SLOT_SIZE / CONFIG_STORE_SECTOR_SIZE) /* 8 */
+#define CS_CRC_OFFSET (0x7FF8U)                            /**< byte offset of CRC within a slot */
+#define CS_CRC_COVERAGE (0x7FF8U)                          /**< bytes 0x0000..0x7FF7 are covered */
+#define CS_DATA_AREA_SIZE (CS_CRC_OFFSET - CS_HEADER_SIZE) /**< 32744 */
+#define CS_SECTORS_PER_SLOT (CONFIG_STORE_SLOT_SIZE / CONFIG_STORE_SECTOR_SIZE) /**< 8 */
 #define CS_CHUNK_SIZE (256U)
 #define CS_FF_PAD_SIZE (64U)
 #define CS_SLOT_COUNT (2U)
