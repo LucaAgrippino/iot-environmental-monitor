@@ -91,3 +91,10 @@ simulator/lcd-ui/shots/
 
 # Generated API documentation (scripts/gen-doxygen.sh): kept in the project, never committed
 generated-docs/
+
+# cloud side: local databases and python caches
+cloud/dev/*.sqlite3*
+cloud/**/__pycache__/
+cloud/backend/*.egg-info/
+cloud/web/node_modules/
+cloud/web/dist/
