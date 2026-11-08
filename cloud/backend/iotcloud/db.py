@@ -9,6 +9,7 @@ Tables (the AWS counterpart in brackets):
   commands   config / control commands and their outcome  [IoT Device Shadow / Jobs]
   images     firmware images the operator uploaded        [S3 bucket]
   ota_jobs   one OTA update of one device                 [IoT Jobs]
+  notify_*   alert channels and what was sent             [SNS topics and subscriptions]
   users, sessions   who may log in, and who is logged in  [Cognito]
 """
 import json
@@ -50,6 +51,13 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT PRIMARY KEY, pw_hash TEXT NOT NULL, role TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY, user TEXT NOT NULL, created INTEGER NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS notify_channels (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, config TEXT NOT NULL, events TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS notify_log (
+  id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, channel_id INTEGER, channel TEXT, event TEXT, device TEXT, title TEXT,
+  status TEXT NOT NULL, error TEXT);
+CREATE TABLE IF NOT EXISTS device_state (device TEXT PRIMARY KEY, offline_since INTEGER);
 """
 # Tables of the cloud's own state (the AWS counterparts: IoT Jobs, S3 for the images)
 

@@ -112,6 +112,11 @@ jobs:
           CLOUD_PY: python
         run: broker/test-e2e.sh
 
+      - name: Alerts, with a real ntfy server (alarm, silent device)
+        env:
+          CLOUD_PY: python
+        run: cloud/dev/test-alerts.sh
+
   markdown:
     name: Markdown lint (cloud, broker)
     runs-on: ubuntu-latest

@@ -19,7 +19,7 @@ the AWS service it replaces. An optional last step can bridge the same messages 
 | Login: users, scrypt passwords, sessions, admin and viewer roles, lockout, cross-site check | done, 31 tests in all |
 | `deploy/`: bundle, installer, systemd unit, Caddy HTTPS; installer tested in a Debian 13 container | done, not yet run on the Pi |
 | `broker/`: own CA, access list by certificate, revocation, installer for the Pi's broker | done, see `broker/README.md` |
-| Alerts to the phone, CI job | later |
+| Alerts: ntfy (phone push), webhook, e-mail; per-channel events, retries, rate limit, offline watcher, log | done |
 
 ## Layout
 
@@ -49,7 +49,7 @@ its own repository later without changes, since nothing here imports firmware co
 | Device Shadow (desired and reported state) | the `config` events and the latest health report, with request ids |
 | IoT Jobs (OTA) | the OTA service: job records, chunk server, result tracking |
 | CloudWatch Logs | the `events` table and the downloads; device logs need firmware support (see below) |
-| SNS | notifications to the phone (later) |
+| SNS | alerts: `backend/iotcloud/notify.py` (ntfy, webhook, e-mail; channels with an event filter) |
 | API Gateway, Lambda | the FastAPI app |
 | Cognito | login on the web app, users and roles in SQLite (`backend/iotcloud/auth.py`) |
 | Amplify, CloudFront | Caddy serving the web app over HTTPS (later) |
@@ -109,6 +109,21 @@ curl -X POST localhost:8000/api/devices/sim-0001/ota -d '{"image_a":"a.ota","ima
 curl localhost:8000/api/devices/sim-0001/ota           # state: sent, running, success/failed/rolled_back/rejected
 curl -X POST localhost:8000/api/ota/1/cancel           # stop serving chunks
 ```
+
+## Alerts to the phone
+
+Open **Alerts** in the web app, add a channel, press **Test**. For a phone: install the ntfy app (Android or iOS),
+subscribe to the same server and topic. Which server:
+
+- **Your own ntfy** (a small Go program; a container on the PC, or the Pi): messages stay in the house, and they
+  reach the phone only while it is on the home network or a VPN. Run one to try it:
+  `docker run -p 2586:80 binwiederhier/ntfy serve`, then use `http://<address>:2586`.
+- **ntfy.sh** (the public server): works anywhere, but the message text passes through a third party, and the topic
+  name is the only protection: use a long random one. (It is why the example data in the tests never points there.)
+
+What is sent: an alarm raised or cleared (with the value and the limit, in °C, % and hPa), a device that stops
+sending or comes back, and the end of an OTA update. `cloud/dev/test-alerts.sh` checks the chain against a real
+ntfy in Docker. Secrets (token, password) are stored in the database and never shown again.
 
 ## Limits to know
 

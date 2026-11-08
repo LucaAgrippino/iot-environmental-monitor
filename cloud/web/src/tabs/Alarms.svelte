@@ -7,7 +7,9 @@
     live.n;
     get(`/devices/${encodeURIComponent(device.id)}/alarms?limit=200`).then((r) => (rows = r.reverse()));
   });
-  const value = (r, v) => (r.sensor_id === 'temperature' ? (v / 100).toFixed(1) + ' °C' : v);
+  // the firmware sends alarm values in register units: 0.01 °C, 0.01 %, 0.1 hPa
+  const value = (r, v) =>
+    v == null ? '-' : r.sensor_id === 'temperature' ? (v / 100).toFixed(1) + ' °C' : r.sensor_id === 'humidity' ? (v / 100).toFixed(1) + ' %' : r.sensor_id === 'pressure' ? (v / 10).toFixed(1) + ' hPa' : v;
 </script>
 
 <div class="card">
