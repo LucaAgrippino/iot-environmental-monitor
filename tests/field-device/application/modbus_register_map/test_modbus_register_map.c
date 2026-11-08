@@ -6,10 +6,8 @@
  * transitively through modbus_register_map.h when TEST is defined).
  * No real module .c files are linked.
  *
- * TC-MRM-009 INTENTIONALLY FAILS: read_pressure() contains MRM-BUG-001
- * (reads SENSOR_ID_HUMIDITY instead of SENSOR_ID_PRESSURE). Fix by
- * replacing both SENSOR_ID_HUMIDITY occurrences in read_pressure() with
- * SENSOR_ID_PRESSURE in modbus_register_map.c.
+ * TC-MRM-009 is the regression test for MRM-BUG-001 (read_pressure() once read
+ * SENSOR_ID_HUMIDITY instead of SENSOR_ID_PRESSURE). The bug is fixed.
  */
 
 #include "unity.h"
@@ -370,11 +368,11 @@ void test_TC_MRM_008_fc04_humidity_valid(void)
 }
 
 /* ===================================================================== */
-/* TC-MRM-009: FC04 pressure — INTENTIONAL BUG (MRM-BUG-001)           */
+/* TC-MRM-009: FC04 pressure — regression test for MRM-BUG-001 (fixed)  */
 /*                                                                       */
-/* read_pressure() reads SENSOR_ID_HUMIDITY instead of SENSOR_ID_       */
-/* PRESSURE. This test FAILS until the bug is fixed.                    */
-/* Expected: 10132 (pressure)   Actual: 5000 (humidity)                 */
+/* read_pressure() once read SENSOR_ID_HUMIDITY instead of SENSOR_ID_   */
+/* PRESSURE. With both sensors set, register 0x0012 must carry the      */
+/* pressure (10132), not the humidity (5000).                           */
 /* ===================================================================== */
 void test_TC_MRM_009_fc04_pressure_bug_detected(void)
 {
@@ -387,7 +385,6 @@ void test_TC_MRM_009_fc04_pressure_bug_detected(void)
     uint16_t buf = 0;
     modbus_exception_t exc = s_iface.read_input_regs(s_iface.ctx, 0x0012u, 1u, &buf);
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, exc);
-    /* FAILS: bug returns 5000 (humidity) instead of 10132 (pressure) */
     TEST_ASSERT_EQUAL_UINT16(10132u, buf);
 }
 

@@ -1,0 +1,5 @@
+@INCLUDE               = docs/doxygen/Doxyfile.common
+PROJECT_NAME           = "IoT Environmental Monitor: Gateway firmware"
+INPUT                  = firmware/gateway/application firmware/gateway/drivers firmware/gateway/middleware firmware/gateway/Src
+OUTPUT_DIRECTORY       = build/doxygen/gateway
+WARN_LOGFILE           = build/doxygen/gateway.warnings

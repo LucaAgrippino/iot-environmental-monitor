@@ -108,7 +108,25 @@ uint8_t device_profile_registry_count(void);
 void device_profile_registry_reset_for_test(void);
 
 /* Free-function form of the read side, kept for consumers that have not moved to the vtable. */
+
+/**
+ * @brief Step through the registered profiles.
+ *
+ * @param[out]    out    Receives the profile at *index.
+ * @param[in,out] index  Position to read; advanced by one when a profile was returned.
+ *                       Start at 0.
+ * @return true when a profile was returned; false past the last profile (or before init).
+ * @note Threading: any task; reads only.
+ */
 bool device_profile_get_next(device_profile_t *out, uint8_t *index);
+
+/**
+ * @brief Tell whether a Modbus slave address has a registered profile.
+ *
+ * @param[in] slave_addr  Modbus slave address (1 to 247).
+ * @return true if a profile with this address is registered.
+ * @note Threading: any task; reads only.
+ */
 bool device_profile_is_registered(uint8_t slave_addr);
 
 #endif /* DEVICE_PROFILE_REGISTRY_H */
