@@ -25,4 +25,8 @@ Short, informal. Newest at the bottom.
 10. **Caddy for HTTPS, with its own certificate authority.** A public CA cannot issue for a name that exists only
     on the home network. The price is importing one root certificate in each browser, once.
 11. **The deployment does not touch the broker.** The Pi's Mosquitto belongs to the bench; the cloud connects to it
-    as a client. A broker with a real CA and per-device permissions is its own step (`broker/`).
+    as a client. The system's own CA, access list and broker installer are in `broker/`, installed on their own.
+12. **Identity from the certificate, not from the client id.** The access list uses the certificate's common name
+    (`%u`): a client chooses its MQTT client id itself, so keying permissions on it lets a device claim another's.
+13. **The backend keeps a persistent session.** An alarm sent while the backend restarts waits in the broker and is
+    delivered when it returns (checked against a real broker in `broker/tests`).

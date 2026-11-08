@@ -11,7 +11,8 @@ log = logging.getLogger("iotcloud.mqtt")
 
 
 def make_client(settings: Settings, db, hub, client_id: str = "iotcloud") -> mqtt.Client:
-    c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+    # a persistent session: what the devices send while this process restarts waits in the broker (QoS 1)
+    c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=False)
     if settings.mqtt_cafile:
         c.tls_set(ca_certs=settings.mqtt_cafile, certfile=settings.mqtt_cert or None, keyfile=settings.mqtt_key or None,
                   cert_reqs=ssl.CERT_REQUIRED)

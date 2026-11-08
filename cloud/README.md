@@ -18,7 +18,8 @@ the AWS service it replaces. An optional last step can bridge the same messages 
 | `web/` web app (Svelte): devices, live values, charts, alarms, commands, firmware update with progress, downloads | done |
 | Login: users, scrypt passwords, sessions, admin and viewer roles, lockout, cross-site check | done, 31 tests in all |
 | `deploy/`: bundle, installer, systemd unit, Caddy HTTPS; installer tested in a Debian 13 container | done, not yet run on the Pi |
-| Alerts to the phone, broker mutual TLS and per-device permissions, CI job | later |
+| `broker/`: own CA, access list by certificate, revocation, installer for the Pi's broker | done, see `broker/README.md` |
+| Alerts to the phone, CI job | later |
 
 ## Layout
 
@@ -27,10 +28,11 @@ cloud/
   backend/    Python package `iotcloud`: ingest, database, API (FastAPI). Tests in backend/tests.
   sim/        the simulated device
   dev/        run the whole thing on this machine
-  web/        the web app (to come)
-  broker/     Mosquitto configuration for mutual TLS and per-device permissions (to come)
-  deploy/     systemd units and Caddy configuration for the Raspberry Pi (to come)
+  web/        the web app (Svelte)
+  deploy/     installer, systemd unit and Caddy configuration for the Raspberry Pi
 ```
+
+The broker side (certificate authority, Mosquitto configuration and access list) is the top-level `broker/` folder.
 
 It lives in this repository because the messages are a contract with the firmware
 (`firmware/gateway/application/cloud_publisher/`): a change on one side must be seen on the other. It can move to
@@ -121,4 +123,5 @@ curl -X POST localhost:8000/api/ota/1/cancel           # stop serving chunks
   Real device logs need a firmware feature (a log topic fed by the logger sink, buffered like the other messages);
   it is a candidate for the roadmap, not a given.
 - **The Raspberry Pi has 1 GB of RAM.** Everything here is a small process under systemd; no Docker, no Java.
-- **One broker for now.** The simulator and the backend use a plain local broker; mutual TLS comes with `broker/`.
+- **The dev stack uses a plain local broker.** Mutual TLS and the access list are in `broker/`, tested there; the
+  simulator and backend can use them with `--cafile/--cert/--key` and the `IOTCLOUD_MQTT_*` settings.

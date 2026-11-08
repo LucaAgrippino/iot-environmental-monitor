@@ -21,11 +21,11 @@ browser ──https──> Caddy :443 ──http──> iotcloud :8000 (127.0.0.
 
 - **Do not install while a verification run is using the Pi.** The Pi has 1 GB of RAM, and `install.sh` runs `apt`
   and `pip`, which compete with it. Wait for the endurance run to finish.
-- **The broker is the next step, not this one.** The Mosquitto on the Pi is the bench broker: one listener on 8883
-  with mutual TLS, certificates from the bench CA, and `allow_anonymous true`. The cloud connects to it as a client,
-  so it needs its own client certificate from that CA. Making a proper broker (a CA for the system, one certificate
-  per device, permissions so a device can only write its own topics) is the `broker/` work, and it changes the
-  broker's configuration, so it is done on its own.
+- **The broker is a separate step.** The Mosquitto on the Pi is the bench broker: one listener on 8883 with mutual
+  TLS, certificates from the bench CA, and `allow_anonymous true`. The cloud connects to it as a client, so it needs a
+  client certificate. `broker/` has the system's own CA, an access list and an installer that replaces the bench
+  configuration (see `broker/README.md`, including what stops working when you do). Until then the cloud can use a
+  certificate from the bench CA.
 
 ## Install
 
