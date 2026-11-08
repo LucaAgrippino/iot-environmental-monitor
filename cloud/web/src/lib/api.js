@@ -1,6 +1,9 @@
+import { auth } from './auth.svelte.js';
+
 // Thin wrapper around the backend's HTTP API (see /docs on the backend for every endpoint).
 async function call(path, opts = {}) {
   const r = await fetch('/api' + path, opts);
+  if (r.status === 401 && path !== '/auth/login') auth.user = null; // the session ended: back to the login screen
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail ?? detail; } catch {}

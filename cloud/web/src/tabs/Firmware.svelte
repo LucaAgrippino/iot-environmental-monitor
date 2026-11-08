@@ -1,6 +1,7 @@
 <script>
   import { get, post, put, del, fmtTime } from '../lib/api.js';
   import { live } from '../lib/live.svelte.js';
+  import { auth } from '../lib/auth.svelte.js';
 
   let { device } = $props();
   let images = $state([]);
@@ -52,6 +53,8 @@
 
 {#if error}<p class="err">{error}</p>{/if}
 
+{#if auth.role !== 'admin'}<div class="card muted">This account can only read: updating needs an admin account.</div>{/if}
+<fieldset disabled={auth.role !== 'admin'}>
 <div class="card">
   <h2>Update the firmware</h2>
   <p class="muted small">
@@ -93,6 +96,7 @@
     </tbody>
   </table>
 </div>
+</fieldset>
 
 <div class="card">
   <h2>Updates of this device</h2>
@@ -113,6 +117,7 @@
 </div>
 
 <style>
+  fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .8rem; min-width: 0; }
   .small { font-size: .85rem; margin-top: 0; }
   .progress { display: flex; align-items: center; gap: .8rem; margin-top: .8rem; flex-wrap: wrap; }
   .bar { flex: 1 1 200px; height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; }

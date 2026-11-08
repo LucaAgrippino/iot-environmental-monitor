@@ -7,11 +7,11 @@ import time
 from contextlib import asynccontextmanager
 
 import asyncio
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import commands, config, mqtt, ota
+from . import auth, commands, config, mqtt, ota
 from .db import TABLES, Database
 from .live import Hub
 
@@ -43,7 +43,24 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
             client.loop_stop()
             client.disconnect()
 
-    app = FastAPI(title="iotcloud", lifespan=lifespan)
+    PUBLIC = {"/api/healthz", "/api/auth/login"}
+
+    def guard(request: Request):
+        """Every /api route: a logged-in user for reads, an admin for anything that changes something."""
+        if not settings.auth_required or request.url.path in PUBLIC:
+            return
+        user = auth.user_for(db, request.cookies.get("session"))
+        if user is None:
+            raise HTTPException(401, "login required")
+        if request.method not in ("GET", "HEAD"):
+            origin = request.headers.get("origin")
+            if origin and origin.split("://", 1)[-1] != request.headers.get("host"):
+                raise HTTPException(403, "cross-site request")  # on top of the SameSite=Strict cookie
+            if user["role"] != "admin" and request.url.path != "/api/auth/logout":
+                raise HTTPException(403, "this account can only read")
+        request.state.user = user
+
+    app = FastAPI(title="iotcloud", lifespan=lifespan, dependencies=[Depends(guard)])
     app.state.db, app.state.hub, app.state.settings = db, hub, settings
 
     def device_row(r: dict, now: int) -> dict:
@@ -59,6 +76,29 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
                 " SELECT 1 FROM alarms b WHERE b.device=a.device AND b.sensor_id=a.sensor_id AND b.id>a.id"
                 " AND b.alarm_type='CLEAR')", (r["id"],)),
         }
+
+    @app.post("/api/auth/login")
+    async def login(request: Request, response: Response):
+        body = await request.json()
+        try:
+            token, role = auth.login(db, str(body.get("username", "")), str(body.get("password", "")))
+        except auth.AuthError as e:
+            raise HTTPException(429 if "too many" in str(e) else 401, str(e))
+        response.set_cookie("session", token, max_age=auth.SESSION_TTL_S, httponly=True, samesite="strict",
+                            secure=settings.cookie_secure, path="/")
+        return {"user": body["username"], "role": role}
+
+    @app.post("/api/auth/logout")
+    def logout(request: Request, response: Response):
+        auth.logout(db, request.cookies.get("session"))
+        response.delete_cookie("session", path="/")
+        return {"ok": True}
+
+    @app.get("/api/auth/me")
+    def me(request: Request):
+        if not settings.auth_required:
+            return {"user": "local", "role": "admin", "auth": False}
+        return {**request.state.user, "user": request.state.user["name"], "auth": True}
 
     @app.get("/api/healthz")
     def healthz():

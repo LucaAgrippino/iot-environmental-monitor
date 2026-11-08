@@ -1,7 +1,9 @@
 <script>
   import { get, ago } from './lib/api.js';
-  import { live, startLive } from './lib/live.svelte.js';
+  import { live, startLive, stopLive } from './lib/live.svelte.js';
   import DeviceView from './DeviceView.svelte';
+  import Login from './Login.svelte';
+  import { auth, whoami, logout } from './lib/auth.svelte.js';
 
   let devices = $state([]);
   let error = $state('');
@@ -23,17 +25,26 @@
     location.hash = encodeURIComponent(id);
   }
 
-  startLive();
+  whoami();
   $effect(() => {
-    live.n; // a message arrived: refresh the list (online state, latest values, alarms)
-    load();
+    if (auth.user) startLive(); // the stream needs the session cookie
+    else stopLive();
   });
   $effect(() => {
-    const t = setInterval(load, 15000); // also catches a device going offline, which sends no event
+    live.n; // a message arrived: refresh the list (online state, latest values, alarms)
+    if (auth.user) load();
+  });
+  $effect(() => {
+    const t = setInterval(() => auth.user && load(), 15000); // also catches a device going offline, which sends no event
     return () => clearInterval(t);
   });
 </script>
 
+{#if !auth.checked}
+  <p class="muted" style="padding:1rem">Loading…</p>
+{:else if !auth.user}
+  <Login />
+{:else}
 <div class="shell">
   <aside>
     <h1>Environmental Monitor</h1>
@@ -50,6 +61,9 @@
     {/each}
     {#if !devices.length && !error}<p class="muted">No device has sent anything yet.</p>{/if}
     {#if error}<p class="err">{error}</p>{/if}
+    {#if auth.requiresLogin}
+      <div class="me muted">{auth.user} ({auth.role}) <button onclick={logout}>Sign out</button></div>
+    {/if}
   </aside>
   <main>
     {#if selected}
@@ -57,12 +71,14 @@
     {/if}
   </main>
 </div>
+{/if}
 
 <style>
   .shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
   aside { background: var(--panel); border-right: 1px solid var(--line); padding: 1rem; display: flex; flex-direction: column; gap: .4rem; }
   aside h1 { font-size: 1.1rem; }
   main { padding: 1rem 1.2rem; min-width: 0; }
+  .me { margin-top: auto; font-size: .85rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
   .conn { font-size: .8rem; margin-bottom: .6rem; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: .45rem; }
   .dot.on { background: var(--ok); }

@@ -22,7 +22,7 @@ class Bus:
 
 @pytest.fixture()
 def env(tmp_path, db):
-    settings = Settings(db_path=str(tmp_path / "x.sqlite3"), image_dir=str(tmp_path / "img"), command_timeout_s=60, web_dir="")
+    settings = Settings(db_path=str(tmp_path / "x.sqlite3"), image_dir=str(tmp_path / "img"), command_timeout_s=60, web_dir="", auth_required=False)
     bus = Bus()
     ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b'{"fw_version":"0.9.0"}', 1000)  # registers the device
     return TestClient(create_app(settings, db, start_mqtt=False, publisher=bus)), bus, db, settings
@@ -72,7 +72,7 @@ def test_bad_commands_are_refused_before_publishing(env):
 
 
 def test_no_broker_means_503(tmp_path, db):
-    c = TestClient(create_app(Settings(db_path="x", image_dir=str(tmp_path)), db, start_mqtt=False))
+    c = TestClient(create_app(Settings(db_path="x", image_dir=str(tmp_path), auth_required=False), db, start_mqtt=False))
     ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b"{}", 1)
     assert c.post(f"/api/devices/{DEV}/control", json={"command": "read"}).status_code == 503
 
