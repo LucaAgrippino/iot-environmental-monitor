@@ -22,7 +22,7 @@ Prepare Endurance
 
 *** Test Cases ***
 TC-VER-EN-001 Both boards run without a reset, the bus stays clean and the cloud keeps receiving
-    [Tags]    TC-VER-EN-001
+    [Tags]    TC-VER-EN-001    REQ-CC-000    REQ-NF-111
     ${csv}=    Set Variable    ${OUT}/soak-${SOAK_SECONDS}s.csv
     Run Soak    ${SOAK_SECONDS}    ${SAMPLE_EVERY}    ${csv}
     ${gw}    ${fd}=    Soak Resets
