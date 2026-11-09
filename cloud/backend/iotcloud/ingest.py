@@ -65,8 +65,12 @@ def handle(db, root: str, topic: str, payload: bytes, now: int | None = None):
         return {"device": device, "kind": "telemetry", "ts": ts}
 
     if kind == "health":
+        # A message replayed from the device's store-and-forward buffer arrives after newer ones: it is kept in
+        # the history, but must not set the registry back (the firmware version showed 1.0.0 again after an update).
+        newest = db.query("SELECT MAX(ts) AS t FROM health WHERE device=?", (device,))[0]["t"]
         db.execute("INSERT INTO health(device, ts, recv_ts, raw) VALUES(?,?,?,?)", (device, ts, now, json.dumps(msg)))
-        db.touch_device(device, now, fw_version=msg.get("fw_version"), health=msg)
+        if newest is None or ts >= newest:
+            db.touch_device(device, now, fw_version=msg.get("fw_version"), health=msg)
         return {"device": device, "kind": "health", "ts": ts}
 
     if kind == "alarms":
