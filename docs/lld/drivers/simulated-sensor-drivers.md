@@ -255,6 +255,8 @@ baro_err_t barometer_read(baro_reading_t *reading)
 }
 ```
 
+**Mean reversion (pressure, DEF-007).** A pure random walk spreads about 27 hPa per hour of 100 ms reads, which flapped the Field Device low-pressure alarm (limit 950.0 hPa) on the bench. After the step, if the value is more than 30 (3.0 hPa) from the default 10132, `s_pressure_x10` is moved one unit (0.1 hPa) back towards it. The value still wanders but stays within a few hPa of 1013.2 hPa; the clamp is unchanged. Test T-BARO-08.
+
 The algorithm is intentionally simple. The portfolio value is in the architecture — not in the simulation fidelity. REQ-SA-030 says "initialise... with default parameters" and Vision §5.1.1 says "produces realistic, time-varying values". A bounded random walk satisfies both without importing floating-point arithmetic or a signal generation library.
 
 `rand()` from `<stdlib.h>` is used without a custom seed. On reset, `rand()` produces the same sequence — this is acceptable for a simulation; it means the device always produces the same reading pattern per boot, which is actually useful for deterministic testing.

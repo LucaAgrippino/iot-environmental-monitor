@@ -2,7 +2,7 @@
  * @file test_barometer_driver.c
  * @brief Unit tests for BarometerDriver — simulated pressure readings.
  *
- * Covers T-BARO-01 through T-BARO-07 per
+ * Covers T-BARO-01 through T-BARO-08 per
  * docs/lld/drivers/simulated-sensor-drivers.md §7.
  *
  * No stub headers needed — BarometerDriver has no downward dependencies.
@@ -111,4 +111,25 @@ void test_T_BARO_07_clamping_at_lower_bound(void)
 
     TEST_ASSERT_EQUAL_INT(BARO_ERR_OK, err);
     TEST_ASSERT_TRUE(r.pressure_x10 >= BARO_PRESSURE_MIN_X10);
+}
+
+/* T-BARO-08: DEF-007 - a long run stays within 10 hPa of the default (a pure
+ * random walk spreads about 27 hPa per hour of 100 ms reads), and from a far
+ * start the value is pulled back towards the default. */
+void test_T_BARO_08_mean_reversion_keeps_value_near_default(void)
+{
+    baro_reading_t r = {0};
+
+    for (int i = 0; i < 200000; i++)
+    {
+        TEST_ASSERT_EQUAL_INT(BARO_ERR_OK, barometer_read(&r));
+        TEST_ASSERT_INT_WITHIN(100, BARO_DEFAULT_PRESSURE_X10, r.pressure_x10);
+    }
+
+    barometer_set_pressure_for_test(9500);
+    for (int i = 0; i < 2000; i++)
+    {
+        (void) barometer_read(&r);
+    }
+    TEST_ASSERT_INT_WITHIN(100, BARO_DEFAULT_PRESSURE_X10, r.pressure_x10);
 }

@@ -9,6 +9,9 @@
 static int32_t s_pressure_x10 = BARO_DEFAULT_PRESSURE_X10;
 static bool s_fault_injected = false;
 
+/* Distance from the default (0.1 hPa units) beyond which the walk is pulled back. */
+#define BARO_PULL_THRESHOLD_X10 (30)
+
 /* ------------------------------------------------------------------ */
 /* Private helpers                                                     */
 /* ------------------------------------------------------------------ */
@@ -42,6 +45,18 @@ baro_err_t barometer_read(baro_reading_t *reading)
     }
 
     s_pressure_x10 += random_delta();
+
+    /* Mean reversion: a pure random walk drifts tens of hPa per hour and
+     * flaps the low-pressure alarm (DEF-007). Beyond 3 hPa from the default,
+     * pull one step (0.1 hPa) back; the walk still wanders but stays near 1013 hPa. */
+    if (s_pressure_x10 > (BARO_DEFAULT_PRESSURE_X10 + BARO_PULL_THRESHOLD_X10))
+    {
+        s_pressure_x10 -= 1;
+    }
+    else if (s_pressure_x10 < (BARO_DEFAULT_PRESSURE_X10 - BARO_PULL_THRESHOLD_X10))
+    {
+        s_pressure_x10 += 1;
+    }
 
     if (s_pressure_x10 < BARO_PRESSURE_MIN_X10)
     {
