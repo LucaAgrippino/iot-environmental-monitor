@@ -67,3 +67,13 @@ def test_garbage_is_logged_not_fatal(db):
     ev = ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/telemetry", b"{not json", 1_800_000_000)
     assert ev["kind"] == "bad_payload"
     assert db.query("SELECT kind FROM events") == [{"kind": "bad_payload"}]
+
+
+def test_a_replayed_older_health_message_does_not_set_the_registry_back(db):
+    pub(db, "health", {**COMMON, "timestamp": 2000, "fw_version": "1.0.1", "uptime_s": 50})
+    pub(db, "health", {**COMMON, "timestamp": 1000, "fw_version": "1.0.0", "uptime_s": 900})  # replayed, older
+    d = db.query("SELECT fw_version, last_health FROM devices")[0]
+    assert d["fw_version"] == "1.0.1" and json.loads(d["last_health"])["uptime_s"] == 50
+    assert db.query("SELECT COUNT(*) AS n FROM health")[0]["n"] == 2  # the old one is still in the history
+    pub(db, "health", {**COMMON, "timestamp": 3000, "fw_version": "1.0.2", "uptime_s": 80})  # newer still applies
+    assert db.query("SELECT fw_version FROM devices")[0]["fw_version"] == "1.0.2"
