@@ -12,6 +12,7 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | DEF-004 | OP-09, 2026-11-08 | REQ-MB-070 | 4 | Closed: stale "INTENTIONAL BUG" comments about `read_pressure` removed (code and test were already right) |
 | DEF-005 | OP-12, 2026-11-08 | REQ-NF-505 | 4 | Closed: all Doxygen warnings of the public headers removed; `scripts/gen-doxygen.sh` reports 0 for both boards |
 | DEF-006 | OP-10, 2026-11-08 | REQ-DM-074 | 4 | Closed: the Field Device linker script limits the image to the 1 MB the flash-partition document gives it (was 2048 KB; the image uses 46.8%) |
+| DEF-007 | real-data review on the Pi, 2026-11-09 | REQ-SA-070, REQ-AM-040 | 4 | Closed: the simulated Field Device barometer is pulled back towards 1013.2 hPa (it drifted ~27 hPa per hour and flapped the 950 hPa low-pressure alarm about 3 times an hour) |
 
 ## DEF-001: the alarm of a Field Device carried threshold 0
 
@@ -46,3 +47,13 @@ public headers was removed (about 1 700 per board: members, macros, enumerators,
 now ends with 0 warnings for both boards; the descriptions of members and macros were written from the names and the
 surrounding code, so they deserve a read when a module is next touched. The `.c` files are outside the gate (their
 file-local items are not public API); `--with-sources` documents them with call graphs.
+
+## DEF-007: the simulated Field Device pressure drifted across the alarm limit
+
+Field data from the Raspberry Pi showed the Field Device pressure at 943-978 hPa (swings of about 35 hPa per hour)
+while the Gateway, with a real sensor, read a steady 1018 hPa, so the low-pressure alarm (950.0 hPa) was raised
+about three times an hour. Cause: the Field Device has no barometer; `barometer_driver.c` is a bounded random walk
+(+-0.2 hPa per read at 100 ms), whose spread grows with the square root of time (about 27 hPa per hour). Not a driver
+bug but a weakness of the simulation model. Fix: one unit (0.1 hPa) of pull towards 1013.2 hPa when the value is more
+than 3 hPa away; LLD §3.2 and test T-BARO-08 (200 000 reads stay within 10 hPa; fails without the fix). Host tests
+only: the Field Device image has not been rebuilt or flashed.
