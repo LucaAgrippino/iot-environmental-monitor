@@ -53,8 +53,11 @@ Restore the sensor after OP-06/07.
 
 Wave 6 (the 8 hour endurance run, TC-VER-EN-001) ran on 2026-11-08 from 14:44 to 22:44 on the Raspberry Pi and passed:
 no reset of either board (uptimes 29 347 s and 29 324 s at the last sample), 605 MQTT publishes with 0 failures, buffer
-empty, 0 sensor failures. The test carries no `REQ-` tag, so the results report does not credit it to any requirement;
-which requirements an endurance run verifies is not defined in the plan yet.
+empty, 0 sensor failures. That run carried no `REQ-` tag. From the next run the test is tagged REQ-CC-000 and REQ-NF-111
+(periodic telemetry, at least 90 % of one message per 60 s over the whole run), which it measures; both are already
+Verified by TC-VER-CL-003, so this adds the long-run evidence and changes no status. The other checks (no reset, 1 %
+bus limit, no MQTT failure) have no requirement behind them and stay untagged on purpose: the 10 s watchdog
+(REQ-NF-109) and the health metrics (REQ-CC-010) are not measured by this test.
 
 - **Bus errors to look at with the boards in hand.** The pass limit is 1 % of transactions. The run ended with 2 277
   Modbus timeouts against 292 789 good transactions (0.78 %) and 2 260 Field Device CRC errors in 294 736 frames
