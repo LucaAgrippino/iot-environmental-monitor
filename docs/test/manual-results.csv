@@ -1,0 +1,6 @@
+requirement,verdict,date,who,evidence
+REQ-MB-070,PASS,2026-11-08,Claude,operator-checklist OP-09: addresses types scaling and alarm bits equal; deviations closed as DEF-003/DEF-004
+REQ-DM-074,PASS,2026-11-08,Claude,operator-checklist OP-10: Gateway equal; Field Device linker limit fixed as DEF-006
+REQ-NF-303,PASS,2026-11-08,Claude,operator-checklist OP-11: no listener in either firmware; sockets are client only; console is UART only
+REQ-NF-505,PASS,2026-11-08,Claude,operator-checklist OP-12 after DEF-005: scripts/gen-doxygen.sh reports 0 warnings for the public headers of both boards
+REQ-NF-113,PASS,2026-11-03,Claude,alarm_latency_bench.py on the Raspberry Pi (PR #157): 20/20 paired; raise median 136 ms and clear median 55 ms; worst 287 ms; limit 500 ms. Re-run on the current build still advised

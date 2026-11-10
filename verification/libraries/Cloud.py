@@ -83,3 +83,39 @@ class Cloud:
             return not ok
         except (ssl.SSLError, ConnectionError, OSError):
             return True
+
+    # ---- commands to the device (cloud to device) -------------------------------------------
+    def device_id(self):
+        """The Gateway's device id, taken from the first telemetry message collected."""
+        for m in self.messages_on("telemetry"):
+            return self.json_of(m)["device_id"]
+        raise AssertionError("no telemetry collected yet: the device id is unknown")
+
+    def publish_command(self, kind, body):
+        """Publish a command (kind: config, control) to cmd/iotmonitor/<device>/<kind> at QoS 1; `body` is a JSON text.
+        Returns the monotonic count of messages seen before the send, to pass to `wait_for_result`."""
+        topic = "cmd/iotmonitor/%s/%s" % (self.device_id(), kind)
+        n0 = len(self.messages)
+        info = self.client.publish(topic, body, qos=1)
+        info.wait_for_publish(10)
+        return n0
+
+    def wait_for_result(self, kind, since_count, timeout=10.0):
+        """Wait for a message on .../<kind>/result recorded after `since_count`; returns it parsed. kind: config, control."""
+        end = time.monotonic() + float(timeout)
+        while time.monotonic() < end:
+            for (t, tp, q, p) in self.messages[int(since_count):]:
+                if tp.endswith("/%s/result" % kind):
+                    return json.loads(p)
+            time.sleep(0.1)
+        raise AssertionError("no %s result within %s s" % (kind, timeout))
+
+    def time_to_result(self, kind, body, timeout=10.0):
+        """Send a command and return (result dict, seconds from the send to the result arriving)."""
+        t0 = time.monotonic()
+        n0 = self.publish_command(kind, body)
+        res = self.wait_for_result(kind, n0, timeout)
+        for (t, tp, q, p) in self.messages[int(n0):]:
+            if tp.endswith("/%s/result" % kind):
+                return res, t - t0
+        return res, time.monotonic() - t0

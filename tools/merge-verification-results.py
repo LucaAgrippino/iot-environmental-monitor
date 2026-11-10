@@ -9,6 +9,10 @@ Each test names the requirements it verifies with REQ-XX-NNN tags; a requirement
   Failed      at least one such test failed in its latest run
   Not run     no test tagged with it has been executed
 
+A requirement checked by hand (inspection, a bench measurement, an operator step) is recorded in
+docs/test/manual-results.csv (requirement, verdict PASS or FAIL, date, who, evidence); it then counts as
+"Verified (manual)" or "Failed". A failing Robot test still wins over a manual PASS.
+
 The requirement list and the method of each come from docs/test/verification-methods.csv.
 Run from anywhere:  tools/merge-verification-results.py [run-dir-or-output.xml ...] [--check]
 --check exits 1 when any executed test failed (for CI or a release gate); it does not rewrite the report.
@@ -24,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "verification/build/results"
 METHODS = ROOT / "docs/test/verification-methods.csv"
 OUT = ROOT / "docs/test/verification-results.md"
+MANUAL = ROOT / "docs/test/manual-results.csv"
 REQ = re.compile(r"^REQ-[A-Z]{2}-\d{3}$")
 TC = re.compile(r"^TC-[A-Z]+(?:-[A-Z0-9]+)*-\d+[a-z]?")
 
@@ -79,9 +84,17 @@ def main():
     known = {r["id"] for r in reqs}
     unknown = sorted(set(by_req) - known)
 
+    manual = {}
+    if MANUAL.exists():
+        for row in csv.DictReader(MANUAL.open(newline="")):
+            manual[row["requirement"]] = row
+
     def status(rid):
         tcs = by_req.get(rid, [])
         if not tcs:
+            m = manual.get(rid)
+            if m:
+                return "Verified (manual)" if m["verdict"].upper() == "PASS" else "Failed"
             return "Not run"
         return "Failed" if any(tests[x]["status"] != "PASS" for x in tcs) else "Verified"
 
@@ -112,6 +125,7 @@ def main():
         f"| Test cases failing | {len(failed)} |",
         f"| Requirements | {n} |",
         f"| Verified (all tagged tests pass) | {count['Verified']} |",
+        f"| Verified by hand (docs/test/manual-results.csv) | {count['Verified (manual)']} |",
         f"| Failed | {count['Failed']} |",
         f"| Not run yet | {count['Not run']} |",
         "",
@@ -130,7 +144,8 @@ def main():
     for r in reqs:
         s = status(r["id"])
         s_txt = s if s != "Failed" else "**Failed**"
-        L.append(f"| {r['id']} | {r['method']} | {r['board']} | {s_txt} | {', '.join(sorted(by_req.get(r['id'], []))) or '-'} |")
+        who = ", ".join(sorted(by_req.get(r["id"], []))) or (f"manual {manual[r['id']]['date']}" if r["id"] in manual else "-")
+        L.append(f"| {r['id']} | {r['method']} | {r['board']} | {s_txt} | {who} |")
     L.append("")
 
     if failed:
