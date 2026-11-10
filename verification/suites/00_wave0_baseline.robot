@@ -41,7 +41,8 @@ TC-VER-NF-002 Field Device image fits the RAM and the flash of the chip
     Log    ${u}
     Should Be True    ${u}[ram] <= ${u}[ram_limit]
     Should Be True    ${u}[flash] <= ${u}[flash_limit]
-    Should Be Equal As Integers    ${u}[flash_limit]    2097152
+    # DEF-006: the linker script limits the image to the 1 MB the flash-partition document gives it (the chip has 2 MB)
+    Should Be Equal As Integers    ${u}[flash_limit]    1048576
 
 TC-VER-NF-003 Gateway QSPI partitions fit the device and the log and buffer limits
     [Tags]    TC-VER-NF-003    REQ-NF-402    REQ-NF-406    REQ-NF-407

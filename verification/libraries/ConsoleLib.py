@@ -105,3 +105,22 @@ class ConsoleLib:
                 if "Available commands" in self.buf:
                     return
         raise AssertionError("%s console did not come up" % self.board)
+
+    def uptime_seconds(self):
+        """Uptime in seconds from the Gateway `status` text ("Uptime 0d 00:03:02")."""
+        m = re.search(r"Uptime (\d+)d (\d+):(\d+):(\d+)", " ".join(self.buf.split()))
+        if not m:
+            raise AssertionError("no uptime in %r" % " ".join(self.buf.split())[-200:])
+        d, h, mi, se = (int(x) for x in m.groups())
+        return ((d * 24 + h) * 60 + mi) * 60 + se
+
+    def wait_for_mqtt_connected(self, timeout=240, settle=15):
+        """Gateway: wait until `mqtt status` says connected, then `settle` seconds for the subscriptions to be sent."""
+        end = time.time() + float(timeout)
+        while time.time() < end:
+            self.send_command("mqtt status", 2.5)
+            if re.search(r"mqtt[^a-z]{1,8}connected", " ".join(self.buf.split())):
+                time.sleep(float(settle))
+                return
+            time.sleep(5)
+        raise AssertionError("the Gateway did not connect to the broker within %s s" % timeout)

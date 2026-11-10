@@ -4,3 +4,9 @@ REQ-DM-074,PASS,2026-11-08,Claude,operator-checklist OP-10: Gateway equal; Field
 REQ-NF-303,PASS,2026-11-08,Claude,operator-checklist OP-11: no listener in either firmware; sockets are client only; console is UART only
 REQ-NF-505,PASS,2026-11-08,Claude,operator-checklist OP-12 after DEF-005: scripts/gen-doxygen.sh reports 0 warnings for the public headers of both boards
 REQ-NF-113,PASS,2026-11-03,Claude,alarm_latency_bench.py on the Raspberry Pi (PR #157): 20/20 paired; raise median 136 ms and clear median 55 ms; worst 287 ms; limit 500 ms. Re-run on the current build still advised
+REQ-NF-109,PASS,2026-11-06,Claude,TC-HW-WDG-001/002 on both boards (docs/lld/drivers/watchdog-driver.md): 10 min without reset; a stall build resets the board about 31-35 s after power-on and the next boot reports the cause watchdog. Not repeatable with openocd: both drivers freeze the IWDG while the core is halted (DBG_IWDG_STOP)
+REQ-NF-507,PASS,2026-11-07,Claude,PR #172 CpuDriver on both boards: full hardware results recorded in docs/lld/drivers/cpu-driver.md
+REQ-DM-070,PASS,2026-11-09,Claude,real OTA on the Gateway: after the update the bootloader ran bank B (UART: BL in=4 out=4 bank=B gen=4 ver=0x01000001) at 0x08080000
+REQ-DM-072,PASS,2026-11-09,Claude,real OTA of a build that fails its self-check (1.0.2): result rolled_back; UART BL ... gen=7 rb=1 ver=0x01000001 back on 1.0.1
+REQ-DM-073,PASS,2026-11-09,Claude,same rollback run: the previous image was still in the other bank and ran again after the failed trial
+
