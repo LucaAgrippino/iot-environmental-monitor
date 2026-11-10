@@ -14,8 +14,9 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | Test cases failing | 0 |
 | Requirements | 207 |
 | Verified (all tagged tests pass) | 114 |
+| Verified by hand (docs/test/manual-results.csv) | 5 |
 | Failed | 0 |
-| Not run yet | 93 |
+| Not run yet | 88 |
 
 ## Test cases
 
@@ -163,7 +164,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-MB-040 | T | SYS | Not run | - |
 | REQ-MB-050 | T | SYS | Not run | - |
 | REQ-MB-060 | T | SYS | Not run | - |
-| REQ-MB-070 | I | BOTH | Not run | - |
+| REQ-MB-070 | I | BOTH | Verified (manual) | manual 2026-11-08 |
 | REQ-MB-080 | T | SYS | Not run | - |
 | REQ-MB-090 | T | SYS | Not run | - |
 | REQ-MB-100 | T | GW | Verified | TC-VER-U-001 |
@@ -213,7 +214,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-DM-071 | T | GW | Not run | - |
 | REQ-DM-072 | T | GW | Not run | - |
 | REQ-DM-073 | T | GW | Not run | - |
-| REQ-DM-074 | I | GW | Not run | - |
+| REQ-DM-074 | I | GW | Verified (manual) | manual 2026-11-08 |
 | REQ-DM-080 | T | GW | Not run | - |
 | REQ-DM-090 | T | BOTH | Verified | TC-VER-FD-002, TC-VER-GW-005 |
 | REQ-DM-100 | T | GW | Not run | - |
@@ -234,7 +235,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-NF-110 | T | SYS | Not run | - |
 | REQ-NF-111 | T | SYS | Verified | TC-VER-CL-003 |
 | REQ-NF-112 | T | SYS | Not run | - |
-| REQ-NF-113 | T | SYS | Not run | - |
+| REQ-NF-113 | T | SYS | Verified (manual) | manual 2026-11-03 |
 | REQ-NF-114 | T | BOTH | Verified | TC-VER-FD-003, TC-VER-FD-004, TC-VER-GW-004, TC-VER-GW-005 |
 | REQ-NF-200 | T | GW | Verified | TC-VER-GW-011 |
 | REQ-NF-201 | T | SYS | Verified | TC-VER-GW-009 |
@@ -256,7 +257,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-NF-300 | T | SYS | Verified | TC-VER-CL-002 |
 | REQ-NF-301 | T | SYS | Verified | TC-VER-CL-002 |
 | REQ-NF-302 | I | GW | Verified | TC-VER-GW-008 |
-| REQ-NF-303 | I | BOTH | Not run | - |
+| REQ-NF-303 | I | BOTH | Verified (manual) | manual 2026-11-08 |
 | REQ-NF-304 | T | GW | Not run | - |
 | REQ-NF-305 | T | GW | Not run | - |
 | REQ-NF-306 | T | SYS | Not run | - |
@@ -276,6 +277,6 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-NF-502 | I | BOTH | Verified | TC-VER-NF-007 |
 | REQ-NF-503 | T | BOTH | Verified | TC-VER-SM-001, TC-VER-SM-002 |
 | REQ-NF-504 | D | BOTH | Verified | TC-VER-GW-002 |
-| REQ-NF-505 | I | BOTH | Not run | - |
+| REQ-NF-505 | I | BOTH | Verified (manual) | manual 2026-11-08 |
 | REQ-NF-506 | I | BOTH | Verified | TC-VER-NF-006 |
 | REQ-NF-507 | T | BOTH | Not run | - |
