@@ -13,6 +13,8 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | DEF-005 | OP-12, 2026-11-08 | REQ-NF-505 | 4 | Closed: all Doxygen warnings of the public headers removed; `scripts/gen-doxygen.sh` reports 0 for both boards |
 | DEF-006 | OP-10, 2026-11-08 | REQ-DM-074 | 4 | Closed: the Field Device linker script limits the image to the 1 MB the flash-partition document gives it (was 2048 KB; the image uses 46.8%) |
 | DEF-007 | real-data review on the Pi, 2026-11-09 | REQ-SA-070, REQ-AM-040 | 4 | Closed: the simulated Field Device barometer is pulled back towards 1013.2 hPa (it drifted ~27 hPa per hour and flapped the 950 hPa low-pressure alarm about 3 times an hour) |
+| DEF-008 | TC-VER-CL-012, 2026-11-10 | REQ-CC-010 | 3 | Open: the health message has no Modbus CRC count (ModbusMaster counts `crc_errors`, nothing publishes them) |
+| DEF-009 | TC-VER-GW-015, 2026-11-10 | REQ-TS-000, REQ-TS-010 (display only) | 4 | Open: the console `status` line says "Time unsynchronised" after the Gateway has synchronised (the health message shows `last_ntp_sync_epoch` set 20 s after boot, 0 failures) |
 
 ## DEF-001: the alarm of a Field Device carried threshold 0
 
@@ -57,3 +59,16 @@ about three times an hour. Cause: the Field Device has no barometer; `barometer_
 bug but a weakness of the simulation model. Fix: one unit (0.1 hPa) of pull towards 1013.2 hPa when the value is more
 than 3 hPa away; LLD §3.2 and test T-BARO-08 (200 000 reads stay within 10 hPa; fails without the fix). Host tests
 only: the Field Device image has not been rebuilt or flashed.
+
+## DEF-008: the health message has no Modbus CRC count
+
+REQ-CC-010 lists "Modbus CRC/timeout/success counts". The health JSON has `modbus_timeouts` and `modbus_transactions_ok`, but no CRC field.
+`modbus_master.c:243` increments `crc_errors` in `modbus_master_stats_t`; no module reads it (not the health serialiser, not the console).
+Found by TC-VER-CL-012 (every other metric of the requirement is present). The wave 6 run saw 2 260 Field Device CRC errors in 294 736
+frames, so the number is worth publishing. Fix: add the counter to the health statistics and the payload (a schema field, backwards compatible).
+
+## DEF-009: the console says "Time unsynchronised" after the time is synchronised
+
+On 2026-11-10 the Gateway's health message (uptime 306 s) carried `last_ntp_sync_epoch` 1794346481, `ntp_sync_fail_count` 0, the right time, 20 s after
+boot; the console `status` line still read `Time unsynchronised` at 3 min and at 40 min of uptime. The time works (REQ-TS-000/010 pass from
+the health data); only the status line is wrong, probably because `time_sync_state` of the health snapshot is not fed from TimeService.
