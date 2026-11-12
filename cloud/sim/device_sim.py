@@ -79,7 +79,7 @@ class Sim:
         self.pub("health", {**self.common(), "fw_version": self.fw, "uptime_s": int(time.time() - self.boot),
                             "lifecycle_state": "OPERATIONAL", "last_reset_cause": "POWER_ON", "sensor_fail_count": 0,
                             "alarm_raise_count": 0, "config_write_failed": False, "modbus_transactions_ok": 1000,
-                            "modbus_timeouts": 1, "modbus_link_online": True, "mqtt_publishes_sent": 100,
+                            "modbus_timeouts": 1, "modbus_crc_errors": 0, "modbus_link_online": True, "mqtt_publishes_sent": 100,
                             "mqtt_publishes_failed": 0, "mqtt_reconnect_count": 0, "wifi_rssi_dbm": -55,
                             "cloud_connected": True, "buffer_entry_count": 0, "buffer_overflow_count": 0,
                             "ntp_sync_fail_count": 0, "last_ntp_sync_epoch": int(time.time()), "cpu_load_pct": 12,

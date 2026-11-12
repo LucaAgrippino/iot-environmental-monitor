@@ -195,6 +195,15 @@ time_provider_err_t time_provider_init(health_monitor_handle_t health)
         (bkup_val == TIME_PROVIDER_SYNC_MAGIC) ? TIME_SYNC_SYNCHRONISED : TIME_SYNC_UNSYNCHRONISED;
     s_tp.initialised = true;
 
+    /* A warm reset keeps the RTC and its sync flag, so the unsynchronised -> synchronised
+     * transition that tells HealthMonitor never happens in this run, and its snapshot (which
+     * starts as unsynchronised) stayed wrong until the next cold boot: the console printed
+     * "Time unsynchronised" with the right time (DEF-009). Say so once, now. */
+    if ((s_tp.sync_state == TIME_SYNC_SYNCHRONISED) && (health != NULL))
+    {
+        (void) health_monitor_push_event(health, HEALTH_EVENT_TIME_SYNC_ACQUIRED, 0U);
+    }
+
     LOG_INFO(MODULE_TAG, "Initialised sync_state=%d", (int) s_tp.sync_state);
 
     return TIME_PROVIDER_ERR_OK;

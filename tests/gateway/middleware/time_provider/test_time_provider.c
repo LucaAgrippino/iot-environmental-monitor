@@ -330,6 +330,7 @@ void test_TC_TP_010_init_without_magic_starts_unsynchronised(void)
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
     TEST_ASSERT_EQUAL(TIME_SYNC_UNSYNCHRONISED, time_provider_get_sync_state());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_push_calls); /* nothing to announce */
 }
 
 /* ====================================================================== */
@@ -540,8 +541,35 @@ void test_TC_TP_027_warm_reset_restores_synchronised_state(void)
     /* Warm reset: RAM state is lost, BKP0R still holds the magic. */
     time_provider_reset_for_test();
     g_bkup_read_val = g_bkup_last_val;
+    health_mock_reset();
 
     TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
+    TEST_ASSERT_EQUAL(TIME_SYNC_SYNCHRONISED, time_provider_get_sync_state());
+    /* DEF-009: HealthMonitor starts unsynchronised, so it has to be told that the restored
+     * state is synchronised; otherwise the console reads "Time unsynchronised" until a cold boot.
+     */
+    TEST_ASSERT_EQUAL_UINT32(1U, g_push_calls);
+    TEST_ASSERT_EQUAL(HEALTH_EVENT_TIME_SYNC_ACQUIRED, g_push_last);
+}
+
+/* DEF-009: after the warm-reset announcement, the first NTP set_time must not announce again. */
+void test_TC_TP_033_warm_reset_announces_once_and_the_next_sync_stays_silent(void)
+{
+    g_bkup_read_val = TIME_PROVIDER_SYNC_MAGIC;
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(HEALTH_HANDLE));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_push_calls);
+
+    /* The provider starts synchronised, so this set_time runs the sanity check against the RTC. */
+    set_rtc_now_y2k();
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_set_time(EPOCH_Y2K));
+    TEST_ASSERT_EQUAL_UINT32(1U, g_push_calls);
+}
+
+/* DEF-009: a null health handle stays allowed on the warm path too. */
+void test_TC_TP_034_warm_reset_with_a_null_health_handle_pushes_nothing(void)
+{
+    g_bkup_read_val = TIME_PROVIDER_SYNC_MAGIC;
+    TEST_ASSERT_EQUAL(TIME_PROVIDER_ERR_OK, time_provider_init(NULL));
     TEST_ASSERT_EQUAL(TIME_SYNC_SYNCHRONISED, time_provider_get_sync_state());
     TEST_ASSERT_EQUAL_UINT32(0U, g_push_calls);
 }

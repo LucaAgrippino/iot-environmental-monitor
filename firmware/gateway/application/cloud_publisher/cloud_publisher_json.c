@@ -253,7 +253,7 @@ uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const health_snapshot
          prv_append(
              buf, buf_size, &len,
              "\"modbus_transactions_ok\":%lu,\"modbus_timeouts\":%lu,"
-             "\"modbus_link_online\":%s,\"mqtt_publishes_sent\":%lu,"
+             "\"modbus_crc_errors\":%lu,\"modbus_link_online\":%s,\"mqtt_publishes_sent\":%lu,"
              "\"mqtt_publishes_failed\":%lu,\"mqtt_reconnect_count\":%lu,"
              "\"wifi_rssi_dbm\":%ld,\"cloud_connected\":%s,"
              "\"buffer_entry_count\":%lu,\"buffer_overflow_count\":%lu,"
@@ -262,8 +262,8 @@ uint32_t cp_serialise_health(char *buf, uint32_t buf_size, const health_snapshot
              "\"free_ram_bytes\":%lu,\"mcu_temp_valid\":%s,\"mcu_temp_deci_c\":%d,"
              "\"stack_free_words\":[",
              (unsigned long) snap->modbus_transactions_ok, (unsigned long) snap->modbus_timeouts,
-             snap->modbus_link_online ? "true" : "false", (unsigned long) snap->mqtt_publishes_sent,
-             (unsigned long) snap->mqtt_publishes_failed,
+             (unsigned long) snap->modbus_crc_errors, snap->modbus_link_online ? "true" : "false",
+             (unsigned long) snap->mqtt_publishes_sent, (unsigned long) snap->mqtt_publishes_failed,
              (unsigned long) snap->mqtt_reconnect_count, (long) snap->wifi_rssi_dbm,
              snap->cloud_connected ? "true" : "false", (unsigned long) snap->buffer_entry_count,
              (unsigned long) snap->buffer_overflow_count, (unsigned long) snap->ntp_sync_fail_count,

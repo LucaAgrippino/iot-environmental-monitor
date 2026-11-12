@@ -200,8 +200,9 @@ typedef struct
 
     /** ── Modbus master ── */
     uint32_t modbus_transactions_ok;
-    uint32_t modbus_timeouts; /**< Modbus requests that timed out since boot. */
-    bool modbus_link_online;  /**< True while the Field Device link is up. */
+    uint32_t modbus_timeouts;   /**< Modbus requests that timed out since boot. */
+    uint32_t modbus_crc_errors; /**< Modbus responses with a bad CRC since boot (REQ-CC-010). */
+    bool modbus_link_online;    /**< True while the Field Device link is up. */
 
     /** ── Cloud ── */
     uint32_t mqtt_publishes_sent;
@@ -309,7 +310,7 @@ health_monitor_err_t health_monitor_push_event(health_monitor_handle_t handle, h
 /**
  * @brief Copy the Modbus master counters into the snapshot.
  *
- * Copies transactions_ok and timeouts only.  The link state is event-driven:
+ * Copies transactions_ok, timeouts and crc_errors.  The link state is event-driven:
  * it changes through HEALTH_EVENT_MODBUS_LINK_UP / _DOWN, not through these stats.
  *
  * @param[in] handle  HealthMonitor handle.
@@ -463,7 +464,7 @@ health_monitor_err_t health_monitor_set_led_fault(health_monitor_handle_t handle
  * @brief Zero the counter-type metrics (remote CMD_RESET_METRICS).
  *
  * Zeroes sensor_fail_count, alarm_raise_count, modbus_transactions_ok,
- * modbus_timeouts, mqtt_publishes_sent, mqtt_publishes_failed,
+ * modbus_timeouts, modbus_crc_errors, mqtt_publishes_sent, mqtt_publishes_failed,
  * mqtt_reconnect_count, ntp_sync_fail_count and buffer_overflow_count. Every
  * other field is preserved.
  *
