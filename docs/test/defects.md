@@ -15,6 +15,9 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | DEF-007 | real-data review on the Pi, 2026-11-09 | REQ-SA-070, REQ-AM-040 | 4 | Closed: the simulated Field Device barometer is pulled back towards 1013.2 hPa (it drifted ~27 hPa per hour and flapped the 950 hPa low-pressure alarm about 3 times an hour) |
 | DEF-008 | TC-VER-CL-012, 2026-11-10 | REQ-CC-010 | 3 | Open: the health message has no Modbus CRC count (ModbusMaster counts `crc_errors`, nothing publishes them) |
 | DEF-009 | TC-VER-GW-015, 2026-11-10 | REQ-TS-000, REQ-TS-010 (display only) | 4 | Open: the console `status` line says "Time unsynchronised" after the Gateway has synchronised (the health message shows `last_ntp_sync_epoch` set 20 s after boot, 0 failures) |
+| DEF-010 | OTA suite first run, 2026-11-11 | REQ-NF-213 (boot) | 2 | Closed: PR #206 (after a cold power-up the Field Device stopped in `abort()` before the scheduler: the 32.768 kHz crystal was not ready, `rtc_init()` failed, the Logger's first timestamp hit an assert; boots now, hardware-checked with the crystal off and after a full power cycle) |
+| DEF-011 | OTA suite first run, 2026-11-11 | no single requirement (REQ-DM-072, REQ-DM-073 results were mixed up) | 3 | Closed: PR #207 (the Gateway republished messages it had already delivered after every reset: `CircularFlashLog` persisted only the head sector; `SAF 7 / 254 entries at boot` with the ring drained, 0 after the fix, hardware-checked) |
+| DEF-012 | analysis of DEF-010, 2026-11-11 | REQ-NF-213 (boot), robustness | 4 | Open: no Field Device code calls `rtc_set_tick_source()`, `debug_uart_set_tick_source()` or `modbus_uart_set_tick_source()`, so their poll loops have no timeout (RTCD-O1 expected the call at start-up) |
 
 ## DEF-001: the alarm of a Field Device carried threshold 0
 
@@ -72,3 +75,36 @@ frames, so the number is worth publishing. Fix: add the counter to the health st
 On 2026-11-10 the Gateway's health message (uptime 306 s) carried `last_ntp_sync_epoch` 1794346481, `ntp_sync_fail_count` 0, the right time, 20 s after
 boot; the console `status` line still read `Time unsynchronised` at 3 min and at 40 min of uptime. The time works (REQ-TS-000/010 pass from
 the health data); only the status line is wrong, probably because `time_sync_state` of the health snapshot is not fed from TimeService.
+
+## DEF-010: the Field Device stopped in abort() after a cold power-up
+
+Found when the OTA suite left the Field Device silent after a reset. After a full power-up the 32.768 kHz crystal (LSE) needs from a
+few hundred milliseconds to a couple of seconds to start; `system_clock_init()` only switched it on. `rtc_init()` then failed with
+`RTC_ERR_LSE_NOT_READY`, `main()` ignored the result, and the Logger's first `rtc_get_time()` hit `assert(initialised)`: `abort()`, then
+`_exit()`, before the scheduler, with a silent console. A warm reset keeps the LSE running, so a debugger session never showed it.
+Fix: `system_clock_wait_lse_ready()` (3 s limit, timed with the DWT counter); the RTC driver returns `RTC_ERR_NOT_INIT` instead of asserting;
+`main()` keeps the `rtc_init()` result and logs a warning (the Logger then stamps the uptime). Host tests TC_RTC_035 to 037.
+Hardware: with `LSEON` cleared and reset, and after a full power cycle, the board reaches Operational and answers on the console. Not
+shown: the old image failing on the same power cycle, and the case of a crystal that never starts (host tests only). Left open on purpose:
+the Field Device never calls `rtc_set_tick_source()`, so the RTC polling loops still have no timeout.
+
+## DEF-011: the Gateway republished delivered messages after every reset
+
+The first OTA run showed old OTA results arriving again after each reboot, and earlier work had seen 284 entries for 254 stored
+(CFL-O6 in the CircularFlashLog LLD). Cause: only the head sector is persisted, so records already consumed inside the head sector were
+found again by the boot scan. Fix: an append-only consume journal in the unused part of each metadata sector (8-byte entries, no erase per
+consume, one rotation per about 500), the boot scan skips journaled records. Host tests (including a torn journal entry and 1300
+append and consume rounds under an erase budget). Hardware: the old image logged `SAF 7 / 254 entries at boot` on every reset with the ring
+drained; the new one logs 0, keeps records buffered during a 100 s broker outage across a reset, and logs 0 again after delivery. A reset
+between a consume and its journal write still replays that one record.
+
+## DEF-012: the Field Device poll loops have no timeout
+
+The RTC driver (and, with the same "no timeout" default, the debug UART and Modbus UART drivers) takes an injected millisecond tick
+source. The default returns 0, so a deadline is never reached and a wait for a hardware flag can spin forever. The RTC header and
+RTCD-O1 say production code installs a real tick source at start-up; a search of `firmware/field-device` finds no caller of
+`rtc_set_tick_source()`, `debug_uart_set_tick_source()` or `modbus_uart_set_tick_source()`. Today the flags (`INITF`, `RSF`) do come up,
+so nothing fails in the field; but a stuck peripheral would hang the boot or a task instead of returning `RTC_ERR_INIT_TIMEOUT` or
+`RTC_ERR_SYNC_TIMEOUT`. The same default made a host test of this repository spin at 100% CPU for 23 minutes (TC_RTC_037, fixed in the test).
+Proposal: install a SysTick or DWT based reader in `main()` before `rtc_init()` and exercise the timeout paths on the board (clear `LSEON`
+and the flags cannot come up). Not part of the DEF-010 fix.
