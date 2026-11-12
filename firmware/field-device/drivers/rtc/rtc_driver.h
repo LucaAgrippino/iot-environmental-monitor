@@ -72,7 +72,8 @@ typedef enum
     RTC_ERR_SYNC_TIMEOUT = 2,  /**< RSF flag did not assert within timeout. */
     RTC_ERR_NULL_ARG = 3,      /**< Null pointer passed to a pointer parameter. */
     RTC_ERR_BACKUP_BOUNDS = 4, /**< Backup-register index out of range for this board. */
-    RTC_ERR_LSE_NOT_READY = 5  /**< LSE not running, or RTCSEL locked to a non-LSE source. */
+    RTC_ERR_LSE_NOT_READY = 5, /**< LSE not running, or RTCSEL locked to a non-LSE source. */
+    RTC_ERR_NOT_INIT = 6       /**< rtc_init() has not returned RTC_OK; the call did nothing. */
 } rtc_err_t;
 
 /* --------------------------------------------------------------------- */
@@ -135,8 +136,8 @@ rtc_err_t rtc_init(void);
  *
  * @note Threading: task-context only, non-blocking (≤ 2 ms worst case). NOT
  *       ISR-safe. NOT internally serialised — caller serialises if needed.
- * @note Pre-condition (debug builds): rtc_init() has returned OK. Asserted
- *       via assert(); undefined in release builds.
+ * @note Before a successful rtc_init() the call returns RTC_ERR_NOT_INIT (it
+ *       used to assert, which parked the device when the LSE was not ready).
  */
 rtc_err_t rtc_get_time(rtc_datetime_t *dt);
 

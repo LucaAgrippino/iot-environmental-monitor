@@ -69,6 +69,9 @@
 /* Tasks: priorities and stacks from docs/hld/task-breakdown.md 4.2         */
 /* ======================================================================= */
 
+/** How long boot waits for the 32.768 kHz crystal after a cold power-up (typically < 2 s). */
+#define LSE_START_TIMEOUT_MS (3000U)
+
 #define SENSOR_TASK_PRIORITY (5U)
 #define SENSOR_TASK_STACK_WORDS (768U)
 #define MODBUS_TASK_PRIORITY (4U)
@@ -624,6 +627,11 @@ int main(void)
     /* The cycle counter drives HAL_GetTick/HAL_Delay of the LCD BSP. A debugger session leaves it
      * running; after a cold power-up it is stopped and the LCD bring-up waits forever (DEF-002). */
     system_clock_enable_dwt();
+    /* The LSE was only switched on by system_clock_init(); after a cold power-up it needs up to a
+     * couple of seconds, and rtc_init() fails if it runs first (DEF-010: the Logger's first
+     * timestamp then asserted and the device parked in abort() before the scheduler). A missing
+     * crystal does not stop the boot: the Logger falls back to the uptime. */
+    const bool lse_ready = system_clock_wait_lse_ready(LSE_START_TIMEOUT_MS);
     /* Fault diagnostics and the previous boot's panic report; before rtc_init() so the backup
      * registers are read as the last boot left them. */
     (void) cpu_init();
@@ -632,7 +640,7 @@ int main(void)
     NVIC_SetPriority(USART3_IRQn, DEBUG_UART_IRQ_PRIORITY);
     (void) gpio_init();
     (void) led_init(k_fd_led_pins, LED_COUNT);
-    (void) rtc_init();
+    const rtc_err_t rtc_rc = rtc_init();
     (void) debug_uart_init();
     (void) i2c_init();
     (void) qspi_flash_init();
@@ -642,6 +650,11 @@ int main(void)
      *    Logger (its pre-scheduler calls write synchronously). */
     (void) health_monitor_init();
     (void) logger_init(LOG_LEVEL_INFO);
+    if (!lse_ready || (rtc_rc != RTC_OK))
+    {
+        LOG_WARN(MODULE_TAG, "RTC not usable (LSE %s, rtc_init %d): log lines carry the uptime",
+                 lse_ready ? "ready" : "not ready", (int) rtc_rc);
+    }
     (void) time_provider_init(health_report);
     (void) config_store_init(health_report);
 

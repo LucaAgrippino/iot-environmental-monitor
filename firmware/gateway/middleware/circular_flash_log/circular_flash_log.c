@@ -45,6 +45,14 @@
 /** @brief Metadata slot size including the trailing CRC-32. */
 #define CFL_META_SLOT_SZ (16U)
 
+/** @brief Where the consume journal starts inside a metadata slot sector. The slot is a whole
+ *         erase sector of which the head record uses 16 bytes; the rest stays erased and takes
+ *         one 8-byte entry per consumed record, programmed without an erase. */
+#define CFL_META_JOURNAL_OFFSET (16U)
+
+/** @brief Journal entry: last consumed sequence number + its CRC-32. */
+#define CFL_META_JOURNAL_ENTRY_SZ (8U)
+
 /** @brief Marks a written metadata slot; distinct from CFL_MAGIC. */
 #define CFL_META_MAGIC (0xBEEF5A5BUL)
 
@@ -106,6 +114,10 @@ struct cfl_inst
     uint8_t meta_slot;     /**< Slot holding the current head pointer.    */
     uint32_t meta_seq_num; /**< Sequence number of that slot.             */
     bool meta_slot_valid;  /**< False until a slot has been written.      */
+    uint32_t consumed_seq; /**< Sequence number of the last consumed record. */
+    bool consumed_valid;   /**< False until a record has been consumed.   */
+    uint32_t journal_next; /**< Offset of the next free journal entry in the slot; a full slot
+                                (or a torn entry) holds the sector size, forcing a rotation. */
 
     bool in_use;
 };
@@ -408,6 +420,69 @@ static cfl_err_t cfl_verify_record_crc(const struct cfl_inst *inst, uint8_t sect
 /* ====================================================================== */
 
 /**
+ * @brief Read the consume journal of the active metadata slot.
+ *
+ * Entries are monotonic; the last valid one is the sequence number of the last record consumed
+ * before the reset. A blank entry ends the journal. A non-blank entry that fails its CRC is a
+ * write interrupted by power loss: the rest of the slot is treated as full so the next consume
+ * rotates to the other slot instead of programming over dirty bytes.
+ */
+static cfl_err_t cfl_journal_load(struct cfl_inst *inst)
+{
+    const uint32_t base = cfl_meta_slot_addr(inst->meta_slot);
+    uint32_t offset = CFL_META_JOURNAL_OFFSET;
+
+    inst->consumed_valid = false;
+    inst->consumed_seq = 0U;
+
+    while ((offset + CFL_META_JOURNAL_ENTRY_SZ) <= CFL_SECTOR_SIZE_BYTES)
+    {
+        uint8_t raw[CFL_META_JOURNAL_ENTRY_SZ];
+        bool blank = true;
+        cfl_err_t err = cfl_flash_read(inst, base + offset, raw, sizeof(raw));
+
+        if (err != CFL_ERR_OK)
+        {
+            return err;
+        }
+
+        for (uint32_t i = 0U; i < sizeof(raw); i++)
+        {
+            if (raw[i] != CFL_ERASED_BYTE)
+            {
+                blank = false;
+                break;
+            }
+        }
+
+        if (blank)
+        {
+            break;
+        }
+
+        if (cfl_get_u32(&raw[4]) != cfl_crc32(raw, 4U))
+        {
+            offset = CFL_SECTOR_SIZE_BYTES;
+            break;
+        }
+
+        uint32_t seq = cfl_get_u32(&raw[0]);
+
+        if (!inst->consumed_valid || (seq > inst->consumed_seq))
+        {
+            inst->consumed_valid = true;
+            inst->consumed_seq = seq;
+        }
+
+        offset += CFL_META_JOURNAL_ENTRY_SZ;
+    }
+
+    inst->journal_next = offset;
+
+    return CFL_ERR_OK;
+}
+
+/**
  * @brief Recover the head sector from the A/B metadata slots.
  *
  * On fresh flash neither slot is valid; the head starts at ring index 0 and
@@ -458,7 +533,30 @@ static cfl_err_t cfl_meta_load(struct cfl_inst *inst)
         }
     }
 
+    if (inst->meta_slot_valid)
+    {
+        return cfl_journal_load(inst);
+    }
+
     return CFL_ERR_OK;
+}
+
+/** @brief Program the entry for inst->consumed_seq at inst->journal_next of @p slot. */
+static cfl_err_t cfl_journal_write(struct cfl_inst *inst, uint8_t slot)
+{
+    uint8_t raw[CFL_META_JOURNAL_ENTRY_SZ];
+    cfl_err_t err;
+
+    cfl_put_u32(&raw[0], inst->consumed_seq);
+    cfl_put_u32(&raw[4], cfl_crc32(raw, 4U));
+
+    err = cfl_flash_write(inst, cfl_meta_slot_addr(slot) + inst->journal_next, raw, sizeof(raw));
+    if (err == CFL_ERR_OK)
+    {
+        inst->journal_next += CFL_META_JOURNAL_ENTRY_SZ;
+    }
+
+    return err;
 }
 
 /**
@@ -486,6 +584,20 @@ static cfl_err_t cfl_meta_store(struct cfl_inst *inst)
         return err;
     }
 
+    inst->journal_next = CFL_META_JOURNAL_OFFSET;
+
+    /* Carry the last consumed sequence number into the new slot, written BEFORE the body: the
+     * slot only becomes valid once its body lands, so a power loss in between leaves the other
+     * slot (and its journal) as the current one. */
+    if (inst->consumed_valid)
+    {
+        err = cfl_journal_write(inst, slot);
+        if (err != CFL_ERR_OK)
+        {
+            return err;
+        }
+    }
+
     err = cfl_flash_write(inst, cfl_meta_slot_addr(slot), raw, sizeof(raw));
     if (err != CFL_ERR_OK)
     {
@@ -497,6 +609,34 @@ static cfl_err_t cfl_meta_store(struct cfl_inst *inst)
     inst->meta_slot_valid = true;
 
     return CFL_ERR_OK;
+}
+
+/**
+ * @brief Record that the record with sequence number @p seq has been consumed.
+ *
+ * Programs one journal entry into the active slot (no erase). Once the slot is full the head
+ * record is rewritten into the other slot, which resets the journal: one erase per ~500 consumes.
+ */
+static cfl_err_t cfl_journal_note_consumed(struct cfl_inst *inst, uint32_t seq)
+{
+    inst->consumed_seq = seq;
+    inst->consumed_valid = true;
+
+    if (!inst->meta_slot_valid ||
+        ((inst->journal_next + CFL_META_JOURNAL_ENTRY_SZ) > CFL_SECTOR_SIZE_BYTES))
+    {
+        return cfl_meta_store(inst);
+    }
+
+    cfl_err_t err = cfl_journal_write(inst, inst->meta_slot);
+
+    if (err != CFL_ERR_OK)
+    {
+        /* The entry may be partly programmed: never write after it, rotate next time. */
+        inst->journal_next = CFL_SECTOR_SIZE_BYTES;
+    }
+
+    return err;
 }
 
 /* ====================================================================== */
@@ -513,16 +653,22 @@ static cfl_err_t cfl_meta_store(struct cfl_inst *inst)
  * Live records carry consecutive sequence numbers (every append takes the next
  * one). A record that does not continue the sequence is a leftover from an
  * earlier lap of the ring, consumed long ago, and ends the scan (CFL-O6).
+ *
+ * Records at or below the journaled consumed sequence number are counted in @p skipped_out, not
+ * in @p count_out; @p first_live_out is the offset of the first record that is still live.
  */
 static cfl_err_t cfl_scan_sector(const struct cfl_inst *inst, uint8_t sector, uint32_t *count_out,
                                  uint32_t *bytes_out, uint32_t *end_offset_out,
-                                 uint32_t *max_seq_out, bool any_before)
+                                 uint32_t *max_seq_out, bool any_before, uint32_t *skipped_out,
+                                 uint32_t *first_live_out)
 {
     uint32_t offset = 0U;
 
     *count_out = 0U;
     *bytes_out = 0U;
     *end_offset_out = 0U;
+    *skipped_out = 0U;
+    *first_live_out = 0U;
 
     while (cfl_room_for_record(offset))
     {
@@ -551,13 +697,26 @@ static cfl_err_t cfl_scan_sector(const struct cfl_inst *inst, uint8_t sector, ui
             break;
         }
 
-        if ((any_before || (*count_out > 0U)) && (hdr.seq_num != (*max_seq_out + 1U)))
+        if ((any_before || ((*count_out + *skipped_out) > 0U)) &&
+            (hdr.seq_num != (*max_seq_out + 1U)))
         {
             break;
         }
 
-        (*count_out)++;
-        *bytes_out += hdr.data_len;
+        /* Consumed before the reset (consume journal): still part of the sequence, not live. */
+        if (inst->consumed_valid && (hdr.seq_num <= inst->consumed_seq))
+        {
+            (*skipped_out)++;
+        }
+        else
+        {
+            if (*count_out == 0U)
+            {
+                *first_live_out = offset;
+            }
+            (*count_out)++;
+            *bytes_out += hdr.data_len;
+        }
         offset += cfl_record_size(hdr.data_len);
         *end_offset_out = offset;
 
@@ -623,30 +782,35 @@ static cfl_err_t cfl_region_erased(const struct cfl_inst *inst, uint8_t sector, 
 static cfl_err_t cfl_boot_scan(struct cfl_inst *inst)
 {
     uint32_t max_seq = 0U;
-    bool any_record = false;
+    bool any_seen = false; /* a record of the sequence, live or already consumed */
+    bool any_live = false;
+    const uint8_t first_sector = inst->head_sector;
 
     inst->entry_count = 0U;
     inst->byte_count = 0U;
-    inst->tail_sector = inst->head_sector;
+    inst->head_offset = 0U;
+    inst->tail_sector = first_sector;
     inst->tail_offset = 0U;
 
     for (uint32_t step = 0U; step < CFL_DATA_SECTOR_COUNT; step++)
     {
-        uint8_t sector = (uint8_t) (((uint32_t) inst->head_sector + step) % CFL_DATA_SECTOR_COUNT);
+        uint8_t sector = (uint8_t) (((uint32_t) first_sector + step) % CFL_DATA_SECTOR_COUNT);
         uint32_t count = 0U;
         uint32_t bytes = 0U;
         uint32_t end_offset = 0U;
-        cfl_err_t err =
-            cfl_scan_sector(inst, sector, &count, &bytes, &end_offset, &max_seq, any_record);
+        uint32_t skipped = 0U;
+        uint32_t first_live = 0U;
+        cfl_err_t err = cfl_scan_sector(inst, sector, &count, &bytes, &end_offset, &max_seq,
+                                        any_seen, &skipped, &first_live);
 
         if (err != CFL_ERR_OK)
         {
             return err;
         }
 
-        if (count == 0U)
+        if ((count == 0U) && (skipped == 0U))
         {
-            if (!any_record)
+            if (!any_seen)
             {
                 inst->tail_sector = sector;
                 inst->tail_offset = 0U;
@@ -654,14 +818,28 @@ static cfl_err_t cfl_boot_scan(struct cfl_inst *inst)
             break;
         }
 
-        any_record = true;
+        any_seen = true;
+
+        if ((count > 0U) && !any_live)
+        {
+            any_live = true;
+            inst->head_sector = sector;
+            inst->head_offset = first_live;
+        }
+
         inst->entry_count += count;
         inst->byte_count += bytes;
         inst->tail_sector = sector;
         inst->tail_offset = end_offset;
     }
 
-    inst->next_seq_num = any_record ? (max_seq + 1U) : 0U;
+    inst->next_seq_num = any_seen ? (max_seq + 1U) : 0U;
+
+    /* Never hand out a sequence number the journal already calls consumed. */
+    if (inst->consumed_valid && (inst->next_seq_num <= inst->consumed_seq))
+    {
+        inst->next_seq_num = inst->consumed_seq + 1U;
+    }
 
     /* Retire the remainder of the tail sector if it is not pristine, so an
      * interrupted record is never overwritten in place. */
@@ -679,6 +857,13 @@ static cfl_err_t cfl_boot_scan(struct cfl_inst *inst)
         {
             inst->tail_offset = CFL_SECTOR_SIZE_BYTES;
         }
+    }
+
+    /* An empty ring parks the head on the tail. */
+    if (!any_live)
+    {
+        inst->head_sector = inst->tail_sector;
+        inst->head_offset = inst->tail_offset;
     }
 
     return CFL_ERR_OK;
@@ -929,12 +1114,14 @@ cfl_err_t cfl_peek_oldest(cfl_handle_t handle, uint8_t *data_out, uint32_t *len_
 }
 
 /**
- * @brief Advance the head past a record of @p size bytes and persist the head
- *        sector if it changed.
+ * @brief Advance the head past a record of @p size bytes and persist the progress
+ *        (head sector, or a consume-journal entry).
  */
 static cfl_err_t cfl_advance_head(struct cfl_inst *inst, uint32_t size, uint32_t payload_len)
 {
     uint8_t previous_sector = inst->head_sector;
+    /* Live records carry consecutive sequence numbers: the oldest is next - count. */
+    const uint32_t consumed_seq = inst->next_seq_num - inst->entry_count;
 
     inst->head_offset += size;
     inst->entry_count--;
@@ -973,12 +1160,17 @@ static cfl_err_t cfl_advance_head(struct cfl_inst *inst, uint32_t size, uint32_t
         }
     }
 
+    /* A new head sector rewrites the head record (and carries the consumed sequence number with
+     * it); otherwise one journal entry says how far the head has moved inside the sector, so
+     * the records consumed here are not delivered a second time after a reset. */
     if (inst->head_sector != previous_sector)
     {
+        inst->consumed_seq = consumed_seq;
+        inst->consumed_valid = true;
         return cfl_meta_store(inst);
     }
 
-    return CFL_ERR_OK;
+    return cfl_journal_note_consumed(inst, consumed_seq);
 }
 
 cfl_err_t cfl_consume_oldest(cfl_handle_t handle)
