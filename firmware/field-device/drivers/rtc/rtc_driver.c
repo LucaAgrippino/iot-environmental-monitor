@@ -239,7 +239,7 @@ rtc_err_t rtc_get_time(rtc_datetime_t *dt)
 {
     if (!s_rtc.initialised)
     {
-        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+        return RTC_ERR_NOT_INIT; /* DEF-010: no assert before a successful rtc_init() */
     }
 
     if (dt == NULL)
@@ -277,7 +277,7 @@ rtc_err_t rtc_set_time(const rtc_datetime_t *dt)
 {
     if (!s_rtc.initialised)
     {
-        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+        return RTC_ERR_NOT_INIT; /* DEF-010: no assert before a successful rtc_init() */
     }
 
     if (dt == NULL)
@@ -336,7 +336,7 @@ rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out)
 {
     if (!s_rtc.initialised)
     {
-        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+        return RTC_ERR_NOT_INIT; /* DEF-010: no assert before a successful rtc_init() */
     }
 
     if (out == NULL)
@@ -357,7 +357,7 @@ rtc_err_t rtc_write_backup(uint8_t idx, uint32_t value)
 {
     if (!s_rtc.initialised)
     {
-        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+        return RTC_ERR_NOT_INIT; /* DEF-010: no assert before a successful rtc_init() */
     }
 
     if (idx > RTC_BACKUP_MAX_IDX)
