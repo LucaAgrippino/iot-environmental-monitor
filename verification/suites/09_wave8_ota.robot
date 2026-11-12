@@ -5,9 +5,16 @@ Documentation     Wave 8, OTA: a valid update, a rollback, a wrong signature, a 
 Library           OperatingSystem
 Library           ../libraries/Ota.py
 Force Tags        wave8    ota
+Test Setup        Settle And Log
 
 *** Variables ***
 ${DEVICE}         002d004f3442501020323848
+
+*** Keywords ***
+Settle And Log
+    [Documentation]    Results the Gateway publishes late carry no job id: let them arrive before the next case starts.
+    ${left}=    Settle Gateway    ${DEVICE}
+    Log    results drained before this case: ${left}
 
 *** Test Cases ***
 TC-VER-OTA-001 An update whose build fails its self-check is rolled back to the running firmware
@@ -35,8 +42,12 @@ TC-VER-OTA-004 A valid signed update downloads over MQTT/TLS and the result is r
     ${r}=    Run Update    ${DEVICE}    ${a}    ${b}    2004
     Should Be Equal    ${r}    success
 
-TC-VER-OTA-005 A download that stalls for two minutes resumes where it stopped
+TC-VER-OTA-005 A download interrupted by a two-minute broker outage resumes where it stopped
+    [Documentation]    The link is down (broker stopped), so the Gateway pauses and resumes at the saved offset (REQ-DM-051).
+    ...    A server that is merely silent with the link up is a different case: it exhausts the retries by design (REQ-DM-052).
     [Tags]    TC-VER-OTA-005    REQ-DM-051
     ${a}    ${b}=    Make Images    resume    1.0.1    1.0.4
-    ${r}=    Run Update    ${DEVICE}    ${a}    ${b}    2005    --silent-at 65536 --silent-seconds 120
+    ${r}=    Run Update With Broker Outage    ${DEVICE}    ${a}    ${b}    2005    110
+    ${o}=    Last Ota Output
+    Log    ${o}
     Should Be Equal    ${r}    success

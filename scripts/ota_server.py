@@ -115,6 +115,7 @@ class Server:
         self.silent_done = False
         self.done = threading.Event()
         self.result = None
+        self.started_ts = None
         self.t0 = time.time()
         self.lock = threading.Lock()
 
@@ -193,7 +194,21 @@ class Server:
     def report(self, payload):
         rep = parse_report(payload)
         self.log(f"< result {payload.decode('latin-1')}")
-        if rep and rep.get("result") in TERMINAL:
+        if not rep:
+            return
+        # The Gateway republishes results it still holds (e.g. a rolled_back of an earlier job after the next reboot), and
+        # a terminal report need not carry the job id. Take the device time of this job's "accepted" report as the start
+        # and ignore terminal reports that carry another job id or are older than that.
+        if rep.get("result") == "accepted" and rep.get("job") == self.args.job and isinstance(rep.get("timestamp"), int):
+            self.started_ts = rep["timestamp"]
+        if rep.get("result") in TERMINAL:
+            if rep.get("job") not in (None, self.args.job):
+                self.log(f"  (ignored: report of job {rep.get('job')})")
+                return
+            ts = rep.get("timestamp")
+            if self.started_ts is not None and isinstance(ts, int) and ts < self.started_ts:
+                self.log(f"  (ignored: stale report, {self.started_ts - ts} s older than this job)")
+                return
             self.result = rep["result"]
             self.done.set()
 
