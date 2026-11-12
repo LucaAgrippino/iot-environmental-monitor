@@ -127,9 +127,7 @@ void test_TC_RTC_001_init_returns_lse_not_ready_when_lserdy_clear(void)
     /* Assert */
     TEST_ASSERT_EQUAL(RTC_ERR_LSE_NOT_READY, err);
     TEST_ASSERT_BITS_LOW(RCC_BDCR_RTCEN, g_mock_rcc.BDCR);
-    /* Internal state proxy: a subsequent rtc_is_backup_valid() would assert
-     * (initialised == false), so we verify via a clean second init attempt
-     * — if init had partially succeeded, this call wouldn't be the first. */
+    /* A failed init leaves the driver uninitialised: see TC_RTC_035. */
 }
 
 void test_TC_RTC_002_init_cold_start_configures_peripheral(void)
@@ -615,4 +613,41 @@ void test_TC_RTC_034_set_tick_source_drives_init_timeout(void)
      * invoked at least twice (one for the deadline, one for the poll check). */
     TEST_ASSERT_EQUAL(RTC_ERR_INIT_TIMEOUT, err);
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2U, g_tc034_tick_calls);
+}
+
+
+/* DEF-010: the LSE was not ready, rtc_init() failed and main() ignored it; the Logger's first
+ * rtc_get_time() then asserted and the Field Device parked in abort(). Every call before a
+ * successful rtc_init() now returns an error instead. */
+void test_TC_RTC_035_calls_before_init_return_not_init_instead_of_asserting(void)
+{
+    rtc_datetime_t dt = {0};
+    uint32_t value = 0xAAAAAAAAU;
+
+    TEST_ASSERT_EQUAL(RTC_ERR_NOT_INIT, rtc_get_time(&dt));
+    TEST_ASSERT_EQUAL(RTC_ERR_NOT_INIT, rtc_set_time(&dt));
+    TEST_ASSERT_EQUAL(RTC_ERR_NOT_INIT, rtc_read_backup(0U, &value));
+    TEST_ASSERT_EQUAL(RTC_ERR_NOT_INIT, rtc_write_backup(0U, 1U));
+    TEST_ASSERT_FALSE(rtc_is_backup_valid());
+    TEST_ASSERT_EQUAL_HEX32(0xAAAAAAAAU, value); /* untouched on error */
+}
+
+void test_TC_RTC_036_failed_init_then_calls_return_not_init(void)
+{
+    rtc_datetime_t dt;
+
+    /* BDCR = 0 -> LSERDY clear -> init fails, as after a cold start */
+    TEST_ASSERT_EQUAL(RTC_ERR_LSE_NOT_READY, rtc_init());
+    TEST_ASSERT_EQUAL(RTC_ERR_NOT_INIT, rtc_get_time(&dt));
+}
+
+void test_TC_RTC_037_second_init_succeeds_once_the_lse_is_ready(void)
+{
+    uint32_t value = 0U;
+
+    TEST_ASSERT_EQUAL(RTC_ERR_LSE_NOT_READY, rtc_init());
+    arrange_init_warm_path_success(); /* the crystal came up: a later init works */
+    /* rtc_read_backup() has no polling loop; rtc_get_time() would spin on RSF here because the
+     * default tick source never advances (no timeout) and the mock leaves RSF clear. */
+    TEST_ASSERT_EQUAL(RTC_OK, rtc_read_backup(0U, &value));
 }

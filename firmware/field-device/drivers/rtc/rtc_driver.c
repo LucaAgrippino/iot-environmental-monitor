@@ -26,7 +26,6 @@
 
 #include "rtc_driver.h"
 
-#include <assert.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -238,7 +237,10 @@ rtc_err_t rtc_init(void)
 
 rtc_err_t rtc_get_time(rtc_datetime_t *dt)
 {
-    assert(s_rtc.initialised);
+    if (!s_rtc.initialised)
+    {
+        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+    }
 
     if (dt == NULL)
     {
@@ -273,7 +275,10 @@ rtc_err_t rtc_get_time(rtc_datetime_t *dt)
 
 rtc_err_t rtc_set_time(const rtc_datetime_t *dt)
 {
-    assert(s_rtc.initialised);
+    if (!s_rtc.initialised)
+    {
+        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+    }
 
     if (dt == NULL)
     {
@@ -324,13 +329,15 @@ rtc_err_t rtc_set_time(const rtc_datetime_t *dt)
 
 bool rtc_is_backup_valid(void)
 {
-    assert(s_rtc.initialised);
-    return s_rtc.backup_valid;
+    return s_rtc.initialised && s_rtc.backup_valid;
 }
 
 rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out)
 {
-    assert(s_rtc.initialised);
+    if (!s_rtc.initialised)
+    {
+        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+    }
 
     if (out == NULL)
     {
@@ -348,7 +355,10 @@ rtc_err_t rtc_read_backup(uint8_t idx, uint32_t *out)
 
 rtc_err_t rtc_write_backup(uint8_t idx, uint32_t value)
 {
-    assert(s_rtc.initialised);
+    if (!s_rtc.initialised)
+    {
+        return RTC_ERR_NOT_INIT; /* an assert here parked the device in abort() when rtc_init() had failed (DEF-010) */
+    }
 
     if (idx > RTC_BACKUP_MAX_IDX)
     {

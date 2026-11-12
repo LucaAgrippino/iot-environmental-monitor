@@ -13,6 +13,7 @@
 #ifndef SYSTEM_CLOCK_H
 #define SYSTEM_CLOCK_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* --- Clock tree --------------------------------------------------------- */
@@ -42,5 +43,20 @@
  */
 void system_clock_init(void);
 void system_clock_enable_dwt(void);
+
+/**
+ * @brief Wait until the 32.768 kHz crystal (LSE) is ready, at most @p timeout_ms.
+ *
+ * system_clock_init() only switches the LSE on; the crystal needs from a few hundred
+ * milliseconds to a couple of seconds to start after a cold power-up (the backup domain
+ * keeps it running across a warm reset). rtc_init() fails with RTC_ERR_LSE_NOT_READY when
+ * it runs before that (DEF-010).
+ *
+ * Needs the DWT cycle counter: call system_clock_enable_dwt() first.
+ *
+ * @return true if LSERDY was set within the timeout, false otherwise (a missing crystal
+ *         must not stop the boot: the Logger then stamps entries with the uptime).
+ */
+bool system_clock_wait_lse_ready(uint32_t timeout_ms);
 
 #endif /* SYSTEM_CLOCK_H */
