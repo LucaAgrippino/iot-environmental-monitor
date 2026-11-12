@@ -793,3 +793,125 @@ void test_cfl_null_health_handle_raises_no_events(void)
     TEST_ASSERT_EQUAL_UINT32(0U, s_flash_err_events);
     TEST_ASSERT_EQUAL_UINT32(0U, s_other_events);
 }
+
+/* ====================================================================== */
+/* Consumed records must stay consumed across a reboot                    */
+/* ====================================================================== */
+
+/* The head is persisted per SECTOR, so records consumed inside the head sector came back after
+ * a reset and were published again (a drained ring replayed "SAF 4/254 entries at boot"). */
+void test_cfl_drained_ring_is_empty_after_reboot(void)
+{
+    cfl_handle_t handle = create_ok();
+    uint32_t entries = 99U;
+    uint32_t bytes = 99U;
+
+    append_ok(handle, 100U, 0x10U);
+    append_ok(handle, 100U, 0x20U);
+    append_ok(handle, 100U, 0x30U);
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+
+    cfl_reset_for_test();
+    handle = create_ok();
+
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(0U, entries);
+    TEST_ASSERT_EQUAL_UINT32(0U, bytes);
+}
+
+void test_cfl_partly_consumed_sector_keeps_only_the_unconsumed_after_reboot(void)
+{
+    cfl_handle_t handle = create_ok();
+    uint32_t entries = 0U;
+    uint32_t bytes = 0U;
+
+    append_ok(handle, 100U, 0x10U);
+    append_ok(handle, 100U, 0x20U);
+    append_ok(handle, 100U, 0x30U);
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+
+    cfl_reset_for_test();
+    handle = create_ok();
+
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(2U, entries);
+    peek_expect(handle, 100U, 0x20U);
+}
+
+/* One append + consume per round, as the cloud publisher does while the link is up. Rounds far
+ * beyond one journal (about 500 entries) force rotations; every one must stay consumed after a
+ * reset, sequence numbers must keep growing, and the metadata sectors must not be erased per
+ * record (that would wear the two slots out in weeks). */
+void test_cfl_journal_rotates_without_erasing_per_record_and_survives_reboot(void)
+{
+    cfl_handle_t handle = create_ok();
+    uint32_t entries = 99U;
+    uint32_t bytes = 99U;
+    const uint32_t rounds = 1300U;
+
+    s_erase_count = 0U;
+    for (uint32_t i = 0U; i < rounds; i++)
+    {
+        append_ok(handle, 100U, (uint8_t) i);
+        TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+    }
+
+    /* 100-byte records: ~36 per sector -> ~36 data erases + ~36 head moves + 2-3 journal
+     * rotations. A per-record scheme would need >= 2600. */
+    TEST_ASSERT_LESS_THAN_UINT32(200U, s_erase_count);
+
+    cfl_reset_for_test();
+    handle = create_ok();
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(0U, entries);
+
+    /* The ring keeps working, and the new record is neither lost nor treated as consumed. */
+    append_ok(handle, 100U, 0x5AU);
+    cfl_reset_for_test();
+    handle = create_ok();
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(1U, entries);
+    peek_expect(handle, 100U, 0x5AU);
+}
+
+/* A power loss while a journal entry is being programmed leaves a half-written entry. It must
+ * not be trusted, nothing may be programmed after it, and the next consume must rotate. */
+void test_cfl_torn_journal_entry_is_ignored_and_next_consume_rotates(void)
+{
+    cfl_handle_t handle = create_ok();
+    uint32_t entries = 0U;
+    uint32_t bytes = 0U;
+
+    for (uint8_t i = 0U; i < 5U; i++)
+    {
+        append_ok(handle, 100U, (uint8_t) (0x10U + i));
+    }
+    for (uint8_t i = 0U; i < 3U; i++)
+    {
+        TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+    }
+
+    /* Metadata slot 0 is the first one written: body 0..15, then entries at 16, 24, 32.
+     * Tear the next one: bits cleared in its first byte only. */
+    TEST_ASSERT_EQUAL_HEX8(0xFFU, s_flash_sim[40]);
+    s_flash_sim[40] = 0x12U;
+
+    cfl_reset_for_test();
+    handle = create_ok();
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(2U, entries);
+    peek_expect(handle, 100U, 0x13U);
+
+    /* Consuming again must not program after the torn entry. */
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_consume_oldest(handle));
+    TEST_ASSERT_EQUAL_HEX8(0x12U, s_flash_sim[40]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFU, s_flash_sim[41]);
+
+    cfl_reset_for_test();
+    handle = create_ok();
+    TEST_ASSERT_EQUAL_INT(CFL_ERR_OK, cfl_get_occupancy(handle, &entries, &bytes));
+    TEST_ASSERT_EQUAL_UINT32(1U, entries);
+    peek_expect(handle, 100U, 0x14U);
+}
