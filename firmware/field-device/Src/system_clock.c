@@ -90,3 +90,18 @@ void system_clock_enable_dwt(void)
     DWT->CYCCNT = 0U;
     DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
 }
+
+bool system_clock_wait_lse_ready(uint32_t timeout_ms)
+{
+    const uint32_t limit = timeout_ms * (SYSTEM_HCLK_HZ / 1000UL);
+    const uint32_t start = DWT->CYCCNT;
+
+    while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0U)
+    {
+        if ((DWT->CYCCNT - start) >= limit)
+        {
+            return false;
+        }
+    }
+    return true;
+}
