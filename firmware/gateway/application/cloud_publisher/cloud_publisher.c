@@ -178,13 +178,16 @@ struct cloud_publisher_inst
     char device_serial[CP_DEVICE_SERIAL_LEN];
     mqtt_connect_cfg_t mqtt_connect_cfg;  /**< CP-D9: owned here for connect()/reconnect(). */
     const char *(*connect_prepare)(void); /**< CP-D34: gets the link ready before an attempt. */
-    bool connect_in_progress;             /**< CP-D34: a connect sequence is mid-way (CP-D10). */
-    uint32_t reconnect_countdown_s;       /**< CP-D9: stats ticks left before next retry. */
-    uint32_t reconnect_backoff_s;         /**< CP-D13: current backoff, doubles per failure. */
-    bool drain_hold;                      /**< CP-D32: no replay before drain_hold_until.       */
-    TickType_t drain_hold_until;          /**< CP-D32: tick at which the hold ends.             */
-    uint32_t drain_backoff_s;             /**< CP-D32: replay backoff, doubles per failure.     */
-    uint32_t drain_entry_fails;           /**< CP-D32: consecutive failures of the head entry.  */
+    cp_fd_command_t fd_command;           /**< REQ-MB-080/090: command register write, or NULL. */
+    const idevice_profile_manager_t *profiles; /**< REQ-DM-100: remote profile updates, or NULL. */
+    void (*on_profile_changed)(uint8_t slave); /**< After an add or replace; may be NULL. */
+    bool connect_in_progress;       /**< CP-D34: a connect sequence is mid-way (CP-D10). */
+    uint32_t reconnect_countdown_s; /**< CP-D9: stats ticks left before next retry. */
+    uint32_t reconnect_backoff_s;   /**< CP-D13: current backoff, doubles per failure. */
+    bool drain_hold;                /**< CP-D32: no replay before drain_hold_until.       */
+    TickType_t drain_hold_until;    /**< CP-D32: tick at which the hold ends.             */
+    uint32_t drain_backoff_s;       /**< CP-D32: replay backoff, doubles per failure.     */
+    uint32_t drain_entry_fails;     /**< CP-D32: consecutive failures of the head entry.  */
 
     char topic_telemetry[CP_TOPIC_MAX_LEN];
     char topic_health[CP_TOPIC_MAX_LEN];
@@ -364,6 +367,9 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->update = config->update;
     inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
     inst->connect_prepare = config->connect_prepare;
+    inst->fd_command = config->fd_command;
+    inst->profiles = config->profiles;
+    inst->on_profile_changed = config->on_profile_changed;
     inst->connect_in_progress = false;
     inst->sub_config = false;
     inst->sub_control = false;
@@ -1607,6 +1613,129 @@ static bool prv_read_now(struct cloud_publisher_inst *inst)
     return false;
 }
 
+/** Command registers of the Field Device (modbus-register-map.md 6.5) and the value that triggers
+ *  the non-destructive ones. */
+#define CP_FD_REG_CMD_ACK_ALARM (0x0200U)
+#define CP_FD_REG_CMD_RESET_METRICS (0x0201U)
+#define CP_FD_CMD_TRIGGER (0x0001U)
+
+/** REQ-MB-080 / REQ-MB-090 (UC-19, step 3 and exception E3): write the command register of the
+ *  Field Device, and report the Modbus answer, which is the execution result, to the cloud. */
+static void prv_fd_command(struct cloud_publisher_inst *inst, cp_control_cmd_t cmd, bool req_known,
+                           uint32_t req)
+{
+    if ((inst->fd_command == NULL) || (inst->fd_slave_addr == 0u))
+    {
+        LOG_WARN(CP_LOG_MODULE, "/control %s: no Field Device", cp_control_name(cmd));
+        prv_publish_control_result(inst, cmd, req_known, req, false, "failed");
+        return;
+    }
+
+    const uint16_t reg =
+        (cmd == CP_CTRL_FD_ACK_ALARM) ? CP_FD_REG_CMD_ACK_ALARM : CP_FD_REG_CMD_RESET_METRICS;
+    const cp_fd_result_t rc = inst->fd_command(inst->fd_slave_addr, reg, CP_FD_CMD_TRIGGER);
+
+    if (rc == CP_FD_OK)
+    {
+        LOG_INFO(CP_LOG_MODULE, "/control %s done on slave %u", cp_control_name(cmd),
+                 (unsigned) inst->fd_slave_addr);
+        prv_publish_control_result(inst, cmd, req_known, req, true, NULL);
+    }
+    else
+    {
+        LOG_WARN(CP_LOG_MODULE, "/control %s failed on slave %u (%s)", cp_control_name(cmd),
+                 (unsigned) inst->fd_slave_addr, (rc == CP_FD_REFUSED) ? "refused" : "unreachable");
+        prv_publish_control_result(inst, cmd, req_known, req, false,
+                                   (rc == CP_FD_REFUSED) ? "field_device_refused"
+                                                         : "field_device_unreachable");
+    }
+}
+
+/** REQ-DM-100 (UC-15): add, replace or remove a device profile from the cloud, as the console does.
+ */
+static void prv_profile_command(struct cloud_publisher_inst *inst, cp_control_cmd_t cmd,
+                                bool req_known, uint32_t req, const cp_command_entry_t *entry)
+{
+    cp_profile_args_t a;
+    const bool add = (cmd == CP_CTRL_PROFILE_ADD);
+
+    if (!cp_parse_profile_args(entry->payload, entry->payload_len, &a) || !a.has_slave ||
+        (a.slave == 0u) || (a.slave > 247u) ||
+        (add && (!a.has_map || !a.has_vendor || (a.map == 0u) || (a.vendor == 0u))))
+    {
+        LOG_WARN(CP_LOG_MODULE, "/control %s rejected: bad format", cp_control_name(cmd));
+        prv_publish_control_result(inst, cmd, req_known, req, false, "bad_format");
+        return;
+    }
+    if (inst->profiles == NULL)
+    {
+        LOG_WARN(CP_LOG_MODULE, "/control %s: no registry", cp_control_name(cmd));
+        prv_publish_control_result(inst, cmd, req_known, req, false, "failed");
+        return;
+    }
+
+    device_profile_registry_err_t rc;
+
+    if (add)
+    {
+        device_profile_t p;
+
+        (void) memset(&p, 0, sizeof(p));
+        p.slave_addr = a.slave;
+        p.map_version = a.map;
+        p.vendor_code = a.vendor;
+        if (a.desc[0] != '\0')
+        {
+            (void) memcpy(p.description, a.desc, sizeof(p.description) - 1u);
+        }
+        else
+        {
+            (void) snprintf(p.description, sizeof(p.description), "Field Device %u",
+                            (unsigned) a.slave);
+        }
+        rc = inst->profiles->add_or_update(&p);
+        if ((rc == DEVICE_PROFILE_REGISTRY_OK) && (inst->on_profile_changed != NULL))
+        {
+            inst->on_profile_changed(a.slave);
+        }
+    }
+    else
+    {
+        rc = inst->profiles->remove(a.slave);
+    }
+
+    const char *reason = NULL;
+
+    switch (rc)
+    {
+    case DEVICE_PROFILE_REGISTRY_OK:
+        break;
+    case DEVICE_PROFILE_REGISTRY_ERR_FULL:
+        reason = "registry_full";
+        break;
+    case DEVICE_PROFILE_REGISTRY_ERR_INVALID:
+        reason = "profile_refused";
+        break;
+    case DEVICE_PROFILE_REGISTRY_ERR_NOT_FOUND:
+        reason = "not_found";
+        break;
+    default:
+        reason = "failed";
+        break;
+    }
+    if (reason != NULL)
+    {
+        LOG_WARN(CP_LOG_MODULE, "/control %s slave %u failed: %s", cp_control_name(cmd),
+                 (unsigned) a.slave, reason);
+    }
+    else
+    {
+        LOG_INFO(CP_LOG_MODULE, "/control %s slave %u done", cp_control_name(cmd),
+                 (unsigned) a.slave);
+    }
+    prv_publish_control_result(inst, cmd, req_known, req, reason == NULL, reason);
+}
+
 static void prv_handle_control(struct cloud_publisher_inst *inst, const cp_command_entry_t *entry)
 {
     bool req_known = false;
@@ -1634,6 +1763,14 @@ static void prv_handle_control(struct cloud_publisher_inst *inst, const cp_comma
             LOG_WARN(CP_LOG_MODULE, "/control read failed");
             prv_publish_control_result(inst, cmd, req_known, req, false, "failed");
         }
+        break;
+    case CP_CTRL_FD_ACK_ALARM:
+    case CP_CTRL_FD_RESET_METRICS:
+        prv_fd_command(inst, cmd, req_known, req);
+        break;
+    case CP_CTRL_PROFILE_ADD:
+    case CP_CTRL_PROFILE_REMOVE:
+        prv_profile_command(inst, cmd, req_known, req, entry);
         break;
     default:
         if (inst->control_handler != NULL)
@@ -1745,6 +1882,20 @@ static void prv_read_device_serial(char *out, uint32_t out_size)
 bool cloud_publisher_is_ready(cloud_publisher_handle_t handle)
 {
     return (handle != NULL) && handle->in_use && (handle->task_handle != NULL);
+}
+
+cloud_publisher_err_t cloud_publisher_config_loaded(cloud_publisher_handle_t handle)
+{
+    if (handle == NULL)
+    {
+        return CP_ERR_NULL_PTR;
+    }
+    if (!cloud_publisher_is_ready(handle))
+    {
+        return CP_ERR_NOT_INIT;
+    }
+    (void) xTaskNotify(handle->task_handle, CP_NOTIFY_CONFIG_CHANGED, eSetBits);
+    return CP_ERR_OK;
 }
 
 cloud_publisher_err_t cloud_publisher_flush(cloud_publisher_handle_t handle)

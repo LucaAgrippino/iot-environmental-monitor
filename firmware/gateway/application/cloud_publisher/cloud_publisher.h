@@ -24,6 +24,7 @@
 #include <stdbool.h>
 
 #include "alarm_service/alarm_service.h"
+#include "device_profile_registry/device_profile_registry.h"
 #include "health_monitor/health_monitor.h"
 #include "config_service/iconfig_manager.h"
 #include "config_service/iconfig_provider.h"
@@ -113,6 +114,26 @@ typedef struct
 /** @brief Handler for the /control command payload (LifecycleController's remote dispatch). */
 typedef void (*cp_control_handler_t)(const uint8_t *payload, uint32_t len);
 
+/** @brief Outcome of a command executed on the Field Device (REQ-MB-080, REQ-MB-090). */
+typedef enum
+{
+    CP_FD_OK = 0,      /**< The Field Device acknowledged the write. */
+    CP_FD_UNREACHABLE, /**< No usable answer (timeout, CRC, queue full, no such slave). */
+    CP_FD_REFUSED      /**< The Field Device answered with a Modbus exception. */
+} cp_fd_result_t;
+
+/**
+ * @brief Write one holding register of a Field Device and report the Modbus outcome.
+ *
+ * Blocking (up to a few seconds); called from the CloudPublisher task only.
+ *
+ * @param slave Modbus address of the Field Device.
+ * @param reg   Holding register (a command register, 0x0200 to 0x02FF).
+ * @param value Value to write.
+ * @return The outcome: the Field Device's reply is the command's execution result (REQ-MB-090).
+ */
+typedef cp_fd_result_t (*cp_fd_command_t)(uint8_t slave, uint16_t reg, uint16_t value);
+
 /**
  * @brief CloudPublisher creation configuration (CP-D25).
  *
@@ -146,6 +167,14 @@ typedef struct
      *  ready; the attempt then counts as a failure and backs off like any other. NULL hook: the
      *  address in mqtt_connect_cfg is used as given. It may block for many seconds. */
     const char *(*connect_prepare)(void);
+    const idevice_profile_manager_t *profiles; /**< NULL: "profile_add" and "profile_remove" are
+                                                    rejected as "failed" (REQ-DM-100).         */
+    void (*on_profile_changed)(
+        uint8_t slave);         /**< Called after a profile was added or replaced
+                                     (the poller re-checks its identity); may be NULL. */
+    cp_fd_command_t fd_command; /**< NULL: the /control commands for the Field Device
+                                     ("fd_ack_alarm", "fd_reset_metrics") are rejected as "failed"
+                                     (REQ-MB-080, REQ-MB-090). */
 } cloud_publisher_config_t;
 
 /**
@@ -181,6 +210,20 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
  * @note Threading: any task.
  */
 bool cloud_publisher_is_ready(cloud_publisher_handle_t handle);
+
+/**
+ * @brief Tell CloudPublisher that ConfigService has loaded the stored configuration (DEF-014).
+ *
+ * The publish timers are created, with the periods ConfigService held then (the defaults),
+ * before LifecycleController loads the stored configuration, and loading raises no change
+ * notification. This call makes the task re-read the telemetry and health periods, so a
+ * period that was saved before a restart applies after it.
+ *
+ * @param[in] handle  Handle from cloud_publisher_create().
+ * @return CP_ERR_OK; CP_ERR_NULL_PTR for NULL; CP_ERR_NOT_INIT for an unused handle.
+ * @note Threading: any task. The retiming happens in CloudPublisherTask.
+ */
+cloud_publisher_err_t cloud_publisher_config_loaded(cloud_publisher_handle_t handle);
 
 /**
  * @brief Ask CloudPublisherTask to hand over everything that is waiting (CP-D16).

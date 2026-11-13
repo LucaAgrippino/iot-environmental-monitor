@@ -191,7 +191,7 @@ static const console_prov_store_t s_prov_store = {.set_wifi = prov_set_wifi,
 #define UART4_IRQ_PRIORITY (6U)
 #define USART1_IRQ_PRIORITY (6U)
 #define MODBUS_RESPONSE_TIMEOUT_MS (200U)
-#define MODBUS_MAX_RETRIES (1U)
+#define MODBUS_MAX_RETRIES (3U) /* REQ-MB-060: the request and up to 3 retries = 4 transmissions (DEF-013) */
 
 /* ---------------------------------------------------------------------- */
 /* Tasks main() creates (D-1 option F: 1.5x the measured use)               */
@@ -256,6 +256,61 @@ void EXTI1_IRQHandler(void)
 static uint32_t tick_ms(void)
 {
     return (uint32_t) (xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+/* REQ-MB-080 / REQ-MB-090: a /control command for the Field Device (CloudPublisher's fd_command).
+ * Only the CloudPublisher task calls it, so the command, the answer and the queue are single static
+ * copies; they live in SRAM2 because main RAM is full. The Field Device's Modbus answer to the write
+ * (the echo, or an exception) is the execution result that goes back to the cloud. */
+#define FD_CMD_PLACEMENT __attribute__((section(".bss.sram2")))
+#define FD_CMD_RESPONSE_TIMEOUT_MS (3000U) /* queue wait + the master's 4 transmissions of 200 ms */
+
+static modbus_command_t s_fd_cmd FD_CMD_PLACEMENT;
+static modbus_command_response_t s_fd_cmd_resp FD_CMD_PLACEMENT;
+static StaticQueue_t s_fd_cmd_queue_storage FD_CMD_PLACEMENT;
+static uint8_t s_fd_cmd_queue_buf[sizeof(modbus_command_response_t)] FD_CMD_PLACEMENT;
+static QueueHandle_t s_fd_cmd_queue;
+
+/* REQ-DM-100: after a profile was added or replaced from the cloud the poller re-checks the slave. */
+static void cp_profile_changed(uint8_t slave_addr)
+{
+    (void) modbus_poller_reprobe(slave_addr);
+}
+
+static cp_fd_result_t fd_command_via_poller(uint8_t slave, uint16_t reg, uint16_t value)
+{
+    if (s_fd_cmd_queue == NULL)
+    {
+        s_fd_cmd_queue = xQueueCreateStatic(1U, (UBaseType_t) sizeof(modbus_command_response_t),
+                                            s_fd_cmd_queue_buf, &s_fd_cmd_queue_storage);
+        if (s_fd_cmd_queue == NULL)
+        {
+            return CP_FD_UNREACHABLE;
+        }
+    }
+    (void) xQueueReset(s_fd_cmd_queue);
+
+    (void) memset(&s_fd_cmd, 0, sizeof(s_fd_cmd));
+    s_fd_cmd.response_queue = s_fd_cmd_queue;
+    s_fd_cmd.slave_addr = slave;
+    s_fd_cmd.function_code = MODBUS_POLLER_FC_WRITE_SINGLE;
+    s_fd_cmd.start_reg = reg;
+    s_fd_cmd.data[0] = value;
+    if (modbus_poller_send_command(&s_fd_cmd) != MODBUS_POLLER_ERR_OK)
+    {
+        return CP_FD_UNREACHABLE;
+    }
+    if (xQueueReceive(s_fd_cmd_queue, &s_fd_cmd_resp, pdMS_TO_TICKS(FD_CMD_RESPONSE_TIMEOUT_MS)) !=
+        pdTRUE)
+    {
+        return CP_FD_UNREACHABLE;
+    }
+    if (s_fd_cmd_resp.status == MODBUS_MASTER_ERR_OK)
+    {
+        return CP_FD_OK;
+    }
+    return (s_fd_cmd_resp.status == MODBUS_MASTER_ERR_EXCEPTION) ? CP_FD_REFUSED
+                                                                  : CP_FD_UNREACHABLE;
 }
 
 static const led_pin_t k_gw_led_pins[LED_COUNT] = {
@@ -721,6 +776,9 @@ static void boot_task(void *arg)
         .time = time_service_get_interface(),
         .lifecycle = lifecycle_controller,
         .control_handler = lifecycle_handle_remote,
+        .fd_command = fd_command_via_poller,
+        .profiles = device_profile_manager,
+        .on_profile_changed = cp_profile_changed,
         .fd_slave_addr = FD_SLAVE_ADDRESS,
         .fw_version =
             (boot_info.running_version != 0U) ? boot_info.running_version : FW_VERSION_FALLBACK,

@@ -224,6 +224,9 @@ static const lc_console_if_t k_console = {.ctx = NULL, .init_finalise = console_
 static lc_dep_status_t cloud_init(void *ctx)
 {
     (void) ctx;
+    /* This step runs after the stored configuration was loaded. The publish timers were created
+     * before that with the default periods, and loading raises no notification (DEF-014). */
+    (void) cloud_publisher_config_loaded(s_cfg.cloud);
     return status_of(cloud_publisher_is_ready(s_cfg.cloud));
 }
 

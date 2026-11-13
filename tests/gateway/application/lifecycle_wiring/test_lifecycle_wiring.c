@@ -209,6 +209,14 @@ static bool s_cloud_ready;
 static cloud_publisher_err_t s_cloud_flush_result;
 static uint32_t s_cloud_flush_calls;
 static cloud_publisher_handle_t s_cloud_handle_seen;
+static uint32_t s_cloud_config_loaded_calls;
+
+cloud_publisher_err_t cloud_publisher_config_loaded(cloud_publisher_handle_t handle)
+{
+    s_cloud_handle_seen = handle;
+    s_cloud_config_loaded_calls++;
+    return CP_ERR_OK;
+}
 
 bool cloud_publisher_is_ready(cloud_publisher_handle_t handle)
 {
@@ -522,6 +530,7 @@ void setUp(void)
     s_params.modbus_parity = 0U;
     s_cloud_ready = true;
     s_cloud_flush_result = CP_ERR_OK;
+    s_cloud_config_loaded_calls = 0U;
     s_cloud_flush_calls = 0U;
     ota_spies_reset();
     s_cloud_handle_seen = NULL;
@@ -925,6 +934,17 @@ void test_LW_040_cloud_init_verifies_the_instance_and_is_ready_passes_through(vo
     s_cloud_ready = false;
     TEST_ASSERT_EQUAL(LC_DEP_FAIL, s_deps.cloud->init(NULL));
     TEST_ASSERT_FALSE(s_deps.cloud->is_ready(NULL));
+}
+
+/* LW-040a: the cloud step runs after the stored configuration was loaded, so it tells
+ * CloudPublisher to re-read its periods (DEF-014). */
+void test_LW_040a_cloud_init_tells_the_publisher_the_configuration_is_loaded(void)
+{
+    bind_ok();
+    TEST_ASSERT_EQUAL_UINT32(0U, s_cloud_config_loaded_calls);
+    (void) s_deps.cloud->init(NULL);
+    TEST_ASSERT_EQUAL_UINT32(1U, s_cloud_config_loaded_calls);
+    TEST_ASSERT_EQUAL_PTR(CLOUD, s_cloud_handle_seen);
 }
 
 void test_LW_041_cloud_flush_passes_through(void)

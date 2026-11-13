@@ -150,7 +150,38 @@ typedef enum
     CP_CTRL_RESTART,        /**< "restart": needs a "restart_confirm" within the timeout. */
     CP_CTRL_RESTART_CONFIRM,
     CP_CTRL_RESET_METRICS,
+    CP_CTRL_FD_ACK_ALARM, /**< "fd_ack_alarm": CMD_ACK_ALARM on the Field Device (REQ-MB-080). */
+    CP_CTRL_FD_RESET_METRICS, /**< "fd_reset_metrics": CMD_RESET_METRICS on the Field Device. */
+    CP_CTRL_PROFILE_ADD,      /**< "profile_add": add or replace a device profile (REQ-DM-100). */
+    CP_CTRL_PROFILE_REMOVE,   /**< "profile_remove": remove the profile of a slave (REQ-DM-100). */
 } cp_control_cmd_t;
+
+/** Members of a "profile_add" / "profile_remove" command; a flag says whether the member was
+ * present. */
+typedef struct
+{
+    bool has_slave;  /**< "slave": Modbus address, 1..247. */
+    bool has_map;    /**< "map": register map version, not 0. */
+    bool has_vendor; /**< "vendor": vendor code, decimal, not 0. */
+    uint8_t slave;   /**< Valid when has_slave. */
+    uint16_t map;    /**< Valid when has_map. */
+    uint16_t vendor; /**< Valid when has_vendor. */
+    char desc[33];   /**< "desc": label, up to 32 characters, "" when absent. */
+} cp_profile_args_t;
+
+/**
+ * @brief Read the members of a profile command:
+ * {"command":"profile_add","slave":17,"map":1,"vendor":4660,"desc":"x"}.
+ *
+ * Presence is reported per member; the range rules are the caller's (they depend on add or remove).
+ *
+ * @param payload JSON payload of the command.
+ * @param len Length of payload, in bytes.
+ * @param[out] out The members found.
+ * @return false when a member is present but malformed (not a number, over 65535, a label that is
+ *         too long or holds a quote or backslash), or the payload is not a JSON object.
+ */
+bool cp_parse_profile_args(const uint8_t *payload, uint32_t len, cp_profile_args_t *out);
 
 /**
  * @brief Classify a /control payload: {"command":"<name>"[,"req":\<n\>]}.

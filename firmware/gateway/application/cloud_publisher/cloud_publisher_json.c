@@ -689,7 +689,7 @@ uint32_t cp_serialise_config_result(char *buf, uint32_t buf_size, bool req_known
 /* /control (CP-O8)                                                         */
 /* ---------------------------------------------------------------------- */
 
-#define CP_CTRL_TEXT_MAX (96U)
+#define CP_CTRL_TEXT_MAX (160U)
 
 /** Position just after `"key"` and its colon (spaces allowed), or NULL. */
 static const char *prv_find_member(const char *text, const char *key)
@@ -777,7 +777,11 @@ cp_control_cmd_t cp_parse_control_command(const uint8_t *payload, uint32_t len, 
     } k_names[] = {{"read", CP_CTRL_READ},
                    {"restart", CP_CTRL_RESTART},
                    {"restart_confirm", CP_CTRL_RESTART_CONFIRM},
-                   {"reset_metrics", CP_CTRL_RESET_METRICS}};
+                   {"reset_metrics", CP_CTRL_RESET_METRICS},
+                   {"fd_ack_alarm", CP_CTRL_FD_ACK_ALARM},
+                   {"fd_reset_metrics", CP_CTRL_FD_RESET_METRICS},
+                   {"profile_add", CP_CTRL_PROFILE_ADD},
+                   {"profile_remove", CP_CTRL_PROFILE_REMOVE}};
 
     for (uint32_t i = 0U; i < (sizeof(k_names) / sizeof(k_names[0])); i++)
     {
@@ -787,6 +791,104 @@ cp_control_cmd_t cp_parse_control_command(const uint8_t *payload, uint32_t len, 
         }
     }
     return CP_CTRL_UNKNOWN;
+}
+
+/** A decimal member 0..65535: 1 found, 0 absent, -1 malformed. */
+static int prv_member_u16(const char *text, const char *key, uint32_t *out)
+{
+    const char *v = prv_find_member(text, key);
+
+    if (v == NULL)
+    {
+        return 0;
+    }
+    if ((*v < '0') || (*v > '9'))
+    {
+        return -1;
+    }
+    uint32_t n = 0U;
+
+    while ((*v >= '0') && (*v <= '9'))
+    {
+        n = (n * 10U) + (uint32_t) (*v - '0');
+        if (n > 65535U)
+        {
+            return -1;
+        }
+        v++;
+    }
+    *out = n;
+    return 1;
+}
+
+bool cp_parse_profile_args(const uint8_t *payload, uint32_t len, cp_profile_args_t *out)
+{
+    char text[CP_CTRL_TEXT_MAX + 1U];
+
+    if ((out == NULL) || (payload == NULL) || (len == 0U) || (len > CP_CTRL_TEXT_MAX))
+    {
+        return false;
+    }
+    (void) memset(out, 0, sizeof(*out));
+    (void) memcpy(text, payload, len);
+    text[len] = '\0';
+    if ((strchr(text, '{') == NULL) || (strrchr(text, '}') == NULL))
+    {
+        return false;
+    }
+
+    uint32_t n = 0U;
+    int rc = prv_member_u16(text, "slave", &n);
+
+    if ((rc < 0) || ((rc > 0) && (n > 255U)))
+    {
+        return false;
+    }
+    out->has_slave = (rc > 0);
+    out->slave = (uint8_t) n;
+
+    rc = prv_member_u16(text, "map", &n);
+    if (rc < 0)
+    {
+        return false;
+    }
+    out->has_map = (rc > 0);
+    out->map = (uint16_t) n;
+
+    rc = prv_member_u16(text, "vendor", &n);
+    if (rc < 0)
+    {
+        return false;
+    }
+    out->has_vendor = (rc > 0);
+    out->vendor = (uint16_t) n;
+
+    const char *d = prv_find_member(text, "desc");
+
+    if (d != NULL)
+    {
+        if (*d != '"')
+        {
+            return false;
+        }
+        d++;
+        uint32_t i = 0U;
+
+        while ((*d != '"') && (*d != '\0'))
+        {
+            if ((*d == '\\') || (i >= (sizeof(out->desc) - 1U)))
+            {
+                return false;
+            }
+            out->desc[i++] = *d++;
+        }
+        if (*d != '"')
+        {
+            return false;
+        }
+        out->desc[i] = '\0';
+    }
+    return true;
 }
 
 const char *cp_control_name(cp_control_cmd_t cmd)
@@ -801,6 +903,14 @@ const char *cp_control_name(cp_control_cmd_t cmd)
         return "restart_confirm";
     case CP_CTRL_RESET_METRICS:
         return "reset_metrics";
+    case CP_CTRL_FD_ACK_ALARM:
+        return "fd_ack_alarm";
+    case CP_CTRL_FD_RESET_METRICS:
+        return "fd_reset_metrics";
+    case CP_CTRL_PROFILE_ADD:
+        return "profile_add";
+    case CP_CTRL_PROFILE_REMOVE:
+        return "profile_remove";
     default:
         return "unknown";
     }
