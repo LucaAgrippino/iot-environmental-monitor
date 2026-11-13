@@ -257,10 +257,13 @@ TC-VER-FD-018 The sensor simulation is initialised at start-up and delivers temp
     Should Match Regexp    ${txt}    Pressure\\s*: [\\d.]+
 
 TC-VER-FD-019 The display refreshes at 5 Hz
-    [Documentation]    LcdUi counts its lcd_ui_tick() calls (the task runs every LCD_REFRESH_MS = 200 ms). The counter is read over SWD
-    ...    twice, ten seconds apart, and the rate is the difference over the elapsed time.
+    [Documentation]    LcdUi counts the redraws of the Sensors screen values (one per LCD_REFRESH_MS = 200 ms; the UI task itself ticks faster
+    ...    for the touch and the blink phases). The counter is read over SWD twice, ten seconds apart, and the rate is the
+    ...    difference over the elapsed time.
     [Tags]    TC-VER-FD-019    REQ-NF-108
-    ${addr}=    Fd Symbol    ui_tick_count_address
+    Select Fd Screen    0
+    Sleep    3s
+    ${addr}=    Fd Symbol    ui_refresh_count_address
     ${c1}=    Read U32    FD    ${addr}
     ${t1}=    Evaluate    __import__('time').time()
     Sleep    10s
@@ -268,7 +271,7 @@ TC-VER-FD-019 The display refreshes at 5 Hz
     ${t2}=    Evaluate    __import__('time').time()
     ${rate}=    Evaluate    (${c2} - ${c1}) / (${t2} - ${t1})
     Log    refresh rate ${rate} Hz (${c1} -> ${c2})
-    Should Be True    4.7 <= ${rate} <= 5.3    the display ticks at ${rate} Hz, expected 5 Hz
+    Should Be True    4.7 <= ${rate} <= 5.3    the values are redrawn at ${rate} Hz, expected 5 Hz
 
 TC-VER-FD-020 The green LED is off and the red LED is on when the system is in the Error state
     [Documentation]    REQ-LD-270. The Field Device has no sensor failure to provoke a fault on the bench, so the fault state is forced:

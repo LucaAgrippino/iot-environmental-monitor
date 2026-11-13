@@ -57,3 +57,26 @@ number of cases is smaller).
   right after a boot. SA-030: the boot log has one line for the SensorService, the three channels show in `sensors`.
 - **Display group, still open:** LD-060 (the "waiting" overlay is brief; timing to capture), LD-270 (needs the Error
   state), NF-108 (refresh rate), SA-010 (a failed configuration read).
+
+## Owner decisions, 2026-11-13 (second session)
+
+- **REQ-NF-110 (poll the field node at a default 1 Hz): the default Modbus poll period stays 200 ms.** The Gateway polls the Field Device
+  every 200 ms (`DEFAULT_MODBUS_POLL_PERIOD_MS`, `config_service.c`) so that an alarm raised on the Field Device reaches the cloud within
+  500 ms (REQ-NF-113, measured median 136 ms). At 1 Hz the alarm latency would be about 1.2 s. The two requirements cannot both hold with
+  one poll period; the owner chose REQ-NF-113. REQ-NF-110 is therefore **waived**. The Field Device samples its sensors at 1 Hz by default
+  (`polling-interval-ms`, REQ-SA-010), which is the rate that REQ-SA-140 refers to. The SRS wording should be amended to "the Field Device
+  samples at 1 Hz by default; the Gateway polls it every 200 ms".
+- **OTA closure suite (suite 11) approved to run.** It uploads to the Gateway but never reaches activation, so the firmware version stays.
+- **REQ-SA-010** (default polling interval when the configuration cannot be read): the Field Device keeps its configuration in external QSPI
+  flash, which the debugger cannot corrupt, so the failure branch cannot be forced on the bench. The evidence is at unit level: the host tests
+  TC-CSVC-001 and TC-CSVC-004 now assert exactly 1000 ms when nothing, or something invalid, is stored. Pending the owner's acceptance.
+- **REQ-MB-060** is no longer waived: it is verified on the RS-485 line (TC-VER-PR-004) after DEF-013.
+
+## Found and changed during the closure work
+
+- **DEF-013** (Modbus retries were 1, the requirement says 3) and **DEF-014** (publish periods saved over a restart were ignored): see `defects.md`.
+- **REQ-MB-080 / MB-090** had no cloud entry point: `fd_ack_alarm` and `fd_reset_metrics` now write the Field Device's command register and
+  report its answer (cloud-publisher-lld.md, CP-D39). **REQ-DM-100** had no remote path: `profile_add` and `profile_remove` (CP-D40).
+- **REQ-NF-108**: the Sensors screen redrew its values on every UI tick (about 14 Hz measured, TC-VER-FD-019); it is now gated to the 200 ms
+  `LCD_REFRESH_MS` (5 Hz) with a drift-free schedule; the UI task still ticks every 40 ms for the touch response and the blink phases.
+- **Measurable timing** was added for REQ-NF-100 / NF-106 (the longest sensor cycle of each board, and the Gateway's request-to-queued log).

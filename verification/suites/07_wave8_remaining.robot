@@ -7,6 +7,7 @@ Resource          ../resources/common.resource
 Library           ../libraries/Broker.py
 Library           ../libraries/Cloud.py
 Library           Collections
+Library           ../libraries/PortCapture.py
 Force Tags        wave8
 Suite Setup       Prepare Wave 8
 Suite Teardown    Restore Wave 8
@@ -121,14 +122,18 @@ TC-VER-CL-008 A remote read is accepted and acknowledged (latency logged; REQ-NF
 TC-VER-CL-009 An unknown or malformed control command is rejected with a reason and logged
     [Documentation]    The rejection goes to the cloud (result topic) and the Gateway logs the error on its console (REQ-MB-140).
     [Tags]    TC-VER-CL-009    REQ-NF-308    REQ-MB-140
+    # the console is recorded in the background: its log lines would scroll out of the tty buffer while the case waits for the cloud
+    Close Console
+    Start Port Capture    ${GW_PORT}    460800
     ${a}    ${s}=    Time To Result    control    {"command":"selfdestruct"}
     Should Be Equal    ${a}[result]    rejected
     Should Be Equal    ${a}[reason]    unknown_command
     ${b}    ${s}=    Time To Result    control    not json
     Should Be Equal    ${b}[reason]    bad_format
-    Send Command    ${EMPTY}    3.0
-    Console Should Contain    /control rejected: unknown command
-    Console Should Contain    /control rejected: bad format
+    Sleep    2s
+    Port Capture Should Contain    /control rejected: unknown command    5
+    Port Capture Should Contain    /control rejected: bad format    5
+    [Teardown]    Run Keywords    Stop Port Capture    AND    Open GW Console    AND    Wait For Boot    60
 
 TC-VER-CL-010 A restart without confirmation does nothing and the restart is cancelled
     [Documentation]    No confirmation within the window is a declined restart: LifecycleController logs "Restarting timed out ->

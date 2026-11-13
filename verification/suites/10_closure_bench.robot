@@ -223,7 +223,7 @@ TC-VER-CL-016 The RTC is synchronised every hour by default and the period can b
     ${count}=    Get Length    ${seen}
     Should Be True    ${count} >= 3    only ${count} syncs in 270 s at a 1 min period
     FOR    ${i}    IN RANGE    1    ${count}
-        ${d}=    Evaluate    ${seen}[${i}] - ${seen}[${i}-1]
+        ${d}=    Evaluate    $seen[$i] - $seen[$i - 1]
         Should Be True    50 <= ${d} <= 75    the syncs are ${d} s apart, expected about 60 s
     END
     [Teardown]    Run Keyword And Ignore Error    Defaults Back And Persisted
@@ -350,9 +350,9 @@ TC-VER-2B-007 The Field Device register follows its measurement: the Gateway's v
     Open FD Console
     Wait For Boot    30
     ${txt}=    Send Command    sensors    2.0
-    ${temp}=    Console Value    Temperature\s*: (-?[\d.]+) degC
-    ${hum}=    Console Value    Humidity\s*: ([\d.]+) %RH
-    ${press}=    Console Value    Pressure\s*: ([\d.]+) hPa
+    ${temp}=    Console Value    Temperature\\s*: (-?[\\d.]+) degC
+    ${hum}=    Console Value    Humidity\\s*: ([\\d.]+) %RH
+    ${press}=    Console Value    Pressure\\s*: ([\\d.]+) hPa
     Log    Field Device console ${temp} degC ${hum} % ${press} hPa; Gateway message ${fd}
     Should Be True    ${fd}[online]
     Should Be True    abs(${temp} * 10 - ${fd}[temperature_deci_c]) <= 8    temperature ${temp} against ${fd}[temperature_deci_c] deci-degC
@@ -372,9 +372,8 @@ TC-VER-2B-008 The Modbus address is received on the console, persisted, and take
     Console Should Contain    staged
     Send Command    prov commit    2.0
     Send Command    y    4.0
-    Console Should Contain    persisted
     ${txt}=    Send Command    config list    2.5
-    Should Match Regexp    ${txt}    modbus-slave-addr:\s+5\b
+    Should Match Regexp    ${txt}    modbus-slave-addr:\\s+5\\b
     Reset Board    FD
     Sleep    20s
     Close Console

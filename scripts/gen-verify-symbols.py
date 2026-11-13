@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write verification/build/fd-symbols.json for the Field Device image that is flashed.
 
-The addresses: LcdUi's `requested_screen` (select a screen) and `tick_count` (refresh rate), and HealthMonitor's lifecycle state
+The addresses: LcdUi's `requested_screen` (select a screen) and `refresh_count` (value refresh rate), and HealthMonitor's lifecycle state
 (forcing the fault state, REQ-LD-270).
 
 The Raspberry Pi bench has no gdb and no firmware tree, so the address that Boards.select_fd_screen needs
@@ -36,7 +36,7 @@ def gdb(expr, image=None):
 
 base = gdb("p/x (unsigned)&'lcd_ui.c'::s_ui")
 offset = gdb("p/x &((struct lcd_ui*)0)->requested_screen")
-tick = gdb("p/x &((struct lcd_ui*)0)->tick_count")
+tick = gdb("p/x &((struct lcd_ui*)0)->refresh_count")
 hm_state = gdb("p/x (unsigned)&'health_monitor.c'::s_hm.snapshot.lifecycle_state")
 hm_size = gdb("p/x (unsigned)sizeof('health_monitor.c'::s_hm.snapshot.lifecycle_state)")
 faulted = gdb("p/x (unsigned)LIFECYCLE_STATE_FAULTED")
@@ -45,11 +45,11 @@ gw_cycle = gdb("p/x (unsigned)&g_gw_sensor_cycle_ms_max", gw_elf) if gw_elf else
 os.makedirs(os.path.dirname(out), exist_ok=True)
 json.dump({"elf": os.path.basename(elf),
            "requested_screen_address": hex(base + offset),      # LcdUi: request a screen (select_fd_screen)
-           "ui_tick_count_address": hex(base + tick),            # LcdUi: lcd_ui_tick() calls (REQ-NF-108)
+           "ui_refresh_count_address": hex(base + tick),         # LcdUi: Sensors screen value redraws (REQ-NF-108)
            "hm_lifecycle_state_address": hex(hm_state),          # HealthMonitor: the lifecycle state it shows on the LEDs
            "hm_lifecycle_state_size": hm_size,
            "lifecycle_faulted": faulted,
            "fd_sensor_cycle_us_max_address": hex(fd_cycle),     # SensorTask of the Field Device: longest cycle, us (REQ-NF-100)
            **({"gw_sensor_cycle_ms_max_address": hex(gw_cycle)} if gw_cycle is not None else {})},  # Gateway: longest cycle, ms
           open(out, "w"), indent=2)
-print("requested_screen at", hex(base + offset), "tick_count at", hex(base + tick), "hm state at", hex(hm_state), "->", out)
+print("requested_screen at", hex(base + offset), "refresh_count at", hex(base + tick), "hm state at", hex(hm_state), "->", out)
