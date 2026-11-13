@@ -60,6 +60,12 @@ LED Should Be
         Should Not Be True    ${lit}    the ${led} LED is on, expected off
     END
 
+Collect Console After Reset
+    Collect Console    0.2
+    Reset Board    FD
+    ${log}=    Collect Console    14
+    RETURN    ${log}
+
 Show Screen
     [Arguments]    ${index}    ${name}
     Select Fd Screen    ${index}
@@ -198,3 +204,54 @@ TC-VER-FD-013 The splash shows the progress bar and the steps, then the screens 
     Region Should Have Text    ${early}    190    290    420    310    20
     Region Should Have Text    ${early}    24    440    500    456    20
     Region Should Contain Colour    ${done}    0    0    160    4    123,175,212    100
+
+TC-VER-FD-014 Every reading on the Sensors screen shows its measurement unit
+    [Tags]    TC-VER-FD-014    REQ-LD-030
+    ${p}=    Show Screen    0    sensors_units
+    # the unit sits right of the large value: degC, %RH and hPa slots of the three cards
+    Region Should Have Text    ${p}    168    203    198    222    6
+    Region Should Have Text    ${p}    424    203    458    222    6
+    Region Should Have Text    ${p}    680    203    714    222    6
+
+TC-VER-FD-015 The timestamp of the latest reading is shown and follows each new reading
+    [Documentation]    The three cards show "VALID - hh:mm:ss" (the time of the reading) and the header shows the clock.
+    ...    With the default 2 s polling the card timestamps change within a few seconds.
+    [Tags]    TC-VER-FD-015    REQ-LD-020
+    ${a}=    Show Screen    0    stamp_a
+    Region Should Have Text    ${a}    53    292    180    306    30
+    Region Should Have Text    ${a}    309    292    436    306    30
+    Region Should Have Text    ${a}    565    292    692    306    30
+    Sleep    6s
+    ${b}=    Show Screen    0    stamp_b
+    Run Keyword And Expect Error    *    Regions Should Match Golden    ${b}    ${a}    53    292    180    306    12    0.5
+
+TC-VER-FD-016 The Trend screen redraws when a new history sample arrives
+    [Documentation]    One history sample every 5 s: the plotted area differs between two captures 12 s apart.
+    [Tags]    TC-VER-FD-016    REQ-LD-180
+    ${a}=    Show Screen    1    trend_a
+    Sleep    12s
+    ${b}=    Show Screen    1    trend_b
+    Run Keyword And Expect Error    *    Regions Should Match Golden    ${b}    ${a}    144    118    778    430    12    0.2
+
+TC-VER-FD-017 The Trend screen shows the accumulating indicator right after a boot
+    [Documentation]    The amber "ACCUMULATING m:ss / 5:00" badge (212,168,76) in the header of the Trend screen. The
+    ...    design keeps it until the 5 min window is full, which is longer than the wording of REQ-LD-195 (until one valid
+    ...    entry per channel); right after a boot both readings agree.
+    [Tags]    TC-VER-FD-017    REQ-LD-195
+    Reset And Wait    FD    30
+    Sleep    6s
+    ${p}=    Show Screen    1    trend_boot
+    Region Should Contain Colour    ${p}    380    70    596    98    212,168,76    200
+
+TC-VER-FD-018 The sensor simulation is initialised at start-up and delivers temperature, humidity and pressure
+    [Documentation]    The boot log has one line for the SensorService, not one per sensor: the three channels are
+    ...    shown by the first `sensors` reading.
+    [Tags]    TC-VER-FD-018    REQ-SA-030
+    ${log}=    Collect Console After Reset
+    Should Contain    ${log}    SensorService initialised
+    Wait For Boot    30
+    Sleep    4s
+    ${txt}=    Send Command    sensors    1.5
+    Should Match Regexp    ${txt}    Temperature: -?[\\d.]+ degC
+    Should Match Regexp    ${txt}    Humidity\\s*: [\\d.]+
+    Should Match Regexp    ${txt}    Pressure\\s*: [\\d.]+
