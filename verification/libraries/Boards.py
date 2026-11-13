@@ -4,8 +4,10 @@ Keywords are plain functions of the class; Robot turns `flash_fd` into `Flash Fd
 console ports are the bench's (docs/test/verification-plan.md section 4).
 """
 import glob
+import json
 import os
 import re
+import shutil
 import subprocess
 import time
 
@@ -106,11 +108,23 @@ class Boards:
         return int(m.group(1), 16)
 
     def select_fd_screen(self, index):
-        """Ask LcdUi for a screen (0 Sensors, 1 Trend, 2 Status, 3 Alarms, 4 Config) through its request field."""
-        base = self.symbol_address("FD", "'lcd_ui.c'::s_ui")
-        off = int(subprocess.run(["gdb-multiarch", "-batch", "-ex", "p/x &((struct lcd_ui*)0)->requested_screen", FD_ELF],
-                                 capture_output=True, text=True, timeout=60).stdout.split("= ")[-1].strip(), 16)
-        _run_openocd("FD", "mwh 0x%x %d" % (base + off, int(index) + 1))
+        """Ask LcdUi for a screen (0 Sensors, 1 Trend, 2 Status, 3 Alarms, 4 Config) through its request field.
+
+        The address of the field comes from gdb when it is installed (the PC) and otherwise from the JSON file
+        that scripts/gen-verify-symbols.py wrote on the PC for the image that is flashed (the Raspberry Pi has no
+        gdb and no firmware tree); VERIFY_SYMBOLS overrides the file name."""
+        _run_openocd("FD", "mwh 0x%x %d" % (self._requested_screen_address(), int(index) + 1))
+
+    def _requested_screen_address(self):
+        path = os.environ.get("VERIFY_SYMBOLS", os.path.join(ROOT, "verification/build/fd-symbols.json"))
+        if shutil.which("gdb-multiarch"):
+            base = self.symbol_address("FD", "'lcd_ui.c'::s_ui")
+            off = int(subprocess.run(["gdb-multiarch", "-batch", "-ex", "p/x &((struct lcd_ui*)0)->requested_screen", FD_ELF],
+                                     capture_output=True, text=True, timeout=60).stdout.split("= ")[-1].strip(), 16)
+            return base + off
+        if not os.path.exists(path):
+            raise AssertionError("no gdb-multiarch and no symbol file %s: run scripts/gen-verify-symbols.py on the PC" % path)
+        return int(json.load(open(path))["requested_screen_address"], 16)
 
     def capture_after_reset(self, path, delay_ms):
         """Reset the Field Device, let it run `delay_ms`, halt it and save the framebuffer as a PNG (splash timing)."""

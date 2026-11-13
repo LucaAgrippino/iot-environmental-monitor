@@ -90,6 +90,12 @@ class ConsoleLib:
     def get_console_text(self):
         return self.buf
 
+    def collect_console(self, seconds):
+        """Forget what was read, listen for `seconds` and return everything the board printed (a boot log)."""
+        self.buf = ""
+        self._pump(seconds)
+        return self.buf
+
     def wait_for_boot(self, seconds=45):
         """Wait until the console answers (the Gateway console is silent for a while after a reset)."""
         end = time.time() + float(seconds)
