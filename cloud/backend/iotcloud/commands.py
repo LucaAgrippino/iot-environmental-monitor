@@ -9,7 +9,8 @@ message for a persistent session, so it can still execute later: the status then
 import json
 import time
 
-CONTROL_COMMANDS = ("read", "restart", "restart_confirm", "reset_metrics")
+PROFILE_COMMANDS = ("profile_add", "profile_remove")
+CONTROL_COMMANDS = ("read", "restart", "restart_confirm", "reset_metrics", "fd_ack_alarm", "fd_reset_metrics") + PROFILE_COMMANDS
 MAX_CONFIG_KEYS = 8  # the firmware rejects more than eight keys in one message
 
 
@@ -29,11 +30,31 @@ def validate_config(body) -> dict:
     return body
 
 
-def validate_control(body) -> str:
+def _int_member(body: dict, key: str, low: int, high: int) -> int:
+    v = body.get(key)
+    if not isinstance(v, int) or isinstance(v, bool) or not low <= v <= high:
+        raise BadCommand(f"{key} must be an integer {low}..{high}")
+    return v
+
+
+def validate_control(body) -> dict:
+    """The message the device gets: the command, and for the profile commands the members the firmware reads
+    (the ranges are the firmware's: slave 1..247, map and vendor 1..65535, a label of up to 32 plain characters)."""
     cmd = body.get("command") if isinstance(body, dict) else None
     if cmd not in CONTROL_COMMANDS:
         raise BadCommand(f"command must be one of {', '.join(CONTROL_COMMANDS)}")
-    return cmd
+    out = {"command": cmd}
+    if cmd in PROFILE_COMMANDS:
+        out["slave"] = _int_member(body, "slave", 1, 247)
+        if cmd == "profile_add":
+            out["map"] = _int_member(body, "map", 1, 65535)
+            out["vendor"] = _int_member(body, "vendor", 1, 65535)
+            desc = body.get("desc")
+            if desc is not None:
+                if not isinstance(desc, str) or not 1 <= len(desc) <= 32 or any(c in '"\\' or ord(c) < 32 or ord(c) > 126 for c in desc):
+                    raise BadCommand("desc must be 1..32 plain ASCII characters, no quote or backslash")
+                out["desc"] = desc
+    return out
 
 
 def send(db, publish, root: str, device: str, kind: str, body: dict, now: int | None = None) -> dict:
@@ -42,7 +63,7 @@ def send(db, publish, root: str, device: str, kind: str, body: dict, now: int | 
     if kind == "config":
         payload_body = validate_config(body)
     elif kind == "control":
-        payload_body = {"command": validate_control(body)}
+        payload_body = validate_control(body)
     else:
         raise BadCommand("kind must be config or control")
     cid = db.execute("INSERT INTO commands(device, kind, body, created, status) VALUES(?,?,?,?,?)",

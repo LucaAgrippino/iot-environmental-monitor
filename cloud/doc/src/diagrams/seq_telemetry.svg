@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 460" font-family="Liberation Sans, Arial, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>
+<rect x="8.0" y="8" width="124" height="40" rx="7" fill="#2F6DB522" stroke="#2F6DB5" stroke-width="1.4"/>
+<text x="70.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Sensors</text>
+<text x="70.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">(on the Gateway)</text>
+<line x1="70.0" y1="48" x2="70.0" y2="446" stroke="#2F6DB5" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="176.0" y="8" width="124" height="40" rx="7" fill="#2F6DB522" stroke="#2F6DB5" stroke-width="1.4"/>
+<text x="238.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Gateway</text>
+<text x="238.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">firmware</text>
+<line x1="238.0" y1="48" x2="238.0" y2="446" stroke="#2F6DB5" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="344.0" y="8" width="124" height="40" rx="7" fill="#2E8B5722" stroke="#2E8B57" stroke-width="1.4"/>
+<text x="406.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Broker</text>
+<text x="406.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">Mosquitto</text>
+<line x1="406.0" y1="48" x2="406.0" y2="446" stroke="#2E8B57" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="512.0" y="8" width="124" height="40" rx="7" fill="#6B4FB322" stroke="#6B4FB3" stroke-width="1.4"/>
+<text x="574.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Backend</text>
+<text x="574.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">mqtt + ingest</text>
+<line x1="574.0" y1="48" x2="574.0" y2="446" stroke="#6B4FB3" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="680.0" y="8" width="124" height="40" rx="7" fill="#6B4FB322" stroke="#6B4FB3" stroke-width="1.4"/>
+<text x="742.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Database</text>
+<text x="742.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">SQLite</text>
+<line x1="742.0" y1="48" x2="742.0" y2="446" stroke="#6B4FB3" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="848.0" y="8" width="124" height="40" rx="7" fill="#C77B1222" stroke="#C77B12" stroke-width="1.4"/>
+<text x="910.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Browser</text>
+<text x="910.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">web app</text>
+<line x1="910.0" y1="48" x2="910.0" y2="446" stroke="#C77B12" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<line x1="70.0" y1="70" x2="238.0" y2="70" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="154.0" y="65" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">1</tspan>  readings every 100 ms; filtered, checked against limits</text>
+<rect x="125.80000000000001" y="88" width="224.39999999999998" height="22" rx="4" fill="#FFFBE6" stroke="#D9C46B"/>
+<text x="238.0" y="103" text-anchor="middle" font-size="11" fill="#333">every 60 s: build the JSON message</text>
+<line x1="238.0" y1="130" x2="406.0" y2="130" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="322.0" y="125" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">2</tspan>  TLS handshake with certificate, then PUBLISH dt/iotmonitor/&lt;serial&gt;/telemetry (QoS 0)</text>
+<line x1="406.0" y1="160" x2="574.0" y2="160" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="490.0" y="155" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">3</tspan>  forward to the backend (it subscribed with the same certificate identity)</text>
+<path d="M574.0,190 h-26 v14 h26" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="542.0" y="194" text-anchor="end" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">4</tspan>  check topic, parse JSON, pick the time</text>
+<line x1="574.0" y1="234" x2="742.0" y2="234" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="658.0" y="229" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">5</tspan>  INSERT telemetry row; update devices.last_seen</text>
+<line x1="574.0" y1="264" x2="910.0" y2="264" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="742.0" y="259" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">6</tspan>  event on the live stream (server-sent events)</text>
+<line x1="910.0" y1="294" x2="574.0" y2="294" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="742.0" y="289" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">7</tspan>  GET /api/devices/&lt;serial&gt; (refresh the cards)</text>
+<line x1="574.0" y1="324" x2="742.0" y2="324" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="658.0" y="319" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">8</tspan>  SELECT latest telemetry, health, active alarms</text>
+<line x1="574.0" y1="354" x2="910.0" y2="354" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="742.0" y="349" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">9</tspan>  JSON: values, online flag, alarms</text>
+<rect x="708.5999999999999" y="372" width="257.4" height="22" rx="4" fill="#FFFBE6" stroke="#D9C46B"/>
+<text x="837.3" y="387" text-anchor="middle" font-size="11" fill="#333">the numbers on screen change, no reload</text>
+</svg>

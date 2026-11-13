@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 652" font-family="Liberation Sans, Arial, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>
+<rect x="8.0" y="8" width="124" height="40" rx="7" fill="#C77B1222" stroke="#C77B12" stroke-width="1.4"/>
+<text x="70.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Browser /</text>
+<text x="70.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">OTA tool</text>
+<line x1="70.0" y1="48" x2="70.0" y2="638" stroke="#C77B12" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="223.0" y="8" width="124" height="40" rx="7" fill="#6B4FB322" stroke="#6B4FB3" stroke-width="1.4"/>
+<text x="285.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Backend</text>
+<text x="285.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">OTA service</text>
+<line x1="285.0" y1="48" x2="285.0" y2="638" stroke="#6B4FB3" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="438.0" y="8" width="124" height="27" rx="7" fill="#2E8B5722" stroke="#2E8B57" stroke-width="1.4"/>
+<text x="500.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Broker</text>
+<line x1="500.0" y1="35" x2="500.0" y2="638" stroke="#2E8B57" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="653.0" y="8" width="124" height="40" rx="7" fill="#2F6DB522" stroke="#2F6DB5" stroke-width="1.4"/>
+<text x="715.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Gateway</text>
+<text x="715.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">UpdateService</text>
+<line x1="715.0" y1="48" x2="715.0" y2="638" stroke="#2F6DB5" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="868.0" y="8" width="124" height="27" rx="7" fill="#C0392B22" stroke="#C0392B" stroke-width="1.4"/>
+<text x="930.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Bootloader</text>
+<line x1="930.0" y1="35" x2="930.0" y2="638" stroke="#C0392B" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<line x1="70.0" y1="70" x2="285.0" y2="70" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="177.5" y="65" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">1</tspan>  PUT /api/images/a.ota and b.ota   (stored with their SHA-256)</text>
+<line x1="70.0" y1="99" x2="285.0" y2="99" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="177.5" y="94" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">2</tspan>  POST /api/devices/&lt;id&gt;/ota  {image_a, image_b}</text>
+<line x1="285.0" y1="128" x2="500.0" y2="128" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="392.5" y="123" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">3</tspan>  PUBLISH cmd/iotmonitor/&lt;id&gt;/ota  {&quot;job&quot;:42,&quot;size_a&quot;:N,&quot;size_b&quot;:N}  (QoS 1)</text>
+<line x1="500.0" y1="157" x2="715.0" y2="157" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="607.5" y="152" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">4</tspan>  deliver the command</text>
+<line x1="715.0" y1="186" x2="500.0" y2="186" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="607.5" y="181" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">5</tspan>  result {&quot;result&quot;:&quot;accepted&quot;}</text>
+<line x1="14" y1="209" x2="986" y2="209" stroke="#999" stroke-dasharray="2 3"/>
+<text x="500.0" y="223" text-anchor="middle" font-size="11.5" font-style="italic" fill="#555" style="paint-order:stroke" stroke="#fff" stroke-width="4">repeat until the whole file is in the staging area (about 340 chunks of 1 KB)</text>
+<line x1="715.0" y1="248" x2="500.0" y2="248" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="607.5" y="243" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">6</tspan>  dt/…/ota/request  {&quot;job&quot;:42,&quot;slot&quot;:&quot;B&quot;,&quot;offset&quot;:4096,&quot;len&quot;:1024}</text>
+<line x1="500.0" y1="277" x2="285.0" y2="277" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="392.5" y="272" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">7</tspan>  forward; backend reads that slice of the image file</text>
+<line x1="285.0" y1="306" x2="500.0" y2="306" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="392.5" y="301" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">8</tspan>  cmd/…/ota/data  = job | offset | 1024 bytes   (binary)</text>
+<line x1="500.0" y1="335" x2="715.0" y2="335" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="607.5" y="330" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">9</tspan>  deliver; Gateway writes the chunk to QSPI staging</text>
+<line x1="14" y1="358" x2="986" y2="358" stroke="#999" stroke-dasharray="2 3"/>
+<text x="500.0" y="372" text-anchor="middle" font-size="11.5" font-style="italic" fill="#555" style="paint-order:stroke" stroke="#fff" stroke-width="4">then, on the Gateway only</text>
+<path d="M715.0,397 h-26 v14 h26" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="683.0" y="401" text-anchor="end" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">10</tspan>  verify: header, SHA-256 of the body, ECDSA signature with the built-in public key</text>
+<path d="M715.0,440 h-26 v14 h26" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="683.0" y="444" text-anchor="end" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">11</tspan>  install into the other bank; mark TRIAL_PENDING; reset</text>
+<line x1="930.0" y1="483" x2="715.0" y2="483" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="822.5" y="478" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">12</tspan>  boot the new bank in trial (TRIAL_RUNNING)</text>
+<path d="M715.0,512 h-26 v14 h26" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="683.0" y="516" text-anchor="end" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">13</tspan>  self-check: sensors ready, Modbus ready, cloud connected</text>
+<line x1="715.0" y1="555" x2="500.0" y2="555" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="607.5" y="550" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">14</tspan>  dt/…/ota/result  {&quot;result&quot;:&quot;success&quot;,&quot;version&quot;:&quot;1.0.1&quot;}  (after confirming)</text>
+<line x1="500.0" y1="584" x2="285.0" y2="584" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="392.5" y="579" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">15</tspan>  ingest.on_result -&gt; ota job = success; an &#x27;ota_result&#x27; alert may fire</text>
+<line x1="14" y1="607" x2="986" y2="607" stroke="#999" stroke-dasharray="2 3"/>
+<text x="500.0" y="621" text-anchor="middle" font-size="11.5" font-style="italic" fill="#555" style="paint-order:stroke" stroke="#fff" stroke-width="4">self-check fails or the new image crashes: the bootloader restores the old bank, result &#x27;rolled_back&#x27;</text>
+</svg>

@@ -48,6 +48,22 @@
     if (value === '' || !Number.isInteger(Number(value))) return (error = 'The value must be an integer.');
     send('config', { [key]: Number(value) });
   };
+  // Device profiles (REQ-DM-100): which Field Devices the Gateway accepts, by Modbus address, register map and vendor code.
+  let pSlave = $state('');
+  let pMap = $state('1');
+  let pVendor = $state('');
+  let pDesc = $state('');
+  const num = (s) => (s !== '' && Number.isInteger(Number(s)) ? Number(s) : null);
+  const sendProfile = (ev, add) => {
+    ev.preventDefault();
+    const slave = num(pSlave);
+    if (slave === null) return (error = 'The slave address must be an integer, 1..247.');
+    if (!add) return send('control', { command: 'profile_remove', slave });
+    const map = num(pMap);
+    const vendor = num(pVendor);
+    if (map === null || vendor === null) return (error = 'Map version and vendor code must be integers, 1..65535.');
+    send('control', { command: 'profile_add', slave, map, vendor, ...(pDesc ? { desc: pDesc } : {}) });
+  };
   const lastRestartAccepted = $derived(rows.find((r) => r.kind === 'control' && r.body.command === 'restart' && r.status === 'accepted'));
   const confirmable = $derived(lastRestartAccepted && Date.now() / 1000 - lastRestartAccepted.finished < 30);
   const cls = (s) => (s === 'applied' || s === 'accepted' ? 'ok' : s === 'pending' ? 'warn' : 'bad');
@@ -67,16 +83,31 @@
 </div>
 
 <div class="card">
+  <h2>Device profiles</h2>
+  <form class="row" onsubmit={(ev) => sendProfile(ev, true)}>
+    <input bind:value={pSlave} type="number" min="1" max="247" placeholder="slave" />
+    <input bind:value={pMap} type="number" min="1" max="65535" placeholder="map version" />
+    <input bind:value={pVendor} type="number" min="1" max="65535" placeholder="vendor code" />
+    <input bind:value={pDesc} maxlength="32" placeholder="label (optional)" />
+    <button class="primary" disabled={busy}>Add or replace</button>
+    <button type="button" class="danger" disabled={busy} onclick={(ev) => sendProfile(ev, false)}>Remove</button>
+  </form>
+  <p class="muted small">The Gateway polls only the Field Devices that have a profile. Removing the profile of the Field Device that is connected stops its polling until it is added again.</p>
+</div>
+
+<div class="card">
   <h2>Control</h2>
   <div class="row">
     <button disabled={busy} onclick={() => send('control', { command: 'read' })}>Read now</button>
     <button disabled={busy} onclick={() => send('control', { command: 'reset_metrics' })}>Reset metrics</button>
+    <button disabled={busy} onclick={() => send('control', { command: 'fd_ack_alarm' })}>Acknowledge Field Device alarms</button>
+    <button disabled={busy} onclick={() => send('control', { command: 'fd_reset_metrics' })}>Reset Field Device metrics</button>
     <button class="danger" disabled={busy} onclick={() => send('control', { command: 'restart' })}>Restart…</button>
     {#if confirmable}
       <button class="danger" disabled={busy} onclick={() => send('control', { command: 'restart_confirm' })}>Confirm restart (30 s window)</button>
     {/if}
   </div>
-  <p class="muted small">A restart takes two steps: ask, then confirm within 30 s.</p>
+  <p class="muted small">A restart takes two steps: ask, then confirm within 30 s. The two Field Device buttons write the command register of the Field Device through the Gateway; the result says whether it answered.</p>
 </div>
 </fieldset>
 

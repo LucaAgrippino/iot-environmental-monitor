@@ -71,6 +71,43 @@ def test_bad_commands_are_refused_before_publishing(env):
     assert bus.sent == []
 
 
+def test_field_device_commands_are_forwarded_and_their_result_is_tracked(env):
+    """fd_ack_alarm / fd_reset_metrics go to the Gateway, which writes them to the Field Device and reports its answer."""
+    c, bus, db, _ = env
+    for name in ("fd_ack_alarm", "fd_reset_metrics"):
+        r = c.post(f"/api/devices/{DEV}/control", json={"command": name})
+        assert r.status_code == 202
+        topic, payload, qos = bus.sent[-1]
+        assert topic == f"cmd/iotmonitor/{DEV}/control" and qos == 1
+        assert json.loads(payload) == {"command": name, "req": r.json()["id"]}
+        device_says(db, "control/result", event="control", command=name, req=r.json()["id"], result="rejected", reason="field_device_unreachable")
+        done = c.get(f"/api/commands/{r.json()['id']}").json()
+        assert done["status"] == "rejected" and "field_device_unreachable" in json.dumps(done)
+
+
+def test_profile_commands_carry_their_members_and_are_validated(env):
+    c, bus, db, _ = env
+    r = c.post(f"/api/devices/{DEV}/control", json={"command": "profile_add", "slave": 17, "map": 1, "vendor": 4660, "desc": "verif"})
+    assert r.status_code == 202
+    sent = json.loads(bus.sent[-1][1])
+    assert sent == {"command": "profile_add", "slave": 17, "map": 1, "vendor": 4660, "desc": "verif", "req": r.json()["id"]}
+    assert len(bus.sent[-1][1]) <= 160 - 20  # the firmware reads at most 160 characters; "req" is the cloud's
+    r = c.post(f"/api/devices/{DEV}/control", json={"command": "profile_remove", "slave": 17})
+    assert r.status_code == 202 and json.loads(bus.sent[-1][1]) == {"command": "profile_remove", "slave": 17, "req": r.json()["id"]}
+    n = len(bus.sent)
+    for bad in ({"command": "profile_add", "slave": 0, "map": 1, "vendor": 1},
+                {"command": "profile_add", "slave": 248, "map": 1, "vendor": 1},
+                {"command": "profile_add", "slave": 9, "map": 0, "vendor": 1},
+                {"command": "profile_add", "slave": 9, "map": 1},
+                {"command": "profile_add", "slave": 9, "map": 1, "vendor": 70000},
+                {"command": "profile_add", "slave": 9, "map": 1, "vendor": 1, "desc": 'a"b'},
+                {"command": "profile_add", "slave": 9, "map": 1, "vendor": 1, "desc": "x" * 33},
+                {"command": "profile_add", "slave": True, "map": 1, "vendor": 1},
+                {"command": "profile_remove"}):
+        assert c.post(f"/api/devices/{DEV}/control", json=bad).status_code == 400, bad
+    assert len(bus.sent) == n  # nothing bad was published
+
+
 def test_no_broker_means_503(tmp_path, db):
     c = TestClient(create_app(Settings(db_path="x", image_dir=str(tmp_path), auth_required=False), db, start_mqtt=False))
     ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b"{}", 1)
