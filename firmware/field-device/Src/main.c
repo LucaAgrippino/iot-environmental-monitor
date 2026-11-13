@@ -613,6 +613,41 @@ static void report_task(void *arg)
     }
 }
 
+/**
+ * @brief Monotonic millisecond clock for the poll-loop timeouts of the RTC and the two UART drivers
+ *        (DEF-012).
+ *
+ * Before the scheduler starts (rtc_init() runs there) the FreeRTOS tick is not counting, so the DWT
+ * cycle counter is converted instead. It wraps every ~23 s at 180 MHz, so the elapsed cycles are
+ * accumulated into a 32-bit millisecond count that wraps only after 49 days (the RTC compares
+ * `tick() >= deadline`, which is not wrap-safe). That path is single-threaded and called often
+ * enough; once the scheduler runs the FreeRTOS tick takes over.
+ */
+static uint32_t fd_tick_ms(void)
+{
+    if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
+    {
+        return (uint32_t) (xTaskGetTickCount() * portTICK_PERIOD_MS);
+    }
+
+    static uint32_t last_cycles;
+    static uint32_t rest_cycles; /* cycles not yet worth a whole millisecond */
+    static uint32_t ms;
+    static bool seeded;
+    const uint32_t cycles_per_ms = SystemCoreClock / 1000U;
+    const uint32_t now = DWT->CYCCNT;
+    if (!seeded)
+    {
+        seeded = true;
+        last_cycles = now;
+    }
+    rest_cycles += now - last_cycles; /* unsigned: correct across one wrap */
+    last_cycles = now;
+    ms += rest_cycles / cycles_per_ms;
+    rest_cycles %= cycles_per_ms;
+    return ms;
+}
+
 /* ======================================================================= */
 /* main                                                                     */
 /* ======================================================================= */
@@ -640,11 +675,16 @@ int main(void)
     NVIC_SetPriority(USART3_IRQn, DEBUG_UART_IRQ_PRIORITY);
     (void) gpio_init();
     (void) led_init(k_fd_led_pins, LED_COUNT);
+    /* DEF-012: bound the poll loops of the RTC and the UARTs. The RTC keeps its pointer across
+     * rtc_init(); the UART drivers reset theirs in init(), so theirs are set after it. */
+    rtc_set_tick_source(fd_tick_ms);
     const rtc_err_t rtc_rc = rtc_init();
     (void) debug_uart_init();
+    debug_uart_set_tick_source(fd_tick_ms);
     (void) i2c_init();
     (void) qspi_flash_init();
     (void) modbus_uart_init();
+    modbus_uart_set_tick_source(fd_tick_ms);
 
     /* 2. Middleware. HealthMonitor first (ConfigStore and TimeProvider report to it), then the
      *    Logger (its pre-scheduler calls write synchronously). */
