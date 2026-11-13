@@ -10,6 +10,7 @@ Library           ../libraries/Rs485Probe.py
 Library           Collections
 Library           Process
 Library           DateTime
+Library           String
 Force Tags        closure
 Suite Setup       Prepare Closure
 Suite Teardown    Restore Closure
@@ -120,6 +121,36 @@ Defaults Back And Persisted
     GW Config Set And Apply    health-interval-ms    ${ORIG_HEALTH}
     GW Config Set And Apply    ntp-interval-min    60
     Orderly Restart
+
+Telemetry Count
+    ${t}=    Messages On    telemetry
+    ${n}=    Get Length    ${t}
+    RETURN    ${n}
+
+Log Lines Should Be Well Formed
+    [Arguments]    ${text}    ${board}
+    ${levels}=    Evaluate    len(re.findall(r'\\[ ?(?:INFO|WARN|ERROR|DEBUG)\\]', $text))    modules=re
+    ${full}=    Evaluate    len(re.findall(r'\\[ ?(?:INFO|WARN|ERROR|DEBUG)\\]\\[(?:\\d\\d:\\d\\d:\\d\\d|T\\+\\d+)\\]\\[[A-Za-z0-9_]+ *\\]', $text))    modules=re
+    Log    ${board}: ${levels} log lines, ${full} with severity, time and module
+    Should Be True    ${levels} >= 10    only ${levels} log lines from the ${board} after a reset
+    Should Be True    ${full} >= ${levels} * 0.9    ${full} of ${levels} ${board} log lines have severity, time and module
+
+Restore Field Device Address
+    [Documentation]    Whatever happened, put the Field Device back to address 1 and remove the test profile.
+    Close Console
+    Run Keyword And Ignore Error    Open FD Console
+    Run Keyword And Ignore Error    Wait For Boot    30
+    Run Keyword And Ignore Error    Send Command    prov set modbus-addr 1    2.0
+    Run Keyword And Ignore Error    Send Command    prov commit    2.0
+    Run Keyword And Ignore Error    Send Command    y    4.0
+    Reset Board    FD
+    Sleep    20s
+    Close Console
+    Open GW Console
+    Wait For Boot    60
+    Run Keyword And Ignore Error    Send Command    profiles remove 5    2.0
+    Sleep    30s
+    GW Command    modbus status    online    wait=2.5
 
 Bounce Broker
     ${r}=    Run Process    sudo    -n    systemctl    restart    mosquitto    timeout=60
@@ -264,14 +295,162 @@ TC-VER-CL-020 A device profile can be added and removed from the cloud
     ${res}    ${secs}=    Time To Result    control    {"command":"profile_add","slave":17,"map":1,"vendor":4660,"desc":"verif","req":701}    8
     Should Be Equal    ${res}[result]    accepted
     ${txt}=    Send Command    profiles list    2.5
-    Should Match Regexp    ${txt}    17\\s.*0x1234
+    Should Match Regexp    ${txt}    (?m)^\\s*slave\\s+17\\s+map\\s+1\\s+vendor\\s+0x1234
     ${bad}    ${secs}=    Time To Result    control    {"command":"profile_add","slave":17,"map":1,"req":702}    8
     Should Be Equal    ${bad}[result]    rejected
     Should Be Equal    ${bad}[reason]    bad_format
     ${gone}    ${secs}=    Time To Result    control    {"command":"profile_remove","slave":17,"req":703}    8
     Should Be Equal    ${gone}[result]    accepted
     ${txt}=    Send Command    profiles list    2.5
-    Should Not Match Regexp    ${txt}    slave\\s+17\\b
+    Should Not Match Regexp    ${txt}    (?m)^\\s*slave\\s+17\\s+map
     ${again}    ${secs}=    Time To Result    control    {"command":"profile_remove","slave":17,"req":704}    8
     Should Be Equal    ${again}[reason]    not_found
     [Teardown]    Run Keyword And Ignore Error    Send Command    profiles remove 17    2.0
+
+# ---- 3. Log format, the Field Device register, the Modbus address ---------------------------------------------------
+TC-VER-GW-017 Every log line carries a severity, a time and the module on both boards
+    [Documentation]    A reset of each board is recorded on its own console stream; every log line has the shape
+    ...    [ LEVEL][hh:mm:ss][Module ] text (the time is T+seconds until the RTC is usable). A line whose prefix is cut by the
+    ...    Gateway's status repaint is tolerated up to 10 %.
+    [Tags]    TC-VER-GW-017    REQ-NF-500
+    Close Console
+    Start Port Capture    ${GW_PORT}    460800
+    Reset Board    GW
+    Sleep    35s
+    ${gw}=    Get Port Capture
+    Stop Port Capture
+    Start Port Capture    ${FD_PORT}    115200
+    Reset Board    FD
+    Sleep    20s
+    ${fd}=    Get Port Capture
+    Stop Port Capture
+    Log Lines Should Be Well Formed    ${gw}    Gateway
+    Log Lines Should Be Well Formed    ${fd}    Field Device
+    Open GW Console
+    Wait For Boot    90
+    Ensure Gateway Online
+
+TC-VER-2B-007 The Field Device register follows its measurement: the Gateway's value equals the Field Device's own
+    [Documentation]    REQ-MB-000: right after a telemetry message the Field Device console and the message agree (the message
+    ...    carries what the Gateway last read from the Field Device's input registers).
+    [Tags]    TC-VER-2B-007    REQ-MB-000
+    ${count}=    Telemetry Count
+    ${end}=    Evaluate    __import__('time').time() + 100
+    WHILE    True
+        ${now}=    Telemetry Count
+        IF    ${now} > ${count}    BREAK
+        ${t}=    Evaluate    __import__('time').time()
+        IF    ${t} > ${end}    Fail    no telemetry message within 100 s
+        Sleep    2s
+    END
+    ${tele}=    Messages On    telemetry
+    ${doc}=    Json Of    ${tele}[-1]
+    ${fd}=    Set Variable    ${doc}[field_device]
+    Close Console
+    Open FD Console
+    Wait For Boot    30
+    ${txt}=    Send Command    sensors    2.0
+    ${temp}=    Console Value    Temperature\s*: (-?[\d.]+) degC
+    ${hum}=    Console Value    Humidity\s*: ([\d.]+) %RH
+    ${press}=    Console Value    Pressure\s*: ([\d.]+) hPa
+    Log    Field Device console ${temp} degC ${hum} % ${press} hPa; Gateway message ${fd}
+    Should Be True    ${fd}[online]
+    Should Be True    abs(${temp} * 10 - ${fd}[temperature_deci_c]) <= 8    temperature ${temp} against ${fd}[temperature_deci_c] deci-degC
+    Should Be True    abs(${hum} - ${fd}[humidity_pct]) <= 4    humidity ${hum} against ${fd}[humidity_pct]
+    Should Be True    abs(${press} - ${fd}[pressure_hpa]) <= 4    pressure ${press} against ${fd}[pressure_hpa]
+    [Teardown]    Run Keywords    Close Console    AND    Open GW Console    AND    Wait For Boot    60
+
+TC-VER-2B-008 The Modbus address is received on the console, persisted, and takes effect on the line
+    [Documentation]    REQ-LI-070. Field Device: `prov set modbus-addr 5`, commit, reset: it answers at 5 and no longer at 1 (the
+    ...    passive dongle sees the replies). Gateway: the same key is staged and accepted (discarded, so the poller is
+    ...    untouched). The Field Device is put back to address 1 afterwards.
+    [Tags]    TC-VER-2B-008    REQ-LI-070    probe
+    Close Console
+    Open FD Console
+    Wait For Boot    30
+    Send Command    prov set modbus-addr 5    2.0
+    Console Should Contain    staged
+    Send Command    prov commit    2.0
+    Send Command    y    4.0
+    Console Should Contain    persisted
+    ${txt}=    Send Command    config list    2.5
+    Should Match Regexp    ${txt}    modbus-slave-addr:\s+5\b
+    Reset Board    FD
+    Sleep    20s
+    Close Console
+    Open GW Console
+    Wait For Boot    60
+    Send Command    prov set modbus-addr 3    2.0
+    Console Should Contain    staged
+    Send Command    prov discard    2.0
+    Capture Bus    8
+    ${at_1}=    Reply Count    1
+    Should Be Equal As Integers    ${at_1}    0    the Field Device still answers at address 1
+    GW Command    profiles add addr=5 map=1 vendor=0x1A45 desc=fd-at-5    saved
+    Sleep    15s
+    Capture Bus    8
+    ${at_5}=    Reply Count    5
+    Log    replies at address 5: ${at_5}
+    Should Be True    ${at_5} > 0    the Field Device does not answer at address 5
+    [Teardown]    Restore Field Device Address
+
+
+TC-VER-CL-021 The Gateway never talks to the cloud without TLS
+    [Documentation]    REQ-NF-305. The broker is stopped and a recording listener takes its port. Every attempt of the Gateway starts
+    ...    with a TLS handshake (record type 0x16, version 0x03), never with a plaintext MQTT CONNECT (0x10), and the plaintext
+    ...    CONNACK the listener sends back does not make the Gateway report a connection.
+    [Tags]    TC-VER-CL-021    REQ-NF-305
+    ${r}=    Run Process    sudo    -n    systemctl    stop    mosquitto    timeout=60
+    Should Be Equal As Integers    ${r.rc}    0    ${r.stderr}
+    Sleep    3s
+    ${firsts}=    Plain Listener Records    8883    150
+    Log    first bytes of each connection attempt: ${firsts}
+    Should Not Be Empty    ${firsts}    the Gateway made no connection attempt in 150 s
+    FOR    ${hex}    IN    @{firsts}
+        Should Start With    ${hex}    1603    an attempt began with ${hex}, not a TLS handshake
+    END
+    ${txt}=    Send Command    mqtt status    2.5
+    Should Not Match Regexp    ${txt}    (?i)connected\\s+\\d    the Gateway reports an MQTT connection to a plaintext peer
+    [Teardown]    Run Keywords    Run Process    sudo    -n    systemctl    start    mosquitto    timeout=60
+    ...    AND    Sleep    5s
+    ...    AND    Restart Collector
+    ...    AND    Ensure Gateway Online
+
+TC-VER-CL-022 Readings that are not valid are published as null, not as old values
+    [Documentation]    REQ-SA-160. The Field Device is held in reset so none of its readings can be valid; a remote read makes the Gateway
+    ...    publish at once. The Field Device block says online:false and every reading is null. (The Gateway's own channels use
+    ...    the same encoding; host tests CP-T22 and CP-T28.)
+    [Tags]    TC-VER-CL-022    REQ-SA-160
+    Hold Board In Reset    FD
+    Sleep    20s
+    ${seen}=    Seconds Collected
+    ${res}    ${secs}=    Time To Result    control    {"command":"read","req":801}    10
+    Should Be Equal    ${res}[result]    accepted
+    Sleep    2s
+    ${tele}=    Messages On    telemetry    since=${seen}
+    Should Not Be Empty    ${tele}    no telemetry after the remote read
+    ${doc}=    Json Of    ${tele}[-1]
+    Log    ${doc}[field_device]
+    Should Be Equal    ${doc}[field_device][online]    ${False}
+    Should Be Equal    ${doc}[field_device][temperature_deci_c]    ${None}
+    Should Be Equal    ${doc}[field_device][humidity_pct]    ${None}
+    Should Be Equal    ${doc}[field_device][pressure_hpa]    ${None}
+    [Teardown]    Release Board    FD
+
+TC-VER-CL-023 A reading is in the MQTT queue within 100 ms of the request, and the Gateway's sensor cycle takes under 100 ms
+    [Documentation]    REQ-NF-106 and REQ-NF-100 (Gateway), on the board's own clock. A remote read makes SensorTask run one cycle and
+    ...    CloudPublisher queue the telemetry; CloudPublisher logs the time between the request and the queued message. The longest
+    ...    sensor cycle since start is also read over SWD (milliseconds, with pre-emption included).
+    [Tags]    TC-VER-CL-023    REQ-NF-106    REQ-NF-100
+    Send Command    ${EMPTY}    0.5
+    ${res}    ${secs}=    Time To Result    control    {"command":"read","req":802}    10
+    Should Be Equal    ${res}[result]    accepted
+    Send Command    ${EMPTY}    3.0
+    ${ms}=    Console Value    read: telemetry queued (\\d+) ms after the request
+    Log    request to queued telemetry: ${ms} ms
+    Should Be True    ${ms} <= 100    ${ms} ms from the request to the queued message (a cycle may take 100 ms, a queued message 200 ms)
+    ${addr}=    Fd Symbol    gw_sensor_cycle_ms_max_address
+    ${cycle}=    Read U32    GW    ${addr}
+    Log    longest Gateway sensor cycle ${cycle} ms
+    Should Be True    ${cycle} > 0    SensorTask has not completed a cycle
+    Should Be True    ${cycle} < 100    the longest sensor cycle took ${cycle} ms, the limit is 100 ms

@@ -1,5 +1,6 @@
 """Robot library: the bench MQTT broker (Docker Mosquitto with mutual TLS) and its log."""
 import os
+import socket
 import subprocess
 import time
 
@@ -49,3 +50,35 @@ class Broker:
                 return time.time() - start
             time.sleep(2)
         raise AssertionError("no PUBLISH %r within %s s" % (topic_part, timeout))
+
+    def plain_listener_records(self, port, seconds):
+        """Listen on a TCP port for `seconds` instead of the broker, accept every connection and note the first bytes the client
+        sends (as hex). Each client is answered with a plain MQTT CONNACK (20 02 00 00), which a client that insists on TLS must
+        not take for a connection. Returns the list of hex strings (empty when nobody connected)."""
+        import time
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("0.0.0.0", int(port)))
+        srv.listen(5)
+        srv.settimeout(1.0)
+        firsts = []
+        end = time.time() + float(seconds)
+        try:
+            while time.time() < end:
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
+                conn.settimeout(3.0)
+                try:
+                    data = conn.recv(16)
+                    firsts.append(data.hex())
+                    conn.sendall(bytes([0x20, 0x02, 0x00, 0x00]))
+                    time.sleep(0.3)
+                except (socket.timeout, OSError):
+                    firsts.append("")
+                finally:
+                    conn.close()
+        finally:
+            srv.close()
+        return firsts

@@ -23,7 +23,7 @@ class Cloud:
         """Subscribe to everything at QoS 1, so the delivered QoS shows the QoS the device published with."""
         self.stop_collector()
         self.messages = []
-        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="verification-collector")
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="verification-collector-%d" % os.getpid())
         c.tls_set(os.path.join(CERTS, "ca.crt"), os.path.join(CERTS, "operator.crt"), os.path.join(CERTS, "operator.key"),
                   tls_version=ssl.PROTOCOL_TLSv1_2)
         c.tls_insecure_set(True)

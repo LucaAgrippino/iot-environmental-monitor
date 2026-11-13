@@ -118,28 +118,37 @@ TC-VER-CL-008 A remote read is accepted and acknowledged (latency logged; REQ-NF
     Log    acknowledgement after ${secs} s    WARN
     Should Be True    ${secs} < 2.0    the acknowledgement took ${secs} s
 
-TC-VER-CL-009 An unknown or malformed control command is rejected with a reason
-    [Tags]    TC-VER-CL-009    REQ-NF-308
+TC-VER-CL-009 An unknown or malformed control command is rejected with a reason and logged
+    [Documentation]    The rejection goes to the cloud (result topic) and the Gateway logs the error on its console (REQ-MB-140).
+    [Tags]    TC-VER-CL-009    REQ-NF-308    REQ-MB-140
     ${a}    ${s}=    Time To Result    control    {"command":"selfdestruct"}
     Should Be Equal    ${a}[result]    rejected
     Should Be Equal    ${a}[reason]    unknown_command
     ${b}    ${s}=    Time To Result    control    not json
     Should Be Equal    ${b}[reason]    bad_format
+    Send Command    ${EMPTY}    3.0
+    Console Should Contain    /control rejected: unknown command
+    Console Should Contain    /control rejected: bad format
 
 TC-VER-CL-010 A restart without confirmation does nothing and the restart is cancelled
-    [Tags]    TC-VER-CL-010    REQ-DM-020    REQ-NF-307
+    [Documentation]    No confirmation within the window is a declined restart: LifecycleController logs "Restarting timed out ->
+    ...    Operational" (REQ-DM-021) and the Gateway keeps running.
+    [Tags]    TC-VER-CL-010    REQ-DM-020    REQ-NF-307    REQ-DM-021
     Send Command    status    2.5
     ${u0}=    Uptime Seconds
     ${res}    ${secs}=    Time To Result    control    {"command":"restart","req":504}
     Should Be Equal    ${res}[result]    accepted
-    Sleep    40s
+    Send Command    ${EMPTY}    0.5
+    Console Should Contain    Restarting timed out    45
     Send Command    status    2.5
     ${u1}=    Uptime Seconds
     Should Be True    ${u1} > ${u0}    the Gateway restarted without a confirmation
     Cloud Config    {"telemetry_interval_ms":${ORIG_TELE}}
 
-TC-VER-CL-011 A confirmed restart restarts the Gateway, which comes back and publishes again
-    [Tags]    TC-VER-CL-011    REQ-DM-010
+TC-VER-CL-011 A confirmed restart restarts the Gateway, which comes back, publishes again and reports the restart
+    [Documentation]    After the reboot and the self-check the Gateway's first health message says what the last reset was (a soft
+    ...    reset: the restart) and that it is Operational (REQ-DM-030).
+    [Tags]    TC-VER-CL-011    REQ-DM-010    REQ-DM-030
     ${seen}=    Seconds Collected
     Time To Result    control    {"command":"restart","req":505}
     Publish Command    control    {"command":"restart_confirm","req":506}
@@ -148,6 +157,11 @@ TC-VER-CL-011 A confirmed restart restarts the Gateway, which comes back and pub
     Sleep    75s
     ${tele}=    Messages On    telemetry    since=${seen}
     Should Not Be Empty    ${tele}    no telemetry after the restart
+    ${health}=    Messages On    health    since=${seen}
+    Should Not Be Empty    ${health}    no health message after the restart
+    ${doc}=    Json Of    ${health}[0]
+    Should Be Equal    ${doc}[last_reset_cause]    soft
+    Should Be Equal    ${doc}[lifecycle_state]    operational
     Send Command    status    2.5
     ${up}=    Uptime Seconds
     Should Be True    ${up} < 400    the Gateway has been up ${up} s: it did not restart

@@ -255,3 +255,49 @@ TC-VER-FD-018 The sensor simulation is initialised at start-up and delivers temp
     Should Match Regexp    ${txt}    Temperature: -?[\\d.]+ degC
     Should Match Regexp    ${txt}    Humidity\\s*: [\\d.]+
     Should Match Regexp    ${txt}    Pressure\\s*: [\\d.]+
+
+TC-VER-FD-019 The display refreshes at 5 Hz
+    [Documentation]    LcdUi counts its lcd_ui_tick() calls (the task runs every LCD_REFRESH_MS = 200 ms). The counter is read over SWD
+    ...    twice, ten seconds apart, and the rate is the difference over the elapsed time.
+    [Tags]    TC-VER-FD-019    REQ-NF-108
+    ${addr}=    Fd Symbol    ui_tick_count_address
+    ${c1}=    Read U32    FD    ${addr}
+    ${t1}=    Evaluate    __import__('time').time()
+    Sleep    10s
+    ${c2}=    Read U32    FD    ${addr}
+    ${t2}=    Evaluate    __import__('time').time()
+    ${rate}=    Evaluate    (${c2} - ${c1}) / (${t2} - ${t1})
+    Log    refresh rate ${rate} Hz (${c1} -> ${c2})
+    Should Be True    4.7 <= ${rate} <= 5.3    the display ticks at ${rate} Hz, expected 5 Hz
+
+TC-VER-FD-020 The green LED is off and the red LED is on when the system is in the Error state
+    [Documentation]    REQ-LD-270. The Field Device has no sensor failure to provoke a fault on the bench, so the fault state is forced:
+    ...    the lifecycle state HealthMonitor shows on the LEDs is written over SWD, and an alarm event (a temperature limit just
+    ...    below the reading, as in TC-VER-FD-006) makes HealthMonitor recompute the LEDs. The board is reset afterwards.
+    [Tags]    TC-VER-FD-020    REQ-LD-270
+    ${state}=    Fd Symbol    hm_lifecycle_state_address
+    ${faulted}=    Fd Symbol    lifecycle_faulted
+    Write U8    FD    ${state}    ${faulted}
+    ${t}=    Read Temperature
+    ${limit}=    Evaluate    int(float(${t}) * 100) - 150
+    Set Config    temp-alarm-high    ${limit}
+    Sleep    6s
+    # the green LED blinks in normal operation: it must be dark in every one of several samples, not just in one
+    FOR    ${i}    IN RANGE    8
+        LED Should Be    green    off
+        LED Should Be    red    on
+        Sleep    0.5s
+    END
+    [Teardown]    Run Keywords    Set Config    temp-alarm-high    ${ORIG_HIGH}
+    ...    AND    Reset And Wait    FD    30
+
+TC-VER-FD-021 The sensor polling cycle of the Field Device takes under 100 ms
+    [Documentation]    REQ-NF-100 (Field Device). SensorTask keeps the longest cycle since start (microseconds, with any pre-emption by
+    ...    other tasks included) in a global that is read over SWD after a few minutes of running.
+    [Tags]    TC-VER-FD-021    REQ-NF-100
+    ${addr}=    Fd Symbol    fd_sensor_cycle_us_max_address
+    Sleep    30s
+    ${us}=    Read U32    FD    ${addr}
+    Log    longest sensor cycle ${us} us
+    Should Be True    ${us} > 0    SensorTask has not completed a cycle
+    Should Be True    ${us} < 100000    the longest sensor cycle took ${us} us, the limit is 100 ms
