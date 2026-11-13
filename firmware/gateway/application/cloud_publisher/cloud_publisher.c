@@ -1592,6 +1592,7 @@ static void prv_publish_control_result(struct cloud_publisher_inst *inst, cp_con
 static bool prv_read_now(struct cloud_publisher_inst *inst)
 {
     sensor_snapshot_t before;
+    const TickType_t requested_at = xTaskGetTickCount();
 
     if ((sensor_service->get_snapshot(&before) != SENSOR_SERVICE_ERR_OK) ||
         !sensor_task_request_read())
@@ -1607,6 +1608,10 @@ static bool prv_read_now(struct cloud_publisher_inst *inst)
             (now.cycle_count != before.cycle_count))
         {
             prv_publish_telemetry(inst);
+            /* REQ-NF-100 / REQ-NF-106: from the request to the telemetry message in the MQTT queue,
+             * on the board's clock. */
+            LOG_INFO(CP_LOG_MODULE, "read: telemetry queued %u ms after the request",
+                     (unsigned) ((xTaskGetTickCount() - requested_at) * portTICK_PERIOD_MS));
             return true;
         }
     }

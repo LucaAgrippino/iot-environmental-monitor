@@ -1643,6 +1643,7 @@ void lcd_ui_tick(void)
         return;
     }
     s_ui.now_ms = lv_tick_get();
+    s_ui.tick_count++;
     if (s_ui.requested_screen != 0U)
     {
         const uint16_t wanted = (uint16_t) (s_ui.requested_screen - 1U);

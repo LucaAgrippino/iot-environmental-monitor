@@ -213,12 +213,14 @@ typedef struct lcd_ui
     bool link_down;      /**< The Modbus link was up and is lost. */
     uint32_t fault_ms;   /**< When the faults were last evaluated. */
     volatile uint16_t requested_screen; /**< lcd_ui_select_screen(): screen + 1, 0 for none. */
-    splash_view_t splash;               /**< Boot overlay, hidden until requested. */
-    volatile uint8_t splash_req;        /**< SPLASH_REQ_*; cleared when carried out. */
-    volatile uint8_t boot_pct;          /**< Progress from lcd_ui_set_boot_progress(). */
-    volatile uint32_t boot_seq;         /**< Incremented per progress update. */
-    uint32_t boot_seq_seen;             /**< boot_seq already drawn. */
-    char boot_step[SPLASH_STEP_MAX];    /**< Step name from lcd_ui_set_boot_progress(). */
+    volatile uint32_t tick_count;    /**< lcd_ui_tick() calls since start; read over SWD to measure
+                                          the refresh rate (REQ-NF-108). */
+    splash_view_t splash;            /**< Boot overlay, hidden until requested. */
+    volatile uint8_t splash_req;     /**< SPLASH_REQ_*; cleared when carried out. */
+    volatile uint8_t boot_pct;       /**< Progress from lcd_ui_set_boot_progress(). */
+    volatile uint32_t boot_seq;      /**< Incremented per progress update. */
+    uint32_t boot_seq_seen;          /**< boot_seq already drawn. */
+    char boot_step[SPLASH_STEP_MAX]; /**< Step name from lcd_ui_set_boot_progress(). */
 } lcd_ui_t;
 
 #endif /* SCREEN_INTERNAL_H */

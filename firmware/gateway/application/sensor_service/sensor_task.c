@@ -24,6 +24,11 @@ static StackType_t s_task_stack[SENSOR_TASK_STACK_WORDS];
 static StaticTimer_t s_timer_buf;
 static TaskHandle_t s_task_handle;
 
+/** Longest sensor cycle since start, in milliseconds (REQ-NF-100: at most 100 ms). Global so the
+ * bench can read it over SWD; the time includes any pre-emption by other tasks, so it is an upper
+ * bound. */
+volatile uint32_t g_gw_sensor_cycle_ms_max;
+
 /* Timer service task context: only sends the tick, never touches SensorService. */
 static void prv_poll_timer_cb(TimerHandle_t timer)
 {
@@ -46,7 +51,13 @@ static void prv_sensor_task(void *params)
     {
         /* Without the timer there is no tick; park instead of spinning. */
         (void) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const TickType_t started = xTaskGetTickCount();
         (void) sensor_service_run_cycle();
+        const uint32_t took_ms = (uint32_t) ((xTaskGetTickCount() - started) * portTICK_PERIOD_MS);
+        if (took_ms > g_gw_sensor_cycle_ms_max)
+        {
+            g_gw_sensor_cycle_ms_max = took_ms;
+        }
     }
 }
 

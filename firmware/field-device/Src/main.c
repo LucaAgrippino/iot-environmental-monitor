@@ -188,6 +188,10 @@ static void on_config_changed(config_param_id_t id)
     }
 }
 
+/** Longest sensor cycle since start, in microseconds (REQ-NF-100: at most 100 ms). Global so the bench can read
+ *  it over SWD; the time includes any pre-emption by other tasks, so it is an upper bound. */
+volatile uint32_t g_fd_sensor_cycle_us_max;
+
 static void sensor_task(void *arg)
 {
     (void) arg;
@@ -207,7 +211,13 @@ static void sensor_task(void *arg)
     for (;;)
     {
         (void) ulTaskNotifyTake(pdTRUE, portMAX_DELAY); /* 100 ms poll timer */
+        const uint32_t started = DWT->CYCCNT;
         (void) sensor_service_run_cycle();
+        const uint32_t took_us = (DWT->CYCCNT - started) / (SystemCoreClock / 1000000U);
+        if (took_us > g_fd_sensor_cycle_us_max)
+        {
+            g_fd_sensor_cycle_us_max = took_us;
+        }
     }
 }
 
