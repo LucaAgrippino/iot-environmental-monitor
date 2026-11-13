@@ -352,7 +352,7 @@ void test_HM_T16_out_of_range_event_changes_nothing(void)
 
 void test_HM_T17_modbus_master_stats_are_copied(void)
 {
-    modbus_master_stats_t stats = {.transactions_ok = 100U, .timeouts = 5U};
+    modbus_master_stats_t stats = {.transactions_ok = 100U, .timeouts = 5U, .crc_errors = 7U};
 
     create_ok();
 
@@ -363,6 +363,7 @@ void test_HM_T17_modbus_master_stats_are_copied(void)
 
     TEST_ASSERT_EQUAL_UINT32(100U, s.modbus_transactions_ok);
     TEST_ASSERT_EQUAL_UINT32(5U, s.modbus_timeouts);
+    TEST_ASSERT_EQUAL_UINT32(7U, s.modbus_crc_errors); /* DEF-008 */
     /* The link state is event-driven; the stats never touch it. */
     TEST_ASSERT_FALSE(s.modbus_link_online);
 }
@@ -584,7 +585,7 @@ void test_HM_T31_fault_is_latched_and_overrides_later_alarms(void)
 
 void test_HM_T32_reset_metrics_zeroes_only_the_counters(void)
 {
-    modbus_master_stats_t mm = {.transactions_ok = 9U, .timeouts = 4U};
+    modbus_master_stats_t mm = {.transactions_ok = 9U, .timeouts = 4U, .crc_errors = 6U};
     mqtt_stats_t mq;
 
     (void) memset(&mq, 0, sizeof(mq));
@@ -616,6 +617,7 @@ void test_HM_T32_reset_metrics_zeroes_only_the_counters(void)
     TEST_ASSERT_EQUAL_UINT32(0U, s.alarm_raise_count);
     TEST_ASSERT_EQUAL_UINT32(0U, s.modbus_transactions_ok);
     TEST_ASSERT_EQUAL_UINT32(0U, s.modbus_timeouts);
+    TEST_ASSERT_EQUAL_UINT32(0U, s.modbus_crc_errors);
     TEST_ASSERT_EQUAL_UINT32(0U, s.mqtt_publishes_sent);
     TEST_ASSERT_EQUAL_UINT32(0U, s.mqtt_publishes_failed);
     TEST_ASSERT_EQUAL_UINT32(0U, s.mqtt_reconnect_count);

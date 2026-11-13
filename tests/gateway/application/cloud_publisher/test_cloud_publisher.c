@@ -1200,6 +1200,22 @@ static void prv_set_reading(sensor_id_t id, int32_t value)
     g_spy_snapshot.readings[id].valid = true;
 }
 
+/* DEF-008 / REQ-CC-010: the health message carries the Modbus CRC error count. */
+void test_CP_T20b_health_carries_the_modbus_crc_error_count(void)
+{
+    char buf[TC_JSON_BUF_SIZE];
+    health_snapshot_t hs;
+
+    (void) memset(&hs, 0, sizeof(hs));
+    hs.modbus_transactions_ok = 3590U;
+    hs.modbus_timeouts = 4U;
+    hs.modbus_crc_errors = 2260U;
+
+    TEST_ASSERT_GREATER_THAN_UINT32(
+        0u, cp_serialise_health(buf, sizeof(buf), &hs, 0x01000000u, &g_spy_time_ts, "SER"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"modbus_timeouts\":4,\"modbus_crc_errors\":2260,"));
+}
+
 void test_CP_T20_telemetry_converts_fixed_point_to_wire_units(void)
 {
     char buf[512];

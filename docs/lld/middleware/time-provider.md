@@ -82,6 +82,9 @@ sync flag is threaded through layers.
  *
  * Reads RTC. Checks the sync-persisted flag in RTC backup register
  * TIME_PROVIDER_BKUP_REG (see §5). Sets initial sync_state accordingly.
+ * When that restores SYNCHRONISED (warm reset) it pushes
+ * HEALTH_EVENT_TIME_SYNC_ACQUIRED once, so HealthMonitor does not stay on
+ * its UNSYNCHRONISED default (DEF-009).
  * Must be called after rtc_init() and logger_init().
  *
  * @param  health  IHealthReport handle for sync-state event push.
@@ -302,7 +305,11 @@ Consequently:
   sync flag is preserved. TimeProvider re-enters SYNCHRONISED state at init
   time without waiting for the next NTP cycle (GW) or the next Modbus time
   write (FD). This avoids a transient UNSYNCHRONISED window on the most
-  common reset path.
+  common reset path. Because the HealthMonitor snapshot starts as
+  UNSYNCHRONISED and only changes on `HEALTH_EVENT_TIME_SYNC_ACQUIRED`, init
+  pushes that event once when it restores SYNCHRONISED (DEF-009: without it
+  the console read "Time unsynchronised" until a cold boot, with the right
+  time); the first NTP `set_time` after such a reset pushes nothing more.
 
 This scope matches the SRS requirement: REQ-TS-040 / REQ-NF-212 do not
 specify persistence across power removal; they specify that the sync state
@@ -414,7 +421,7 @@ open or goes beyond it.
 | 2 | `time_provider_get()` | Also returns `TIME_PROVIDER_ERR_RTC_FAIL` when the RTC read fails while SYNCHRONISED (the §3 prototype lists only OK and NULL_ARG). |
 | 3 | Backup-register writes | A failed `write_backup` is logged at WARN and does not fail the call: the clock is set, so the provider is synchronised for this run and only persistence across a warm reset is lost. |
 | 4 | IHealthReport | The Gateway has no HealthMonitor, so `time_provider.h` carries a placeholder `ihealth_report_t` / `health_event_t` / `health_monitor_err_t` under the real header's guard (`IHEALTH_REPORT_H`). Enumerator values and the first two vtable slots (`init`, `push_event`) match the Field Device header. **Removed 2026-10-15 (TP-O4):** `time_provider_init()` now takes the real `health_monitor_handle_t`. |
-| 5 | Null health handle | `time_provider_init(NULL)` is allowed; no events are pushed. |
+| 5 | Null health handle | `time_provider_init(NULL)` is allowed; no events are pushed, including the one init sends when a warm reset restores SYNCHRONISED. |
 | 6 | Host test project | The Gateway and Field Device modules share the basename `time_provider`, so the Gateway tests run under `tests/project_gateway.yml` (`CEEDLING_MAIN_PROJECT_FILE=project_gateway.yml ceedling test:test_time_provider`). `scripts/test-module.sh` selects that project automatically. |
 
 ### 10.1 Gateway test results

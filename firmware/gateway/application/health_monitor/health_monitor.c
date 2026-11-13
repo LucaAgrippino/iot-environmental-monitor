@@ -420,6 +420,7 @@ health_monitor_err_t health_monitor_update_modbus_master_stats(health_monitor_ha
     hm_lock(handle);
     handle->snapshot.modbus_transactions_ok = stats->transactions_ok;
     handle->snapshot.modbus_timeouts = stats->timeouts;
+    handle->snapshot.modbus_crc_errors = stats->crc_errors;
     hm_unlock(handle);
 
     return HEALTH_MONITOR_ERR_OK;
@@ -651,6 +652,7 @@ health_monitor_err_t health_monitor_reset_metrics(health_monitor_handle_t handle
     handle->snapshot.alarm_raise_count = 0U;
     handle->snapshot.modbus_transactions_ok = 0U;
     handle->snapshot.modbus_timeouts = 0U;
+    handle->snapshot.modbus_crc_errors = 0U;
     handle->snapshot.mqtt_publishes_sent = 0U;
     handle->snapshot.mqtt_publishes_failed = 0U;
     handle->snapshot.mqtt_reconnect_count = 0U;

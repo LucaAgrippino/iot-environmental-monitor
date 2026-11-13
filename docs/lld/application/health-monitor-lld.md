@@ -181,6 +181,7 @@ typedef struct {
     /* ── Modbus master ── */
     uint32_t                modbus_transactions_ok;
     uint32_t                modbus_timeouts;
+    uint32_t                modbus_crc_errors;   /* REQ-CC-010, DEF-008 */
     bool                    modbus_link_online;
 
     /* ── Cloud ── */
@@ -220,7 +221,7 @@ typedef struct {
 
 | Type | Source header | Expected fields |
 |---|---|---|
-| `modbus_master_stats_t` | `modbus_master.h` | `transactions_ok` (uint32_t), `timeouts` (uint32_t) — the real ModbusMaster counters; the other five are ignored. The link flag is event-driven (`MODBUS_LINK_UP` / `_DOWN`), no longer part of the stats |
+| `modbus_master_stats_t` | `modbus_master.h` | `transactions_ok`, `timeouts`, `crc_errors` (uint32_t) — the real ModbusMaster counters; the other four are ignored (`crc_errors` is published since DEF-008). The link flag is event-driven (`MODBUS_LINK_UP` / `_DOWN`), no longer part of the stats |
 | `mqtt_stats_t` | `mqtt_client.h` | `publishes_sent` (uint32_t), `publishes_failed` (uint32_t), `reconnect_count` (uint32_t) |
 | `lifecycle_state_t` | `lifecycle_controller.h` | Enum: INIT, OPERATIONAL, FAULTED, etc. |
 | `lifecycle_reset_cause_t` | `lifecycle_controller.h` | Enum: POWER_ON, WATCHDOG, SOFTWARE, etc. |
@@ -469,7 +470,7 @@ health_monitor_err_t health_monitor_set_led_fault(
  * Modbus (ModbusRegisterMap → lifecycle_controller->handle_remote_command).
  *
  * Zeroes: sensor_fail_count, alarm_raise_count, modbus_transactions_ok,
- * modbus_timeouts, mqtt_publishes_sent, mqtt_publishes_failed,
+ * modbus_timeouts, modbus_crc_errors, mqtt_publishes_sent, mqtt_publishes_failed,
  * mqtt_reconnect_count, ntp_sync_fail_count, buffer_overflow_count.
  *
  * Preserves: uptime_s, lifecycle_state, last_reset_cause, sensor_valid[],
@@ -765,6 +766,7 @@ health_monitor_reset_metrics(handle):
     handle->snapshot.alarm_raise_count       = 0
     handle->snapshot.modbus_transactions_ok  = 0
     handle->snapshot.modbus_timeouts         = 0
+    handle->snapshot.modbus_crc_errors       = 0
     handle->snapshot.mqtt_publishes_sent     = 0
     handle->snapshot.mqtt_publishes_failed   = 0
     handle->snapshot.mqtt_reconnect_count    = 0
@@ -1010,7 +1012,7 @@ Test file: `tests/gateway/application/health_monitor/test_health_monitor.c`
 
 | ID | Precondition | Action | Expected |
 |---|---|---|---|
-| HM-T17 | Handle created; stats = {ok=100, timeouts=5} | `update_modbus_master_stats(h, &stats)` | `ERR_OK`; snapshot `modbus_transactions_ok == 100`, `modbus_timeouts == 5`, `modbus_link_online` unchanged (`false`) |
+| HM-T17 | Handle created; stats = {ok=100, timeouts=5, crc_errors=7} | `update_modbus_master_stats(h, &stats)` | `ERR_OK`; snapshot `modbus_transactions_ok == 100`, `modbus_timeouts == 5`, `modbus_crc_errors == 7`, `modbus_link_online` unchanged (`false`) |
 | HM-T18 | Handle created; stats = {sent=50, failed=2, reconnect=3} | `update_mqtt_stats(h, &stats)` | `ERR_OK`; snapshot fields match |
 | HM-T19 | Handle created | `update_buffer_occupancy(h, 42)` | `ERR_OK`; `buffer_entry_count == 42` |
 | HM-T20 | Handle created | `update_wifi_rssi(h, -65)` | `ERR_OK`; `wifi_rssi_dbm == -65` |

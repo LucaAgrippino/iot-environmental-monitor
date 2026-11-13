@@ -321,7 +321,7 @@ converted from register units with the same functions.
 { <common>,
   "fw_version":"1.2.0","uptime_s":3600,"lifecycle_state":"operational","last_reset_cause":"soft",
   "sensor_fail_count":0,"alarm_raise_count":2,"config_write_failed":false,
-  "modbus_transactions_ok":3590,"modbus_timeouts":4,"modbus_link_online":true,
+  "modbus_transactions_ok":3590,"modbus_timeouts":4,"modbus_crc_errors":0,"modbus_link_online":true,
   "mqtt_publishes_sent":120,"mqtt_publishes_failed":0,"mqtt_reconnect_count":1,
   "wifi_rssi_dbm":-61,"cloud_connected":true,
   "buffer_entry_count":0,"buffer_overflow_count":0,

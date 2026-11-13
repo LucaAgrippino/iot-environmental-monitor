@@ -13,8 +13,8 @@ Rules: `verification-plan.md` section 12. Severity: 1 safety or data loss, or a 
 | DEF-005 | OP-12, 2026-11-08 | REQ-NF-505 | 4 | Closed: all Doxygen warnings of the public headers removed; `scripts/gen-doxygen.sh` reports 0 for both boards |
 | DEF-006 | OP-10, 2026-11-08 | REQ-DM-074 | 4 | Closed: the Field Device linker script limits the image to the 1 MB the flash-partition document gives it (was 2048 KB; the image uses 46.8%) |
 | DEF-007 | real-data review on the Pi, 2026-11-09 | REQ-SA-070, REQ-AM-040 | 4 | Closed: the simulated Field Device barometer is pulled back towards 1013.2 hPa (it drifted ~27 hPa per hour and flapped the 950 hPa low-pressure alarm about 3 times an hour) |
-| DEF-008 | TC-VER-CL-012, 2026-11-10 | REQ-CC-010 | 3 | Open: the health message has no Modbus CRC count (ModbusMaster counts `crc_errors`, nothing publishes them) |
-| DEF-009 | TC-VER-GW-015, 2026-11-10 | REQ-TS-000, REQ-TS-010 (display only) | 4 | Open: the console `status` line says "Time unsynchronised" after the Gateway has synchronised (the health message shows `last_ntp_sync_epoch` set 20 s after boot, 0 failures) |
+| DEF-008 | TC-VER-CL-012, 2026-11-10 | REQ-CC-010 | 3 | Closed: PR #210 (the health message carries `modbus_crc_errors`; a real Gateway health message on firmware 1.0.6 shows the field, value 0 on a clean link; the non-zero path is covered by host tests) |
+| DEF-009 | TC-VER-GW-015, 2026-11-10 | REQ-TS-000, REQ-TS-010 (display only) | 4 | Closed: PR #210 (after a warm reset TimeProvider restored SYNCHRONISED without telling HealthMonitor, so the console read "Time unsynchronised" until a cold boot; it now announces it at init; hardware: baseline `unsynchronised`, fixed image `synchronised` after the same warm reset) |
 | DEF-010 | OTA suite first run, 2026-11-11 | REQ-NF-213 (boot) | 2 | Closed: PR #206 (after a cold power-up the Field Device stopped in `abort()` before the scheduler: the 32.768 kHz crystal was not ready, `rtc_init()` failed, the Logger's first timestamp hit an assert; boots now, hardware-checked with the crystal off and after a full power cycle) |
 | DEF-011 | OTA suite first run, 2026-11-11 | no single requirement (REQ-DM-072, REQ-DM-073 results were mixed up) | 3 | Closed: PR #207 (the Gateway republished messages it had already delivered after every reset: `CircularFlashLog` persisted only the head sector; `SAF 7 / 254 entries at boot` with the ring drained, 0 after the fix, hardware-checked) |
 | DEF-012 | analysis of DEF-010, 2026-11-11 | REQ-NF-213 (boot), robustness | 4 | Open: no Field Device code calls `rtc_set_tick_source()`, `debug_uart_set_tick_source()` or `modbus_uart_set_tick_source()`, so their poll loops have no timeout (RTCD-O1 expected the call at start-up) |
@@ -70,11 +70,21 @@ REQ-CC-010 lists "Modbus CRC/timeout/success counts". The health JSON has `modbu
 Found by TC-VER-CL-012 (every other metric of the requirement is present). The wave 6 run saw 2 260 Field Device CRC errors in 294 736
 frames, so the number is worth publishing. Fix: add the counter to the health statistics and the payload (a schema field, backwards compatible).
 
+**Fixed:** `health_snapshot_t` gains `modbus_crc_errors`, copied from `modbus_master_stats_t.crc_errors` and zeroed by the reset-metrics command; the health JSON
+carries `"modbus_crc_errors"` after `modbus_timeouts`. Host tests HM-T17 (copy), the reset test and CP-T20b (JSON, 2260 -> `"modbus_crc_errors":2260`). Hardware: a health
+message from the Gateway on firmware 1.0.6 (topic `dt/iotmonitor/<id>/health`) contains the field with value 0 (clean link in that window, no timeouts either).
+
 ## DEF-009: the console says "Time unsynchronised" after the time is synchronised
 
 On 2026-11-10 the Gateway's health message (uptime 306 s) carried `last_ntp_sync_epoch` 1794346481, `ntp_sync_fail_count` 0, the right time, 20 s after
 boot; the console `status` line still read `Time unsynchronised` at 3 min and at 40 min of uptime. The time works (REQ-TS-000/010 pass from
 the health data); only the status line is wrong, probably because `time_sync_state` of the health snapshot is not fed from TimeService.
+
+**Cause found:** TimeService did feed it, but only on the unsynchronised -> synchronised *transition*. After a warm reset the RTC and its sync flag survive, so
+`time_provider_init()` restored SYNCHRONISED with no transition, the HealthMonitor snapshot kept its UNSYNCHRONISED default, and the first NTP `set_time` found the provider
+already synchronised and pushed nothing. The existing test TC_TP_027 asserted exactly that (zero pushes). **Fix:** `time_provider_init()` pushes
+`HEALTH_EVENT_TIME_SYNC_ACQUIRED` once when it restores SYNCHRONISED (not with a null health handle). Host tests TC_TP_027 (changed), 033, 034. Hardware, same
+procedure on both images (warm reset, wait for `NTP sync ok`, console `status`): before, `Time unsynchronised`; after, `Time synchronised`.
 
 ## DEF-010: the Field Device stopped in abort() after a cold power-up
 
