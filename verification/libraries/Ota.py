@@ -6,6 +6,7 @@ bench CA) and is meant for the PC with the Gateway reachable through the Raspber
 """
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,15 @@ REL = os.environ.get("VERIFY_REL", os.path.expanduser("~/rel"))
 KEY = os.environ.get("VERIFY_OTA_KEY", os.path.expanduser("~/keys/ota_release.pem"))
 HOST = os.environ.get("VERIFY_OTA_HOST", "192.168.0.209")
 CERTS = os.path.join(ROOT, "firmware/gateway/certs")
+
+
+def _certs():
+    """(ca, certificate, key) of the operator client: the repository's Gateway certificates on the PC; with VERIFY_CERTS set
+    (the Raspberry Pi keeps ca.crt, operator.crt and operator.key outside the repository) that directory."""
+    d = os.environ.get("VERIFY_CERTS")
+    if d:
+        return os.path.join(d, "ca.crt"), os.path.join(d, "operator.crt"), os.path.join(d, "operator.key")
+    return (os.path.join(CERTS, "ca.crt"), os.path.join(CERTS, "client.crt"), os.path.join(CERTS, "client.key"))
 
 
 class Ota:
@@ -53,8 +63,8 @@ class Ota:
         and keeps the whole output (see `last_ota_output`)."""
         cmd = [sys.executable, os.path.join(ROOT, "scripts/ota_server.py"), "--host", HOST, "--device-id", device_id,
                "--image-a", image_a, "--image-b", image_b, "--job", str(job),
-               "--cafile", os.path.join(CERTS, "ca.crt"), "--cert", os.path.join(CERTS, "client.crt"),
-               "--key", os.path.join(CERTS, "client.key"), "--no-hostname-check", "--timeout", str(int(timeout) - 30)]
+               "--cafile", _certs()[0], "--cert", _certs()[1],
+               "--key", _certs()[2], "--no-hostname-check", "--timeout", str(int(timeout) - 30)]
         cmd += extra.split()
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=int(timeout))
         self.out = r.stdout + r.stderr
@@ -70,8 +80,8 @@ class Ota:
         Returns the terminal report word; the broker is always started again."""
         cmd = [sys.executable, os.path.join(ROOT, "scripts/ota_server.py"), "--host", HOST, "--device-id", device_id,
                "--image-a", image_a, "--image-b", image_b, "--job", str(job),
-               "--cafile", os.path.join(CERTS, "ca.crt"), "--cert", os.path.join(CERTS, "client.crt"),
-               "--key", os.path.join(CERTS, "client.key"), "--no-hostname-check", "--timeout", str(int(timeout) - 30),
+               "--cafile", _certs()[0], "--cert", _certs()[1],
+               "--key", _certs()[2], "--no-hostname-check", "--timeout", str(int(timeout) - 30),
                "--silent-at", str(silent_at), "--silent-seconds", "1"]
         ssh = ["ssh", "-o", "ConnectTimeout=10", f"luca@{HOST}"]
         log = os.path.join(self.work, f"job{job}.log")
@@ -121,8 +131,8 @@ class Ota:
         except AttributeError:
             c = mqtt.Client(client_id="ota-settle")
         import ssl
-        c.tls_set(ca_certs=os.path.join(CERTS, "ca.crt"), certfile=os.path.join(CERTS, "client.crt"),
-                  keyfile=os.path.join(CERTS, "client.key"), cert_reqs=ssl.CERT_REQUIRED)
+        c.tls_set(ca_certs=_certs()[0], certfile=_certs()[1],
+                  keyfile=_certs()[2], cert_reqs=ssl.CERT_REQUIRED)
         c.tls_insecure_set(True)
         c.on_message = on_message
         c.on_connect = lambda cl, u, f, rc, *a: cl.subscribe([(topics["tele"], 0), (topics["res"], 1)])
@@ -141,3 +151,47 @@ class Ota:
 
     def last_ota_output(self):
         return self.out
+
+    # ---- closure cases: malformed images, the reported reason, an update running in the background ------------------
+
+    def make_malformed_images(self, name, from_release, version, mode):
+        """Signed images of `from_release` spoiled in one way (the signature is not re-made: the Gateway has to refuse them
+        before it gets to the cryptography, REQ-DM-060). mode: magic (the header magic is zero), header_size (the declared
+        header size is wrong), oversize (600 KB of padding: larger than a slot). Returns (path of image A, path of image B)."""
+        a, b = self.make_images(name, from_release, version)
+        for path in (a, b):
+            data = bytearray(open(path, "rb").read())
+            if mode == "magic":
+                data[0:4] = b"\x00\x00\x00\x00"
+            elif mode == "header_size":
+                struct.pack_into("<H", data, 6, 64)
+            elif mode == "oversize":
+                data += bytes(600 * 1024)
+            else:
+                raise AssertionError("unknown mode %r" % mode)
+            open(path, "wb").write(bytes(data))
+        return a, b
+
+    def last_ota_reason(self):
+        """The "reason" of the last terminal report the server printed (an empty string when there was none)."""
+        found = re.findall(r'"result":"(?:failed|rejected|rolled_back)"[^}]*"reason":"(\w+)"', self.out)
+        return found[-1] if found else ""
+
+    def start_update(self, device_id, image_a, image_b, job, extra="", timeout=300):
+        """Start ota_server.py in the background (for a second command while this update runs); see `finish_update`."""
+        cmd = [sys.executable, os.path.join(ROOT, "scripts/ota_server.py"), "--host", HOST, "--device-id", device_id,
+               "--image-a", image_a, "--image-b", image_b, "--job", str(job),
+               "--cafile", _certs()[0], "--cert", _certs()[1],
+               "--key", _certs()[2], "--no-hostname-check", "--timeout", str(int(timeout) - 30)]
+        cmd += extra.split()
+        self.bg = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def finish_update(self, timeout=300):
+        """Wait for the background update to end; returns its whole output."""
+        try:
+            out, _ = self.bg.communicate(timeout=int(timeout))
+        except subprocess.TimeoutExpired:
+            self.bg.kill()
+            out, _ = self.bg.communicate()
+        self.bg_out = out
+        return out

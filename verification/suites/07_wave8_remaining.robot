@@ -61,7 +61,7 @@ Cloud Config
 *** Test Cases ***
 # ---- 1. Gateway console and cloud commands (boards and broker) -----------------------------------------------------
 TC-VER-GW-013 A device profile can be added, listed and removed
-    [Tags]    TC-VER-GW-013    REQ-MB-110
+    [Tags]    TC-VER-GW-013    REQ-MB-110    REQ-DM-100
     GW Command    profiles add addr=${PROFILE_ADDR} map=1 vendor=0x1234 desc=verif    saved
     GW Command    profiles list    slave ${PROFILE_ADDR}
     Console Should Contain    0x1234

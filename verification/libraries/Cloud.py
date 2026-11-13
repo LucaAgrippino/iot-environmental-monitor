@@ -84,6 +84,25 @@ class Cloud:
         except (ssl.SSLError, ConnectionError, OSError):
             return True
 
+    def broker_refuses_a_client_without_certificate(self, host="127.0.0.1"):
+        """The broker at `host` listens and refuses a TLS client that presents no certificate (mutual authentication).
+        The TCP connection must succeed first, so a dead broker cannot pass for a refusal. Returns True when refused."""
+        import socket
+        socket.create_connection((host, 8883), 5).close()
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="verification-nocert-host")
+        c.tls_set(os.path.join(CERTS, "ca.crt"), tls_version=ssl.PROTOCOL_TLSv1_2)
+        c.tls_insecure_set(True)
+        try:
+            c.connect(host, 8883)
+            c.loop_start()
+            time.sleep(3)
+            ok = c.is_connected()
+            c.loop_stop()
+            c.disconnect()
+            return not ok
+        except (ssl.SSLError, ConnectionError, OSError):
+            return True
+
     # ---- commands to the device (cloud to device) -------------------------------------------
     def device_id(self):
         """The Gateway's device id, taken from the first telemetry message collected."""
