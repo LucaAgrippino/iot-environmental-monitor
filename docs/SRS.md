@@ -397,7 +397,7 @@ polling interval
 <!-- Rationale: 10 s exceeds the worst-case legitimate blocking time across all tasks (Modbus timeout REQ-MB-050 × (1 + retries REQ-MB-060) + processing ≈ 800 ms); 10 s provides ×12 headroom while remaining tight enough to detect a hung task within one alarm-detection cycle. -->
 - [REQ-NF-109] The system shall use a system watchdog of 10 seconds.
 <!-- Traces to: HLD §7.2 (GW lifecycle — Faulted entry on watchdog reset), §7.6 (FD lifecycle) -->
-- [REQ-NF-110] The system shall poll the field node at default polling rate of 1Hz
+- [REQ-NF-110] The Field Device shall sample its sensors at a default rate of 1 Hz, and the Gateway shall poll the Field Device every 200 ms by default (REQ-NF-113 alarm latency; range per REQ-NF-114).
 - [REQ-NF-111] The system shall publish the sensor measurements to AWS IoT Core each 60 seconds (default; see REQ-CC-030).
 - [REQ-NF-112] The system shall publish the health data to AWS IoT Core each 5 minutes (default; see REQ-CC-040). Source: vision §5.8.
 - [REQ-NF-113] The system shall publish the alarm notification to AWS IoT Core within 500 ms since their detection

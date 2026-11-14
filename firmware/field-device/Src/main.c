@@ -138,9 +138,10 @@ static volatile bool s_sensors_may_poll = true; /* no display: nothing to wait f
  * the alarm-propagation test (2B-007) impossible to time from the log. */
 static void on_alarm_event(sensor_id_t sensor, alarm_event_t event, const sensor_reading_t *reading)
 {
-    /* HealthMonitor learns of every raise and clear: its snapshot feeds the console `alarms`, the red
-     * LED (REQ-LD-280) and the alarm counters of the Status screen. Nothing else pushed these events,
-     * so all three stayed at "no alarm" (found by the wave 2 verification, TC-VER-FD-006). */
+    /* HealthMonitor learns of every raise and clear: its snapshot feeds the console `alarms`, the
+     * red LED (REQ-LD-280) and the alarm counters of the Status screen. Nothing else pushed these
+     * events, so all three stayed at "no alarm" (found by the wave 2 verification, TC-VER-FD-006).
+     */
     (void) health_report->push_event((event == ALARM_EVENT_CLEARED) ? HEALTH_EVENT_ALARM_CLEARED
                                                                     : HEALTH_EVENT_ALARM_RAISED,
                                      (uint32_t) sensor);
@@ -198,8 +199,9 @@ static void on_config_changed(config_param_id_t id)
     }
 }
 
-/** Longest sensor cycle since start, in microseconds (REQ-NF-100: at most 100 ms). Global so the bench can read
- *  it over SWD; the time includes any pre-emption by other tasks, so it is an upper bound. */
+/** Longest sensor cycle since start, in microseconds (REQ-NF-100: at most 100 ms). Global so the
+ * bench can read it over SWD; the time includes any pre-emption by other tasks, so it is an upper
+ * bound. */
 volatile uint32_t g_fd_sensor_cycle_us_max;
 
 static void sensor_task(void *arg)

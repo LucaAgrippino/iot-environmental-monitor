@@ -1251,7 +1251,7 @@ static void cfg_evaluate(config_screen_t *scr, uint32_t d)
     }
     if (!ui_parse_tenths(scr->entry_text[d], &tenths))
     {
-        err = S_TIMES "Enter a number";
+        err = S_TIMES "Enter a number, max 1 decimal";
     }
     else
     {
