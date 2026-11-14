@@ -57,7 +57,8 @@ typedef enum {
     I2C_ERR_OK       = 0, /**< Operation succeeded. */
     I2C_ERR_NACK     = 1, /**< Device did not acknowledge address or data byte. */
     I2C_ERR_TIMEOUT  = 2, /**< A flag did not assert within the timeout window. */
-    I2C_ERR_BUS_BUSY = 3, /**< BUSY flag set at transaction start. */
+    I2C_ERR_BUS_BUSY = 3, /**< BUSY flag still set at transaction start after a recovery. */
+    I2C_ERR_BUS_FAULT = 4, /**< Bus error or lost arbitration (F469); the bus was recovered, retry. */
 } i2c_err_t;
 ```
 
@@ -296,6 +297,8 @@ After `I2C_ERR_TIMEOUT` or persistent `I2C_ERR_BUS_BUSY`, the bus may be stuck (
 
 This recovery sequence supports REQ-NF-205 (sensor reinitialisation after failure). Without it, a stuck bus requires a full MCU reset.
 
+**Amendment 2026-11-14 (validation finding F-7, F469 driver).** On the board the touch controller stopped answering for good: I2C1 was left as a busy master with a bus error flagged (CR1.STOP pending, SR1.BERR, SR2.MSL and BUSY, unchanged over seconds). The driver returned `I2C_ERR_BUS_BUSY` at every transaction start without recovering, because recovery ran only after a timeout, and the wait loops did not look at BERR or ARLO. Changes: (a) step 5 is now a software reset of the peripheral (SWRST) followed by the timing programming and PE, the same code as `i2c_init()`, because PE=0 alone does not clear a stuck master; (b) a BUSY bus at the start of a transaction runs the recovery once and looks again, and only then returns `I2C_ERR_BUS_BUSY`; (c) every wait loop checks BERR and ARLO, runs the recovery and returns the new `I2C_ERR_BUS_FAULT`, so the caller retries on the next poll instead of waiting for the timeout. Tests TC-I2C-F4-008b..d.
+
 ### 3.6 No ISR, no DMA, no callbacks
 
 Consistent with all prior driver companions. Consumers call synchronously from their task context.
@@ -439,6 +442,9 @@ Both paths are covered by the existing wildcard globs `field-device/**` and `gat
 | TC-I2C-F4-010 | `i2c_write_read` single-byte read — rx_len = 1 | CR1.ACK cleared **before** SR2 read (ADDR clear); CR1.STOP set; SR1.RXNE polled; DR read; CR1.ACK re-enabled; returns `I2C_ERR_OK` with correct byte |
 | TC-I2C-F4-011 | `i2c_write_read` NACK during write phase | Returns `I2C_ERR_NACK`; repeated START not issued; read phase not entered |
 | TC-I2C-F4-012 | `i2c_read` happy path — 6 bytes from 0x1E | DR written with `(0x1E << 1) \| 1`; ADDR polled and cleared; 5 bytes read via RXNE; before byte 6: CR1.ACK cleared + CR1.STOP set; byte 6 read; CR1.ACK re-enabled; returns `I2C_ERR_OK` |
+| TC-I2C-F4-008b | `i2c_write` with SR2.BUSY set at entry and the peripheral registers cleared | Recovery ran: PE set, SWRST released, CCR and TRISE programmed again; returns `I2C_ERR_BUS_BUSY` (the mock keeps BUSY set); no START |
+| TC-I2C-F4-008c | `i2c_write` with SB set and SR1.BERR set | Returns `I2C_ERR_BUS_FAULT` at once (not a timeout); peripheral recovered |
+| TC-I2C-F4-008d | `i2c_read` with SR1.ARLO set | Returns `I2C_ERR_BUS_FAULT` |
 | TC-I2C-F4-013 | Bus recovery — SR2.BUSY set, write call times out | CR1.PE cleared (peripheral disabled); SCL pin reconfigured as GPIO output; SCL toggled 9 times in mock GPIO; peripheral re-enabled (CR1.PE set); returns `I2C_ERR_TIMEOUT` |
 
 ### 7.4 Test cases — STM32L475 (v2, `i2c_driver_l4.c`)

@@ -36,10 +36,11 @@
  */
 typedef enum
 {
-    I2C_ERR_OK = 0,       /**< Operation succeeded. */
-    I2C_ERR_NACK = 1,     /**< Device did not acknowledge address or data byte. */
-    I2C_ERR_TIMEOUT = 2,  /**< A flag did not assert within the timeout window. */
-    I2C_ERR_BUS_BUSY = 3, /**< BUSY flag set at transaction start. */
+    I2C_ERR_OK = 0,        /**< Operation succeeded. */
+    I2C_ERR_NACK = 1,      /**< Device did not acknowledge address or data byte. */
+    I2C_ERR_TIMEOUT = 2,   /**< A flag did not assert within the timeout window. */
+    I2C_ERR_BUS_BUSY = 3,  /**< BUSY flag still set at transaction start after a recovery. */
+    I2C_ERR_BUS_FAULT = 4, /**< Bus error or lost arbitration; the bus was recovered, retry. */
 } i2c_err_t;
 
 /* --------------------------------------------------------------------- */
@@ -83,7 +84,7 @@ void i2c_bus_unlock(void);
  * @param dev_addr  7-bit device address (not shifted).
  * @param data      Pointer to bytes to transmit (must not be NULL).
  * @param len       Number of bytes to transmit (must be >= 1).
- * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, I2C_ERR_BUS_BUSY or I2C_ERR_BUS_FAULT.
  * @note Threading: task-context only, may block. Not ISR-safe.
  * @note Pre-condition (debug builds): i2c_init() has been called successfully.
  */
@@ -98,7 +99,7 @@ i2c_err_t i2c_write(uint8_t dev_addr, const uint8_t *data, uint16_t len);
  * @param dev_addr  7-bit device address (not shifted).
  * @param buf       Pointer to receive buffer (must not be NULL).
  * @param len       Number of bytes to receive (must be >= 1).
- * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, I2C_ERR_BUS_BUSY or I2C_ERR_BUS_FAULT.
  * @note Threading: task-context only, may block. Not ISR-safe.
  * @note Pre-condition (debug builds): i2c_init() has been called successfully.
  */
@@ -119,7 +120,7 @@ i2c_err_t i2c_read(uint8_t dev_addr, uint8_t *buf, uint16_t len);
  * @param tx_len    Number of bytes in write phase (must be >= 1).
  * @param rx_buf    Receive buffer for read phase (must not be NULL).
  * @param rx_len    Number of bytes to receive in read phase (must be >= 1).
- * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, or I2C_ERR_BUS_BUSY.
+ * @return I2C_ERR_OK, I2C_ERR_NACK, I2C_ERR_TIMEOUT, I2C_ERR_BUS_BUSY or I2C_ERR_BUS_FAULT.
  * @note Threading: task-context only, may block. Not ISR-safe.
  * @note Pre-condition (debug builds): i2c_init() has been called successfully.
  */

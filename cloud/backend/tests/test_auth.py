@@ -17,7 +17,8 @@ def clean_fails():
 
 @pytest.fixture()
 def app_client(settings, db):
-    ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b"{}", 1000)
+    import time
+    ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b"{}", int(time.time()))  # heard just now
     auth.add_user(db, "luca", PW, "admin")
     auth.add_user(db, "guest", PW, "viewer")
     sent = []

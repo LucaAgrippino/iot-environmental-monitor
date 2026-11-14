@@ -24,7 +24,8 @@ class Bus:
 def env(tmp_path, db):
     settings = Settings(db_path=str(tmp_path / "x.sqlite3"), image_dir=str(tmp_path / "img"), command_timeout_s=60, web_dir="", auth_required=False)
     bus = Bus()
-    ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b'{"fw_version":"0.9.0"}', 1000)  # registers the device
+    import time
+    ingest.handle(db, "iotmonitor", f"dt/iotmonitor/{DEV}/health", b'{"fw_version":"0.9.0"}', int(time.time()))  # registers the device, heard just now
     return TestClient(create_app(settings, db, start_mqtt=False, publisher=bus)), bus, db, settings
 
 
@@ -178,3 +179,45 @@ def test_ota_guards(env):
     assert c.delete("/api/images/a.ota").status_code == 204
     assert c.put("/api/images/..%2Fevil", content=b"x").status_code in (400, 404)
     assert c.put("/api/images/empty.ota", content=b"").status_code == 400
+
+
+
+def test_a_command_for_a_device_that_is_not_reporting_is_discarded_not_queued(env, monkeypatch):
+    """UC-14 E1 / UC-19 E1 (validation finding F-10): nothing is published and no command row is left to run later."""
+    import time
+    c, bus, db, settings = env
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() + settings.online_window_s + 60)  # nothing heard for too long
+    for kind, body in (("control", {"command": "read"}), ("config", {"telemetry_interval_ms": 30000})):
+        r = c.post(f"/api/devices/{DEV}/{kind}", json=body)
+        assert r.status_code == 409 and "offline" in r.json()["detail"], r.text
+    assert bus.sent == []
+    assert db.query("SELECT COUNT(*) AS n FROM commands")[0]["n"] == 0
+
+
+def test_a_command_is_refused_while_the_broker_link_is_down_instead_of_being_queued_in_the_client(env, monkeypatch):
+    """With the broker down the MQTT client queues a publish and sends it when the link returns, so a command ran
+    minutes later (validation finding F-10): the API refuses it before a row is made."""
+    from iotcloud import mqtt as mqtt_mod
+
+    class Client:
+        """The part of the paho client the API uses; the link is down."""
+        def __init__(self, bus):
+            self.publish = bus
+
+        def is_connected(self):
+            return False
+
+        def loop_stop(self):
+            pass
+
+        def disconnect(self):
+            pass
+
+    _, bus, db, settings = env
+    monkeypatch.setattr(mqtt_mod, "start", lambda *a, **k: Client(bus))
+    with TestClient(create_app(settings, db, start_mqtt=True)) as c:
+        r = c.post(f"/api/devices/{DEV}/control", json={"command": "read"})
+    assert r.status_code == 503 and "not sent" in r.json()["detail"]
+    assert bus.sent == []
+    assert db.query("SELECT COUNT(*) AS n FROM commands")[0]["n"] == 0

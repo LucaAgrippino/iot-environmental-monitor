@@ -37,8 +37,8 @@ class ValBoards:
         return _ssh("bash /tmp/ocd.sh %s" % quoted)
 
     def fd_inject_pressure_fault(self, on=True):
-        """Set (or clear) the barometer driver's fault flag over SWD. The address is the one in the ELF (nm)."""
-        addr = os.environ.get("VAL_FAULT_ADDR", "0x200099f1")
+        """Set (or clear) the barometer driver's fault flag over SWD. The address is the one in the ELF (arm-none-eabi-nm -l, barometer_driver.c); it changes with every build, the default is for v0.0.0+09d5588f."""
+        addr = os.environ.get("VAL_FAULT_ADDR", "0x20009a21")
         return self.fd_swd("init", "mwb %s %d" % (addr, 1 if on else 0), "exit")
 
     def fd_reset(self):

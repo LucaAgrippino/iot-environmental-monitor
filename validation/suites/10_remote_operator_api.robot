@@ -156,6 +156,18 @@ UC-19 A command for the field device is routed to it
     ${done}=    Command Result    ${row}[id]    timeout=20
     Should Be Equal    ${done}[status]    accepted
 
+UC-19 E3 A command for an unreachable field device is reported as failed
+    [Documentation]    The Field Device CPU is halted over SWD, so the Gateway cannot reach it by Modbus; it is resumed afterwards.
+    [Tags]    UC-19    E3
+    [Teardown]    Fd Reset
+    Fd Swd    init    reset halt    exit
+    Sleep    6s
+    ${status}    ${row}=    Send    control    ${{ {"command": "fd_ack_alarm"} }}
+    Should Be Equal As Integers    ${status}    202
+    ${done}=    Command Result    ${row}[id]    timeout=40
+    Log    result: ${done}
+    Should Be Equal    ${done}[status]    rejected    the failure was reported as ${done}[status]
+
 UC-17 E2 A restart that is not confirmed is cancelled
     [Tags]    UC-17
     ${t}=    Now

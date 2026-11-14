@@ -19,7 +19,7 @@
 #include "stm32_cmsis_mock.h"
 #include "stm32f469xx.h"
 #include "i2c_driver.h"
-#include "i2c_driver_f4.h"  /* triggers auto-link of i2c_driver_f4.c */
+#include "i2c_driver_f4.h" /* triggers auto-link of i2c_driver_f4.c */
 
 /* ===================================================================== */
 /* Helpers                                                               */
@@ -28,11 +28,26 @@
 /* Pre-set the flags that the happy-path polls expect to find set,
  * so the polling loops exit on the first iteration.                     */
 
-static void mock_sb_set(void)     { g_mock_i2c1.SR1 |= I2C_SR1_SB;   }
-static void mock_addr_set(void)   { g_mock_i2c1.SR1 |= I2C_SR1_ADDR; }
-static void mock_txe_set(void)    { g_mock_i2c1.SR1 |= I2C_SR1_TXE;  }
-static void mock_btf_set(void)    { g_mock_i2c1.SR1 |= I2C_SR1_BTF;  }
-static void mock_rxne_set(void)   { g_mock_i2c1.SR1 |= I2C_SR1_RXNE; }
+static void mock_sb_set(void)
+{
+    g_mock_i2c1.SR1 |= I2C_SR1_SB;
+}
+static void mock_addr_set(void)
+{
+    g_mock_i2c1.SR1 |= I2C_SR1_ADDR;
+}
+static void mock_txe_set(void)
+{
+    g_mock_i2c1.SR1 |= I2C_SR1_TXE;
+}
+static void mock_btf_set(void)
+{
+    g_mock_i2c1.SR1 |= I2C_SR1_BTF;
+}
+static void mock_rxne_set(void)
+{
+    g_mock_i2c1.SR1 |= I2C_SR1_RXNE;
+}
 
 /* Arrange a fully successful i2c_init() so tests that exercise the
  * transactional API can start from an initialised state.              */
@@ -170,7 +185,7 @@ void test_TC_I2C_F4_004_write_nack_on_address(void)
 {
     /* Arrange */
     arrange_init_success();
-    mock_sb_set();  /* SB set so address is sent... */
+    mock_sb_set(); /* SB set so address is sent... */
     /* ...but instead of ADDR, AF fires (device not present). */
     g_mock_i2c1.SR1 |= I2C_SR1_AF;
 
@@ -275,6 +290,59 @@ void test_TC_I2C_F4_008_write_bus_busy(void)
 }
 
 /* ===================================================================== */
+/* TC-I2C-F4-008b..d: a stuck bus is recovered (validation finding F-7)   */
+/* ===================================================================== */
+
+/* The bus was left busy by a bus error: the next transaction runs the recovery (peripheral reset
+ * and reconfiguration) before it gives up. The mock keeps BUSY set, so the result is still
+ * BUS_BUSY. */
+void test_TC_I2C_F4_008b_a_busy_bus_at_entry_is_recovered_before_the_driver_gives_up(void)
+{
+    arrange_init_success();
+    g_mock_i2c1.SR2 |= I2C_SR2_BUSY;
+    g_mock_i2c1.CCR = 0U; /* what the reset and reconfiguration must put back */
+    g_mock_i2c1.TRISE = 0U;
+    g_mock_i2c1.CR1 = 0U;
+
+    const uint8_t data[1] = {0x00U};
+
+    TEST_ASSERT_EQUAL(I2C_ERR_BUS_BUSY, i2c_write(0x44U, data, 1U));
+    TEST_ASSERT_BITS_LOW(I2C_CR1_START, g_mock_i2c1.CR1);
+    TEST_ASSERT_BITS_HIGH(I2C_CR1_PE, g_mock_i2c1.CR1);         /* enabled again */
+    TEST_ASSERT_BITS_LOW(I2C_CR1_SWRST, g_mock_i2c1.CR1);       /* reset released */
+    TEST_ASSERT_EQUAL_HEX32(I2C_CCR_FS | 35U, g_mock_i2c1.CCR); /* timing programmed again */
+    TEST_ASSERT_EQUAL_UINT32(13U, g_mock_i2c1.TRISE);
+}
+
+/* A bus error flagged in the middle of a transfer ends it at once with BUS_FAULT (not after the
+ * timeout) and recovers the peripheral. */
+void test_TC_I2C_F4_008c_a_bus_error_during_a_transfer_gives_BUS_FAULT_and_recovers(void)
+{
+    arrange_init_success();
+    mock_sb_set();
+    g_mock_i2c1.SR1 |=
+        I2C_SR1_BERR; /* ADDR never comes: without the check this would be a timeout */
+    g_mock_i2c1.CCR = 0U;
+
+    const uint8_t data[1] = {0x00U};
+
+    TEST_ASSERT_EQUAL(I2C_ERR_BUS_FAULT, i2c_write(0x44U, data, 1U));
+    TEST_ASSERT_BITS_HIGH(I2C_CR1_PE, g_mock_i2c1.CR1);
+    TEST_ASSERT_EQUAL_HEX32(I2C_CCR_FS | 35U, g_mock_i2c1.CCR);
+}
+
+void test_TC_I2C_F4_008d_lost_arbitration_in_a_read_gives_BUS_FAULT(void)
+{
+    arrange_init_success();
+    mock_sb_set();
+    g_mock_i2c1.SR1 |= I2C_SR1_ARLO;
+
+    uint8_t buf[2] = {0U, 0U};
+
+    TEST_ASSERT_EQUAL(I2C_ERR_BUS_FAULT, i2c_read(0x44U, buf, 2U));
+}
+
+/* ===================================================================== */
 /* TC-I2C-F4-009: i2c_write_read happy path — 1 byte write, 2 bytes read*/
 /* ===================================================================== */
 
@@ -298,7 +366,7 @@ void test_TC_I2C_F4_009_write_read_happy_path(void)
     g_mock_i2c1.DR = 0xA5U;
 
     const uint8_t tx[1] = {0x3CU}; /* register address */
-    uint8_t rx[2]       = {0};
+    uint8_t rx[2] = {0};
 
     /* Act */
     i2c_err_t err = i2c_write_read(0x1EU, tx, 1U, rx, 2U);
@@ -334,7 +402,7 @@ void test_TC_I2C_F4_010_write_read_single_byte_rx(void)
     g_mock_i2c1.DR = 0x7BU;
 
     const uint8_t tx[1] = {0x0FU};
-    uint8_t rx[1]       = {0};
+    uint8_t rx[1] = {0};
 
     /* Act */
     i2c_err_t err = i2c_write_read(0x1EU, tx, 1U, rx, 1U);
@@ -367,7 +435,7 @@ void test_TC_I2C_F4_011_write_read_nack_in_write_phase(void)
     g_mock_i2c1.SR1 |= I2C_SR1_AF;
 
     const uint8_t tx[1] = {0x00U};
-    uint8_t rx[2]       = {0};
+    uint8_t rx[2] = {0};
 
     /* Act */
     i2c_err_t err = i2c_write_read(0x44U, tx, 1U, rx, 2U);

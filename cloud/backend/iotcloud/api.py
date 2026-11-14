@@ -49,7 +49,8 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
     db = db or Database(settings.db_path)
     hub = Hub()
     notifier = notifier or notify.Notifier(db, settings.online_window_s)
-    link = {"publish": publisher}  # publish(topic, payload, qos); set by the MQTT client once it exists
+    # publish(topic, payload, qos) and connected() are set by the MQTT client once it exists
+    link = {"publish": publisher, "connected": None}
 
     @asynccontextmanager
     async def lifespan(app):
@@ -59,6 +60,7 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
             notifier.start()  # the worker and the offline watcher run only where there is a broker to hear
         if client:
             link["publish"] = lambda topic, payload, qos: client.publish(topic, payload, qos)
+            link["connected"] = client.is_connected
         yield
         notifier.stop()
         if client:
@@ -189,7 +191,18 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
     def publish():
         if link["publish"] is None:
             raise HTTPException(503, "not connected to the broker")
+        if link["connected"] is not None and not link["connected"]():
+            # the MQTT client would queue the message and send it when the broker is back: a command must not run
+            # minutes later, so it is refused (validation finding F-10)
+            raise HTTPException(503, "not connected to the broker: the command was not sent")
         return link["publish"]
+
+    def require_online(device: str):
+        """A command for a device that is not reporting is discarded, not queued (UC-14 E1, UC-19 E1)."""
+        last = db.query("SELECT last_seen FROM devices WHERE id=?", (device,))[0]["last_seen"]
+        age = int(time.time()) - last
+        if age > settings.online_window_s:
+            raise HTTPException(409, f"device offline (last heard {age} s ago): the command was not sent")
 
     # -- commands -------------------------------------------------------------------------------------------------
     async def json_body(request: Request):
@@ -202,8 +215,10 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
     async def send_config(device: str, request: Request):
         """Change remote-writable settings, e.g. {"telemetry_interval_ms": 30000}. The result arrives as an event."""
         require_device(device)
+        pub = publish()
+        require_online(device)
         try:
-            return commands.send(db, publish(), settings.topic_root, device, "config", await json_body(request))
+            return commands.send(db, pub, settings.topic_root, device, "config", await json_body(request))
         except commands.BadCommand as e:
             raise HTTPException(400, str(e))
 
@@ -212,8 +227,10 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
         """{"command": "read" | "restart" | "restart_confirm" | "reset_metrics" | "fd_ack_alarm" | "fd_reset_metrics"}
         or {"command": "profile_add", "slave": 17, "map": 1, "vendor": 4660, "desc": "label"} / {"command": "profile_remove", "slave": 17}"""
         require_device(device)
+        pub = publish()
+        require_online(device)
         try:
-            return commands.send(db, publish(), settings.topic_root, device, "control", await json_body(request))
+            return commands.send(db, pub, settings.topic_root, device, "control", await json_body(request))
         except commands.BadCommand as e:
             raise HTTPException(400, str(e))
 

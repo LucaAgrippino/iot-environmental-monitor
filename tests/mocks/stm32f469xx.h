@@ -336,6 +336,10 @@ extern I2C_TypeDef g_mock_i2c1;
 #define I2C_SR1_TXE      (1UL << I2C_SR1_TXE_Pos)
 #define I2C_SR1_AF_Pos   (10U)
 #define I2C_SR1_AF       (1UL << I2C_SR1_AF_Pos)
+#define I2C_SR1_BERR_Pos (8U)
+#define I2C_SR1_BERR     (1UL << I2C_SR1_BERR_Pos)
+#define I2C_SR1_ARLO_Pos (9U)
+#define I2C_SR1_ARLO     (1UL << I2C_SR1_ARLO_Pos)
 
 /* --- I2C_SR2 bits ----------------------------------------------------- */
 #define I2C_SR2_BUSY_Pos (1U)

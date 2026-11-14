@@ -219,6 +219,9 @@ Rectangular chip. Padding `3 px / 10 px`. Font `FONT_PILL`. Border 1 px. No radi
 | `init` | `● INIT` | `COL_ACCENT` |
 | `alarm` | `■ ALARM` | `COL_ERR` (blink) |
 | `update` | `⇪ UPDATE` | `COL_ACCENT` |
+| `fault` | `▲ FAULT` | `COL_WARN` (steady) |
+
+`ALARM` means at least one active alarm; `FAULT` means the device has a fault and no alarm is active (invalid sensor, lost Modbus link, flash write failed). An active alarm takes priority.
 
 ### Sensor card
 
