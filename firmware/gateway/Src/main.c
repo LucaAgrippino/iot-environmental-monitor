@@ -652,11 +652,19 @@ static const char *prepare_connect(void)
 /* F-11: CloudPublisher calls this when connect attempts keep failing. A refused connection and a
  * module socket left confused by a vanished peer (WIFI-O17) both end as a failed socket open, and a
  * broker given as an IP address always "resolves", so prepare_connect() never escalates on its own.
- * First the access point is joined again, later the module is reset (it drops its sockets and the
- * association) and the access point joined again. Nothing here needs to know the cause. */
+ * First the access point is left and joined again (a join alone answers ERROR while the module is still
+ * associated, which is what the first version of this step ran into), later the module is reset (it
+ * drops its sockets and the association) and the access point joined again. Nothing here needs to
+ * know the cause. */
 static void link_recover(cp_link_recover_t step)
 {
-    if (step == CP_LINK_RECOVER_RESET_MODULE)
+    if (step == CP_LINK_RECOVER_REJOIN)
+    {
+        const wifitask_err_t left = wifitask_disconnect_ap(s_wifitask);
+
+        LOG_WARN("Main", "link recovery: leave the access point -> %d", (int) left);
+    }
+    else if (step == CP_LINK_RECOVER_RESET_MODULE)
     {
         const wifitask_err_t reset = wifitask_reset_module(s_wifitask);
 

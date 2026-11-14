@@ -45,5 +45,6 @@ Short, informal. Newest at the bottom.
     its own broker link is down, and creates nothing (validation findings F-10 and F-13).
 18. **The final result of a firmware update belongs to the device's active job.** After its reboot the Gateway reports
     `success` or `rolled_back` and no longer knows the job id. Only one update per device may run, so a final result without
-    an id closes that device's one `sent` or `running` job; with none active it is ignored (validation finding F-12). Proper
-    fix on the device: keep the job id with the update record and send it.
+    an id closes that device's one `sent` or `running` job; with none active it is ignored (validation finding F-12). Newer
+    Gateway firmware sends the job id too (it reads it from its staging journal), so this attribution is the fallback for a
+    Gateway that does not, or whose journal was damaged.

@@ -3323,21 +3323,22 @@ void test_CP_T145_three_failed_attempts_in_a_row_ask_for_a_rejoin(void)
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_recover_reset);
 }
 
-void test_CP_T146_six_failed_attempts_ask_for_a_module_reset_and_then_only_every_15th(void)
+void test_CP_T146_eight_failed_attempts_ask_for_a_module_reset_and_then_only_every_15th(void)
 {
     prv_create_failing_with_recovery();
 
-    prv_tick_until_attempts(5u);
-    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_recover_reset);
-    prv_tick_until_attempts(6u);
+    prv_tick_until_attempts(7u);
+    TEST_ASSERT_EQUAL_UINT32(
+        0u, g_spy_recover_reset); /* an outage of about a minute does not cost a reset */
+    prv_tick_until_attempts(8u);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_reset);
     TEST_ASSERT_EQUAL_UINT32(1u,
                              g_spy_recover_rejoin); /* the rejoin at the 3rd stays the only one */
 
     prv_tick_until_attempts(
-        20u); /* a broker that is really down does not keep the module resetting */
+        22u); /* a broker that is really down does not keep the module resetting */
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_reset);
-    prv_tick_until_attempts(21u);
+    prv_tick_until_attempts(23u);
     TEST_ASSERT_EQUAL_UINT32(2u, g_spy_recover_reset);
 }
 

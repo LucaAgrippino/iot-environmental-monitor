@@ -1100,6 +1100,25 @@ static firmware_store_err_t op_acknowledge_rollback(firmware_store_t *self)
     return err;
 }
 
+static firmware_store_err_t op_last_session_id(const firmware_store_t *self, uint32_t *image_id_out)
+{
+    if (image_id_out == NULL)
+    {
+        return FIRMWARE_STORE_ERR_NULL_POINTER;
+    }
+
+    firmware_store_err_t err = fs_check(self);
+
+    if (err == FIRMWARE_STORE_ERR_OK)
+    {
+        fs_lock(self);
+        err = fs_journal_session_id(self->cfg.qspi, s_cmp, image_id_out);
+        fs_unlock(self);
+    }
+
+    return err;
+}
+
 const ifirmware_image_store_t firmware_store_image_ops = {
     .begin = op_begin,
     .resume = op_resume,
@@ -1109,6 +1128,7 @@ const ifirmware_image_store_t firmware_store_image_ops = {
     .install_step = op_install_step,
     .activate = op_activate,
     .discard = op_discard,
+    .last_session_id = op_last_session_id,
 };
 
 const ifirmware_boot_control_t firmware_store_boot_ops = {

@@ -307,6 +307,7 @@ void firmware_store_reset_for_test(void);
 | `install_step(self, bool *done_out)` | Copy and check **one** 2 KB page | INSTALLING | INSTALLED when done |
 | `activate(self)` | Point the next boot at the new slot (TRIAL_PENDING) | INSTALLED, boot state CONFIRMED | ACTIVATED (reset expected) |
 | `discard(self)` | Erase the journal; forget the session | op state ≠ ACTIVATED | IDLE |
+| `last_session_id(self, &id)` | Read the identifier of the journal's session record (the cloud's job number) without needing it; `NO_SESSION` when the journal is erased, torn or its CRC fails; `NULL_POINTER` for a null out parameter. The journal is kept after `activate()`, so the firmware that boots after an update can read the job it belongs to (validation finding F-12). Covered by TC-FS-038, TC-FS-038b | any | unchanged |
 
 ### 7.3 `IFirmwareBootControl` — LifecycleController, UpdateService
 

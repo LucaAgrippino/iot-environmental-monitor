@@ -216,7 +216,7 @@ and little-endian in binary.
 
 | Field | Rule |
 |---|---|
-| `job` | Omitted when not known (reports after a reboot, §13.4) |
+| `job` | Omitted when not known. The reports after a reboot (`success` §13.3, `rolled_back` §13.4) carry the job number read from the staging journal (`last_session_id`, the image identifier is the job number) as long as the journal holds a valid session; this was added after validation finding F-12, when the cloud could not close a job from a report with no number. A journal that was discarded or damaged still gives a report without one, and the cloud then attributes it to the device's one active job. Tests TC-US-062b, TC-US-067b |
 | `result` | `accepted`, `rejected`, `failed`, `success`, `rolled_back` |
 | `reason` | §8.4 string; omitted for `accepted` and `success` |
 | `version` | Running firmware version `major.minor.patch` (from `get_boot_info`) |
