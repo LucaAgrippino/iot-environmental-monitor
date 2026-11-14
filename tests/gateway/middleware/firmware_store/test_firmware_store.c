@@ -251,6 +251,41 @@ void test_TC_FS_041_valid_image_verifies_with_the_fake_crypto(void)
     TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->install_begin(fsu_fs));
 }
 
+/* TC-FS-041b..d (security review S-4, anti-rollback): a validly signed image that is not newer than
+ * the running firmware is refused after the signature, hash and reset-vector checks; one patch
+ * number newer is accepted. The running firmware of these tests has version 0x01000000. */
+static firmware_store_err_t verify_with_version(uint32_t version)
+{
+    reset_world();
+    arrange_capable(BODY_LEN);
+    s_len = fsu_build_image(s_file, BODY_LEN, FIRMWARE_SLOT_B_BASE, version);
+
+    return stage_and_verify();
+}
+
+void test_TC_FS_041b_an_image_with_the_running_version_is_refused(void)
+{
+    firmware_image_info_t info;
+
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OLD_VERSION, verify_with_version(FSU_RUNNING_VERSION));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_BAD_STATE,
+                          IMG->install_begin(fsu_fs)); /* not VERIFIED */
+    (void) info;
+}
+
+void test_TC_FS_041c_an_older_image_is_refused(void)
+{
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OLD_VERSION,
+                          verify_with_version(FSU_RUNNING_VERSION - 1UL));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OLD_VERSION, verify_with_version(0x00010001UL));
+}
+
+void test_TC_FS_041d_an_image_one_patch_newer_is_accepted(void)
+{
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, verify_with_version(FSU_RUNNING_VERSION + 1UL));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->install_begin(fsu_fs));
+}
+
 void test_TC_FS_042_bad_magic_version_or_size_is_a_bad_header(void)
 {
     firmware_image_header_t *h = (firmware_image_header_t *) (void *) s_file;

@@ -135,6 +135,7 @@ static void fs_log_result(const char *op, firmware_store_err_t err)
     case FIRMWARE_STORE_ERR_BAD_IMAGE:
     case FIRMWARE_STORE_ERR_CRYPTO:
     case FIRMWARE_STORE_ERR_INSTALL_VERIFY:
+    case FIRMWARE_STORE_ERR_OLD_VERSION:
         LOG_ERROR(FS_MODULE_TAG, "%s failed: code %u", op, (unsigned) err);
         break;
     case FIRMWARE_STORE_ERR_NO_SESSION:
@@ -590,6 +591,18 @@ static firmware_store_err_t do_verify(struct firmware_store *fs, firmware_image_
     if (err == FIRMWARE_STORE_ERR_OK)
     {
         err = verify_reset_vector(fs, &h);
+    }
+
+    /* Anti-rollback (security review S-4): an old release that was signed validly is still not
+     * installed over a newer one. The version is part of the signed header, so it cannot be changed
+     * without breaking the signature. A running version of 0 (an image with no descriptor, a
+     * bring-up build) has nothing to compare with. */
+    if ((err == FIRMWARE_STORE_ERR_OK) && (fs->boot.running_version != 0U) &&
+        (h.version <= fs->boot.running_version))
+    {
+        LOG_ERROR(FS_MODULE_TAG, "image version 0x%08lX is not newer than the running 0x%08lX",
+                  (unsigned long) h.version, (unsigned long) fs->boot.running_version);
+        err = FIRMWARE_STORE_ERR_OLD_VERSION;
     }
 
     if (err != FIRMWARE_STORE_ERR_OK)

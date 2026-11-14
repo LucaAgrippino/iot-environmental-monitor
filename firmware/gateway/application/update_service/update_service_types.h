@@ -114,7 +114,9 @@ typedef enum
     US_REASON_VERIFY_IO,
     US_REASON_INSTALL_FAILED,
     US_REASON_ACTIVATE_FAILED,
-    US_REASON_ROLLBACK
+    US_REASON_ROLLBACK,
+    US_REASON_VERSION_NOT_NEWER /**< Anti-rollback: the signed image is not newer than the running
+                                   firmware (S-4). */
 } us_reason_t;
 
 /** @brief One result report (§6.4); CloudPublisher serialises it. */

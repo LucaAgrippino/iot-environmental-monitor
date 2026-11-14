@@ -40,7 +40,9 @@ typedef enum
     FIRMWARE_STORE_ERR_FLASH_READ = 16,
     FIRMWARE_STORE_ERR_FLASH_ERASE = 17,
     FIRMWARE_STORE_ERR_FLASH_WRITE = 18,
-    FIRMWARE_STORE_ERR_INSTALL_VERIFY = 19
+    FIRMWARE_STORE_ERR_INSTALL_VERIFY = 19,
+    FIRMWARE_STORE_ERR_OLD_VERSION =
+        20 /**< The image is not newer than the running firmware (anti-rollback, S-4). */
 } firmware_store_err_t;
 
 /** @brief On-chip firmware slot. */

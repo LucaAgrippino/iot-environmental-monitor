@@ -26,6 +26,14 @@ make_image.py sign --body gateway_slot_b.bin --slot B --version 1.2.3 \
   so verification fails closed until a real key is provisioned.
 * Losing the private key means no further OTA update can be accepted by
   already-deployed devices. Back it up.
+* **Protect the key with a passphrase** (security review S-5). The tools accept an encrypted key: `make_image.py` and
+  `scripts/build-release.sh` read the passphrase from `OTA_KEY_PASSPHRASE`, or ask for it at a terminal. To encrypt the key you have
+  (the command asks for the passphrase; remove the plain file only after a signing run with the new one works):
+
+  ```bash
+  openssl pkcs8 -topk8 -v2 aes-256-cbc -in ~/keys/ota_release.pem -out ~/keys/ota_release.enc.pem
+  OTA_KEY_PASSPHRASE='...' python3 tools/ota/make_image.py sign --body ... --private ~/keys/ota_release.enc.pem ...
+  ```
 
 ## Test vectors
 

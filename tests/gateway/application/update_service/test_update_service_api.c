@@ -603,5 +603,7 @@ void test_the_reason_strings_match_the_wire_contract(void)
     TEST_ASSERT_EQUAL_STRING("activate_failed",
                              update_service_reason_string(US_REASON_ACTIVATE_FAILED));
     TEST_ASSERT_EQUAL_STRING("rollback", update_service_reason_string(US_REASON_ROLLBACK));
+    TEST_ASSERT_EQUAL_STRING("version_not_newer",
+                             update_service_reason_string(US_REASON_VERSION_NOT_NEWER));
     TEST_ASSERT_EQUAL_STRING("", update_service_reason_string((us_reason_t) 99));
 }
