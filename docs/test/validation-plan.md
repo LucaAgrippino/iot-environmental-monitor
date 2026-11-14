@@ -203,6 +203,14 @@ flow with E2:* an update to 1.1.6 (same code, new version) with the broker stopp
 ago): the command was not sent` and created no job. The whole suite `validation/suites/30_ota.robot` now passes (UC-20 in V-29, the rest in V-30). State afterwards: Gateway 1.1.6, no job
 active, the validation images removed from the store.
 
+**V-31 (the F-11 follow-ups on the board, 2026-11-14 19:57 to 20:08, Gateway 1.1.7 = v0.0.0+bac3d9ce, flashed from main after PR #224).** Six broker outages of 20, 45, 60,
+90, 30 and 75 s with the Gateway console captured. The Gateway reconnected every time, 15 to 40 s after the broker was back (16, 30, 15, 40, 35, 15 s). *The rejoin now works:* the step logs
+`leave the access point -> 0` and `join the access point -> 0` in every outage, where it used to answer `-> 3` (V-28). *The module reset comes earlier than I had written:* at the 8th failed
+attempt, which is about 46 s after the connection was lost (not about 70 s, each attempt takes a few seconds on top of the backoff); every outage from 30 s up triggered one (it came before or just
+after the broker returned), the 20 s outage none; a reset costs about 12 s but the reconnect after it was in the same 15 to 40 s range as waiting for the next backoff attempt, so the value 8 is kept and
+the documentation corrected. Cloud data over the run: telemetry complete (12 rows, largest gap 60 s), health 71 of about 72 (gaps of 20 s and 30 s: a sample or two lost around a recovery step, the
+publisher is blocked for a few seconds by it). The wedge of V-26 did not occur in these six either (12 outages without it since the fix, 1 in 4 before), so the cure is still not shown by a real case.
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
