@@ -554,7 +554,8 @@ static cp_cfg_status_t prv_add_member(cp_cfg_cmd_t *out, const char *key, int64_
     return CP_CFG_OK;
 }
 
-static cp_cfg_status_t prv_parse_config_members(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out)
+static cp_cfg_status_t prv_parse_config_members(const uint8_t *payload, uint32_t len,
+                                                cp_cfg_cmd_t *out)
 {
     if (out == NULL)
     {
@@ -634,8 +635,9 @@ static cp_cfg_status_t prv_parse_config_members(const uint8_t *payload, uint32_t
     return CP_CFG_OK;
 }
 
-/** After a rejected command, look for the request id anyway: the cloud puts "req" last, behind the member the parse
- *  stopped at, and without it the operator's command can never be matched to its rejection (validation finding F-4). */
+/** After a rejected command, look for the request id anyway: the cloud puts "req" last, behind the
+ * member the parse stopped at, and without it the operator's command can never be matched to its
+ * rejection (validation finding F-4). */
 static void prv_recover_req(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out)
 {
     static const char k_needle[] = "\"req\"";
@@ -661,7 +663,8 @@ static void prv_recover_req(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *
         }
         k++;
         prv_skip_space(payload, len, &k);
-        if (prv_scan_int(payload, len, &k, &value) && (value >= 0) && (value <= (int64_t) 0xFFFFFFFFLL))
+        if (prv_scan_int(payload, len, &k, &value) && (value >= 0) &&
+            (value <= (int64_t) 0xFFFFFFFFLL))
         {
             out->req_known = true;
             out->req = (uint32_t) value;
