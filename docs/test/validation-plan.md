@@ -37,9 +37,9 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); Field Technician main flow and E4 pass (V-23) |
 | UC-16 Provision device | Field Technician | console | **PASS** with finding **F-8** (V-24) |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
-| UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
+| UC-18 Deploy firmware update | Remote Operator | cloud, OTA | **PARTIAL** (V-29): the update, E2 (download through a lost connection) and E3 (rollback) work on the Gateway; the operator never sees the final result, **F-12**; E1 (offline device) is not refused, **F-13** |
 | UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 passes (V-25); E4 not stageable by hand |
-| UC-20 Verify firmware integrity | System | OTA refusal cases | Held with UC-18 |
+| UC-20 Verify firmware integrity | System | OTA refusal cases | **PASS** (V-29): a tampered image is refused with `hash_mismatch`, an image signed with another key with `sig_invalid`; E1 (read error) not stageable |
 
 ## Records
 
@@ -180,6 +180,21 @@ does not show:* the wedge of V-26 (1 in 4 outages before the fix) did not occur 
 proof is that the ladder runs, that the module reset and join work on the board, and that nothing regressed. A further series of outages, or
 the next time the wedge occurs, will show the cure.
 
+**V-29 (UC-18 and UC-20 over the air, 2026-11-14 17:52 to 18:50, suite `validation/suites/30_ota.robot`, with the owner's go-ahead).** Gateway 1.1.3 updated to
+1.1.4 over the cloud API (`PUT /api/images`, `POST /api/devices/{id}/ota`), the Gateway console captured on the Pi. Images: 1.1.4 and 1.1.5 built from main
+(f96bac1) and signed with the release key (1.1.5 with the trial self-check forced to fail), a copy of 1.1.4 with one body byte flipped after signing, and
+1.1.4 signed with a throw-away key. *UC-20:* the tampered image was downloaded completely (351 132 bytes) and refused with `hash_mismatch` (code 13, console ERROR line,
+result `failed`); the wrong-key image with `sig_invalid`; the firmware stayed 1.1.3 with 0 rollbacks both times: pass. *UC-18 main flow with E2:* the broker was stopped for
+25 s after 103 424 bytes; the download continued when the connection returned and finished; the Gateway verified, activated, rebooted, passed its self-check and
+sent `success` (version 1.1.4, rollbacks 0) at 18:05:12, about 3 min after the job was created; the Gateway runs 1.1.4. *UC-18 E3:* 1.1.5 (self-check forced
+to fail) was downloaded; the Gateway rebooted into it and the bootloader returned to 1.1.4; it sent `rolled_back` (reason `rollback`, version 1.1.4, rollbacks 1) at
+18:25:32. *But:* both outcome messages carry no job id (`req` null), so the cloud kept jobs 4 and 5 as `running`: **F-12**. *E1:* with the Gateway CPU halted for 170 s (online
+window 150 s) and the broker up the API accepted an update (202, job `sent`, nobody to run it): **F-13**. The first run of the suite had two mistakes of
+its own (an arithmetic error that skipped the broker interruption, and a job left running that made the next case fail with 409); both were fixed and those cases
+repeated. Not staged: UC-18 E4 (a flash write failing while deleting an image) and UC-20 E1 (a read error during the calculation). The suite's cases for the main flow,
+E3 and E1 fail as long as F-12 and F-13 stand; they pass when the cloud attributes the result and refuses the offline device. State afterwards: Gateway 1.1.4 (built from main f96bac1,
+the code of 1.1.3 plus the merge commits), Field Device unchanged, no job active, the validation images removed from the store.
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -262,6 +277,14 @@ the next time the wedge occurs, will show the cure.
    *Implemented:* all three. CloudPublisher counts consecutive failed connect attempts and asks `main.c` to rejoin the access point at the
    3rd and to reset the module at the 6th and then every 15th (CP-D41, tests CP-T145..T148); `wifi_open_socket()` retries on the next slot
    and cleans up the failed one (WIFI-T28/T29); MqttClient logs the failed AT step. Gateway host tests 1654 passed, 0 failed.
+12. **F-12 The result a Gateway sends after its reboot has no job id, so the cloud never closes the job** (UC-18 step 9 and E3). The `success` after the update and the
+   `rolled_back` after the rollback arrive with `req: null` (the Gateway does not know the job id after the reboot), `ota.on_result` needs an integer id, so the job stays
+   `running` and the operator sees no result (events 239 and 241 of V-29). The update and the rollback themselves are right. Proposal, two options: (a) cloud: a terminal
+   result without a job id belongs to the device's one active job (only one is allowed at a time); small, testable, no firmware change; (b) Gateway: store the job id with the
+   update record and send it in the post-reboot result; the proper fix but it changes the firmware and the update record. (a) now, (b) when the update record is next touched.
+13. **F-13 An update can be started for a Gateway that is not connected** (UC-18 E1: raise a connection error). `POST /api/devices/{id}/ota` has no online check (config and control
+   commands refuse a device silent for more than the online window with `409 device offline`, F-10); the job is created in `sent` and nobody runs it until it expires after 10 minutes.
+   Proposal: the same `require_online` for the update start, with a test.
 
 ## Open points
 
@@ -273,5 +296,5 @@ the next time the wedge occurs, will show the cure.
 - F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
   the touch that kept working; a Field Technician touch session in normal use is the remaining check.
 - F-11 (the Gateway stays offline after a broker outage until a reset): fix on the Gateway (1.1.3), 6 of 6 outages recovered (V-28); the wedge did not recur, so the cure is not yet shown by a real case. Open question: should the useless rejoin step (it answers ERROR while associated) become a disconnect and join, and should the module reset wait for a longer outage than 20 s?
-- UC-18 and UC-20 (OTA, only with the owner's go-ahead) and the optional real AWS IoT Core check.
+- Done 2026-11-14: UC-18 and UC-20 over the air (V-29). Open: F-12 and F-13 (cloud fixes proposed), and the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.

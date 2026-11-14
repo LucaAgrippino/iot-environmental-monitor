@@ -73,6 +73,38 @@ class ValCloud:
     def now(self):
         return int(time.time())
 
+    # ---- firmware update (UC-18, UC-20) ------------------------------------------------------------------
+    def upload_image(self, name, path):
+        """PUT one signed .ota file into the cloud's image store; returns the HTTP status."""
+        with open(path, "rb") as f:
+            r = self.s.put("%s/images/%s" % (self.base, name), data=f.read(), headers={"Content-Type": "application/octet-stream"})
+        return r.status_code
+
+    def delete_image(self, name):
+        return self.s.delete("%s/images/%s" % (self.base, name)).status_code
+
+    def start_ota(self, image_a, image_b):
+        """Start an update job for the device; returns (HTTP status, job row or error text)."""
+        r = self.s.post("%s/devices/%s/ota" % (self.base, self.device_id()), json={"image_a": image_a, "image_b": image_b})
+        try:
+            return r.status_code, r.json()
+        except ValueError:
+            return r.status_code, r.text
+
+    def ota_job(self, job):
+        return self.get("/ota/%d" % int(job))
+
+    def cancel_ota(self, job):
+        """Stop serving a job (used to clean up a job started for a device that is not there)."""
+        return self.s.post("%s/ota/%d/cancel" % (self.base, int(job))).status_code
+
+    def active_ota_jobs(self):
+        """Ids of the device's jobs that are still sent or running."""
+        return [j["id"] for j in self.get("/devices/%s/ota" % self.device_id()) if j["state"] in ("sent", "running")]
+
+    def firmware_version(self):
+        return self.device_view().get("fw_version")
+
     # ---- commands -------------------------------------------------------------------------------------
     def send(self, kind, body):
         """POST a command; returns (http status, row or error text)."""
