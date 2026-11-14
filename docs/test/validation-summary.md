@@ -58,6 +58,7 @@ VAL_PASS=<password of the validation account> bash validation/run.sh api        
 VAL_PASS=... bash validation/run.sh web                                          # Remote Operator, browser (about 1 minute)
 VAL_PASS=... python validation/outage.py 240                                     # a broker outage, with the checks
 VAL_PASS=... python validation/ota_series.py ~/rel/<release> <first patch>      # interrupted OTA downloads
+VAL_PASS=... python validation/ota_version_rules.py ~/rel/<release> <running patch>   # anti-rollback: older and same refused, newer installed
 ```
 
 The OTA suite (`validation/suites/30_ota.robot`) updates the Gateway: ask the owner first. Needs the Python environment described in `validation/run.sh`.
