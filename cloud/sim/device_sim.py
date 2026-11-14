@@ -178,7 +178,7 @@ class Sim:
                 res(True); self.boot = time.time(); self.restart_armed_until = 0
             else:
                 res(False, "failed")
-        elif cmd == "reset_metrics":
+        elif cmd in ("reset_metrics", "fd_ack_alarm", "fd_reset_metrics", "profile_add", "profile_remove"):
             res(True)
         else:
             res(False, "unknown_command" if cmd else "bad_format")

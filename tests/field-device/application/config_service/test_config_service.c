@@ -138,6 +138,9 @@ void test_TC_CSVC_001_init_no_stored_data_applies_defaults(void)
     const config_params_t *p = config_service_get_params();
     TEST_ASSERT_NOT_NULL(p);
 
+    /* REQ-SA-010: with nothing stored the polling interval is the default, 1 s. */
+    TEST_ASSERT_EQUAL_UINT32(1000U, p->polling_interval_ms);
+
     /* Verify representative default values are within their valid ranges. */
     TEST_ASSERT_GREATER_OR_EQUAL(100U,   p->polling_interval_ms);
     TEST_ASSERT_LESS_OR_EQUAL(60000U,    p->polling_interval_ms);
@@ -222,8 +225,9 @@ void test_TC_CSVC_004_apply_loaded_wrong_schema_version_uses_defaults(void)
     TEST_ASSERT_EQUAL(CONFIG_SERVICE_OK, err);
 
     const config_params_t *p = config_service_get_params();
-    /* Polling interval must be the default, not the bogus stored value. */
+    /* Polling interval must be the default, not the bogus stored value (REQ-SA-010: 1 s). */
     TEST_ASSERT_NOT_EQUAL(9999U, p->polling_interval_ms);
+    TEST_ASSERT_EQUAL_UINT32(1000U, p->polling_interval_ms);
     TEST_ASSERT_GREATER_OR_EQUAL(100U,  p->polling_interval_ms);
     TEST_ASSERT_LESS_OR_EQUAL(60000U,   p->polling_interval_ms);
 }

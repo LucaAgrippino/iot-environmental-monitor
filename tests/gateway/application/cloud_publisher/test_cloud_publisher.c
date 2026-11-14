@@ -365,6 +365,49 @@ static void spy_control_handler(const uint8_t *payload, uint32_t len)
     g_spy_control_len = len;
 }
 
+/* The Field Device command hook (REQ-MB-080/090). */
+static uint32_t g_spy_fd_cmd_calls;
+static uint8_t g_spy_fd_cmd_slave;
+static uint16_t g_spy_fd_cmd_reg;
+static uint16_t g_spy_fd_cmd_value;
+static cp_fd_result_t g_spy_fd_cmd_result;
+static cp_fd_result_t spy_fd_command(uint8_t slave, uint16_t reg, uint16_t value)
+{
+    g_spy_fd_cmd_calls++;
+    g_spy_fd_cmd_slave = slave;
+    g_spy_fd_cmd_reg = reg;
+    g_spy_fd_cmd_value = value;
+    return g_spy_fd_cmd_result;
+}
+
+/* The device-profile manager and the re-probe hook (REQ-DM-100). */
+static uint32_t g_spy_prof_add_calls;
+static uint32_t g_spy_prof_remove_calls;
+static device_profile_t g_spy_prof_last;
+static uint8_t g_spy_prof_removed_addr;
+static device_profile_registry_err_t g_spy_prof_result;
+static uint32_t g_spy_prof_changed_calls;
+static uint8_t g_spy_prof_changed_addr;
+static device_profile_registry_err_t spy_prof_add(const device_profile_t *p)
+{
+    g_spy_prof_add_calls++;
+    g_spy_prof_last = *p;
+    return g_spy_prof_result;
+}
+static device_profile_registry_err_t spy_prof_remove(uint8_t addr)
+{
+    g_spy_prof_remove_calls++;
+    g_spy_prof_removed_addr = addr;
+    return g_spy_prof_result;
+}
+static const idevice_profile_manager_t g_spy_prof_manager = {.add_or_update = spy_prof_add,
+                                                             .remove = spy_prof_remove};
+static void spy_prof_changed(uint8_t addr)
+{
+    g_spy_prof_changed_calls++;
+    g_spy_prof_changed_addr = addr;
+}
+
 static uint32_t g_spy_update_cmd_calls;
 static us_ota_command_t g_spy_update_cmd;
 static update_service_err_t g_spy_update_cmd_return;
@@ -572,6 +615,12 @@ void setUp(void)
     g_spy_life_state = LIFECYCLE_STATE_OPERATIONAL;
     g_spy_control_calls = 0u;
     g_spy_control_len = 0u;
+    g_spy_fd_cmd_calls = 0u;
+    g_spy_fd_cmd_result = CP_FD_OK;
+    g_spy_prof_add_calls = 0u;
+    g_spy_prof_remove_calls = 0u;
+    g_spy_prof_changed_calls = 0u;
+    g_spy_prof_result = DEVICE_PROFILE_REGISTRY_OK;
 
     g_spy_update_cmd_calls = 0u;
     g_spy_update_cmd_return = UPDATE_SERVICE_ERR_OK;
@@ -608,6 +657,9 @@ void setUp(void)
     g_cfg.time = &g_spy_time;
     g_cfg.lifecycle = &g_spy_lifecycle;
     g_cfg.control_handler = spy_control_handler;
+    g_cfg.fd_command = spy_fd_command;
+    g_cfg.profiles = &g_spy_prof_manager;
+    g_cfg.on_profile_changed = spy_prof_changed;
     g_cfg.fd_slave_addr = 1u;
     g_cfg.fw_version = 0x01020003u;
     g_cfg.update_ops = &g_spy_update_ops;
@@ -1430,6 +1482,26 @@ void test_CP_T16_a_changed_interval_retimes_the_timer(void)
 
     TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTimerChangePeriod_call_count);
     TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(30000u), g_mock_xTimerChangePeriod_last_period);
+}
+
+/* CP-T140: DEF-014 - the periods stored before a restart are loaded after the timers were created;
+ * cloud_publisher_config_loaded() makes the task re-read them. */
+void test_CP_T140_config_loaded_makes_the_task_apply_the_stored_periods(void)
+{
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+    const uint32_t before = g_mock_xTaskNotify_call_count;
+
+    g_spy_params.health_interval_ms = 10000u; /* what ConfigService holds after the load */
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_config_loaded(g_handle));
+    TEST_ASSERT_EQUAL_UINT32(before + 1u, g_mock_xTaskNotify_call_count);
+    TEST_ASSERT_EQUAL_UINT32(TC_CONFIG_CHANGED, g_mock_xTaskNotify_last_value);
+
+    g_mock_xTaskNotifyWait_next_value = TC_CONFIG_CHANGED;
+    cloud_publisher_task_step_for_test(g_handle);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_mock_xTimerChangePeriod_call_count);
+    TEST_ASSERT_EQUAL_UINT32(pdMS_TO_TICKS(10000u), g_mock_xTimerChangePeriod_last_period);
+
+    TEST_ASSERT_EQUAL(CP_ERR_NULL_PTR, cloud_publisher_config_loaded(NULL));
 }
 
 /* ======================================================================= */
@@ -2701,6 +2773,199 @@ void test_CP_T109_restart_reaches_the_handler_and_is_acknowledged(void)
     TEST_ASSERT_EQUAL_UINT32(2u, g_spy_control_calls);
     TEST_ASSERT_NOT_NULL(
         strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"restart_confirm\""));
+}
+
+/* CP-T128: "fd_ack_alarm" writes CMD_ACK_ALARM (0x0200 = 1) on the Field Device and reports the
+ * Modbus answer as accepted (REQ-MB-080, REQ-MB-090). */
+void test_CP_T128_fd_ack_alarm_writes_the_command_register_and_reports_the_answer(void)
+{
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"fd_ack_alarm\",\"req\":31}");
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_fd_cmd_calls);
+    TEST_ASSERT_EQUAL_UINT8(1u, g_spy_fd_cmd_slave);
+    TEST_ASSERT_EQUAL_HEX16(0x0200u, g_spy_fd_cmd_reg);
+    TEST_ASSERT_EQUAL_HEX16(0x0001u, g_spy_fd_cmd_value);
+    TEST_ASSERT_EQUAL_STRING("dt/iotmonitor/" TC_SERIAL_TOPIC "/control/result",
+                             g_spy_mqtt_publish_last_topic);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"fd_ack_alarm\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":31"));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"accepted\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
+}
+
+/* CP-T129: "fd_reset_metrics" writes CMD_RESET_METRICS (0x0201 = 1). */
+void test_CP_T129_fd_reset_metrics_writes_the_other_command_register(void)
+{
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"fd_reset_metrics\"}");
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_fd_cmd_calls);
+    TEST_ASSERT_EQUAL_HEX16(0x0201u, g_spy_fd_cmd_reg);
+    TEST_ASSERT_EQUAL_HEX16(0x0001u, g_spy_fd_cmd_value);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"accepted\""));
+}
+
+/* CP-T130: a Modbus exception from the Field Device and a silent Field Device are two different
+ * rejections (UC-19 exception E3). */
+void test_CP_T130_a_refusing_or_silent_field_device_is_reported_with_its_own_reason(void)
+{
+    prv_create_and_connect();
+
+    g_spy_fd_cmd_result = CP_FD_REFUSED;
+    prv_send_control("{\"command\":\"fd_ack_alarm\"}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"rejected\""));
+    TEST_ASSERT_NOT_NULL(
+        strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"field_device_refused\""));
+
+    g_spy_fd_cmd_result = CP_FD_UNREACHABLE;
+    prv_send_control("{\"command\":\"fd_ack_alarm\"}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"rejected\""));
+    TEST_ASSERT_NOT_NULL(
+        strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"field_device_unreachable\""));
+}
+
+/* CP-T131: with no Field Device configured, or no command hook, the command is rejected as failed
+ * and nothing is written. */
+void test_CP_T131_fd_commands_without_a_field_device_or_a_hook_are_rejected_as_failed(void)
+{
+    g_cfg.fd_slave_addr = 0u;
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"fd_reset_metrics\"}");
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_fd_cmd_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"failed\""));
+}
+
+void test_CP_T132_fd_commands_without_a_hook_are_rejected_as_failed(void)
+{
+    g_cfg.fd_command = NULL;
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"fd_ack_alarm\"}");
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_fd_cmd_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"rejected\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"failed\""));
+}
+
+/* CP-T133: "profile_add" adds or replaces a profile, re-probes the slave and reports accepted
+ * (REQ-DM-100, UC-15). */
+void test_CP_T133_profile_add_updates_the_registry_and_reprobes_the_slave(void)
+{
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"profile_add\",\"slave\":17,\"map\":1,\"vendor\":4660,"
+                     "\"desc\":\"verif\",\"req\":9}");
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prof_add_calls);
+    TEST_ASSERT_EQUAL_UINT8(17u, g_spy_prof_last.slave_addr);
+    TEST_ASSERT_EQUAL_UINT16(1u, g_spy_prof_last.map_version);
+    TEST_ASSERT_EQUAL_UINT16(4660u, g_spy_prof_last.vendor_code);
+    TEST_ASSERT_EQUAL_STRING("verif", g_spy_prof_last.description);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prof_changed_calls);
+    TEST_ASSERT_EQUAL_UINT8(17u, g_spy_prof_changed_addr);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"profile_add\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":9"));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"accepted\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_control_calls);
+}
+
+/* CP-T134: without a label the profile gets the console's default one. */
+void test_CP_T134_profile_add_without_a_label_uses_the_default_description(void)
+{
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"profile_add\",\"slave\":5,\"map\":2,\"vendor\":7}");
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prof_add_calls);
+    TEST_ASSERT_EQUAL_STRING("Field Device 5", g_spy_prof_last.description);
+}
+
+/* CP-T135: "profile_remove" removes the profile of a slave; no re-probe. */
+void test_CP_T135_profile_remove_updates_the_registry(void)
+{
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"profile_remove\",\"slave\":17}");
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_prof_remove_calls);
+    TEST_ASSERT_EQUAL_UINT8(17u, g_spy_prof_removed_addr);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_prof_changed_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"accepted\""));
+}
+
+/* CP-T136: what the registry refuses is reported with its own reason and nothing is re-probed. */
+void test_CP_T136_registry_refusals_are_reported_with_a_reason(void)
+{
+    prv_create_and_connect();
+
+    g_spy_prof_result = DEVICE_PROFILE_REGISTRY_ERR_FULL;
+    prv_send_control("{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":1}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"rejected\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"registry_full\""));
+
+    g_spy_prof_result = DEVICE_PROFILE_REGISTRY_ERR_INVALID;
+    prv_send_control("{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":1}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"profile_refused\""));
+
+    g_spy_prof_result = DEVICE_PROFILE_REGISTRY_ERR_NOT_FOUND;
+    prv_send_control("{\"command\":\"profile_remove\",\"slave\":9}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"not_found\""));
+
+    g_spy_prof_result = DEVICE_PROFILE_REGISTRY_ERR_PERSIST;
+    prv_send_control("{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":1}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"failed\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_prof_changed_calls);
+}
+
+/* CP-T137: a profile command with missing or out-of-range members never reaches the registry. */
+void test_CP_T137_malformed_profile_commands_are_rejected_as_bad_format(void)
+{
+    static const char *const k_bad[] = {
+        "{\"command\":\"profile_add\",\"slave\":9,\"map\":1}",                  /* no vendor   */
+        "{\"command\":\"profile_add\",\"map\":1,\"vendor\":1}",                 /* no slave    */
+        "{\"command\":\"profile_add\",\"slave\":0,\"map\":1,\"vendor\":1}",     /* slave 0     */
+        "{\"command\":\"profile_add\",\"slave\":248,\"map\":1,\"vendor\":1}",   /* slave 248   */
+        "{\"command\":\"profile_add\",\"slave\":9,\"map\":0,\"vendor\":1}",     /* map 0       */
+        "{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":70000}", /* vendor > 16 bit
+                                                                                 */
+        "{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":1,\"desc\":\"a\\\\b\"}",
+        "{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":1,"
+        "\"desc\":\"this label is much longer than thirty-two characters\"}",
+        "{\"command\":\"profile_remove\"}",
+        "{\"command\":\"profile_remove\",\"slave\":x}",
+    };
+    prv_create_and_connect();
+    for (uint32_t i = 0u; i < (sizeof(k_bad) / sizeof(k_bad[0])); i++)
+    {
+        prv_send_control(k_bad[i]);
+        TEST_ASSERT_NOT_NULL_MESSAGE(
+            strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"bad_format\""), k_bad[i]);
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_prof_add_calls);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_prof_remove_calls);
+}
+
+/* CP-T138: no registry in the configuration: rejected as failed. */
+void test_CP_T138_profile_commands_without_a_registry_are_rejected_as_failed(void)
+{
+    g_cfg.profiles = NULL;
+    prv_create_and_connect();
+    prv_send_control("{\"command\":\"profile_add\",\"slave\":9,\"map\":1,\"vendor\":1}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"failed\""));
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_prof_add_calls);
+}
+
+/* CP-T139: the member parser: spaces, an absent label, and what it reports as present. */
+void test_CP_T139_profile_member_parser_reads_numbers_and_the_label(void)
+{
+    cp_profile_args_t a;
+    const char *ok = "{ \"command\" : \"profile_add\" , \"slave\" : 17 , \"vendor\" : 65535 , "
+                     "\"desc\" : \"x y\" }";
+
+    TEST_ASSERT_TRUE(cp_parse_profile_args((const uint8_t *) ok, (uint32_t) strlen(ok), &a));
+    TEST_ASSERT_TRUE(a.has_slave);
+    TEST_ASSERT_FALSE(a.has_map);
+    TEST_ASSERT_TRUE(a.has_vendor);
+    TEST_ASSERT_EQUAL_UINT8(17u, a.slave);
+    TEST_ASSERT_EQUAL_UINT16(65535u, a.vendor);
+    TEST_ASSERT_EQUAL_STRING("x y", a.desc);
+
+    TEST_ASSERT_FALSE(cp_parse_profile_args((const uint8_t *) "not json", 8u, &a));
+    TEST_ASSERT_FALSE(cp_parse_profile_args(NULL, 3u, &a));
 }
 
 /* CP-T110: parser: names are matched exactly, spaces are allowed, the id is optional. */

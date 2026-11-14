@@ -10,3 +10,11 @@ REQ-DM-070,PASS,2026-11-09,Claude,real OTA on the Gateway: after the update the 
 REQ-DM-072,PASS,2026-11-09,Claude,real OTA of a build that fails its self-check (1.0.2): result rolled_back; UART BL ... gen=7 rb=1 ver=0x01000001 back on 1.0.1
 REQ-DM-073,PASS,2026-11-09,Claude,same rollback run: the previous image was still in the other bank and ran again after the failed trial
 
+REQ-SA-110,PASS,2026-11-14,Claude,inspection: firmware/gateway/application/sensor_service/sensor_task.c: the periodic timer (prv_poll_timer_cb) and sensor_task_request_read() both give the one task notification that runs sensor_service_run_cycle() so a periodic and an on-demand reading pass the same cycle and the same filter; a remote read is exercised on the bench by TC-VER-CL-008 and TC-VER-CL-023
+REQ-DM-071,PASS,2026-11-14,Claude,TC-VER-OTA-001 (run 20261112-215027): after the update the trial boot of the new firmware ran its self-check and failed it and the Gateway reported rolled_back and returned to 1.0.1; TC-VER-OTA-004 shows the same self-check passing on a good image
+REQ-BF-020,WAIVED,2026-11-13,Owner (Luca),waiver approved: filling 254 entries needs about 4 h of telemetry; the ring capacity and the overwrite of the oldest entry are covered by the host tests and the hardware cases in docs/lld/middleware/circular-flash-log.md
+REQ-MB-130,WAIVED,2026-11-13,Owner (Luca),waiver approved: the wording of the log line for a profile mismatch is unclear; the mismatch itself is verified by TC-VER-2B-006
+REQ-NF-107,WAIVED,2026-11-13,Owner (Luca),waiver approved: the start of a command within 500 ms is not measurable from the reply; TC-VER-CL-008 and TC-VER-CL-023 log the acknowledgement and the request-to-queued times
+REQ-NF-202,WAIVED,2026-11-13,Owner (Luca),waiver approved: openocd freezes the IWDG while the core is halted so a watchdog reset cannot be forced from the bench; a stall build resets the board about 31-35 s after power-on and the boot time is covered by REQ-NF-213
+REQ-NF-110,WAIVED,2026-11-13,Owner (Luca),owner decision: the default Modbus poll period stays 200 ms (DEFAULT_MODBUS_POLL_PERIOD_MS) for the alarm latency of REQ-NF-113; the Field Device samples at 1 Hz by default (REQ-SA-010); the SRS wording is to be amended
+REQ-NF-212,NA,2026-11-13,Owner (Luca),not applicable: the text says See REQ-TS-040 and the requirement is carried there

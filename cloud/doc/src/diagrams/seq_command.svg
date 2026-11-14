@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 460" font-family="Liberation Sans, Arial, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>
+<rect x="8.0" y="8" width="124" height="40" rx="7" fill="#C77B1222" stroke="#C77B12" stroke-width="1.4"/>
+<text x="70.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Browser</text>
+<text x="70.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">(admin)</text>
+<line x1="70.0" y1="48" x2="70.0" y2="446" stroke="#C77B12" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="218.0" y="8" width="124" height="40" rx="7" fill="#6B4FB322" stroke="#6B4FB3" stroke-width="1.4"/>
+<text x="280.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Backend</text>
+<text x="280.0" y="39" text-anchor="middle" font-size="11" font-weight="400" fill="#222">API</text>
+<line x1="280.0" y1="48" x2="280.0" y2="446" stroke="#6B4FB3" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="428.0" y="8" width="124" height="27" rx="7" fill="#6B4FB322" stroke="#6B4FB3" stroke-width="1.4"/>
+<text x="490.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Database</text>
+<line x1="490.0" y1="35" x2="490.0" y2="446" stroke="#6B4FB3" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="638.0" y="8" width="124" height="27" rx="7" fill="#2E8B5722" stroke="#2E8B57" stroke-width="1.4"/>
+<text x="700.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Broker</text>
+<line x1="700.0" y1="35" x2="700.0" y2="446" stroke="#2E8B57" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<rect x="848.0" y="8" width="124" height="27" rx="7" fill="#2F6DB522" stroke="#2F6DB5" stroke-width="1.4"/>
+<text x="910.0" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="#222">Gateway</text>
+<line x1="910.0" y1="35" x2="910.0" y2="446" stroke="#2F6DB5" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+<line x1="70.0" y1="70" x2="280.0" y2="70" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="175.0" y="65" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">1</tspan>  click &#x27;Read&#x27;:  POST /api/devices/&lt;id&gt;/control  {&quot;command&quot;:&quot;read&quot;}</text>
+<path d="M280.0,100 h26 v14 h-26" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="312.0" y="104" text-anchor="start" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">2</tspan>  guard: valid session? role = admin? same-site request?</text>
+<line x1="280.0" y1="144" x2="490.0" y2="144" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="385.0" y="139" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">3</tspan>  INSERT command (status = pending)  -&gt;  id 7</text>
+<line x1="280.0" y1="174" x2="700.0" y2="174" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="490.0" y="169" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">4</tspan>  PUBLISH cmd/iotmonitor/&lt;id&gt;/control  {&quot;command&quot;:&quot;read&quot;,&quot;req&quot;:7}  (QoS 1)</text>
+<line x1="280.0" y1="204" x2="70.0" y2="204" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="175.0" y="199" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">5</tspan>  202 Accepted + the command row (pending)</text>
+<line x1="700.0" y1="234" x2="910.0" y2="234" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="805.0" y="229" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">6</tspan>  deliver; the Gateway executes it</text>
+<line x1="910.0" y1="264" x2="700.0" y2="264" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="805.0" y="259" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">7</tspan>  PUBLISH dt/iotmonitor/&lt;id&gt;/control/result  {&quot;req&quot;:7,&quot;result&quot;:&quot;accepted&quot;}</text>
+<line x1="700.0" y1="294" x2="280.0" y2="294" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="490.0" y="289" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">8</tspan>  forward -&gt; ingest -&gt; commands.on_result</text>
+<line x1="280.0" y1="324" x2="490.0" y2="324" stroke="#444" stroke-width="1.3" marker-end="url(#ar)"/>
+<text x="385.0" y="319" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">9</tspan>  UPDATE command 7: status = accepted</text>
+<line x1="280.0" y1="354" x2="70.0" y2="354" stroke="#444" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#ar)"/>
+<text x="175.0" y="349" text-anchor="middle" font-size="11.5" fill="#111"><tspan font-weight="700" fill="#6B4FB3">10</tspan>  live event: the Commands tab shows the answer</text>
+<line x1="14" y1="378" x2="966" y2="378" stroke="#999" stroke-dasharray="2 3"/>
+<text x="490.0" y="392" text-anchor="middle" font-size="11.5" font-style="italic" fill="#555" style="paint-order:stroke" stroke="#fff" stroke-width="4">no answer within 60 s:  the row is shown as &#x27;timeout&#x27;; if the device was offline, QoS 1 delivers it later</text>
+</svg>

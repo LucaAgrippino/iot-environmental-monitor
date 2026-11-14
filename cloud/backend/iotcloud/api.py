@@ -189,7 +189,8 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
 
     @app.post("/api/devices/{device}/control", status_code=202)
     async def send_control(device: str, request: Request):
-        """{"command": "read" | "restart" | "restart_confirm" | "reset_metrics"}"""
+        """{"command": "read" | "restart" | "restart_confirm" | "reset_metrics" | "fd_ack_alarm" | "fd_reset_metrics"}
+        or {"command": "profile_add", "slave": 17, "map": 1, "vendor": 4660, "desc": "label"} / {"command": "profile_remove", "slave": 17}"""
         require_device(device)
         try:
             return commands.send(db, publish(), settings.topic_root, device, "control", await json_body(request))

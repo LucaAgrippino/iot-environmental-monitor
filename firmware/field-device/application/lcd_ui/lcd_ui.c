@@ -367,6 +367,7 @@ static void sensor_screen_on_enter(screen_t *self)
 {
     sensor_screen_t *scr = (sensor_screen_t *) self;
     scr->spark_gen_seen = 0U;
+    scr->next_refresh_ms = s_ui.now_ms; /* show the values at once on entering */
     footer_bar_set(&s_ui.footer, "POLL " S_DASH " NEXT " S_DASH, LCD_UI_TARGET_TEXT);
 }
 
@@ -420,6 +421,22 @@ static void sensor_screen_on_refresh(screen_t *self)
     char status[48];
     char delta[24];
     char clock[12];
+
+    /* REQ-NF-108: the values are redrawn every LCD_REFRESH_MS (5 Hz) although the UI task ticks
+     * faster, for the touch response and the blink phases. The schedule advances by the period, not
+     * from now, so the rate does not drift with the tick period. */
+    if ((int32_t) (s_ui.now_ms - scr->next_refresh_ms) < 0)
+    {
+        return;
+    }
+    scr->next_refresh_ms += LCD_REFRESH_MS;
+    if ((int32_t) (s_ui.now_ms - scr->next_refresh_ms) >= 0)
+    {
+        scr->next_refresh_ms =
+            s_ui.now_ms + LCD_REFRESH_MS; /* a long frame: do not catch up in a burst */
+    }
+    s_ui.refresh_count++;
+
     const uint32_t newest = newest_epoch(&s_ui.snap);
 
     (void) memset(alarm, 0, sizeof(alarm));

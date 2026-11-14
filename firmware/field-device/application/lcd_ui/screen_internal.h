@@ -103,6 +103,7 @@ typedef struct
     int32_t last_value[SENSOR_DISPLAY_COUNT];  /**< Last valid reading, shown faded on error. */
     uint32_t last_valid_epoch[SENSOR_DISPLAY_COUNT]; /**< Its timestamp. */
     uint32_t spark_gen_seen;                         /**< History generation drawn last. */
+    uint32_t next_refresh_ms; /**< Time of the next value redraw (REQ-NF-108). */
 } sensor_screen_t;
 
 /** @brief Trend screen: one chart panel per sensor. */
@@ -213,12 +214,15 @@ typedef struct lcd_ui
     bool link_down;      /**< The Modbus link was up and is lost. */
     uint32_t fault_ms;   /**< When the faults were last evaluated. */
     volatile uint16_t requested_screen; /**< lcd_ui_select_screen(): screen + 1, 0 for none. */
-    splash_view_t splash;               /**< Boot overlay, hidden until requested. */
-    volatile uint8_t splash_req;        /**< SPLASH_REQ_*; cleared when carried out. */
-    volatile uint8_t boot_pct;          /**< Progress from lcd_ui_set_boot_progress(). */
-    volatile uint32_t boot_seq;         /**< Incremented per progress update. */
-    uint32_t boot_seq_seen;             /**< boot_seq already drawn. */
-    char boot_step[SPLASH_STEP_MAX];    /**< Step name from lcd_ui_set_boot_progress(). */
+    volatile uint32_t refresh_count; /**< Redraws of the Sensors screen values since start (one per
+                                        LCD_REFRESH_MS, 5 Hz); read over SWD to measure the refresh
+                                        rate (REQ-NF-108). */
+    splash_view_t splash;            /**< Boot overlay, hidden until requested. */
+    volatile uint8_t splash_req;     /**< SPLASH_REQ_*; cleared when carried out. */
+    volatile uint8_t boot_pct;       /**< Progress from lcd_ui_set_boot_progress(). */
+    volatile uint32_t boot_seq;      /**< Incremented per progress update. */
+    uint32_t boot_seq_seen;          /**< boot_seq already drawn. */
+    char boot_step[SPLASH_STEP_MAX]; /**< Step name from lcd_ui_set_boot_progress(). */
 } lcd_ui_t;
 
 #endif /* SCREEN_INTERNAL_H */

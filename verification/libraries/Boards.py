@@ -107,6 +107,18 @@ class Boards:
             raise AssertionError("symbol %s not found" % symbol)
         return int(m.group(1), 16)
 
+    def fd_symbol(self, key):
+        """An address (or value) from fd-symbols.json, written by scripts/gen-verify-symbols.py for the image that is flashed."""
+        path = os.environ.get("VERIFY_SYMBOLS", os.path.join(ROOT, "verification/build/fd-symbols.json"))
+        if not os.path.exists(path):
+            raise AssertionError("no symbol file %s: run scripts/gen-verify-symbols.py on the PC and copy it here" % path)
+        value = json.load(open(path))[key]
+        return int(value, 0) if isinstance(value, str) else int(value)
+
+    def write_u8(self, board, address, value):
+        """Write one byte to the running target (a debugger write, as select_fd_screen does for a halfword)."""
+        _run_openocd(board.upper(), "mwb 0x%x %d" % (int(address), int(value)))
+
     def select_fd_screen(self, index):
         """Ask LcdUi for a screen (0 Sensors, 1 Trend, 2 Status, 3 Alarms, 4 Config) through its request field.
 

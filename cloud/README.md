@@ -63,7 +63,7 @@ device -> cloud   dt/iotmonitor/<device>/telemetry   every 60 s     QoS 0
                   dt/iotmonitor/<device>/config/result, control/result, ota/result     QoS 1
                   dt/iotmonitor/<device>/ota/request                  one per image chunk
 cloud -> device   cmd/iotmonitor/<device>/config     {"temp_alarm_high":3000,"req":5}
-                  cmd/iotmonitor/<device>/control    {"command":"read|restart|restart_confirm|reset_metrics","req":7}
+                  cmd/iotmonitor/<device>/control    {"command":"read|restart|restart_confirm|reset_metrics|fd_ack_alarm|fd_reset_metrics|profile_add|profile_remove","req":7}
                   cmd/iotmonitor/<device>/ota        {"job":42,"size_a":N,"size_b":N}
                   cmd/iotmonitor/<device>/ota/data   binary chunk (job, offset, bytes)
 ```

@@ -57,3 +57,54 @@ number of cases is smaller).
   right after a boot. SA-030: the boot log has one line for the SensorService, the three channels show in `sensors`.
 - **Display group, still open:** LD-060 (the "waiting" overlay is brief; timing to capture), LD-270 (needs the Error
   state), NF-108 (refresh rate), SA-010 (a failed configuration read).
+
+## Owner decisions, 2026-11-13 (second session)
+
+- **REQ-NF-110 (poll the field node at a default 1 Hz): the default Modbus poll period stays 200 ms.** The Gateway polls the Field Device
+  every 200 ms (`DEFAULT_MODBUS_POLL_PERIOD_MS`, `config_service.c`) so that an alarm raised on the Field Device reaches the cloud within
+  500 ms (REQ-NF-113, measured median 136 ms). At 1 Hz the alarm latency would be about 1.2 s. The two requirements cannot both hold with
+  one poll period; the owner chose REQ-NF-113. REQ-NF-110 is therefore **waived**. The Field Device samples its sensors at 1 Hz by default
+  (`polling-interval-ms`, REQ-SA-010), which is the rate that REQ-SA-140 refers to. The SRS wording should be amended to "the Field Device
+  samples at 1 Hz by default; the Gateway polls it every 200 ms".
+- **OTA closure suite (suite 11) approved to run.** It uploads to the Gateway but never reaches activation, so the firmware version stays.
+- **REQ-SA-010** (default polling interval when the configuration cannot be read): the Field Device keeps its configuration in external QSPI
+  flash, which the debugger cannot corrupt, so the failure branch cannot be forced on the bench. The evidence is at unit level: the host tests
+  TC-CSVC-001 and TC-CSVC-004 now assert exactly 1000 ms when nothing, or something invalid, is stored. Pending the owner's acceptance.
+- **REQ-MB-060** is no longer waived: it is verified on the RS-485 line (TC-VER-PR-004) after DEF-013.
+
+## Found and changed during the closure work
+
+- **DEF-013** (Modbus retries were 1, the requirement says 3) and **DEF-014** (publish periods saved over a restart were ignored): see `defects.md`.
+- **REQ-MB-080 / MB-090** had no cloud entry point: `fd_ack_alarm` and `fd_reset_metrics` now write the Field Device's command register and
+  report its answer (cloud-publisher-lld.md, CP-D39). **REQ-DM-100** had no remote path: `profile_add` and `profile_remove` (CP-D40).
+- **REQ-NF-108**: the Sensors screen redrew its values on every UI tick (about 14 Hz measured, TC-VER-FD-019); it is now gated to the 200 ms
+  `LCD_REFRESH_MS` (5 Hz) with a drift-free schedule; the UI task still ticks every 40 ms for the touch response and the blink phases.
+- **Measurable timing** was added for REQ-NF-100 / NF-106 (the longest sensor cycle of each board, and the Gateway's request-to-queued log).
+
+## Status at the end of the closure session (2026-11-14)
+
+Report: 98 of 98 test cases pass; of 207 requirements 179 are verified by test, 10 by hand (inspection or earlier bench results), 5 waived by the
+owner (BF-020, MB-130, NF-107, NF-202, NF-110) and 1 not applicable (NF-212). 12 are still without a result:
+
+| Requirement | Why | Next |
+|---|---|---|
+| LD-040, LD-110, LD-120, LD-130, LD-150, LD-155, LD-190, NF-214 | operator checklist (touch, forced sensor fault, power cut) | wave 7, with the owner, last |
+| LD-060 ("waiting for data" until the first reading) | the Field Device always has a reading within a second of the scheduler start, and the splash covers that time; the state cannot be held on the bench | unit test TC-LCDUI-004 (the cards start in the WAITING state); owner to accept |
+| SA-010 (default 1 s interval if the configuration cannot be read) | the Field Device's configuration is in external QSPI flash; the failure cannot be forced | unit tests TC-CSVC-001/004 assert exactly 1000 ms; owner to accept |
+| NF-204 (rollback within 10 s) | needs a timed run of the self-check-fail update (suite 9, OTA-001), which changes the Gateway's firmware version | owner's go-ahead for that run |
+| NF-209 (reconnect after 2 s, doubling to 60 s) | MQTT layer: TC-VER-CL-024 (run result below) | the Wi-Fi layer is not forced on the bench |
+
+Closure runs of 2026-11-13/14: suites 10 (time, remote commands, Modbus retries, profiles, log format, TLS only, timing), 11 (OTA refusals,
+stall, busy, authentication) and the FD display cases. The merged report is built from an explicit list of valid runs (the killed runs of 10 and
+12 November and the abandoned development runs of 10 November are left out); the two test ids that were reused by mistake (GW-016 and GW-017)
+were relabelled in copies of the affected result files (GW-018 and GW-019) before merging, the original result files are untouched.
+
+### Update, later on 2026-11-14
+
+- **NF-204** is verified: TC-VER-OTA-012 (a 1.0.2 that fails its self-check; 4.7 s from the failed self-check to the previous firmware being
+  operational again, limit 10 s; also tagged REQ-DM-071).
+- **NF-209** is verified at the MQTT layer: TC-VER-CL-024 (the first attempt 0.5 s after the loss; the waits double 2, 4, 8, 16, 32, 60 s plus a
+  constant 3 to 5 s for the attempt itself). The Wi-Fi layer of the requirement is not forced on the bench.
+- Report: 100 of 100 test cases pass; 182 requirements verified by test, 9 by hand, 5 waived, 1 not applicable, 0 failed, **10 open**:
+  the eight operator-checklist items (LD-040, LD-110, LD-120, LD-130, LD-150, LD-155, LD-190, NF-214), LD-060 and SA-010 (unit-level evidence,
+  pending the owner's acceptance).

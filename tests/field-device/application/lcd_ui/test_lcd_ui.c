@@ -1046,3 +1046,33 @@ void test_TC_LCDUI_051_a_reading_older_than_the_history_interval_is_recorded_inv
     TEST_ASSERT_EQUAL_UINT32(2U, ui_history_count());
     TEST_ASSERT_FALSE(ui_history_get(UI_CH_TEMPERATURE, 1U, &v));
 }
+
+/* TC-LCDUI-052: REQ-NF-108 - the Sensors screen values are redrawn every LCD_REFRESH_MS (200 ms, 5 Hz)
+ * although the UI task ticks every 40 ms, and the schedule does not drift with the tick period. */
+void test_TC_LCDUI_052_the_sensor_values_are_redrawn_at_5_hz_not_at_every_tick(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    tick_at(1000U); /* the first tick shows the values at once */
+    const uint32_t first = ui->refresh_count;
+    TEST_ASSERT_GREATER_THAN_UINT32(0U, first);
+
+    for (uint32_t ms = 1040U; ms < 1200U; ms += 40U) /* four ticks inside one period */
+    {
+        tick_at(ms);
+    }
+    TEST_ASSERT_EQUAL_UINT32(first, ui->refresh_count);
+
+    tick_at(1200U); /* the period is over */
+    TEST_ASSERT_EQUAL_UINT32(first + 1U, ui->refresh_count);
+
+    /* A slow UI task (a tick every 72 ms, as measured at -O0): the rate stays 5 Hz, it does not fall to 1 / 216 ms. */
+    const uint32_t before = ui->refresh_count;
+    for (uint32_t ms = 1272U; ms <= 3200U; ms += 72U)
+    {
+        tick_at(ms);
+    }
+    const uint32_t refreshes = ui->refresh_count - before;
+    TEST_ASSERT_UINT32_WITHIN(1U, 10U, refreshes); /* (3200 - 1200) ms / 200 ms = 10 */
+}
