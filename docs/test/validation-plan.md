@@ -166,6 +166,20 @@ telemetry messages (largest gap 60 s), 25 of about 24 expected health messages (
 (F-11 did not recur). The `409` answer for a device that has not reported for 150 s is covered by unit tests only (it
 needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-05 x3, UC-14, UC-15, UC-19 pass on the deployed cloud (6/6).
 
+**V-28 (F-11 on the board, 2026-11-14 17:33 to 17:44, Gateway 1.1.3 = v0.0.0+68b81953, script `/tmp/f11_cycles.sh` on the Pi).** Six broker
+outages of 20, 45, 90, 30, 60 and 45 s with the Gateway console captured. The Gateway reconnected every time, 15 to 30 s after the broker
+was back (25, 30, 15, 16, 15, 20 s). The log shows the ladder (CP-D41) at the planned counts in every cycle: at the 3rd failed attempt
+`joining the access point again`, at the 6th `resetting the Wi-Fi module`, then a join that works and `MQTT (re)connected`. Every failed
+open reported AT step 5 (`P6`, the connect itself): with the broker down the module accepts the socket set-up and only the TCP connect
+fails, so the new log line cannot tell a refused connection from a confused module socket either, as expected. Observations: (a) the
+rejoin step answers `-> 3` (`WIFI_ERR_MODULE`) each time, because the module refuses a join while it is still associated, so only the module reset
+does the work, about 11 s long; (b) an outage longer than about 20 s therefore costs a module reset and 5 to 10 s more before the Gateway is back;
+(c) the publisher task blocks during a rejoin or reset, so one health message (10 s period) was late or missing in 2 of the 6
+cycles. Cloud data over the 10 minutes: telemetry complete (largest gap 61 s), health 66 of about 65 expected, largest gap 18 s. *What this
+does not show:* the wedge of V-26 (1 in 4 outages before the fix) did not occur in these 6, so the cure itself is not demonstrated; the
+proof is that the ladder runs, that the module reset and join work on the board, and that nothing regressed. A further series of outages, or
+the next time the wedge occurs, will show the cure.
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -224,7 +238,7 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
    command then ran 4 minutes later. Fix, as decided by the owner: a command for a device that has not reported within the
    online window is refused with `409 device offline ... the command was not sent`, and a command is refused with `503` while the
    cloud's broker link is down; no command row is created in either case (tests in `test_commands_ota.py`).
-11. **F-11 (fixed in firmware, not yet on the board) After a broker outage the Gateway can stay offline until it is reset** (found during the F-9
+11. **F-11 (fixed in firmware; Gateway 1.1.3 on the board, V-28: 6 of 6 outages recovered, the wedge itself did not recur) After a broker outage the Gateway can stay offline until it is reset** (found during the F-9
    investigation; analysed 2026-11-14). *Observed:* in the second broker outage the Gateway noticed the loss in the same second (`Connection lost`, then a failed
    31-byte send, `err=6`) and from then on every connect attempt, with the backoff 2, 4, 8, 16, 32, 60 s, logged
    `wifitask_open_socket failed: 6` (`WIFI_ERR_SOCKET`), also after the broker was back; NTP could not open a socket either. A reset of
@@ -258,6 +272,6 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
 - Done 2026-11-14: the manual session (LCD use cases V-20..V-23, UC-16 V-24, the disconnected cases V-25, V-26).
 - F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
   the touch that kept working; a Field Technician touch session in normal use is the remaining check.
-- F-11 (the Gateway stays offline after a broker outage until a reset): fix written and unit-tested; needs a Gateway release flashed (owner's go-ahead), then repeated broker stops (at least 5) with the console captured.
+- F-11 (the Gateway stays offline after a broker outage until a reset): fix on the Gateway (1.1.3), 6 of 6 outages recovered (V-28); the wedge did not recur, so the cure is not yet shown by a real case. Open question: should the useless rejoin step (it answers ERROR while associated) become a disconnect and join, and should the module reset wait for a longer outage than 20 s?
 - UC-18 and UC-20 (OTA, only with the owner's go-ahead) and the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.
