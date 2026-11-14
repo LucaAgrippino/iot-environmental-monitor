@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-14. **Scope:** the whole system as deployed: Field Device and Gateway firmware, the OTA update path, the broker and its PKI, the cloud service and its
 deployment on the Raspberry Pi, the repository and its CI. **Context:** a personal project on a home network; the repository is public.
-**Result:** no critical or high finding. Two medium findings (device secrets at rest, Pi hardening), the rest low or informational. Nothing has been changed by this review.
+**Result:** no critical or high finding. Two medium findings (device secrets at rest, Pi hardening), the rest low or informational. The review itself changed nothing; the fixes are recorded in section 6.
 
 ## 1. Method and limits
 
@@ -63,7 +63,7 @@ mbedTLS 3.6.7, coreMQTT v2.3.1, FreeRTOS kernel at commit `18ed888`, LVGL at com
 | S-1 | **Open, owner's decision** | Not changed. Turning on read-out protection level 1 would protect the key, but flashing then needs a mass-erase regression and a regression also erases the device's identity (certificate, key, Wi-Fi), which then has to be provisioned again. Accepted as a physical-access risk until decided. | |
 | S-2 | Fixed, deployed | 132 packages upgraded (no reboot needed; services restarted onto the new libraries, 11 packages held back); firewall (`ufw`) active, default deny, ports 22, 80, 443 and 8883 allowed from the LAN only; SSH key-only (a drop-in that sorts before the cloud-init file that enabled passwords) and X11 forwarding off. Proved with a fresh key login, a refused password login, the web side, and the Gateway reconnecting through the firewall. | on the Pi |
 | S-3 | Fixed, deployed | The documentation pages return 404. | PR #233 |
-| S-4 | Implemented and tested, **not on the Gateway** | `FirmwareStore.verify()` refuses an image not newer than the running firmware (`version_not_newer`). Host tests 1664, 0 failed. Waiting for a Gateway release to be flashed and for an older image to be refused on the board. | PR #234 |
+| S-4 | Fixed, on the Gateway | `FirmwareStore.verify()` refuses an image not newer than the running firmware (`version_not_newer`). Host tests 1664, 0 failed. Proved on the real Gateway running 1.1.21 (2026-11-14): a signed 1.1.5 and a signed 1.1.21 were each refused with `version_not_newer` and nothing was installed; a signed 1.1.22 installed and the Gateway reported it (`validation/ota_version_rules.py`). The Gateway now runs 1.1.22. | PR #234 |
 | S-5 | Tooling done, **owner's step** | The signing tools accept an encrypted key (`OTA_KEY_PASSPHRASE` or a prompt), with tests; encrypting the key needs a passphrase only the owner can choose (command in `tools/ota/README.md`). | PR #234 |
 | S-6 | Fixed, deployed | An upload over 2 MB gets 413 without being read whole; the proxy refuses a body over 3 MB. | PR #233 |
 | S-7 | Fixed, deployed | The lockout is per user name and client address plus a per-address cap; the admin logged in from another address while the guesser was locked out. | PR #233 |
