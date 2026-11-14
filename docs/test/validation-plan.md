@@ -24,7 +24,7 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-02 View system status | Field Technician | LCD, by hand | End-of-phase manual session |
 | UC-03 View active alarms | Field Technician | LCD, by hand | End-of-phase manual session |
 | UC-04 View device diagnostics | Field Technician | FD console | **PASS** (V-04) |
-| UC-05 View telemetry data | Remote Operator | cloud API and browser | **PARTIAL**: values and timestamps pass (V-05); motion and magnetic sensors not presented: **F-2** |
+| UC-05 View telemetry data | Remote Operator | cloud API and browser | **PASS** (V-05); F-2 fixed and re-run |
 | UC-06 Monitor device health | Remote Operator | cloud API and browser | **PASS** (V-06) |
 | UC-07 Acquire sensor data | System | FD console, SWD fault, cloud | **PASS** (V-07); Gateway side seen in the cloud telemetry (V-10) |
 | UC-08 Evaluate sensor alarms | System | FD console, cloud | **PASS** (V-08, V-09) |
@@ -34,11 +34,11 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 in the end-of-phase session |
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
 | UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1/E2 (gateway disconnected) in the end-of-phase session |
-| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key: **F-4**; LCD in the manual session |
+| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key: **F-4** (fixed in the firmware, not yet on the board); LCD in the manual session |
 | UC-16 Provision device | Field Technician | console | Pending |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request counts as the confirmation: **F-5** |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
-| UC-19 Forward remote commands | AWS IoT Core | cloud | **PARTIAL**: E2 invalid command passes; routing to the Field Device blocked by the outdated cloud: **F-3**; E3 (FD unplugged) in the manual session |
+| UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 (FD unplugged) in the manual session |
 | UC-20 Verify firmware integrity | System | OTA refusal cases | Held with UC-18 |
 
 ## Records
@@ -97,21 +97,33 @@ without confirmation). `restart` followed by `restart_confirm` restarted the Gat
 uptime under 200 s and state operational. The browser shows a separate confirm button after Restart…
 (screenshot `web-09-restart-confirm`).
 
+## Corrections after the first run (2026-11-14)
+
+- **F-2 fixed** (cloud): the API device view, the telemetry endpoint and the CSV export carry the nine motion and magnetic
+  values (read from the stored payload, so the history has them too); the overview shows three cards and the charts tab
+  three charts. Re-run: API 3/3, browser 10/10 (screenshot `web-03-overview`).
+- **F-3 closed**: the cloud on the Pi was brought to this branch (bundle build, `install.sh`, database kept; a copy
+  `iotcloud.sqlite3.bak-pre-deploy` was taken first). `fd_ack_alarm` is now accepted by the cloud, routed by the Gateway
+  and acknowledged. The browser suite passes 10/10.
+- **F-4 fixed** (Gateway firmware): a rejected configuration command now still reports its request id (test
+  CP-T99b). The Gateway on the bench runs release 1.1.0 without this change; the scenario
+  `UC-15 E3 A setting the device does not know...` stays failing until a new release is flashed or sent over the air.
+
 ## Findings
 
 1. **F-1 Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
    (about 14 per second). It hides other console output. Candidate: log the first failure and then once per
    N seconds, with a count. Not a validation failure (UC-07 E1 asks for a logged error); a usability finding.
-2. **F-2 The operator cannot see accelerometer, gyroscope and magnetometer** (UC-05 step 2, REQ-CC-000). The Gateway
+2. **F-2 (fixed) The operator cannot see accelerometer, gyroscope and magnetometer** (UC-05 step 2, REQ-CC-000). The Gateway
    publishes them and the cloud stores them in the raw payload, but the API device view, the telemetry endpoint and the
    web overview and charts show only temperature, humidity and pressure. Verification passed REQ-CC-000 because the
    message on the broker is complete; validation fails the use case. Fix: expose and show the nine values (cloud only).
-3. **F-3 The cloud installed on the Raspberry Pi is older than `main`.** It accepts four control commands
+3. **F-3 (closed) The cloud installed on the Raspberry Pi is older than `main`.** It accepts four control commands
    (`read`, `restart`, `restart_confirm`, `reset_metrics`); `fd_ack_alarm`, `fd_reset_metrics`, `profile_add` and
    `profile_remove` (PR #213) answer 400. The routing of a command to the Field Device (UC-19 step 3) cannot be
    validated until the Pi runs the current bundle (`cloud/deploy/build-bundle.sh` and `install.sh` as the cloud
    README describes). Needs the owner's decision: it changes the running production service.
-4. **F-4 A rejected unknown setting is not reported to the operator.** The Gateway answers `unknown_key` without the
+4. **F-4 (fixed in firmware, not deployed) A rejected unknown setting is not reported to the operator.** The Gateway answers `unknown_key` without the
    request id, so the cloud cannot match the answer: the command stays pending and then shows `timeout` (UC-15 E3
    asks the operator to learn that the value was not applied). The invalid value case works (`invalid_value`).
    Fix: echo `req` in the `unknown_key` answer (Gateway) or show unmatched config results in the command list (cloud).
@@ -122,8 +134,8 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
 
 ## Open points
 
-- Decide F-3 (deploy the current cloud to the Pi), then run the `fd_ack_alarm` scenario.
-- Decide which findings to fix (F-2, F-4 are the ones that make a use case fail).
+- Deploy the F-4 firmware fix (a new Gateway release: needs the owner's go-ahead for the flash or OTA), then re-run the unknown-key scenario.
+- Decide whether to change F-5 (a second `restart` inside the window) and F-1 (sensor-fault log flood).
 - End-of-phase manual session: LCD use cases (UC-01..03, UC-15 Field Technician), UC-16, the disconnected cases (E1/E2
   of UC-09..UC-14, UC-19 E3), and UC-18/UC-20 (OTA, only with the owner's go-ahead).
 - Optional last: a real AWS IoT Core connection.
