@@ -655,8 +655,11 @@ static void check_download_deadlines(TickType_t now)
         }
 
         g_us.failures++;
-        LOG_WARN(US_LOG_MODULE, "chunk at %lu timed out, failure %u of %u",
-                 (unsigned long) g_us.offset, (unsigned) g_us.failures, (unsigned) US_MAX_RETRIES);
+        LOG_WARN(US_LOG_MODULE,
+                 "chunk at %lu timed out, failure %u (the update ends after %u failures and %lu s "
+                 "without progress)",
+                 (unsigned long) g_us.offset, (unsigned) g_us.failures, (unsigned) US_MAX_RETRIES,
+                 (unsigned long) (US_LINK_GRACE_MS / 1000UL));
 
         /* REQ-DM-052: three consecutive retries. A link that died is noticed only after the
          * keep-alive and until then it looks connected, so the failures end the update only once

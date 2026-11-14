@@ -8,7 +8,7 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 
 - **Cloud side: our own iotcloud on the Raspberry Pi** (Mosquitto + API + web app) stands in for AWS IoT Core. A real
   AWS IoT Core connection is a bonus check at the end of the phase, not a gate.
-- **Boards: the real Gateway (signed release 1.1.0) and Field Device (v0.0.0+af4a541e)**, driven through their consoles
+- **Boards: the real Gateway (signed release 1.1.0 at the start, 1.1.20 at the end, see the records) and Field Device (v0.0.0+af4a541e at the start, v0.0.0+66f7b136 at the end)**, driven through their consoles
   (`validation/fdcmd.py`) and SWD fault injection. Nothing in the firmware is changed to make a scenario pass.
 - **Needs a person (touch screen, a browser look, a physical action)** is collected into one session at the end.
 - **Remote Operator use cases** run through the cloud API (`validation/suites/10_remote_operator_api.robot`) and a real
@@ -33,12 +33,12 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-11 Receive device health data | AWS IoT Core | cloud | **PASS** main flow (V-11); E1 **PASS** after F-9 (V-27) |
 | UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 passes (V-25) |
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
-| UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1 passes: refused at once (F-10 fixed, V-27); E2 not stageable by hand |
-| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); Field Technician main flow and E4 pass (V-23) |
+| UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1 passes: refused at once (F-10 fixed, V-27); E2 (a result produced while disconnected) closed by unit tests CP-T52b and CP-T64, the same publish-or-buffer path as telemetry |
+| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PASS**: Remote Operator main flow, E3 invalid value and the unknown key (V-15, V-18 after F-4), E2 (device not reachable) refused at once (F-10, V-27); Field Technician main flow and E4 (V-23); E1 (an update that fails keeps the previous value) by unit tests of the configuration path |
 | UC-16 Provision device | Field Technician | console | **PASS** with finding **F-8** (V-24) |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | **PASS** (V-29, V-30): the update, E2 (download through a lost connection), E3 (rollback) and E1 (offline device refused) after the fixes F-12 and F-13; E4 not stageable |
-| UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 passes (V-25); E4 not stageable by hand |
+| UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 passes (V-25); E4 (a result produced while disconnected) closed by unit tests CP-T52b and CP-T64 |
 | UC-20 Verify firmware integrity | System | OTA refusal cases | **PASS** (V-29): a tampered image is refused with `hash_mismatch`, an image signed with another key with `sig_invalid`; E1 (read error) not stageable |
 
 ## Records
@@ -285,7 +285,7 @@ running on the same serial port until 21:35, so the log lines of rounds 1 to 7 a
    command then ran 4 minutes later. Fix, as decided by the owner: a command for a device that has not reported within the
    online window is refused with `409 device offline ... the command was not sent`, and a command is refused with `503` while the
    cloud's broker link is down; no command row is created in either case (tests in `test_commands_ota.py`).
-11. **F-11 (fixed in firmware; Gateway 1.1.3 on the board, V-28: 6 of 6 outages recovered, the wedge itself did not recur) After a broker outage the Gateway can stay offline until it is reset** (found during the F-9
+11. **F-11 (closed 2026-11-14: bounded and tuned, V-28, V-31, V-33; residual risk accepted, see the end of this finding) After a broker outage the Gateway can stay offline until it is reset** (found during the F-9
    investigation; analysed 2026-11-14). *Observed:* in the second broker outage the Gateway noticed the loss in the same second (`Connection lost`, then a failed
    31-byte send, `err=6`) and from then on every connect attempt, with the backoff 2, 4, 8, 16, 32, 60 s, logged
    `wifitask_open_socket failed: 6` (`WIFI_ERR_SOCKET`), also after the broker was back; NTP could not open a socket either. A reset of
@@ -309,6 +309,11 @@ running on the same serial port until 21:35, so the log lines of rounds 1 to 7 a
    *Implemented:* all three. CloudPublisher counts consecutive failed connect attempts and asks `main.c` to rejoin the access point at the
    3rd and to reset the module at the 6th and then every 15th (CP-D41, tests CP-T145..T148); `wifi_open_socket()` retries on the next slot
    and cleans up the failed one (WIFI-T28/T29); MqttClient logs the failed AT step. Gateway host tests 1654 passed, 0 failed.
+   *Closure (2026-11-14):* the original wedge (1 in 4 outages before the fix) did not recur in about 26 broker outages and cuts on firmware with the
+   ladder (6 in V-28, 6 in V-31, 10 in V-33, 4 in the OTA runs of V-29 to V-32). If the true rate had been 1 in 4 the chance of 26 clean runs is under 0.1 %, if it had been
+   1 in 10 about 7 %: strong but not conclusive, and the cause was never seen. Accepted as a residual risk because the recovery does not depend on the cause (the ladder resets the module
+   whatever the state), the outage is bounded to about a minute, and a recurrence now leaves the evidence in the log (the failed AT step, the ladder steps). Reopen if `wifitask_open_socket failed` is seen
+   without a `MQTT (re)connected` within three minutes.
 12. **F-12 (fixed and verified, V-30) The result a Gateway sends after its reboot has no job id, so the cloud never closes the job** (UC-18 step 9 and E3). The `success` after the update and the
    `rolled_back` after the rollback arrive with `req: null` (the Gateway does not know the job id after the reboot), `ota.on_result` needs an integer id, so the job stays
    `running` and the operator sees no result (events 239 and 241 of V-29). The update and the rollback themselves are right. Proposal, two options: (a) cloud: a terminal
@@ -322,15 +327,16 @@ running on the same serial port until 21:35, so the log lines of rounds 1 to 7 a
    to subscribe again after a broker restart. Fix: three failures end the update only after `US_LINK_GRACE_MS` (2 min) without progress, counted from the last chunk or the last resume; the pause forgets the
    failures counted against the dead link (US-D8, tests TC-US-028..034 changed or added, the new ones checked by mutation). Shown on the board by 10 interrupted downloads of 10 (V-33), one of which had exactly the late detection of the failed run.
 
-## Open points
+## Closure (2026-11-14)
 
-- Done 2026-11-14: Gateway 1.1.1 (signed release, built from 7b0dced, version string v0.0.0+7b0dceda) flashed with the owner's go-ahead; identity kept, cloud reconnected; UC-05 x3, UC-14 and UC-15 E3 x2 pass (6/6), including the unknown-key scenario (V-18).
-- Done 2026-11-14 (V-19): F-1 and F-5 on the boards with the owner's go-ahead: Gateway 1.1.2 and the Field Device, both built from 09d5588
-  (v0.0.0+09d5588f). API scenarios UC-05 x3, UC-14, UC-15 x3 and the new UC-17 E3 pass (8/8). Barometer fault injected for 21 s:
-  213 failed reads gave 3 warning lines (reads 1, 100, 200) and one recovery line, instead of about 213 lines. Field Device settings unchanged.
-- Done 2026-11-14: the manual session (LCD use cases V-20..V-23, UC-16 V-24, the disconnected cases V-25, V-26).
-- F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
-  the touch that kept working; a Field Technician touch session in normal use is the remaining check.
-- F-11 (the Gateway stays offline after a broker outage until a reset): fix on the Gateway (1.1.3), 6 of 6 outages recovered (V-28); the wedge did not recur, so the cure is not yet shown by a real case. Open question: should the useless rejoin step (it answers ERROR while associated) become a disconnect and join, and should the module reset wait for a longer outage than 20 s?
-- Done 2026-11-14: UC-18 and UC-20 over the air (V-29), F-12 and F-13 fixed and verified (V-30), F-12 verified with the Gateway's own job id (V-32); F-14 (a download abandoned when the link loss is noticed late) fixed and shown on the board (V-33: 10 of 10 interrupted downloads, one with the late detection). Follow-ups written and unit-tested, not yet on the Gateway: the Gateway sends the job id in the report after the reboot (F-12), and the F-11 ladder leaves and rejoins the access point and resets the module later. Open: the optional real AWS IoT Core check.
-- Optional last: a real AWS IoT Core connection.
+The validation phase is complete, apart from the optional check against a real AWS IoT Core, which is deferred by the owner (it needs an AWS account).
+A one-page summary is in `validation-summary.md`.
+
+- **Use cases:** UC-01 to UC-20 validated; every exception was run except UC-18 E4 and UC-20 E1, which cannot be provoked safely on the system and are covered
+  by unit tests (UC-18 E4: TC-FS-036b and TC-US-034, a failing discard is logged and the failure is still reported; UC-20 E1: TC-FS-048 and TC-FS-050, a crypto or flash
+  read failure rejects the image).
+- **Findings:** F-1 to F-14 all fixed and shown on the system, except F-11, closed with an accepted residual risk (see its closure above). The log wording `failure N of 3`
+  while the grace runs was changed (the message now says when the update ends).
+- **State of the system at the end:** Gateway firmware 1.1.20 (the code of 1.1.10 signed again), Field Device v0.0.0+66f7b136, cloud service and broker deployed from `main`
+  (F-9, F-10, F-12, F-13), no OTA job active.
+- **Deferred:** the real AWS IoT Core connection.

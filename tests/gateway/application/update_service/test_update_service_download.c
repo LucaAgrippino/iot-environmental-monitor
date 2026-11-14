@@ -331,7 +331,7 @@ void test_TC_US_030b_failures_counted_before_the_loss_was_noticed_are_forgotten(
     TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
     TEST_ASSERT_EQUAL_UINT32(0U, fake_fs_calls(FFS_DISCARD));
     TEST_ASSERT_FALSE(
-        fake_log_contains("failure 4 of 3")); /* the count started again after the pause */
+        fake_log_contains("failure 4 (")); /* the count started again after the pause */
     TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK,
                           ust_deliver_requested()); /* and the download goes on */
 }
