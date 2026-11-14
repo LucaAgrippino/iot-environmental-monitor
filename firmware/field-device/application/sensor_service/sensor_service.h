@@ -100,12 +100,23 @@ typedef enum
  * back to defaults if absent — REQ-SA-010, SA-050). Attempts to initialise
  * each driver; logs failures and continues (REQ-SA-040, SA-060). Marks
  * permanently failed sensors invalid so every subsequent cycle skips them.
- * Creates the 100 ms poll software timer but does not start the scheduler.
+ * Creates the 100 ms poll software timer but does not start it: the first reading comes
+ * only after sensor_service_start_polling().
  *
  * @return SENSOR_SERVICE_ERR_OK on success; non-zero otherwise.
  * @note   Must be called before the FreeRTOS scheduler starts.
  */
 sensor_service_err_t sensor_service_init(void);
+
+/**
+ * @brief Start the 100 ms poll timer (the first cycle runs one period later).
+ *
+ * Until it is called the snapshot holds no valid reading, so the display shows "waiting for data"
+ * (REQ-LD-060).
+ *
+ * @return SENSOR_SERVICE_ERR_OK; SENSOR_SERVICE_ERR_NOT_INIT before sensor_service_init().
+ */
+sensor_service_err_t sensor_service_start_polling(void);
 
 /**
  * @brief Run one full acquisition cycle.

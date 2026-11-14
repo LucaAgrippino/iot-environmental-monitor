@@ -295,7 +295,7 @@ void test_TC_LCDUI_006_a_fresh_reading_is_valid_with_its_time(void)
     TEST_ASSERT_EQUAL(PILL_RUNNING, ui->header.pill.state);
 }
 
-void test_TC_LCDUI_007_an_error_keeps_the_last_value_faded(void)
+void test_TC_LCDUI_007_an_error_shows_a_dash_and_the_last_good_time(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
@@ -307,7 +307,7 @@ void test_TC_LCDUI_007_an_error_keeps_the_last_value_faded(void)
     tick_at(400U);
 
     TEST_ASSERT_EQUAL(CARD_ERROR, ui->sensor_screen.cards[0].state);
-    TEST_ASSERT_EQUAL_STRING("23.4", ui->sensor_screen.cards[0].value_lbl->stub_text);
+    TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->sensor_screen.cards[0].value_lbl->stub_text);
     TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "ERROR"));
     TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "last 12:34:56"));
     TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state); /* a sensor fault is a fault */
@@ -754,7 +754,7 @@ void test_TC_LCDUI_032_a_failed_write_keeps_the_old_values_and_reports(void)
     TEST_ASSERT_FALSE(lv_obj_has_flag(ui->toast_label, LV_OBJ_FLAG_HIDDEN));
 }
 
-void test_TC_LCDUI_033_cancelling_the_modal_keeps_the_edits(void)
+void test_TC_LCDUI_033_cancelling_the_modal_discards_the_edits(void)
 {
     do_init();
     lcd_ui_t *ui = lcd_ui_test_get_instance();
@@ -763,8 +763,9 @@ void test_TC_LCDUI_033_cancelling_the_modal_keeps_the_edits(void)
 
     lcd_ui_test_fire_modal_cancel();
 
-    TEST_ASSERT_EQUAL(CFG_STATE_EDITING, ui->config_screen.sub_state);
-    TEST_ASSERT_EQUAL_INT32(3500, ui->config_screen.pending.temp_alarm_hi_centi_c);
+    TEST_ASSERT_EQUAL(CFG_STATE_VIEWING, ui->config_screen.sub_state);
+    TEST_ASSERT_EQUAL_INT32(4000, ui->config_screen.pending.temp_alarm_hi_centi_c);
+    TEST_ASSERT_EQUAL_STRING("40.0", ui->config_screen.field[0].value->stub_text);
     TEST_ASSERT_FALSE(confirm_modal_is_open(&ui->config_screen.modal));
     TEST_ASSERT_EQUAL_INT(0, g_stub_set_param_count);
 }

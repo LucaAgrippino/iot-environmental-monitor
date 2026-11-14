@@ -123,10 +123,10 @@ cfg_validate() runs on every change
                           tap CANCEL                                   tap CONFIRM & SAVE
                                 │                                              │
                           close modal                              cfg_apply() → persistence
-                          (changes still pending)                  → modal closes, footer "Saved"
+                          (changes discarded)                       → modal closes, footer "Saved"
 ```
 
-CANCEL on the main footer (not the modal) calls `cfg_revert()` and clears all pending edits.
+CANCEL on the main footer, and CANCEL in the modal, call `cfg_revert()` and clear all pending edits (REQ-LD-155; the modal used to keep them, changed 2026-11-14).
 
 Field editing uses an **on-screen numeric keypad** — touch is the only input on this device. Implement as a restyled `lv_keyboard` in `LV_KEYBOARD_MODE_NUMBER` that slides up from the bottom when a field is focused, themed with `theme.h` tokens so it matches the rest of the UI (don't let LVGL's default keyboard styling leak through). Keep at least 220 px of the focused field visible above the keyboard. Dismiss the keyboard on a tap outside any field or on the keyboard's confirm key.
 

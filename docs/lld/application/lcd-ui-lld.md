@@ -1000,7 +1000,7 @@ owned by LcdUiTask.
 | Shown | Source |
 |---|---|
 | Hero value, status time | `isensor_service_t->get_snapshot()`: `value`, `valid`, `timestamp.epoch` |
-| Card state | WAIT: never valid. VALID: valid. STALE: valid but 10 s or more older than the newest reading. ERROR: invalid after having been valid (last value shown faded). ALARM: `ialarm_service_t->get_all_states()` not CLEAR |
+| Card state | WAIT: never valid. VALID: valid. STALE: valid but 10 s or more older than the newest reading. ERROR: invalid after having been valid (the value shows "—"; the status keeps the time of the last good reading; changed 2026-11-14, OP-06). ALARM: `ialarm_service_t->get_all_states()` not CLEAR |
 | Header clock | Timestamp of the temperature reading, `HH:MM:SS` (uptime seconds while unsynchronised) |
 | Header pill | INIT before the first valid reading; ALARM for an active alarm, a sensor error, a failed config write, or a Modbus link lost after it was up; else RUNNING |
 | Sparklines, deltas, Trend | `ui_history`: LcdUi samples the snapshot every 5 s (REQ-SA-200) into 60 slots (REQ-SA-190); invalid samples are gaps (REQ-LD-190). SensorService has no history API on the Field Device, so LcdUi owns this buffer |
@@ -1041,8 +1041,8 @@ second. CPU load and MCU temperature stay open items (LCD-O3).
 - Footer left: `CONFIG . SAVED`, `UNSAVED`, `UNSAVED . VALIDATION ERROR`, `UNSAVED . PENDING CONFIRM`.
 - APPLY opens the modal "Apply Configuration?" with one line per change (`name: old -> new unit`).
   CONFIRM writes the seven parameters (`apply_block_to_config`, order unchanged from v0.2) and on a
-  failure keeps the old values, raises `HEALTH_EVENT_LCD_FAIL` and shows a toast. The modal's CANCEL
-  returns to editing with the edits kept; the 30 s timeout and the bar CANCEL discard them.
+  failure keeps the old values, raises `HEALTH_EVENT_LCD_FAIL` and shows a toast. The modal's CANCEL,
+  the 30 s timeout and the bar CANCEL all discard the edits (REQ-LD-155; changed 2026-11-14, OP-04).
 
 The sub-state machine of section 7.4 (Viewing, Editing, Confirming) is unchanged in meaning: Viewing
 means no edits, Editing means at least one edit or invalid entry, Confirming means the modal is open.

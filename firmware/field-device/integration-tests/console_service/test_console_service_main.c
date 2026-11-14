@@ -134,6 +134,7 @@ int main(void)
 
     /* 8. SensorService — initialises the sensor driver chain internally. */
     (void) sensor_service_init();
+    (void) sensor_service_start_polling();
 
     /* 9. ConsoleService — wires all injected interfaces. */
     (void) console_service_init(debug_uart, sensor_service, config_provider, config_manager,

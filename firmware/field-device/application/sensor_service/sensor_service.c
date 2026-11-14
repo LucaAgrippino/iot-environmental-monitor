@@ -164,10 +164,21 @@ sensor_service_err_t sensor_service_init(void)
         return SENSOR_SERVICE_ERR_NOT_INIT;
     }
 
-    (void) xTimerStart(s_ss.poll_timer, pdMS_TO_TICKS(0));
-
+    /* The timer stays stopped: the caller starts the readings with sensor_service_start_polling()
+     * (REQ-LD-060: the Field Device starts them after the splash, so the first screens wait). */
     s_ss.initialised = true;
     LOG_INFO(MODULE_TAG, "SensorService initialised");
+    return SENSOR_SERVICE_ERR_OK;
+}
+
+sensor_service_err_t sensor_service_start_polling(void)
+{
+    if (!s_ss.initialised)
+    {
+        return SENSOR_SERVICE_ERR_NOT_INIT;
+    }
+    (void) xTimerStart(s_ss.poll_timer, pdMS_TO_TICKS(0));
+    LOG_INFO(MODULE_TAG, "SensorService polling started");
     return SENSOR_SERVICE_ERR_OK;
 }
 
