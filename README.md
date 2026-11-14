@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/LucaAgrippino/iot-environmental-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaAgrippino/iot-environmental-monitor/actions/workflows/ci.yml)
 
-**Project status:** Phase 4 (Implementation) in progress. HLD baseline at `hld-v1.0`. LLD baseline at `lld-v1.0`.
+**Project status:** complete through validation (2026-11-14). Requirements, HLD (`hld-v1.0`), LLD (`lld-v1.0`), implementation, verification (`phase-4-verification-complete`) and validation are closed; only an optional check against a real AWS IoT Core connection is deferred. See [docs/project-closure.md](docs/project-closure.md).
 
 A dual-node embedded system demonstrating industrial IoT architecture: a field device collects sensor data and communicates with a gateway via **Modbus RTU**, which then publishes to the cloud via **WiFi/MQTT**.
 
@@ -57,18 +57,19 @@ The implementation covers seven functional layers. Layers 1–5 are non-negotiab
 | 1 | Sensor Acquisition | Non-negotiable |
 | 2 | Processing / State Machines | Non-negotiable |
 | 3 | Modbus RTU | Non-negotiable |
-| 4 | LCD | Non-negotiable (currently parked — see note below) |
+| 4 | LCD | Non-negotiable (rebuilt after the parked snapshot and validated) |
 | 5 | WiFi / MQTT | Non-negotiable |
-| 6 | Bootloader OTA | Good-to-have |
+| 6 | Bootloader OTA | Good-to-have (delivered: signed A/B images, trial boot, rollback; validated) |
 | 7 | CI/CD extensions beyond bootstrap | Good-to-have |
 
 If timeline pressure requires cuts, the cut order is: Layer 7 extras first, then Layer 6, then
 Layer-5 polish (TLS cert rotation, advanced exception flows). The functional core of Layers 1–5
 ships regardless.
 
-Layer 4 (LCD) is currently **parked**. The display stack was built and then removed from the
+Layer 4 (LCD) was parked for a while: the display stack was built and then removed from the
 tree during the post-GUI clean restart; the full snapshot is preserved at tag
-`checkpoint/phase-4-lcd_ui-parked-2026-06-23`. A rebuild is planned post-Gateway.
+`checkpoint/phase-4-lcd_ui-parked-2026-06-23`. It was rebuilt after the Gateway and is part of the
+validated system (use cases UC-01 to UC-03 and UC-15).
 
 ## Project Structure
 
@@ -82,6 +83,10 @@ tree during the post-GUI clean restart; the full snapshot is preserved at tag
 ├── scripts/                Build, test and bench scripts (module checks, bootloader and
 │                           Slot-A images, local TLS broker, version header)
 ├── tools/                  Developer tools (traceability checker, console simulator, OTA helpers)
+├── cloud/                  Cloud service (backend, web app, installer, decisions) that stands in for AWS IoT Core
+├── broker/                 Mosquitto configuration, certificate authority tool and installer
+├── verification/           Robot Framework suites that verify the requirements
+├── validation/             Robot Framework and Playwright suites and helpers that validate the use cases
 ├── vendor/                 Git submodules: FreeRTOS-Kernel, coreMQTT, mbedTLS
 ├── local-test/             Local Mosquitto broker configuration for bring-up
 ├── simulator/, spikes/     LCD UI simulator; one-off hardware experiments
@@ -133,16 +138,18 @@ This project follows a **V-Model** lifecycle with model-based design:
 1. System Requirements Specification (SRS)
 2. High-Level Design / System Architecture (HLD)
 3. Low-Level Design / Detailed Design (LLD)
-4. Implementation ← *current phase*
+4. Implementation (closed 2026-11-08)
 5. Unit Testing
 6. Integration Testing
-7. System Testing
+7. System Testing (verification against the requirements, closed 2026-11-14)
+8. Validation against the use cases (closed 2026-11-14)
 
 ## Documentation
 
 - [System Requirements Specification](docs/SRS.md)
 - [High-Level Design](docs/hld/hld.md)
 - [Low-Level Design](docs/lld/lld.md)
+- [Project closure](docs/project-closure.md) and [validation summary](docs/test/validation-summary.md)
 - [Coding Standard](docs/coding-standard.md)
 
 ## Hardware
