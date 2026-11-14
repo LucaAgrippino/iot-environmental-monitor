@@ -14,11 +14,11 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | Test cases failing | 0 |
 | Requirements | 207 |
 | Verified (all tagged tests pass) | 182 |
-| Verified by hand (docs/test/manual-results.csv) | 9 |
+| Verified by hand (docs/test/manual-results.csv) | 19 |
 | Waived by the owner | 5 |
 | Not applicable | 1 |
 | Failed | 0 |
-| Not run yet | 10 |
+| Not run yet | 0 |
 
 ## Test cases
 
@@ -130,7 +130,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | Requirement | Method | Board | Status | Test cases |
 |---|---|---|---|---|
 | REQ-SA-000 | T | FD | Verified | TC-VER-FD-002 |
-| REQ-SA-010 | T | FD | Not run | - |
+| REQ-SA-010 | T | FD | Verified (manual) | manual 2026-11-14 |
 | REQ-SA-020 | T | BOTH | Verified | TC-VER-U-001 |
 | REQ-SA-030 | T | FD | Verified | TC-VER-FD-018 |
 | REQ-SA-031 | T | GW | Verified | TC-VER-GW-001 |
@@ -166,23 +166,23 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-LD-010 | T | FD | Verified | TC-VER-FD-008 |
 | REQ-LD-020 | T | FD | Verified | TC-VER-FD-015 |
 | REQ-LD-030 | T | FD | Verified | TC-VER-FD-014 |
-| REQ-LD-040 | T | FD | Not run | - |
+| REQ-LD-040 | T | FD | Verified (manual) | manual 2026-11-14 |
 | REQ-LD-050 | T | FD | Verified | TC-VER-FD-008 |
-| REQ-LD-060 | T | FD | Not run | - |
+| REQ-LD-060 | T | FD | Verified (manual) | manual 2026-11-14 |
 | REQ-LD-070 | T | FD | Verified | TC-VER-FD-010 |
 | REQ-LD-080 | T | FD | Verified | TC-VER-FD-011 |
 | REQ-LD-090 | T | FD | Verified | TC-VER-FD-011 |
 | REQ-LD-100 | T | FD | Verified | TC-VER-FD-012 |
-| REQ-LD-110 | T | FD | Not run | - |
-| REQ-LD-120 | D | FD | Not run | - |
-| REQ-LD-130 | T | FD | Not run | - |
+| REQ-LD-110 | T | FD | Verified (manual) | manual 2026-11-14 |
+| REQ-LD-120 | D | FD | Verified (manual) | manual 2026-11-14 |
+| REQ-LD-130 | T | FD | Verified (manual) | manual 2026-11-14 |
 | REQ-LD-140 | T | FD | Verified | TC-VER-U-001 |
-| REQ-LD-155 | T | FD | Not run | - |
-| REQ-LD-150 | T | FD | Not run | - |
+| REQ-LD-155 | T | FD | Verified (manual) | manual 2026-11-14 |
+| REQ-LD-150 | T | FD | Verified (manual) | manual 2026-11-14 |
 | REQ-LD-160 | T | FD | Verified | TC-VER-FD-009 |
 | REQ-LD-170 | T | FD | Verified | TC-VER-FD-009 |
 | REQ-LD-180 | T | FD | Verified | TC-VER-FD-016 |
-| REQ-LD-190 | T | FD | Not run | - |
+| REQ-LD-190 | T | FD | Verified (manual) | manual 2026-11-14 |
 | REQ-LD-195 | T | FD | Verified | TC-VER-FD-017 |
 | REQ-LD-200 | T | FD | Verified | TC-VER-FD-013 |
 | REQ-LD-210 | T | FD | Verified | TC-VER-FD-013 |
@@ -307,7 +307,7 @@ Method and level of every requirement: `verification-method-table.md`. Plan: `ve
 | REQ-NF-211 | T | SYS | Verified | TC-VER-CL-017 |
 | REQ-NF-212 | T | GW | Not applicable | manual 2026-11-13 |
 | REQ-NF-213 | T | BOTH | Verified | TC-VER-FD-007, TC-VER-GW-012 |
-| REQ-NF-214 | T | GW | Not run | - |
+| REQ-NF-214 | T | GW | Verified (manual) | manual 2026-11-14 |
 | REQ-NF-215 | T | SYS | Verified | TC-VER-2B-005 |
 | REQ-NF-216 | T | SYS | Verified | TC-VER-CL-003 |
 | REQ-NF-300 | T | SYS | Verified | TC-VER-CL-002 |

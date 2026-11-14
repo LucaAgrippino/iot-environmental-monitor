@@ -13,19 +13,20 @@ report it: all of part A depends on it.
 
 | ID | Requirement | Steps | Expected | Result |
 |---|---|---|---|---|
-| OP-01 | REQ-LD-110 | Settings screen: enter a value outside the range (for example temperature high 9999) | An error is shown and APPLY stays blocked | |
-| OP-02 | REQ-LD-120 | Enter a valid change, press APPLY | A confirmation dialog opens | |
-| OP-03 | REQ-LD-130 | Press CONFIRM | The change applies; console `config list` shows the new value | |
-| OP-04 | REQ-LD-155 | Change a value, press APPLY, then CANCEL; repeat and wait 30 s without pressing | In both cases the edit is discarded; `config list` shows the old value | |
-| OP-05 | REQ-LD-150 | Change a value, CONFIRM, press the reset button | After the reboot `config list` still shows the new value (restore the old one afterwards) | |
+| OP-01 | REQ-LD-110 | Settings screen: enter a value outside the range (for example temperature high 9999) | An error is shown and APPLY stays blocked |  PASS 2026-11-14 (Luca): Settings screen: temperature high 9999 shows an error and APPLY stays blocked (one decimal digit at most is accepted, by design) |
+| OP-02 | REQ-LD-120 | Enter a valid change, press APPLY | A confirmation dialog opens |  PASS 2026-11-14 (Luca): a valid change and APPLY opens the confirmation dialog |
+| OP-03 | REQ-LD-130 | Press CONFIRM | The change applies; console `config list` shows the new value |  PASS 2026-11-14 (Luca): CONFIRM applied the change: console config list showed temp-alarm-high 4350 (43.5 degC) |
+| OP-04 | REQ-LD-155 | Change a value, press APPLY, then CANCEL; repeat and wait 30 s without pressing | In both cases the edit is discarded; `config list` shows the old value |  PASS 2026-11-14 (Luca): the bar CANCEL and the 30 s timeout both discarded the edit (config list unchanged at 4350); the popup CANCEL kept the edits, changed to discard in this PR (retested OK on the board) |
+| OP-05 | REQ-LD-150 | Change a value, CONFIRM, press the reset button | After the reboot `config list` still shows the new value (restore the old one afterwards) |  PASS 2026-11-14 (Luca): after CONFIRM and the reset button config list showed temp-alarm-high 4400, the new value survived the reboot |
+| OP-11 | REQ-LD-060 | Power-cycle the Field Device (reset button) and watch the Sensors screen from the first frame | A "waiting for data" message shows until the first reading arrives, then the values replace it |  PASS 2026-11-14 (Luca) on the second image: first run FAIL (no waiting message, the splash hid it: DEF-015); after the fix (sensors start after the splash, 1 s pause) the message shows and is readable |
 
 ## B. Forced faults
 
 | ID | Requirement | Steps | Expected | Result |
 |---|---|---|---|---|
-| OP-06 | REQ-LD-040 | Make one sensor fail (hold the I2C line of the humidity sensor low, or unplug it if it is external) | The Sensors screen shows the error state for that sensor, the others stay normal | |
-| OP-07 | REQ-LD-190 | With the sensor still faulty, open the chart screen | The failed samples are gaps in the chart, not zeros | |
-| OP-08 | REQ-NF-214 | Start a configuration save (`config commit`, `y`) and cut the power during it; power back on | The device boots to a working state, with the previous or the new configuration, never a corrupt one (`status`: Config write fail: no) | |
+| OP-06 | REQ-LD-040 | Make one sensor fail (hold the I2C line of the humidity sensor low, or unplug it if it is external) | The Sensors screen shows the error state for that sensor, the others stay normal |  PASS 2026-11-14 (Luca): pressure fault injected over SWD (barometer driver fault flag): the card shows the error state, temperature and humidity stay normal; the stale number found on the first run was fixed (the card now shows a dash) and retested OK |
+| OP-07 | REQ-LD-190 | With the sensor still faulty, open the chart screen | The failed samples are gaps in the chart, not zeros |  PASS 2026-11-14 (Luca): with the pressure fault the chart shows gaps, not zeros; the history buffer on the board held 28 valid then 26 invalid pressure samples, temperature and humidity all valid |
+| OP-08 | REQ-NF-214 | Start a configuration save (`config commit`, `y`) and cut the power during it; power back on | The device boots to a working state, with the previous or the new configuration, never a corrupt one (`status`: Config write fail: no) |  PASS 2026-11-14 (Luca): commit loop (about 12 saves of 43.0/43.5/44.0 degC) and the power cut by hand: the device booted, status Config write fail: no, config list complete and equal to the last finished save (4400); one trial only |
 
 Restore the sensor after OP-06/07.
 
