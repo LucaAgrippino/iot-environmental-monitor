@@ -69,3 +69,4 @@ Each level found defects the one before it could not.
 3. [test/validation-summary.md](test/validation-summary.md): what was proved and how to run it again.
 4. [cloud/README.md](../cloud/README.md) and [cloud/DECISIONS.md](../cloud/DECISIONS.md): the cloud service and why it is built as it is.
 5. Release and key handling for the Gateway images: [tools/ota/README.md](../tools/ota/README.md); the release key is kept outside the repository.
+6. [security-review.md](security-review.md): the security review (no critical or high finding; findings S-1 to S-14 with recommendations).
