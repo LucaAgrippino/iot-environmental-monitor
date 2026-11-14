@@ -783,9 +783,11 @@ static console_service_err_t cmd_config(int argc, const char *argv[])
 
 /* ── prov command ─────────────────────────────────────────────────────── */
 
-static bool validate_modbus_addr(uint8_t addr)
+/* Takes the number as parsed: a cast to uint8_t before the check wrapped 300 to 44 (validation
+ * F-8). */
+static bool validate_modbus_addr(long addr)
 {
-    return (addr >= CS_MODBUS_ADDR_MIN) && (addr <= CS_MODBUS_ADDR_MAX);
+    return (addr >= (long) CS_MODBUS_ADDR_MIN) && (addr <= (long) CS_MODBUS_ADDR_MAX);
 }
 
 static console_service_err_t cmd_prov(int argc, const char *argv[])
@@ -811,7 +813,7 @@ static console_service_err_t cmd_prov(int argc, const char *argv[])
         {
             char *end = NULL;
             long addr = strtol(val, &end, 10);
-            if ((end == val) || (*end != '\0') || !validate_modbus_addr((uint8_t) addr))
+            if ((end == val) || (*end != '\0') || !validate_modbus_addr(addr))
             {
                 tx_fmt("[ERR] invalid value '%s' for modbus-addr (1..247)\r\n", val);
                 LOG_DEBUG(CS_MOD, "prov set: invalid modbus-addr");

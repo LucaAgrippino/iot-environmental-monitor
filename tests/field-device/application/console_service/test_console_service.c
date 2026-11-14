@@ -741,6 +741,24 @@ void test_TC_CS_087_prov_set_modbus_addr_248_rejected(void)
     TEST_ASSERT_NOT_NULL(strstr(g_tx_buf, "[ERR] invalid value"));
 }
 
+/* TC-CS-087b: validation F-8 - a value above 255 wrapped to a valid address (300 -> 44) when it was
+ * cast to uint8_t before the range check. */
+void test_TC_CS_087b_prov_set_modbus_addr_that_wraps_into_the_range_is_rejected(void)
+{
+    const char *const wrapping[] = {"prov set modbus-addr 300", "prov set modbus-addr 257",
+                                    "prov set modbus-addr 256", "prov set modbus-addr -255",
+                                    "prov set modbus-addr 4294967297"};
+
+    for (uint32_t i = 0U; i < (sizeof(wrapping) / sizeof(wrapping[0])); i++)
+    {
+        do_init();
+        push_ok_line(wrapping[i]);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(CONSOLE_SERVICE_ERR_VALIDATION, console_service->run_once(),
+                                      wrapping[i]);
+        TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_tx_buf, "[ERR] invalid value"), wrapping[i]);
+    }
+}
+
 void test_TC_CS_092_prov_set_unknown_key_rejected(void)
 {
     do_init();

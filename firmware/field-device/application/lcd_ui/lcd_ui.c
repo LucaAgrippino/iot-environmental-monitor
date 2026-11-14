@@ -1540,7 +1540,11 @@ static pill_state_t compute_pill(void)
             return PILL_ALARM;
         }
     }
-    return (s_ui.fault_text != NULL) ? PILL_ALARM : PILL_RUNNING;
+    /* A fault without an alarm (invalid sensor, Modbus link lost, flash write failed) is a FAULT,
+     * not an ALARM: the Alarms screen lists no alarm for it, and ALARM there confused the
+     * technician (validation finding F-6). The banner on the Status screen says which fault it is.
+     */
+    return (s_ui.fault_text != NULL) ? PILL_FAULT : PILL_RUNNING;
 }
 
 /* ===================================================================== */

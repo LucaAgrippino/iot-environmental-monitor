@@ -21,6 +21,8 @@ static lv_color_t colour_of(pill_state_t s)
     {
     case PILL_ALARM:
         return THEME_COL_ERR;
+    case PILL_FAULT:
+        return THEME_COL_WARN;
     case PILL_INIT:
     case PILL_UPDATE:
         return THEME_COL_ACCENT;
@@ -36,6 +38,8 @@ static lv_color_t tint_of(pill_state_t s)
     {
     case PILL_ALARM:
         return THEME_COL_ERR_TINT;
+    case PILL_FAULT:
+        return THEME_COL_WARN_TINT;
     case PILL_INIT:
     case PILL_UPDATE:
         return THEME_COL_ACCENT_TINT;
@@ -51,6 +55,8 @@ static const char *text_of(pill_state_t s)
     {
     case PILL_ALARM:
         return "\xE2\x96\xA0 ALARM"; /* ■ U+25A0 */
+    case PILL_FAULT:
+        return "\xE2\x96\xB2 FAULT"; /* ▲ U+25B2 */
     case PILL_INIT:
         return "\xE2\x97\x8F INIT"; /* ● U+25CF */
     case PILL_UPDATE:

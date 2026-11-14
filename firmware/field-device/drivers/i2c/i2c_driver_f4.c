@@ -114,6 +114,25 @@ static void gpio_set_output_pp(GPIO_TypeDef *port, uint8_t pin)
 }
 
 /**
+ * Software-reset the I2C peripheral, program the 400 kHz timing and enable it (used by i2c_init()
+ * and by the bus recovery). SWRST is what clears a master that is stuck busy after a bus error:
+ * disabling PE alone does not (validation finding F-7). The lines must be released before this is
+ * called.
+ */
+static void i2c_peripheral_reset_and_enable(void)
+{
+    I2C1->CR1 = I2C_CR1_SWRST;
+    I2C1->CR1 = 0U;
+
+    /* Fast-mode 400 kHz: FS=1, DUTY=0, CCR per I2CD-O2 placeholder. */
+    I2C1->CCR = I2C_CCR_FS | I2C_CCR_VALUE;
+    I2C1->TRISE = I2C_TRISE_VALUE;
+
+    /* Enable ACK generation and the peripheral. */
+    I2C1->CR1 = I2C_CR1_ACK | I2C_CR1_PE;
+}
+
+/**
  * Bus recovery per §3.5. Called after any TIMEOUT before returning the
  * error to the caller. Toggles SCL up to I2C_RECOVERY_PULSES times to
  * release a peripheral that is holding SDA low mid-transaction.
@@ -136,9 +155,41 @@ static void i2c_bus_recovery(void)
     /* 4. Restore SCL as alternate-function open-drain. */
     gpio_set_af_od(I2C_SCL_PORT, I2C_SCL_PIN, I2C_GPIO_AF);
 
-    /* 5. Re-enable the peripheral (leaves driver in usable state for
+    /* 5. Reset, reconfigure and re-enable the peripheral (leaves driver in usable state for
      *    the caller's retry, satisfying REQ-NF-205 via §3.5). */
-    I2C1->CR1 |= I2C_CR1_PE;
+    i2c_peripheral_reset_and_enable();
+}
+
+/** True if the peripheral flagged a bus error or lost arbitration (the master is then stuck busy).
+ */
+static bool bus_fault(void)
+{
+    return (I2C1->SR1 & (I2C_SR1_BERR | I2C_SR1_ARLO)) != 0U;
+}
+
+static i2c_err_t fail_bus_fault(void)
+{
+    i2c_bus_recovery();
+    return I2C_ERR_BUS_FAULT;
+}
+
+/**
+ * Start of a transaction. The driver is the only master and its callers are serialised, so a BUSY
+ * bus here is a stuck one: recover once and look again instead of failing for ever (validation
+ * finding F-7: touch input was lost until a reset). A flagged bus error is handled by the wait
+ * loops, and the recovery's software reset clears it.
+ */
+static i2c_err_t claim_bus(void)
+{
+    if ((I2C1->SR2 & I2C_SR2_BUSY) != 0U)
+    {
+        i2c_bus_recovery();
+        if ((I2C1->SR2 & I2C_SR2_BUSY) != 0U)
+        {
+            return I2C_ERR_BUS_BUSY;
+        }
+    }
+    return I2C_ERR_OK;
 }
 
 /* --------------------------------------------------------------------- */
@@ -162,16 +213,7 @@ i2c_err_t i2c_init(void)
     gpio_set_af_od(I2C_SCL_PORT, I2C_SCL_PIN, I2C_GPIO_AF);
     gpio_set_af_od(I2C_SDA_PORT, I2C_SDA_PIN, I2C_GPIO_AF);
 
-    /* Reset and configure the I2C peripheral. */
-    I2C1->CR1 = I2C_CR1_SWRST;
-    I2C1->CR1 = 0U;
-
-    /* Fast-mode 400 kHz: FS=1, DUTY=0, CCR per I2CD-O2 placeholder. */
-    I2C1->CCR = I2C_CCR_FS | I2C_CCR_VALUE;
-    I2C1->TRISE = I2C_TRISE_VALUE;
-
-    /* Enable ACK generation and the peripheral. */
-    I2C1->CR1 = I2C_CR1_ACK | I2C_CR1_PE;
+    i2c_peripheral_reset_and_enable();
 
     s_i2c.initialised = true;
     return I2C_ERR_OK;
@@ -181,10 +223,13 @@ static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t 
 {
     assert(s_i2c.initialised);
 
-    /* 1. Check BUSY. */
-    if (I2C1->SR2 & I2C_SR2_BUSY)
+    /* 1. Check BUSY (recovers a stuck bus). */
     {
-        return I2C_ERR_BUS_BUSY;
+        const i2c_err_t claimed = claim_bus();
+        if (claimed != I2C_ERR_OK)
+        {
+            return claimed;
+        }
     }
 
     /* 2. Generate START. */
@@ -195,6 +240,10 @@ static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t 
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_SB))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -217,6 +266,10 @@ static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t 
                 I2C1->CR1 |= I2C_CR1_STOP;
                 return I2C_ERR_NACK;
             }
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -237,6 +290,10 @@ static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t 
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_TXE))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -250,6 +307,10 @@ static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t 
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_BTF))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -266,6 +327,10 @@ static i2c_err_t transfer_write(uint8_t dev_addr, const uint8_t *data, uint16_t 
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while ((I2C1->SR2 & I2C_SR2_BUSY) != 0U)
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -281,10 +346,13 @@ static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
 {
     assert(s_i2c.initialised);
 
-    /* 1. Check BUSY. */
-    if (I2C1->SR2 & I2C_SR2_BUSY)
+    /* 1. Check BUSY (recovers a stuck bus). */
     {
-        return I2C_ERR_BUS_BUSY;
+        const i2c_err_t claimed = claim_bus();
+        if (claimed != I2C_ERR_OK)
+        {
+            return claimed;
+        }
     }
 
     /* Enable ACK before the transaction. */
@@ -298,6 +366,10 @@ static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_SB))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -320,6 +392,10 @@ static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
                 I2C1->CR1 |= I2C_CR1_STOP;
                 return I2C_ERR_NACK;
             }
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -339,6 +415,10 @@ static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_RXNE))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -359,6 +439,10 @@ static i2c_err_t transfer_read(uint8_t dev_addr, uint8_t *buf, uint16_t len)
             uint32_t timeout = I2C_TIMEOUT_COUNT;
             while (!(I2C1->SR1 & I2C_SR1_RXNE))
             {
+                if (bus_fault())
+                {
+                    return fail_bus_fault();
+                }
                 if (--timeout == 0U)
                 {
                     i2c_bus_recovery();
@@ -388,10 +472,13 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
 {
     assert(s_i2c.initialised);
 
-    /* 1. Check BUSY. */
-    if (I2C1->SR2 & I2C_SR2_BUSY)
+    /* 1. Check BUSY (recovers a stuck bus). */
     {
-        return I2C_ERR_BUS_BUSY;
+        const i2c_err_t claimed = claim_bus();
+        if (claimed != I2C_ERR_OK)
+        {
+            return claimed;
+        }
     }
 
     /* 2. Generate START. */
@@ -402,6 +489,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_SB))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -424,6 +515,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
                 I2C1->CR1 |= I2C_CR1_STOP;
                 return I2C_ERR_NACK;
             }
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -444,6 +539,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_TXE))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -457,6 +556,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_BTF))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -473,6 +576,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_SB))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -501,6 +608,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
                 I2C1->CR1 |= I2C_CR1_STOP;
                 return I2C_ERR_NACK;
             }
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -521,6 +632,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while (!(I2C1->SR1 & I2C_SR1_RXNE))
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();
@@ -544,6 +659,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
             uint32_t timeout = I2C_TIMEOUT_COUNT;
             while (!(I2C1->SR1 & I2C_SR1_RXNE))
             {
+                if (bus_fault())
+                {
+                    return fail_bus_fault();
+                }
                 if (--timeout == 0U)
                 {
                     i2c_bus_recovery();
@@ -569,6 +688,10 @@ static i2c_err_t transfer_write_read(uint8_t dev_addr, const uint8_t *tx_data, u
         uint32_t timeout = I2C_TIMEOUT_COUNT;
         while ((I2C1->SR2 & I2C_SR2_BUSY) != 0U)
         {
+            if (bus_fault())
+            {
+                return fail_bus_fault();
+            }
             if (--timeout == 0U)
             {
                 i2c_bus_recovery();

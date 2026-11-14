@@ -310,7 +310,8 @@ void test_TC_LCDUI_007_an_error_shows_a_dash_and_the_last_good_time(void)
     TEST_ASSERT_EQUAL_STRING("\xE2\x80\x94", ui->sensor_screen.cards[0].value_lbl->stub_text);
     TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "ERROR"));
     TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "last 12:34:56"));
-    TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state); /* a sensor fault is a fault */
+    TEST_ASSERT_EQUAL(PILL_FAULT,
+                      ui->header.pill.state); /* a sensor fault is a fault, not an alarm (F-6) */
 }
 
 void test_TC_LCDUI_008_an_overdue_reading_is_stale(void)
@@ -338,6 +339,21 @@ void test_TC_LCDUI_009_an_alarm_marks_the_card_and_the_pill(void)
 
     TEST_ASSERT_EQUAL(CARD_ALARM, ui->sensor_screen.cards[0].state);
     TEST_ASSERT_NOT_NULL(strstr(ui->sensor_screen.cards[0].status_lbl->stub_text, "ALARM"));
+    TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state);
+}
+
+void test_TC_LCDUI_009b_an_active_alarm_wins_over_a_sensor_fault_on_the_pill(void)
+{
+    do_init();
+    lcd_ui_t *ui = lcd_ui_test_get_instance();
+
+    set_readings(4270, 5820, 10132, EPOCH_BASE, 1U);
+    tick_at(200U);
+    g_stub_sensor_snap.readings[SENSOR_ID_PRESSURE].valid = false;        /* a fault ... */
+    g_stub_alarm_states[SENSOR_ID_TEMPERATURE] = ALARM_STATE_ACTIVE_HIGH; /* ... and an alarm */
+    tick_at(400U);
+
+    TEST_ASSERT_NOT_NULL(ui->fault_text);
     TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state);
 }
 
@@ -536,7 +552,7 @@ void test_TC_LCDUI_021_a_lost_modbus_link_is_a_fault_only_after_it_was_up(void)
     tick_at(6000U);
 
     TEST_ASSERT_NOT_NULL(ui->fault_text);
-    TEST_ASSERT_EQUAL(PILL_ALARM, ui->header.pill.state);
+    TEST_ASSERT_EQUAL(PILL_FAULT, ui->header.pill.state);
 }
 
 /* ===================================================================== */

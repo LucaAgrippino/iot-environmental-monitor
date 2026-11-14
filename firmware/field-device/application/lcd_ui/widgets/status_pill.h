@@ -25,7 +25,9 @@ typedef enum
     PILL_RUNNING = 0, /**< "● RUNNING", COL_OK     */
     PILL_INIT = 1,    /**< "● INIT",    COL_ACCENT */
     PILL_ALARM = 2,   /**< "■ ALARM",   COL_ERR, blinking */
-    PILL_UPDATE = 3   /**< "⇪ UPDATE",  COL_ACCENT */
+    PILL_UPDATE = 3,  /**< "⇪ UPDATE",  COL_ACCENT */
+    PILL_FAULT =
+        4 /**< "▲ FAULT",   COL_WARN: a fault with no alarm (sensor, link, flash), steady */
 } pill_state_t;
 
 /** @brief Status pill widget: the device state in the header. */
