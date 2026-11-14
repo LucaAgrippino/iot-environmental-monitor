@@ -3328,8 +3328,7 @@ void test_CP_T146_eight_failed_attempts_ask_for_a_module_reset_and_then_only_eve
     prv_create_failing_with_recovery();
 
     prv_tick_until_attempts(7u);
-    TEST_ASSERT_EQUAL_UINT32(
-        0u, g_spy_recover_reset); /* an outage of about a minute does not cost a reset */
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_recover_reset); /* a short outage does not cost a reset */
     prv_tick_until_attempts(8u);
     TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_reset);
     TEST_ASSERT_EQUAL_UINT32(1u,
