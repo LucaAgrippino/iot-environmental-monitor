@@ -38,3 +38,12 @@ Short, informal. Newest at the bottom.
     is in the database: a restart of the backend does not repeat the alert, and gets a grace period before judging.
 16. **Sending is off the MQTT thread.** A queue and a worker send with three tries; a channel is cut off after 20
     messages in a minute. A slow mail server must not delay the next reading, and a fault storm must not flood a phone.
+17. **A command for a device that is not there is refused, not queued.** The MQTT client would hold a publish while the broker
+    is down and send it when the link returns, and the Gateway (a clean session) would never get one the broker holds, so a
+    command could run minutes late or not at all without the operator knowing. The API answers `409 device offline` when the
+    device has not reported within the online window (configuration, control and firmware update commands) and `503` while
+    its own broker link is down, and creates nothing (validation findings F-10 and F-13).
+18. **The final result of a firmware update belongs to the device's active job.** After its reboot the Gateway reports
+    `success` or `rolled_back` and no longer knows the job id. Only one update per device may run, so a final result without
+    an id closes that device's one `sent` or `running` job; with none active it is ignored (validation finding F-12). Proper
+    fix on the device: keep the job id with the update record and send it.

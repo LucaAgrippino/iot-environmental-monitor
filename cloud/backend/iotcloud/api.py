@@ -270,9 +270,11 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
     async def start_ota(device: str, request: Request):
         """{"image_a": "<name>", "image_b": "<name>"}: starts an update; the device pulls the chunks."""
         require_device(device)
+        pub = publish()
+        require_online(device)  # UC-18 E1: no job for a device that is not there (validation finding F-13)
         body = await json_body(request)
         try:
-            return ota.start_job(db, publish(), settings.topic_root, device, str(body.get("image_a")), str(body.get("image_b")))
+            return ota.start_job(db, pub, settings.topic_root, device, str(body.get("image_a")), str(body.get("image_b")))
         except ota.OtaError as e:
             raise HTTPException(409 if "progress" in str(e) else 400, str(e))
 

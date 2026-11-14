@@ -23,6 +23,10 @@ class ValBoards:
         for f in ("fdcmd.py", "ocd.sh"):
             subprocess.run(["scp", "-q", os.path.join(ROOT, f), "%s:/tmp/%s" % (PI, f)], check=True)
 
+    def pi_shell(self, command, timeout=120):
+        """Run one shell command on the Raspberry Pi and return its output (for the broker and the Gateway's SWD reset)."""
+        return _ssh(command, timeout=timeout)
+
     def fd_console(self, *lines, wait=1.5):
         """Send console lines to the Field Device, return its output (ANSI stripped)."""
         quoted = " ".join("'%s'" % l.replace("'", "'\\''") for l in lines)
