@@ -13,6 +13,7 @@ Force Tags        validation    ota
 
 *** Variables ***
 ${REL}            %{HOME}/rel/1.1.4
+${NEWVER}         1.1.4
 ${BAD}            %{HOME}/ota-validation
 ${FAILREL}        %{HOME}/rel-fail/1.1.5
 ${GW_SWD}         openocd -f interface/stlink-dap.cfg -c "adapter serial 0670FF575157877567154553" -c "transport select dapdirect_swd" -f target/stm32l4x.cfg
@@ -114,11 +115,11 @@ UC-18 A valid update is downloaded through a lost connection and the new firmwar
     [Documentation]    Main flow with E2: the broker is stopped for 25 s in the middle of the download; the download must continue
     ...    when the connection is back. Then verification, activation, reboot, self-check and the ack (success).
     [Tags]    UC-18
-    Upload Pair    val-114    ${REL}
-    ${row}=    Run Update Job    val-114-a    val-114-b    timeout=1200    interrupt_at=${100000}
+    Upload Pair    val-new    ${REL}
+    ${row}=    Run Update Job    val-new-a    val-new-b    timeout=1200    interrupt_at=${100000}
     Log    the Gateway's answer: ${row}[detail]
     Should Be Equal    ${row}[state]    success
-    Wait For Firmware    1.1.4
+    Wait For Firmware    ${NEWVER}
 
 UC-18 E3 A new firmware whose self-check fails is rolled back to the previous one
     [Documentation]    1.1.5 is built with the trial self-check forced to fail: after the reboot the bootloader must return to 1.1.4.
@@ -136,8 +137,9 @@ UC-18 E1 An update for a Gateway that is not connected is refused
     [Teardown]    Pi Shell    ${GW_SWD} -c init -c "reset run" -c exit
     Pi Shell    ${GW_SWD} -c init -c "reset halt" -c exit
     Clear Active Jobs
+    Upload Pair    val-e1    ${REL}
     Sleep    170s
-    ${status}    ${body}=    Start Ota    val-114-a    val-114-b
+    ${status}    ${body}=    Start Ota    val-e1-a    val-e1-b
     Log    API answer: ${status} ${body}
     Run Keyword If    ${status} == 202    Cancel Ota    ${body}[id]
     Should Be True    ${status} in (409, 503)    the API accepted the update (${status}) although the Gateway has not reported for 170 s: ${body}
