@@ -328,7 +328,7 @@ board with Mosquitto, firmware `C3.5.2.3.BETA9` (as shipped), `C3.5.2.7.STM` and
 | `P9=2` (verify server, client identity) with RSA, ECDSA-signed-by-RSA and all-ECDSA chains; PEM, DER and PEM+NUL; certificate sets 0-3 | **Always** `Unable to initialize TLS identity. Error = [3036]` (or `Initialize Identity failed` on `C3.5.2.7`), before any network traffic. Not documented anywhere online |
 
 Certificate sets are write-once (cleared only by a full module reflash), so each attempt costs a reflash.
-The bench harness is the throwaway branch `spike/wifi-module-tls` (`spikes/wifi_module_tls/`, local, not pushed).
+The bench harness is the throwaway branch `spike/wifi-module-tls` (`spikes/wifi_module_tls/`, never merged); it is kept on the remote and as the tag `archive/wifi-module-tls-spike`.
 
 **Untested route (GM-O7):** every `P9=2` attempt loaded the credentials at run time with `PG` from the host.
 Inventek's own documented flow for authenticated TLS (`AN20096` AWS app note, "TCP-SSL-TLS How to Create
