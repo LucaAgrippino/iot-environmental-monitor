@@ -554,7 +554,7 @@ static cp_cfg_status_t prv_add_member(cp_cfg_cmd_t *out, const char *key, int64_
     return CP_CFG_OK;
 }
 
-cp_cfg_status_t cp_parse_config_command(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out)
+static cp_cfg_status_t prv_parse_config_members(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out)
 {
     if (out == NULL)
     {
@@ -632,6 +632,53 @@ cp_cfg_status_t cp_parse_config_command(const uint8_t *payload, uint32_t len, cp
         return CP_CFG_BAD_JSON; /* trailing data, or only "req" */
     }
     return CP_CFG_OK;
+}
+
+/** After a rejected command, look for the request id anyway: the cloud puts "req" last, behind the member the parse
+ *  stopped at, and without it the operator's command can never be matched to its rejection (validation finding F-4). */
+static void prv_recover_req(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out)
+{
+    static const char k_needle[] = "\"req\"";
+    const uint32_t nlen = (uint32_t) sizeof(k_needle) - 1U;
+
+    if ((payload == NULL) || (len < nlen))
+    {
+        return;
+    }
+    for (uint32_t i = 0U; (i + nlen) <= len; i++)
+    {
+        if (memcmp(&payload[i], k_needle, nlen) != 0)
+        {
+            continue;
+        }
+        uint32_t k = i + nlen;
+        int64_t value = 0;
+
+        prv_skip_space(payload, len, &k);
+        if ((k >= len) || (payload[k] != (uint8_t) ':'))
+        {
+            continue;
+        }
+        k++;
+        prv_skip_space(payload, len, &k);
+        if (prv_scan_int(payload, len, &k, &value) && (value >= 0) && (value <= (int64_t) 0xFFFFFFFFLL))
+        {
+            out->req_known = true;
+            out->req = (uint32_t) value;
+        }
+        return;
+    }
+}
+
+cp_cfg_status_t cp_parse_config_command(const uint8_t *payload, uint32_t len, cp_cfg_cmd_t *out)
+{
+    const cp_cfg_status_t status = prv_parse_config_members(payload, len, out);
+
+    if ((status != CP_CFG_OK) && (out != NULL) && !out->req_known)
+    {
+        prv_recover_req(payload, len, out);
+    }
+    return status;
 }
 
 const char *cp_cfg_reason_string(cp_cfg_status_t status)

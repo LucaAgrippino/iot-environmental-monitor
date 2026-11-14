@@ -38,3 +38,18 @@
   { label: 'gateway', color: 'var(--pres)', points: series('pressure_hpa') },
   { label: 'field device', color: 'var(--pres-fd)', dashed: true, points: series('fd_pressure_hpa') },
 ]} />
+<Chart label="Acceleration" unit="mg" decimals={0} series={[
+  { label: 'x', color: 'var(--temp)', points: series('accel_x_mg') },
+  { label: 'y', color: 'var(--hum)', points: series('accel_y_mg') },
+  { label: 'z', color: 'var(--pres)', points: series('accel_z_mg') },
+]} />
+<Chart label="Rotation rate" unit="mdps" decimals={0} series={[
+  { label: 'x', color: 'var(--temp)', points: series('gyro_x_mdps') },
+  { label: 'y', color: 'var(--hum)', points: series('gyro_y_mdps') },
+  { label: 'z', color: 'var(--pres)', points: series('gyro_z_mdps') },
+]} />
+<Chart label="Magnetic field" unit="mgauss" decimals={0} series={[
+  { label: 'x', color: 'var(--temp)', points: series('mag_x_mgauss') },
+  { label: 'y', color: 'var(--hum)', points: series('mag_y_mgauss') },
+  { label: 'z', color: 'var(--pres)', points: series('mag_z_mgauss') },
+]} />

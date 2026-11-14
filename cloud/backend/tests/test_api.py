@@ -82,3 +82,23 @@ def test_missing_tls_files_do_not_take_the_service_down(settings, db, caplog):
             assert c.get("/api/devices").status_code == 200
             assert c.post(f"/api/devices/{DEV}/control", json={"command": "read"}).status_code == 503
     assert "CA certificate not found: /nonexistent/ca.crt" in caplog.text
+
+
+def test_motion_and_magnetic_values_are_presented_with_the_latest_reading_and_the_history(settings, db, monkeypatch):
+    """UC-05 step 2: accelerometer, gyroscope and magnetometer come with the measurement (validation finding F-2)."""
+    import time
+    now = 1_800_000_000
+    monkeypatch.setattr(time, "time", lambda: now + 30)
+    put(db, "telemetry", now, temperature_deci_c=231, humidity_pct=45, pressure_hpa=1013,
+        accel_x_mg=1, accel_y_mg=-7, accel_z_mg=1023, gyro_x_mdps=1579, gyro_y_mdps=-3185, gyro_z_mdps=1394,
+        mag_x_mgauss=-233, mag_y_mgauss=30, mag_z_mgauss=98)
+    put(db, "telemetry", now + 60, temperature_deci_c=232, humidity_pct=45, pressure_hpa=1013)  # sensors not valid
+    c = client(settings, db, now)
+    first = c.get(f"/api/devices/{DEV}/telemetry").json()[0]
+    assert (first["accel_z_mg"], first["gyro_y_mdps"], first["mag_x_mgauss"]) == (1023, -3185, -233)
+    assert "raw" not in first
+    assert c.get(f"/api/devices/{DEV}/telemetry").json()[1]["accel_x_mg"] is None  # absent value stays absent
+    latest = c.get(f"/api/devices/{DEV}").json()["latest"]
+    assert latest["temperature_deci_c"] == 232 and latest["accel_x_mg"] is None
+    csv_text = c.get(f"/api/devices/{DEV}/export?kind=telemetry&format=csv").text
+    assert "accel_x_mg" in csv_text.splitlines()[0] and "1023" in csv_text

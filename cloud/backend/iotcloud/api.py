@@ -22,6 +22,24 @@ EXPORT_COLUMNS = {
     "alarms": ["ts", "recv_ts", "sensor_id", "alarm_type", "measured_value_raw", "threshold_value_raw", "source"],
     "events": ["recv_ts", "kind", "req", "result", "payload"],
 }
+# Motion and magnetic readings of the Gateway: only in the stored payload, not in their own columns (UC-05, REQ-CC-000)
+MOTION_KEYS = ("accel_x_mg", "accel_y_mg", "accel_z_mg", "gyro_x_mdps", "gyro_y_mdps", "gyro_z_mdps",
+               "mag_x_mgauss", "mag_y_mgauss", "mag_z_mgauss")
+EXPORT_COLUMNS["telemetry"] += list(MOTION_KEYS)
+
+
+def with_motion(row: dict) -> dict:
+    """The telemetry row without its raw payload, plus the nine motion and magnetic values the payload carried."""
+    try:
+        msg = json.loads(row.get("raw") or "{}")
+    except ValueError:
+        msg = {}
+    out = {k: v for k, v in row.items() if k != "raw"}
+    for k in MOTION_KEYS:
+        out[k] = msg.get(k)
+    return out
+
+
 TIME_COLUMN = {"telemetry": "ts", "health": "ts", "alarms": "ts", "events": "recv_ts"}
 
 
@@ -73,7 +91,7 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
         return {
             "id": r["id"], "name": r.get("name"), "first_seen": r["first_seen"], "last_seen": r["last_seen"],
             "online": now - r["last_seen"] <= settings.online_window_s, "fw_version": r.get("fw_version"),
-            "latest": {k: v for k, v in last[0].items() if k != "raw"} if last else None,
+            "latest": with_motion(last[0]) if last else None,
             "health": health,
             "active_alarms": db.query(
                 "SELECT sensor_id, alarm_type, ts FROM alarms a WHERE device=? AND alarm_type!='CLEAR' AND NOT EXISTS ("
@@ -130,7 +148,7 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
 
     @app.get("/api/devices/{device}/telemetry")
     def telemetry(device: str, since: int = 0, until: int | None = None, limit: int = Query(1000, le=20000)):
-        return [{k: v for k, v in r.items() if k != "raw"} for r in history("telemetry", device, since, until, limit)]
+        return [with_motion(r) for r in history("telemetry", device, since, until, limit)]
 
     @app.get("/api/devices/{device}/health")
     def health(device: str, since: int = 0, until: int | None = None, limit: int = Query(200, le=5000)):
@@ -152,6 +170,8 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
         if format not in ("csv", "json"):
             raise HTTPException(400, "format must be csv or json")
         rows = history(kind, device, since, until, 1_000_000)
+        if kind == "telemetry" and format == "csv":
+            rows = [with_motion(r) for r in rows]
         name = f"{device}-{kind}-{int(time.time())}.{format}"
         headers = {"Content-Disposition": f'attachment; filename="{name}"'}
         if format == "json":
