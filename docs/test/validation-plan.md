@@ -29,11 +29,11 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-07 Acquire sensor data | System | FD console, SWD fault, cloud | **PASS** (V-07); Gateway side seen in the cloud telemetry (V-10) |
 | UC-08 Evaluate sensor alarms | System | FD console, cloud | **PASS** (V-08, V-09) |
 | UC-09 Receive alarm notification | Remote Operator | cloud | **PASS** main flow (V-09); E1 alarms buffered and delivered in order (V-25) |
-| UC-10 Receive sensor telemetry | AWS IoT Core | cloud | **PASS** main flow (V-10); E1 **PARTIAL**: data replayed while the cloud was catching up after a broker restart is missing, **F-9** (fixed in the broker configuration; V-25, V-26) |
-| UC-11 Receive device health data | AWS IoT Core | cloud | **PASS** main flow (V-11); E1 **PARTIAL**: same, **F-9** (V-25, V-26) |
+| UC-10 Receive sensor telemetry | AWS IoT Core | cloud | **PASS** main flow (V-10); E1 **PASS** after F-9 (V-25, V-26, V-27) |
+| UC-11 Receive device health data | AWS IoT Core | cloud | **PASS** main flow (V-11); E1 **PASS** after F-9 (V-27) |
 | UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 passes (V-25) |
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
-| UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1 passes with observation **F-10** (V-25); E2 not stageable by hand |
+| UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1 passes: refused at once (F-10 fixed, V-27); E2 not stageable by hand |
 | UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); Field Technician main flow and E4 pass (V-23) |
 | UC-16 Provision device | Field Technician | console | **PASS** with finding **F-8** (V-24) |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
@@ -155,6 +155,17 @@ telemetry messages and every health message of the outage after the Gateway rese
 F-11. The Gateway's own health messages gave the buffer fill: 22 to 31 entries and 0 after the replay in the first outage with no
 overflow, 1 to 40 and 0 in the second.
 
+**V-27 (deployment of the fixes and repeat, 2026-11-14 about 17:00 to 17:15).** Field Device flashed with F-6, F-7, F-8 (v0.0.0+66f7b136),
+cloud bundle installed (F-10), broker configuration `queue_qos0_messages true` installed (F-9); the Gateway reconnected by itself after the
+broker restart (39 s). *F-8:* `prov set modbus-addr 300` and `257` are refused, `prov commit` says `Nothing staged`. *F-6:* with the
+pressure fault injected and no alarm the pill shows a yellow, steady `FAULT` (checked by Luca), touch works, after the fault is cleared the
+sensors read again. *F-9 and F-10, repeat of the V-25 outage (246 s, `validation/outage.py`):* the read request during the outage is
+refused at once with `503 not connected to the broker: the command was not sent`; after the restart the cloud holds 4 of 4 expected
+telemetry messages (largest gap 60 s), 25 of about 24 expected health messages (largest gap 10 s) and both alarm events (raised
+17:10:13, cleared 17:10:42, received after the restart), all in chronological order; the Gateway reconnected by itself in about 35 s
+(F-11 did not recur). The `409` answer for a device that has not reported for 150 s is covered by unit tests only (it
+needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-05 x3, UC-14, UC-15, UC-19 pass on the deployed cloud (6/6).
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -179,12 +190,12 @@ overflow, 1 to 40 and 0 in the second.
    `restart` and answering a late confirm with a rejection.
    Fixed: a repeated `restart` is ignored and refused (`rejected`, reason `bad_state`); a `restart_confirm` with nothing
    pending is refused the same way; the LLD section 10 and TC-LC-089 are changed (host tests LC-089, LW-071b/c, CP-T109b).
-6. **F-6 (fixed in firmware, not yet on the board) A sensor fault is shown as ALARM although no alarm exists** (UC-01 E1, UC-03). The header
+6. **F-6 (fixed, verified on the board, V-27) A sensor fault is shown as ALARM although no alarm exists** (UC-01 E1, UC-03). The header
    pill blinked ALARM for any Field Device fault (`compute_pill`, `fault_text`) while the Alarms screen and the console listed
    no alarm. Fix: a new pill state `FAULT` (amber, steady) for a fault with no active alarm (invalid sensor, Modbus link lost,
    flash write failed); an active alarm still shows the red blinking ALARM. The banner on the Status screen names the fault.
    The design pack (style guide, status pill table) and tests TC-LCDUI-007/021/009b are changed.
-7. **F-7 (fixed in firmware, not yet on the board) Touch input stops permanently after an I2C1 bus error** (found at UC-03, 2026-11-14 about
+7. **F-7 (fixed, on the board since V-27, the trigger was never reproduced) Touch input stops permanently after an I2C1 bus error** (found at UC-03, 2026-11-14 about
    16:22). The display kept updating but no touch reached the firmware (no `touch raw` log in a 45 s capture while the screen
    was touched many times). Over SWD: I2C1 CR1 = 0x601 (STOP pending), SR1 = 0x100 (BERR), SR2 = 0x3 (MSL, BUSY), identical
    on six reads; the sensors (another bus) kept reading. The driver returned `I2C_ERR_BUS_BUSY` at once when BUSY was set and ran
@@ -192,10 +203,10 @@ overflow, 1 to 40 and 0 in the second.
    trigger was not established (the bus stayed clean afterwards). Fix: the recovery does a software reset of the peripheral, a BUSY bus
    at entry is recovered once, and BERR/ARLO end a transfer with the new `I2C_ERR_BUS_FAULT` after a recovery (LLD 3.5
    amended, tests TC-I2C-F4-008b..d).
-8. **F-8 (fixed in firmware, not yet on the board) `prov set modbus-addr 300` was accepted on the Field Device** (UC-16, range 1..247). `cmd_prov`
+8. **F-8 (fixed, verified on the board, V-27) `prov set modbus-addr 300` was accepted on the Field Device** (UC-16, range 1..247). `cmd_prov`
    cast the parsed number to `uint8_t` before the range check, so 300 became 44 (257 became 1). A commit would have set address 44
    and cut the Modbus link. `config set` was not affected. Fix: check the range on the parsed `long` (test TC-CS-087b).
-9. **F-9 (fixed in the broker configuration, not yet deployed) Telemetry and health sent while the cloud was catching up after a broker restart were lost**
+9. **F-9 (fixed and verified, V-27) Telemetry and health sent while the cloud was catching up after a broker restart were lost**
    (UC-10/UC-11 E1, REQ-BF-000, REQ-BF-010). In the outage of V-25 the oldest 2 min 43 s of telemetry and health were missing
    although the alarms of the same time arrived. Investigation (V-26): the Gateway noticed the loss at once and buffered
    everything (its health message showed `buffer_entry_count` 22 to 31 and 0 after the replay, `buffer_overflow_count` 0); a
@@ -207,7 +218,7 @@ overflow, 1 to 40 and 0 in the second.
    does not depend on a connected subscriber). The earlier hypothesis (messages sent into a dead connection before the
    Gateway notices) was not confirmed: the Gateway noticed immediately. QoS 0 data sent in that window would still be lost,
    as the requirements allow.
-10. **F-10 (fixed in the cloud, not yet deployed) A command sent while the Gateway is unreachable ran when the link returned** (UC-14 E1,
+10. **F-10 (fixed and verified for the broker-down case, V-27) A command sent while the Gateway is unreachable ran when the link returned** (UC-14 E1,
    UC-19 E1). Cause: with the broker down the cloud's own MQTT client queued the publish and sent it when the broker returned
    (the Gateway uses a clean session, so the broker itself would not have held it). The operator saw `timeout` after 60 s and the
    command then ran 4 minutes later. Fix, as decided by the owner: a command for a device that has not reported within the
@@ -228,10 +239,8 @@ overflow, 1 to 40 and 0 in the second.
   (v0.0.0+09d5588f). API scenarios UC-05 x3, UC-14, UC-15 x3 and the new UC-17 E3 pass (8/8). Barometer fault injected for 21 s:
   213 failed reads gave 3 warning lines (reads 1, 100, 200) and one recovery line, instead of about 213 lines. Field Device settings unchanged.
 - Done 2026-11-14: the manual session (LCD use cases V-20..V-23, UC-16 V-24, the disconnected cases V-25, V-26).
-- Fixes written, unit-tested and not yet on the system: F-6, F-7, F-8 (Field Device firmware), F-10 (cloud service), F-9 (broker
-  configuration). They need the owner's go-ahead to flash the Field Device, to deploy the cloud and to change the broker, then the
-  scenarios to be repeated: touch and pill (F-6, F-7) by hand, `prov set modbus-addr 300`, a command to an offline device
-  (409) and the broker outage (`validation/outage.py`: telemetry and health must be complete after the restart).
+- F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
+  the touch that kept working; a Field Technician touch session in normal use is the remaining check.
 - F-11 (the Gateway stays offline after a broker outage until a reset) is open: it needs an analysis and a decision.
 - UC-18 and UC-20 (OTA, only with the owner's go-ahead) and the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.

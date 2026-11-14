@@ -80,6 +80,10 @@ for kind in ("telemetry", "health", "alarms"):
         ts_in_recv_order = [x["ts"] for x in by_recv]
         log("  chronological when read in arrival order: %s" % (ts_in_recv_order == sorted(ts_in_recv_order)))
     stamps = [x["ts"] for x in rows if t_stop <= x["ts"] <= t_up]
+    period = {"telemetry": 60, "health": 10}.get(kind)
+    if period:
+        expected = (t_up - t_stop) // period
+        log("  expected about %d %s messages in the outage, found %d (%s)" % (expected, kind, len(stamps), "complete" if len(stamps) >= expected - 2 else "INCOMPLETE"))
     gaps = [b - a for a, b in zip(stamps, stamps[1:])]
     log("  device time of the first row inside the outage: +%s s after the stop; largest gap inside: %s s" % (stamps[0] - t_stop if stamps else "n/a", max(gaps) if gaps else "n/a"))
     if kind == "alarms":
