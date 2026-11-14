@@ -47,7 +47,7 @@ typedef struct
     /** The identifier (the cloud's job number) of the last session, read from the journal; OK only
      * when it holds a valid one. Valid until discard() or the next begin(). May be NULL in a test
      * double (validation finding F-12). */
-    firmware_store_err_t (*last_session_id)(firmware_store_t *self, uint32_t *image_id_out);
+    firmware_store_err_t (*last_session_id)(const firmware_store_t *self, uint32_t *image_id_out);
 } ifirmware_image_store_t;
 
 #endif /* IFIRMWARE_IMAGE_STORE_H */

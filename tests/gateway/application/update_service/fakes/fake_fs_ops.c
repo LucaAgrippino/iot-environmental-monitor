@@ -155,7 +155,7 @@ void fake_fs_set_session_id(bool valid, uint32_t id)
     s_session_id = id;
 }
 
-static firmware_store_err_t f_last_session_id(firmware_store_t *self, uint32_t *image_id_out)
+static firmware_store_err_t f_last_session_id(const firmware_store_t *self, uint32_t *image_id_out)
 {
     (void) self;
 

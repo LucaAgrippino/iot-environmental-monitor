@@ -1100,7 +1100,7 @@ static firmware_store_err_t op_acknowledge_rollback(firmware_store_t *self)
     return err;
 }
 
-static firmware_store_err_t op_last_session_id(firmware_store_t *self, uint32_t *image_id_out)
+static firmware_store_err_t op_last_session_id(const firmware_store_t *self, uint32_t *image_id_out)
 {
     if (image_id_out == NULL)
     {
