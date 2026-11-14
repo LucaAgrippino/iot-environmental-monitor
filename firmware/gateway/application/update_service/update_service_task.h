@@ -81,8 +81,10 @@ struct update_service
     bool event_retry_armed;      /**< True while a refused lifecycle event is being retried. */
     lifecycle_event_type_t event_retry_type; /**< Type of the lifecycle event to retry. */
     TickType_t start_deadline;               /**< Tick at which the start timeout expires. */
-    TickType_t req_deadline;   /**< Tick at which the chunk request timeout expires. */
-    TickType_t last_progress;  /**< Tick of the last progress, to detect a stalled transfer. */
+    TickType_t req_deadline;  /**< Tick at which the chunk request timeout expires. */
+    TickType_t last_progress; /**< Tick of the last progress, to detect a stalled transfer. */
+    TickType_t resumed_at; /**< Tick of the last resume after a pause: the grace of US_LINK_GRACE_MS
+                              counts from it. */
     TickType_t check_deadline; /**< Tick at which the self-check timeout expires. */
     TickType_t next_poll;      /**< Tick of the next poll of the boot information. */
     TickType_t event_retry_at; /**< Tick of the next retry of the lifecycle event. */

@@ -52,10 +52,20 @@ static const us_chunk_request_t *last_request(void)
     return fake_transport_request_at(fake_transport_request_count() - 1U);
 }
 
-/** @brief Run the three timeouts of a connected, silent link. */
+/** @brief One chunk deadline passes on a connected, silent link. */
 static void time_out_once(void)
 {
     ust_advance(US_CHUNK_TIMEOUT_MS);
+}
+
+/** @brief Time out until the update ends: three failures, and then the grace of US_LINK_GRACE_MS
+ * without progress. */
+static void time_out_until_ended(void)
+{
+    for (uint32_t i = 0U; (i < 100U) && (update_service_state_for_test() == ST_DOWNLOADING); i++)
+    {
+        time_out_once();
+    }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -220,12 +230,24 @@ void test_TC_US_027_a_silent_link_gets_the_same_chunk_requested_again(void)
     TEST_ASSERT_EQUAL_UINT32(0U, fake_fs_calls(FFS_DISCARD));
 }
 
-void test_TC_US_028_the_third_consecutive_timeout_ends_the_update(void)
+/* TC-US-028 (US-D8, validation finding F-14): a link that died is noticed only after the keep-alive
+ * and looks connected until then, so three unanswered chunks alone do not end the update. */
+void test_TC_US_028_three_timeouts_within_the_grace_do_not_end_the_update(void)
 {
     ust_to_downloading();
     time_out_once();
     time_out_once();
     time_out_once();
+
+    TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0U, fake_fs_calls(FFS_DISCARD));
+    TEST_ASSERT_EQUAL_UINT32(4U, fake_transport_request_count()); /* it keeps asking */
+}
+
+void test_TC_US_028b_three_timeouts_and_the_whole_grace_without_progress_end_the_update(void)
+{
+    ust_to_downloading();
+    time_out_until_ended();
 
     TEST_ASSERT_EQUAL_UINT32(1U, fake_fs_calls(FFS_DISCARD));
     TEST_ASSERT_EQUAL_INT(US_RESULT_FAILED, last_report()->result);
@@ -256,7 +278,7 @@ void test_TC_US_029_a_success_between_failures_resets_the_count(void)
     TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
     TEST_ASSERT_EQUAL_UINT32(0U, fake_fs_calls(FFS_DISCARD));
 
-    time_out_once(); /* the third in a row since the success */
+    time_out_until_ended(); /* never answered again: the failures and the grace run out */
     TEST_ASSERT_EQUAL_INT(ST_IDLE, update_service_state_for_test());
     TEST_ASSERT_EQUAL_INT(US_REASON_DOWNLOAD_FAILED, last_report()->reason);
 }
@@ -287,6 +309,53 @@ void test_TC_US_030_a_link_that_is_down_pauses_without_counting_and_resumes_at_t
     time_out_once();
     TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
     TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, ust_deliver_requested());
+}
+
+/* TC-US-030b (US-D8): the chunks that timed out before the loss was noticed belonged to the dead
+ * link; when the pause starts they are forgotten and the resumed download has its full budget. */
+void test_TC_US_030b_failures_counted_before_the_loss_was_noticed_are_forgotten(void)
+{
+    ust_to_downloading();
+    time_out_once();
+    time_out_once();
+    time_out_once(); /* three failures on a link that looks connected */
+    TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
+
+    fake_transport_set_connected(false); /* the loss is noticed at last */
+    time_out_once();                     /* paused, not counted */
+    fake_transport_set_connected(true);
+    ust_advance(US_SELF_CHECK_POLL_MS); /* resumed */
+
+    time_out_once();
+    time_out_once();
+    TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0U, fake_fs_calls(FFS_DISCARD));
+    TEST_ASSERT_FALSE(
+        fake_log_contains("failure 4 of 3")); /* the count started again after the pause */
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK,
+                          ust_deliver_requested()); /* and the download goes on */
+}
+
+/* TC-US-030c (US-D8): after a long outage the grace counts from the resume, not from the last
+ * chunk, so a cloud that is slow to re-subscribe after a broker restart does not end the update at
+ * once. */
+void test_TC_US_030c_the_grace_counts_from_the_resume_not_from_the_last_chunk(void)
+{
+    ust_to_downloading();
+    fake_transport_set_connected(false);
+    ust_advance(US_CHUNK_TIMEOUT_MS); /* paused */
+    ust_advance(
+        US_LINK_GRACE_MS +
+        60000UL); /* longer than the grace since the last chunk, shorter than the stall limit */
+    TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
+
+    fake_transport_set_connected(true);
+    ust_advance(US_SELF_CHECK_POLL_MS); /* resumed */
+    time_out_once();
+    time_out_once();
+    time_out_once(); /* three failures right after the resume */
+    TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0U, fake_fs_calls(FFS_DISCARD));
 }
 
 void test_TC_US_031_a_download_that_makes_no_progress_for_ten_minutes_stalls(void)
@@ -323,7 +392,9 @@ void test_TC_US_032_a_flash_error_on_write_resyncs_to_the_checkpoint_and_counts_
     /* That was failure 1: one more timeout is failure 2, the next is the third. */
     time_out_once();
     TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
-    time_out_once();
+    time_out_once(); /* the third failure, but the grace has not passed */
+    TEST_ASSERT_EQUAL_INT(ST_DOWNLOADING, update_service_state_for_test());
+    time_out_until_ended();
     TEST_ASSERT_EQUAL_INT(ST_IDLE, update_service_state_for_test());
     TEST_ASSERT_EQUAL_INT(US_REASON_DOWNLOAD_FAILED, last_report()->reason);
 }
@@ -412,9 +483,7 @@ void test_TC_US_034_a_discard_that_fails_does_not_stop_the_failure_report(void)
     ust_to_downloading();
     fake_fs_always(FFS_DISCARD, FIRMWARE_STORE_ERR_FLASH_ERASE);
 
-    time_out_once();
-    time_out_once();
-    time_out_once();
+    time_out_until_ended();
 
     TEST_ASSERT_EQUAL_INT(US_RESULT_FAILED, last_report()->result);
     TEST_ASSERT_EQUAL_UINT32(1U, fake_lifecycle_events_of(LC_EVENT_OTA_FINISHED));

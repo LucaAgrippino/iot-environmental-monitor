@@ -226,6 +226,8 @@ static void validate(void);
 static void pause_download(void)
 {
     g_us.paused = true;
+    g_us.failures =
+        0U; /* what timed out before the loss was noticed belonged to the dead link (US-D8) */
     g_us.req_armed = false;
     g_us.next_poll = xTaskGetTickCount() + MS(US_SELF_CHECK_POLL_MS);
     free_slot();
@@ -308,6 +310,7 @@ static void begin_download(void)
     g_us.failures = 0U;
     g_us.paused = false;
     g_us.last_progress = xTaskGetTickCount();
+    g_us.resumed_at = g_us.last_progress;
 
     report(US_RESULT_ACCEPTED, US_REASON_NONE, true, g_us.cmd.job);
     set_state(US_ST_DOWNLOADING);
@@ -631,6 +634,7 @@ static void check_download_deadlines(TickType_t now)
             if (g_us.cfg.transport->is_connected(g_us.cfg.transport->ctx))
             {
                 g_us.paused = false;
+                g_us.resumed_at = now; /* the grace of US_LINK_GRACE_MS starts again (US-D8) */
                 request();
             }
             else
@@ -654,7 +658,14 @@ static void check_download_deadlines(TickType_t now)
         LOG_WARN(US_LOG_MODULE, "chunk at %lu timed out, failure %u of %u",
                  (unsigned long) g_us.offset, (unsigned) g_us.failures, (unsigned) US_MAX_RETRIES);
 
-        if (g_us.failures >= US_MAX_RETRIES)
+        /* REQ-DM-052: three consecutive retries. A link that died is noticed only after the
+         * keep-alive and until then it looks connected, so the failures end the update only once
+         * the whole grace has passed without progress; the pause above takes over as soon as the
+         * loss is noticed (US-D8). */
+        const TickType_t since =
+            (g_us.last_progress > g_us.resumed_at) ? g_us.last_progress : g_us.resumed_at;
+
+        if ((g_us.failures >= US_MAX_RETRIES) && ((now - since) >= MS(US_LINK_GRACE_MS)))
         {
             fail(US_REASON_DOWNLOAD_FAILED, 0U);
         }
