@@ -68,6 +68,8 @@ class Ota:
         cmd += extra.split()
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=int(timeout))
         self.out = r.stdout + r.stderr
+        from robot.api import logger
+        logger.info("ota_server output:\n" + self.out)
         m = re.findall(r"\b(success|failed|rolled_back|rejected)\b", self.out.split("result")[-1] if "result" in self.out else self.out)
         if not m:
             raise AssertionError("no terminal OTA report in the output:\n" + self.out[-1200:])
@@ -194,4 +196,6 @@ class Ota:
             self.bg.kill()
             out, _ = self.bg.communicate()
         self.bg_out = out
+        from robot.api import logger
+        logger.info("background ota_server output:\n" + out)
         return out

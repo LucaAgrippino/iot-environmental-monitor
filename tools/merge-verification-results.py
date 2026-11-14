@@ -11,7 +11,9 @@ Each test names the requirements it verifies with REQ-XX-NNN tags; a requirement
 
 A requirement checked by hand (inspection, a bench measurement, an operator step) is recorded in
 docs/test/manual-results.csv (requirement, verdict PASS or FAIL, date, who, evidence); it then counts as
-"Verified (manual)" or "Failed". A failing Robot test still wins over a manual PASS.
+"Verified (manual)" or "Failed". A failing Robot test still wins over a manual PASS. The verdicts WAIVED (a requirement the owner
+accepted as not met, with the reason in the evidence column) and NA (not applicable: its text points elsewhere) close a requirement
+without a test, as the verification plan allows (section 8, rule 1).
 
 The requirement list and the method of each come from docs/test/verification-methods.csv.
 Run from anywhere:  tools/merge-verification-results.py [run-dir-or-output.xml ...] [--check]
@@ -94,7 +96,7 @@ def main():
         if not tcs:
             m = manual.get(rid)
             if m:
-                return "Verified (manual)" if m["verdict"].upper() == "PASS" else "Failed"
+                return {"PASS": "Verified (manual)", "WAIVED": "Waived", "NA": "Not applicable"}.get(m["verdict"].upper(), "Failed")
             return "Not run"
         return "Failed" if any(tests[x]["status"] != "PASS" for x in tcs) else "Verified"
 
@@ -126,6 +128,8 @@ def main():
         f"| Requirements | {n} |",
         f"| Verified (all tagged tests pass) | {count['Verified']} |",
         f"| Verified by hand (docs/test/manual-results.csv) | {count['Verified (manual)']} |",
+        f"| Waived by the owner | {count['Waived']} |",
+        f"| Not applicable | {count['Not applicable']} |",
         f"| Failed | {count['Failed']} |",
         f"| Not run yet | {count['Not run']} |",
         "",

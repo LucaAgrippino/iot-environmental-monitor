@@ -82,3 +82,25 @@ class Broker:
         finally:
             srv.close()
         return firsts
+
+    def plain_listener_attempt_times(self, port, seconds):
+        """Like plain_listener_records, but returns the time (seconds since the epoch) at which each connection attempt arrived."""
+        import time
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("0.0.0.0", int(port)))
+        srv.listen(5)
+        srv.settimeout(0.5)
+        times = []
+        end = time.time() + float(seconds)
+        try:
+            while time.time() < end:
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
+                times.append(time.time())
+                conn.close()
+        finally:
+            srv.close()
+        return times

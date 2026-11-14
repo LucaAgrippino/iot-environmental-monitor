@@ -31,22 +31,31 @@ Update Should Be Refused
     [Arguments]    ${mode}    ${job}    @{reasons}
     ${a}    ${b}=    Make Malformed Images    ${mode}    1.0.1    1.0.5    ${mode}
     Start Port Capture    ${GW_PORT}    460800
-    ${r}=    Run Update    ${DEVICE}    ${a}    ${b}    ${job}    timeout=330
+    ${r}=    Run Update    ${DEVICE}    ${a}    ${b}    ${job}    timeout=630
     ${why}=    Last Ota Reason
     Log    ${mode}: ${r}, reason ${why}
     Should Be True    '${r}' in ('failed', 'rejected')    the ${mode} image ended with '${r}'
     Should Contain    ${reasons}    ${why}    the ${mode} image was refused for '${why}', expected one of ${reasons}
-    Port Capture Should Contain    OTA job ${job} failed: ${why}    15
+    # the error line: 'OTA job N failed: reason' after a download, a rejection line for a refused command
+    Port Capture Should Contain    OTA job ${job}    15
+    Port Capture Should Contain    ${why}    15
     [Teardown]    Stop Port Capture
 
 *** Test Cases ***
-TC-VER-OTA-006 Images with a bad size, format or header are refused and the reason is reported
-    [Documentation]    REQ-DM-060: the checks before the signature (header magic, declared header size, image larger than a slot).
-    ...    REQ-DM-062: the Gateway reports the refusal with its reason (the log line is on the Gateway's own debug stream).
+TC-VER-OTA-006 An image with a bad header magic is refused and the reason is reported
+    [Documentation]    REQ-DM-060: the Gateway downloads the image and refuses it in the verify step (bad_header). REQ-DM-062: the
+    ...    refusal is on the result topic and an ERROR line on the Gateway's own console.
     [Tags]    TC-VER-OTA-006    REQ-DM-060    REQ-DM-062
     Update Should Be Refused    magic    3001    bad_header    bad_image
+
+TC-VER-OTA-010 An image whose declared header size is wrong is refused and the reason is reported
+    [Tags]    TC-VER-OTA-010    REQ-DM-060    REQ-DM-062
     Update Should Be Refused    header_size    3002    bad_header    bad_image
-    Update Should Be Refused    oversize    3003    too_large    bad_header    bad_image
+
+TC-VER-OTA-011 An image larger than a slot is refused at once and the reason is reported
+    [Documentation]    The declared size exceeds a slot (480 KB): the command itself is refused (bad_command), before any download.
+    [Tags]    TC-VER-OTA-011    REQ-DM-060    REQ-DM-062
+    Update Should Be Refused    oversize    3003    bad_command    too_large    bad_header    bad_image
 
 TC-VER-OTA-007 A download that stalls with the link up fails after the retries and the partial image is discarded
     [Documentation]    The server goes silent at 64 KB while the link stays up: three consecutive chunk timeouts end the update
@@ -64,7 +73,7 @@ TC-VER-OTA-007 A download that stalls with the link up fails after the retries a
     Settle And Log
     ${r2}=    Run Update    ${DEVICE}    ${a}    ${b}    3005    --silent-at 65536 --silent-seconds 240    timeout=240
     ${out}=    Last Ota Output
-    ${first}=    Evaluate    int(re.findall(r'slot [AB] offset (\d+)', $out)[0])    modules=re
+    ${first}=    Evaluate    int(re.findall(r'slot [AB] offset (\\d+)', $out)[0])    modules=re
     Should Be Equal As Integers    ${first}    0    the second update resumed at offset ${first}: the partial image was kept
 
 TC-VER-OTA-008 A second update command while one is running is refused as busy

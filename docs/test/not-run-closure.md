@@ -80,3 +80,21 @@ number of cases is smaller).
 - **REQ-NF-108**: the Sensors screen redrew its values on every UI tick (about 14 Hz measured, TC-VER-FD-019); it is now gated to the 200 ms
   `LCD_REFRESH_MS` (5 Hz) with a drift-free schedule; the UI task still ticks every 40 ms for the touch response and the blink phases.
 - **Measurable timing** was added for REQ-NF-100 / NF-106 (the longest sensor cycle of each board, and the Gateway's request-to-queued log).
+
+## Status at the end of the closure session (2026-11-14)
+
+Report: 98 of 98 test cases pass; of 207 requirements 179 are verified by test, 10 by hand (inspection or earlier bench results), 5 waived by the
+owner (BF-020, MB-130, NF-107, NF-202, NF-110) and 1 not applicable (NF-212). 12 are still without a result:
+
+| Requirement | Why | Next |
+|---|---|---|
+| LD-040, LD-110, LD-120, LD-130, LD-150, LD-155, LD-190, NF-214 | operator checklist (touch, forced sensor fault, power cut) | wave 7, with the owner, last |
+| LD-060 ("waiting for data" until the first reading) | the Field Device always has a reading within a second of the scheduler start, and the splash covers that time; the state cannot be held on the bench | unit test TC-LCDUI-004 (the cards start in the WAITING state); owner to accept |
+| SA-010 (default 1 s interval if the configuration cannot be read) | the Field Device's configuration is in external QSPI flash; the failure cannot be forced | unit tests TC-CSVC-001/004 assert exactly 1000 ms; owner to accept |
+| NF-204 (rollback within 10 s) | needs a timed run of the self-check-fail update (suite 9, OTA-001), which changes the Gateway's firmware version | owner's go-ahead for that run |
+| NF-209 (reconnect after 2 s, doubling to 60 s) | MQTT layer: TC-VER-CL-024 (run result below) | the Wi-Fi layer is not forced on the bench |
+
+Closure runs of 2026-11-13/14: suites 10 (time, remote commands, Modbus retries, profiles, log format, TLS only, timing), 11 (OTA refusals,
+stall, busy, authentication) and the FD display cases. The merged report is built from an explicit list of valid runs (the killed runs of 10 and
+12 November and the abandoned development runs of 10 November are left out); the two test ids that were reused by mistake (GW-016 and GW-017)
+were relabelled in copies of the affected result files (GW-018 and GW-019) before merging, the original result files are untouched.

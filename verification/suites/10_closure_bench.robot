@@ -158,10 +158,10 @@ Bounce Broker
 
 *** Test Cases ***
 # ---- 1. Time: the RTC, the retry, the period and the Field Device --------------------------------------------------
-TC-VER-GW-016 The RTC keeps the time across a reset: the Gateway reports a synchronised time before it has the network
+TC-VER-GW-018 The RTC keeps the time across a reset: the Gateway reports a synchronised time before it has the network
     [Documentation]    After a warm reset TimeProvider restores SYNCHRONISED from the RTC (DEF-009). The check is made on the first
     ...    answer of the console, which comes before the Wi-Fi join and the NTP query.
-    [Tags]    TC-VER-GW-016    REQ-TS-020
+    [Tags]    TC-VER-GW-018    REQ-TS-020
     Reset Board    GW
     Sleep    1s
     Wait For Boot    60
@@ -308,11 +308,11 @@ TC-VER-CL-020 A device profile can be added and removed from the cloud
     [Teardown]    Run Keyword And Ignore Error    Send Command    profiles remove 17    2.0
 
 # ---- 3. Log format, the Field Device register, the Modbus address ---------------------------------------------------
-TC-VER-GW-017 Every log line carries a severity, a time and the module on both boards
+TC-VER-GW-019 Every log line carries a severity, a time and the module on both boards
     [Documentation]    A reset of each board is recorded on its own console stream; every log line has the shape
     ...    [ LEVEL][hh:mm:ss][Module ] text (the time is T+seconds until the RTC is usable). A line whose prefix is cut by the
     ...    Gateway's status repaint is tolerated up to 10 %.
-    [Tags]    TC-VER-GW-017    REQ-NF-500
+    [Tags]    TC-VER-GW-019    REQ-NF-500
     Close Console
     Start Port Capture    ${GW_PORT}    460800
     Reset Board    GW
@@ -453,3 +453,31 @@ TC-VER-CL-023 A reading is in the MQTT queue within 100 ms of the request, and t
     Log    longest Gateway sensor cycle ${cycle} ms
     Should Be True    ${cycle} > 0    SensorTask has not completed a cycle
     Should Be True    ${cycle} < 100    the longest sensor cycle took ${cycle} ms, the limit is 100 ms
+
+TC-VER-CL-024 After the broker is lost the Gateway reconnects after 2 s and doubles the interval up to 60 s
+    [Documentation]    REQ-NF-209, MQTT layer (the Wi-Fi layer is not forced here). The broker is stopped and a listener takes its port; the
+    ...    arrival times of the Gateway's connection attempts show the first delay and the doubling of the interval.
+    [Tags]    TC-VER-CL-024    REQ-NF-209
+    ${r}=    Run Process    sudo    -n    systemctl    stop    mosquitto    timeout=60
+    Should Be Equal As Integers    ${r.rc}    0    ${r.stderr}
+    ${stopped}=    Evaluate    __import__('time').time()
+    ${times}=    Plain Listener Attempt Times    8883    200
+    Log    attempts ${times}
+    ${n}=    Get Length    ${times}
+    Should Be True    ${n} >= 5    only ${n} connection attempts in 200 s
+    ${first}=    Evaluate    $times[0] - $stopped
+    Log    first attempt ${first} s after the broker stopped
+    Should Be True    ${first} <= 4.0    the first attempt came ${first} s after the loss, expected about 2 s
+    ${iv}=    Evaluate    [round(b - a, 1) for a, b in zip($times, $times[1:])]
+    Log    intervals ${iv}
+    FOR    ${i}    IN RANGE    1    ${n} - 1
+        ${prev}=    Evaluate    $iv[$i - 1]
+        ${cur}=    Evaluate    $iv[$i]
+        ${expected}=    Evaluate    min(2 * $prev, 60.0)
+        Should Be True    abs(${cur} - ${expected}) <= max(2.0, 0.25 * ${expected})    interval ${i}: ${cur} s after ${prev} s, expected about ${expected} s
+    END
+    Should Be True    max($iv) <= 65.0    an interval of ${iv} exceeds the 60 s cap
+    [Teardown]    Run Keywords    Run Process    sudo    -n    systemctl    start    mosquitto    timeout=60
+    ...    AND    Sleep    5s
+    ...    AND    Restart Collector
+    ...    AND    Ensure Gateway Online
