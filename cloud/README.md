@@ -30,6 +30,7 @@ cloud/
   dev/        run the whole thing on this machine
   web/        the web app (Svelte)
   deploy/     installer, systemd unit and Caddy configuration for the Raspberry Pi
+  doc/        Cloud-Guide.pdf: what everything here is and how the pieces connect, for a reader new to cloud systems
 ```
 
 The broker side (certificate authority, Mosquitto configuration and access list) is the top-level `broker/` folder.

@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IoT Environmental Monitor: the cloud, explained</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 17mm 15mm;
+          @bottom-left { content: "IoT Environmental Monitor · the cloud explained"; font: 8pt "Liberation Sans"; color: #888; }
+          @bottom-right { content: counter(page); font: 8pt "Liberation Sans"; color: #888; } }
+  @page :first { @bottom-left { content: none; } @bottom-right { content: none; } }
+  @page land { size: A4 landscape; margin: 14mm 12mm 16mm 12mm;
+               @bottom-left { content: "IoT Environmental Monitor · the cloud explained"; font: 8pt "Liberation Sans"; color: #888; }
+               @bottom-right { content: counter(page); font: 8pt "Liberation Sans"; color: #888; } }
+  :root { --ink: #1d2330; --muted: #5b6475; --line: #d6dae3; --accent: #3a4f9e; --bg2: #f4f6fb; }
+  * { box-sizing: border-box; }
+  html { font: 9.6pt/1.45 "Liberation Sans", Arial, sans-serif; color: var(--ink); }
+  body { margin: 0; }
+  h1 { font-size: 21pt; color: var(--accent); margin: 0 0 .5em; padding-bottom: .25em; border-bottom: 2px solid var(--accent);
+       break-before: page; break-after: avoid; }
+  h2 { font-size: 13.5pt; color: var(--accent); margin: 1.5em 0 .4em; break-after: avoid; }
+  h3 { font-size: 11pt; margin: 1.2em 0 .3em; break-after: avoid; }
+  p { margin: .5em 0; }
+  ul, ol { margin: .4em 0 .6em; padding-left: 1.3em; } li { margin: .15em 0; }
+  code { font: 8.6pt "Liberation Mono", monospace; background: #eef0f6; padding: 0 .25em; border-radius: 3px; }
+  pre { font: 8.2pt/1.4 "Liberation Mono", monospace; background: #f1f3f8; border: 1px solid var(--line); border-left: 3px solid var(--accent);
+        padding: .55em .8em; margin: .6em 0; white-space: pre-wrap; word-break: break-word; break-inside: avoid; }
+  pre code { background: none; padding: 0; font: inherit; }
+  table { border-collapse: collapse; width: 100%; margin: .6em 0; font-size: 8.7pt; }
+  th, td { border: 1px solid var(--line); padding: .3em .55em; text-align: left; vertical-align: top; }
+  th { background: var(--bg2); font-weight: 700; }
+  tr { break-inside: avoid; }
+  figure { margin: .9em 0; break-inside: avoid; text-align: center; }
+  figure img { max-width: 100%; height: auto; }
+  figcaption { font-size: 8.8pt; color: var(--muted); margin-top: .3em; }
+  .land { page: land; break-before: page; break-after: page; }
+  .land h2:first-child { margin-top: 0; }
+  .callout { border-left: 4px solid var(--accent); background: var(--bg2); padding: .5em .85em; margin: .8em 0; break-inside: avoid; }
+  .callout.aws { border-color: #d98a00; background: #fff7e6; }
+  .callout.warn { border-color: #c0392b; background: #fdeeee; }
+  .callout.ok { border-color: #2e8b57; background: #eef8f1; }
+  .callout b.t { display: block; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .15em; }
+  .two { display: grid; grid-template-columns: 175px 1fr; gap: 1.2em; align-items: start; }
+  .small { font-size: 8.8pt; color: var(--muted); }
+  /* cover */
+  .cover { height: 245mm; display: flex; flex-direction: column; justify-content: center; }
+  .cover h1 { border: 0; font-size: 31pt; line-height: 1.15; break-before: auto; margin-bottom: .2em; }
+  .cover .sub { font-size: 14pt; color: var(--muted); margin-bottom: 2.2em; }
+  .cover .meta { font-size: 9.5pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: .8em; }
+  .toc { columns: 1; margin-top: 1.2em; } .toc li { margin: .3em 0; } .toc a { color: var(--ink); text-decoration: none; }
+  .toc .n { color: var(--accent); font-weight: 700; display: inline-block; width: 2em; }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="cover">
+  <h1>The cloud of the<br>IoT Environmental Monitor</h1>
+  <div class="sub">What is in the <code>cloud/</code> folder, how the pieces connect, and the full path from a sensor on a board
+    to a browser, and from a signed firmware file back to the board.</div>
+  <div class="meta">
+    Written for readers who know embedded systems or software but not cloud systems. No prior knowledge of MQTT, TLS or
+    certificates is assumed: every term is explained where it first appears.<br><br>
+    Describes the repository at <b>main f55fa23</b> (2026-11-09) and the system as it ran that day on a Raspberry Pi 3B with the two
+    boards on the bench. Where something was proven on real hardware, or was not, the text says so.
+  </div>
+</section>
+
+<h1 style="break-before: page">Contents</h1>
+<ol class="toc" style="list-style:none; padding:0">
+  <li><span class="n">1</span><a href="#c1">The system in one page</a></li>
+  <li><span class="n">2</span><a href="#c2">Ten words you need</a></li>
+  <li><span class="n">3</span><a href="#c3">What is in the cloud folder</a></li>
+  <li><span class="n">4</span><a href="#c4">The life of a measurement: from the sensor to the screen</a></li>
+  <li><span class="n">5</span><a href="#c5">The components, one by one</a> (broker, backend, database, live stream, commands, OTA service, login, alerts, deployment)</li>
+  <li><span class="n">6</span><a href="#c6">The back end and the front end: architecture</a></li>
+  <li><span class="n">7</span><a href="#c7">The messages: what travels between device and cloud</a></li>
+  <li><span class="n">8</span><a href="#c8">Security: who trusts whom</a></li>
+  <li><span class="n">9</span><a href="#c9">Workflow: set everything up from nothing</a></li>
+  <li><span class="n">10</span><a href="#c10">Workflow: sign a firmware and deploy it with OTA</a></li>
+  <li><span class="n">11</span><a href="#c11">Day-to-day: operate, back up, troubleshoot</a></li>
+  <li><span class="n">12</span><a href="#c12">Status and honest limits</a></li>
+  <li><span class="n">A</span><a href="#appA">Reference: settings, API, files</a></li>
+</ol>
+
+<!-- ============================ 1 ============================ -->
+<h1 id="c1">1. The system in one page</h1>
+
+<p><b>What it does.</b> Two small boards measure the environment: temperature, humidity and pressure (the Gateway also
+measures motion and magnetic field). The <b>Field Device</b> is a board with a touch display; the <b>Gateway</b> asks it for its
+values over a cable (RS-485, using the <i>Modbus</i> protocol, an old and simple industrial request/answer protocol), adds its
+own, and sends everything over Wi-Fi to a <b>cloud</b>. The cloud stores the data, draws it in a web page, lets an operator send
+commands back, pushes alerts to a phone, and can <b>update the Gateway's firmware over the air</b> (<b>OTA</b>) without a cable.</p>
+
+<p><b>What "the cloud" is here.</b> Normally "the cloud" means renting services from a company such as Amazon (AWS). This project
+builds the same services itself, small enough to run on one Raspberry Pi 3B (1 GB of memory) in the house. The
+<code>cloud/</code> folder holds the program that does the work and the web page it serves. Every piece is modelled on a named AWS
+service, so what you learn here carries over to a real AWS system.</p>
+
+<figure>
+  <img src="diagrams/overview.svg" alt="System overview" style="max-width:88%">
+  <figcaption>Figure 1. The whole system. Arrows with two heads are conversations; the blue line is the one that crosses the
+  Wi-Fi network, protected by TLS with certificates on both sides.</figcaption>
+</figure>
+
+<div class="callout aws"><b class="t">In AWS terms</b>
+  Broker = IoT Core · Backend = Lambda + API Gateway · Database = DynamoDB/Timestream · firmware files = S3 · OTA service = IoT Jobs ·
+  alerts = SNS · login = Cognito · Caddy = CloudFront. The table in chapter 3 lists each one.</div>
+
+<h2>Where it runs today</h2>
+<table>
+  <tr><th style="width:26%">Piece</th><th>Where / how</th></tr>
+  <tr><td>Cloud</td><td>Raspberry Pi 3B, host name <code>rpi-byte</code>, address 192.168.0.209, reached as <code>https://envmon.lan/</code> (the name is added to the PC's <code>/etc/hosts</code>)</td></tr>
+  <tr><td>Broker</td><td>Mosquitto on the same Pi, port 8883, own certificate authority, access list on</td></tr>
+  <tr><td>Backend</td><td>systemd service <code>iotcloud</code> on 127.0.0.1:8000, behind Caddy on port 443</td></tr>
+  <tr><td>Gateway</td><td>serial number 002d004f3442501020323848, firmware 1.0.1 (signed, from OTA)</td></tr>
+  <tr><td>Operator PC</td><td>holds the certificate authority key, the firmware signing key, and the build tools</td></tr>
+</table>
+
+<!-- ============================ 2 ============================ -->
+<h1 id="c2">2. Ten words you need</h1>
+
+<table>
+  <tr><th style="width:18%">Word</th><th>Plain meaning</th></tr>
+  <tr><td><b>MQTT</b></td><td>A small messaging protocol for devices. Nobody talks to anybody directly: everyone talks to a middleman and drops messages under a <i>topic</i> (a path such as <code>dt/iotmonitor/&lt;serial&gt;/telemetry</code>). Whoever subscribed to that topic receives them.</td></tr>
+  <tr><td><b>Broker</b></td><td>The middleman of MQTT. Here: Mosquitto. It only forwards; it keeps no history and understands no message.</td></tr>
+  <tr><td><b>Topic</b></td><td>The "address" of a message. <code>dt/…</code> ("data") topics go device→cloud, <code>cmd/…</code> topics go cloud→device.</td></tr>
+  <tr><td><b>QoS</b></td><td>"Quality of service": how hard MQTT tries. 0 = send once, may be lost (fine for a reading every minute). 1 = keep trying until acknowledged, may arrive twice (used for alarms, commands, results).</td></tr>
+  <tr><td><b>TLS</b></td><td>The encryption you know from <code>https://</code>. It also proves who you are talking to, using certificates.</td></tr>
+  <tr><td><b>Certificate / CA</b></td><td>A certificate is a signed ID card: "this public key belongs to <i>iotcloud</i>". A <b>Certificate Authority</b> (CA) is the signer. Anyone who trusts the CA trusts everything it signed. The matching <i>private key</i> never leaves its owner.</td></tr>
+  <tr><td><b>Mutual TLS</b></td><td>Both sides show a certificate: the device checks the broker <i>and</i> the broker checks the device. No password exists; the certificate is the identity.</td></tr>
+  <tr><td><b>REST API</b></td><td>The web page and the backend talk with ordinary web requests (<code>GET /api/devices</code>, <code>POST …/control</code>) carrying JSON text.</td></tr>
+  <tr><td><b>SSE</b></td><td>"Server-sent events": the browser keeps one connection open and the backend pushes a line whenever something happens. That is how numbers change on screen without reloading.</td></tr>
+  <tr><td><b>OTA</b></td><td>"Over the air": updating the firmware of the board through the network. The risky part is a bad update, so it needs a signature check and an automatic way back (chapter 10).</td></tr>
+</table>
+
+<div class="callout"><b class="t">A useful picture</b>
+  The broker is a post office with sorting boxes. Devices and the backend each have a key (certificate) to the post office door, and a
+  list says which boxes each key may put letters into or read from. Nobody carries a letter directly to anybody else.</div>
+
+<!-- ============================ 3 ============================ -->
+<h1 id="c3">3. What is in the cloud folder</h1>
+
+<figure>
+  <img src="diagrams/repo.svg" alt="Repository map" style="max-width:86%">
+  <figcaption>Figure 2. The <code>cloud/</code> folder (purple) and the neighbours it depends on. Dashed lines are "uses" or "talks to".</figcaption>
+</figure>
+
+<table>
+  <tr><th style="width:21%">Path</th><th>What it contains</th><th style="width:19%">AWS counterpart</th></tr>
+  <tr><td><code>cloud/backend/</code></td><td>The Python program <b>iotcloud</b>: receives every device message, stores it, serves the API, runs commands, OTA and alerts. 12 modules, about 1,400 lines, plus 6 test files.</td><td>Lambda, API Gateway, rules engine</td></tr>
+  <tr><td><code>cloud/web/</code></td><td>The web app, written in Svelte. <code>src/</code> is the source; <code>dist/</code> is the built page the backend serves. Built in a container, so Node is not needed on the PC.</td><td>Amplify / CloudFront</td></tr>
+  <tr><td><code>cloud/deploy/</code></td><td>Everything to put it on the Pi: a bundle builder, an installer, the systemd unit, the Caddy HTTPS configuration, the settings template, an installer test that runs in a Debian container.</td><td>CloudFormation</td></tr>
+  <tr><td><code>cloud/sim/</code></td><td><code>device_sim.py</code>: a fake Gateway that speaks the same messages. Lets the cloud be developed and tested without the boards.</td><td>IoT Device Simulator</td></tr>
+  <tr><td><code>cloud/dev/</code></td><td><code>run-local.sh</code> starts a broker, the backend and the simulator on the PC in one command; <code>test-alerts.sh</code> checks the alert chain.</td><td>-</td></tr>
+  <tr><td><code>cloud/doc/</code></td><td>This guide (the PDF and the scripts that rebuild it).</td><td>-</td></tr>
+  <tr><td><code>cloud/README.md</code>, <code>DECISIONS.md</code></td><td>The short README and the 16 design decisions with their reasons.</td><td>-</td></tr>
+  <tr><td><code>broker/</code> (top level)</td><td>The system's own certificate authority (<code>iotpki.py</code>), the Mosquitto configuration with the access list, and the installer for the Pi's broker.</td><td>IoT Core policies, Private CA</td></tr>
+  <tr><td><code>tools/ota/</code>, <code>scripts/</code></td><td>Firmware signing (<code>make_image.py</code>), release building (<code>build-release.sh</code>), device provisioning (<code>provision_device.py</code>), and the command-line OTA tool (<code>ota_server.py</code>).</td><td>Code signing</td></tr>
+  <tr><td><code>firmware/</code></td><td>The code on the two boards. The cloud and the firmware share one contract, the message formats, which is why they live in the same repository.</td><td>-</td></tr>
+</table>
+
+<div class="callout"><b class="t">Why not just use AWS?</b>
+  Decision 1 in <code>DECISIONS.md</code>: building each service by hand makes every step visible and breakable on purpose, and costs nothing to run.
+  A bridge to a real AWS account stays possible, because the messages follow the AWS IoT conventions.</div>
+
+<!-- ============================ 4 ============================ -->
+<h1 id="c4">4. The life of a measurement: from the sensor to the screen</h1>
+
+<p>Follow one temperature reading. The numbered steps match the sequence diagram on the next page.</p>
+<ol>
+  <li><b>On the Gateway.</b> The sensor chips are read many times a second (the sensing task ticks every 100 ms); the values are smoothed and compared with the alarm limits.
+      The Field Device does the same on its own board and answers the Gateway's Modbus requests over the RS-485 cable.</li>
+  <li><b>Every 60 seconds</b> the Gateway builds one JSON message with all its values and the Field Device's, and publishes it to the topic
+      <code>dt/iotmonitor/&lt;serial&gt;/telemetry</code>. Temperature is sent as <i>tenths of a degree</i> (231 means 23.1 °C) because the firmware avoids
+      floating point.</li>
+  <li><b>The link.</b> The Wi-Fi module only carries bytes. The encryption and the certificates are handled by the Gateway's own processor,
+      because the module's built-in TLS could not do mutual authentication (tested and closed in the project's TLS spike).</li>
+  <li><b>The broker</b> checks the device's certificate and the access list (a device may publish only under its own serial), then forwards
+      the message to everyone subscribed: the backend.</li>
+  <li><b>The backend</b> (<code>ingest.py</code>) checks the topic, parses the JSON, decides the time to store (the device's clock if it says it is
+      synchronised with the network time, otherwise the arrival time), and writes a row to the database.</li>
+  <li><b>The live stream.</b> The same step tells every open browser "something arrived". The web page asks the API for fresh values and the numbers change.</li>
+</ol>
+
+<div class="callout warn"><b class="t">Good to know: the Field Device's sensors are simulated</b>
+  The Field Device has no sensor chips wired in; its temperature, humidity and pressure come from software simulations (a small random walk).
+  Only the Gateway measures the real world. The pressure simulation was recently made to stay near 1013 hPa, because the earlier version drifted across the alarm limit.</div>
+
+<div class="callout"><b class="t">If the Wi-Fi or the cloud is down</b>
+  The Gateway stores outgoing messages in a ring buffer in its external flash (survives a power cycle) and sends them when the link returns.
+  Delivery is "at least once": after a reconnect an old message can arrive late or twice. The backend keeps every message in its history but
+  does not let a late health message overwrite newer device information (fixed on 2026-11-09).</div>
+
+<section class="land">
+  <h2>Sequence: a reading travels from the Gateway to the browser</h2>
+  <figure><img src="diagrams/seq_telemetry.svg" alt="Telemetry sequence"></figure>
+  <p class="small">Dashed arrows are replies or pushes. Message 6 is the live stream: the backend does not send the data itself, only a nudge; the page then asks for what it needs.</p>
+</section>
+
+<!-- ============================ 5 ============================ -->
+<h1 id="c5">5. The components, one by one</h1>
+
+<h2>5.1 The broker and the certificate authority</h2>
+<p><b>Mosquitto</b> is a ready-made open-source MQTT broker. The project adds three things around it, all in <code>broker/</code>:</p>
+<ul>
+  <li><b>A certificate authority</b> (<code>iotpki.py</code>). It creates the CA, then signs certificates for the broker, for the backend (<code>iotcloud</code>),
+      for the OTA tool (<code>ota-operator</code>) and for each device. A device's certificate is named by its serial number (24 hex characters, the processor's unique ID), which is also its MQTT client id.
+      It can revoke a certificate (a revocation list the broker reads). Everything lives in <code>~/.iot-pki</code>; the CA key is encrypted with a passphrase.</li>
+  <li><b>An access list</b> (<code>acl.conf</code>) saying which <i>name</i> may publish and read which topics:
+    <table>
+      <tr><th>Name</th><th>May publish</th><th>May read</th></tr>
+      <tr><td>a device (its serial)</td><td><code>dt/iotmonitor/&lt;its own serial&gt;/#</code></td><td><code>cmd/iotmonitor/&lt;its own serial&gt;/#</code></td></tr>
+      <tr><td><code>iotcloud</code> (backend)</td><td><code>cmd/iotmonitor/+/#</code></td><td><code>dt/iotmonitor/+/#</code></td></tr>
+      <tr><td><code>ota-operator</code></td><td>the OTA command and data topics</td><td>OTA requests and results</td></tr>
+    </table>
+    The name is the certificate's common name, which the CA fixed, not the MQTT client id, which a client chooses for itself (decision 12).</li>
+  <li><b>An installer</b> that replaces the Pi's old bench broker configuration and can roll back.</li>
+</ul>
+
+<h2>5.2 The backend: the program called iotcloud</h2>
+<p>A Python program using <b>FastAPI</b> (web framework), <b>uvicorn</b> (web server) and <b>paho-mqtt</b> (MQTT client). It does five jobs, one or two modules each:</p>
+<table>
+  <tr><th style="width:17%">Module</th><th>Job</th></tr>
+  <tr><td><code>mqtt.py</code></td><td>Connects to the broker with its certificate and a <i>persistent session</i> (messages sent while the backend restarts wait in the broker). Subscribes to every device topic and hands each message to <code>ingest</code>. One bad message is logged and skipped; it never stops the stream.</td></tr>
+  <tr><td><code>ingest.py</code></td><td>The "rules engine": topic → table. Pure functions that need no broker, so they are easy to test.</td></tr>
+  <tr><td><code>db.py</code></td><td>SQLite storage: one connection protected by a lock, because the MQTT thread writes while web threads read.</td></tr>
+  <tr><td><code>api.py</code></td><td>All the web endpoints under <code>/api</code>, the login guard, and the static web app at <code>/</code>.</td></tr>
+  <tr><td><code>live.py</code></td><td>The "hub" that fans each new event out to every open browser stream.</td></tr>
+  <tr><td><code>commands.py</code></td><td>Sends configuration and control commands and tracks their answers (5.5).</td></tr>
+  <tr><td><code>ota.py</code></td><td>Firmware file store, update jobs and the chunk server (5.6).</td></tr>
+  <tr><td><code>auth.py</code>, <code>admin.py</code></td><td>Users, passwords, sessions; and the command-line tool that creates users (5.7).</td></tr>
+  <tr><td><code>notify.py</code></td><td>Alerts to phone, e-mail or another system (5.8).</td></tr>
+  <tr><td><code>config.py</code></td><td>Settings, read from environment variables (Appendix A).</td></tr>
+</table>
+
+<h2>5.3 The database</h2>
+<p><b>SQLite</b> is a database that is just one file, with no server to run: right for a Pi with 1 GB of memory. It uses write-ahead logging, so reading does not block writing.
+The file is <code>/var/lib/iotcloud/iotcloud.sqlite3</code>. Time columns are Unix seconds (<code>ts</code> = the message's time, <code>recv_ts</code> = when it arrived).</p>
+<figure>
+  <img src="diagrams/database.svg" alt="Database tables" style="max-height: 112mm; width:auto">
+  <figcaption>Figure 3. The 13 tables. The device serial is the common key. <i>raw</i> columns keep the original JSON, so nothing sent by a device is lost even if the cloud does not understand a field yet.</figcaption>
+</figure>
+
+<h2>5.4 The live stream</h2>
+<p>When <code>mqtt.py</code> stores a message it also hands a small <i>event</i> ({device, kind, time}) to the hub. Each browser holds one open request to <code>/api/stream</code>; the hub
+pushes the event as a line of text. A slow browser loses its oldest events instead of making the server grow (each queue holds 200). A keep-alive line every 15 s stops proxies closing the connection.
+A device going <i>offline</i> sends no message, so the web page also refreshes every 15 s.</p>
+
+<h2>5.5 Commands to a device</h2>
+<p>An admin can send a <b>control</b> command (<code>read</code>, <code>restart</code>, <code>restart_confirm</code>, <code>reset_metrics</code>) or a <b>config</b> change (up to 8 numeric settings, for example a new alarm limit).
+The cloud writes a row (<i>pending</i>), numbers it, and publishes it with that number as <code>req</code>. The device does the work and answers with the same <code>req</code>; the cloud updates the row to
+<i>applied</i>, <i>accepted</i> or <i>rejected</i> with a reason. No answer in 60 s shows as <i>timeout</i>, but a command sent to an offline device is still delivered later (QoS 1), and the row then moves to the real result.
+Whether a value is acceptable is the device's decision; the cloud checks only the shape.</p>
+
+<h2>5.6 The OTA service</h2>
+<p>The cloud's side of a firmware update (chapter 10 explains the device's side). It has three parts: a <b>firmware store</b> (uploaded files kept under <code>/var/lib/iotcloud/images</code>, with a SHA-256 fingerprint in the <code>images</code> table),
+<b>jobs</b> (one row per update of one device: <i>sent → running → success / failed / rolled_back / rejected</i>, or <i>cancelled / expired</i>) and a <b>chunk server</b>. The device <i>pulls</i> the file: it asks "give me 1024 bytes from offset N of slot B", and the backend answers with exactly those bytes.
+Pulling means the device sets the pace, can resume after an interruption, and the cloud holds no per-device connection.</p>
+<ul>
+  <li>One update per device at a time. A job with no sign of life for 10 minutes no longer blocks a new one: it is marked <i>expired</i> when the next job is started.</li>
+  <li>Cancel only stops serving chunks; the device gives up by its own timeout, because the protocol has no abort message.</li>
+  <li>The cloud does <i>not</i> judge the image. The device verifies the signature, so a bad image just comes back as a <i>failed</i> result.</li>
+</ul>
+
+<h2>5.7 Login, roles and sessions</h2>
+<ul>
+  <li>Accounts are made <b>on the Pi</b> with <code>iotcloud-admin add-user NAME --role admin|viewer</code>. There is no sign-up and no "forgot password" over the web, so nothing there can be attacked.</li>
+  <li>Two roles, decided by the HTTP method: a <b>viewer</b> may only read (GET); an <b>admin</b> may also change things (POST, PUT, DELETE: commands, uploads, OTA, channels).</li>
+  <li>Passwords (at least 10 characters) are stored as <b>scrypt</b> hashes. Five wrong attempts lock that user name for a minute.</li>
+  <li>A login creates a random token in an <b>HttpOnly, SameSite=Strict, Secure</b> cookie (scripts cannot read it; other sites cannot make the browser send it; it never travels over plain http). The database keeps only the token's SHA-256, so a copy of the database gives no working session. Sessions last 7 days; a password change ends them.</li>
+  <li>Every write also checks that the request comes from the same site (the <code>Origin</code> header), on top of the cookie rule.</li>
+</ul>
+
+<h2>5.8 Alerts</h2>
+<p>An <b>alert channel</b> is a destination: <b>ntfy</b> (push to the phone app), a <b>webhook</b> (an HTTP POST signed with a shared secret) or <b>e-mail</b>. Each channel lists the events it wants: alarm raised, alarm cleared, device offline, device back, OTA result.
+Sending happens on a separate worker thread with three tries (so a slow mail server cannot delay the next reading), and a channel is cut off after 20 messages in a minute so a fault storm cannot flood a phone.
+"Device offline" has no message to react to, so a watcher thread compares each device's last message with the 150-second online window and tells once when it goes quiet and once when it returns; the state is stored, so a restart does not repeat it.
+Secrets (tokens, passwords) are kept in the database and never shown again by the API. Every attempt is recorded in a log page ("What was sent").</p>
+<figure style="break-inside: avoid">
+  <img src="diagrams/seq_alarm.svg" alt="Alarm sequence" style="max-width: 100%">
+  <figcaption>Figure 4. From an alarm on the Gateway to a notification on the phone.</figcaption>
+</figure>
+
+<h2>5.9 The web app</h2>
+<p>A single-page app written in <b>Svelte 5</b> and built by <b>Vite</b> into plain files. The backend serves those files at <code>/</code>; there is no separate web server for the app. Chapter 6 describes its structure.
+The device page has six tabs: <b>Overview</b> (latest values, active alarms, health counters), <b>Charts</b> (both boards on the same axes), <b>Alarms</b>, <b>Commands</b>, <b>Firmware</b> (upload, start an update, progress bar) and <b>Downloads</b> (CSV or JSON of readings, health, alarms or events). A separate <b>Alerts</b> page manages channels.</p>
+
+<h2>5.10 Deployment on the Pi: Caddy, systemd, installer</h2>
+<ul>
+  <li><b>Caddy</b> is the front door. It listens on port 443, speaks HTTPS to browsers, and passes requests to the backend on <code>127.0.0.1:8000</code>. For the name <code>envmon.lan</code> (which no public authority could certify) it acts as its own small CA; each browser imports Caddy's root certificate once. It also adds security headers and does not buffer the live stream.</li>
+  <li><b>systemd</b> runs the backend as the unprivileged user <code>iotcloud</code>, restarts it on failure, makes the system read-only to it except <code>/var/lib/iotcloud</code>, and stops it within 5 seconds (<code>--timeout-graceful-shutdown 5</code>, so open live streams do not delay a restart).</li>
+  <li><code>build-bundle.sh</code> packs backend, web app, unit, Caddyfile and installer into one tarball; <code>install.sh</code> on the Pi installs or <i>upgrades</i> (data, users and settings stay) and creates the <code>iotcloud-admin</code> helper.</li>
+  <li>The Pi kernel boots with <code>cgroup_disable=memory</code>, so the unit's 300 MB limit is not enforced (the service uses about 60 MB). Noted, not changed.</li>
+</ul>
+
+<h2>5.11 The simulator and the dev stack</h2>
+<p><code>sim/device_sim.py</code> publishes telemetry, health and alarms in the firmware's schema, answers commands, and even performs a fake OTA (<code>--ota-fail</code> makes it fail). <code>dev/run-local.sh --sim</code> starts a plain broker in Docker, the backend (login off, localhost only) and the simulator, so the whole web app can be tried on the PC at <code>http://127.0.0.1:8000</code>.
+The simulator never replaces a test with the real device; it exists so cloud work does not wait for the boards.</p>
+
+<!-- ============================ 6 ============================ -->
+<h1 id="c6">6. The back end and the front end: architecture</h1>
+<p>Two programs, one contract. The <b>back end</b> runs on the Pi and owns all data. The <b>front end</b> is a web page that runs in the browser and owns nothing: it shows what the back end says and asks it to do things.
+The next two pages draw them; this page explains the reasoning.</p>
+
+<h2>6.1 Back end: why this shape</h2>
+<ul>
+  <li><b>Three groups of threads share one database.</b> The MQTT thread writes what devices send; the API threads read it for the web page and, for commands and OTA, also publish to the broker; the alert threads work from a queue. One lock inside <code>db.py</code> keeps them from colliding (Figure 5).</li>
+  <li><b>Everything that arrives goes through <code>ingest.handle</code>.</b> One place decides what a message means, which makes it testable without a broker (47 tests, no network needed).</li>
+  <li><b>The MQTT thread never waits on slow things.</b> Alert sending is queued; the live hub drops old events rather than blocking.</li>
+  <li><b>The API is the only door for people.</b> The browser, a <code>curl</code> command and a script all use the same endpoints with the same login rules. With login off (development only), <code>http://127.0.0.1:8000/docs</code> lists every endpoint.</li>
+  <li><b>State lives in the database, not in memory.</b> Restarting the backend loses nothing except the login lockout counters and open streams.</li>
+</ul>
+
+<h2>6.2 Front end: how it works</h2>
+<ul>
+  <li><b>It is just files.</b> After <code>web/build.sh</code> (Vite, run in a <code>node:20-alpine</code> container) the result is <code>web/dist/</code>: one HTML page, one script, one stylesheet. The backend serves them; the Pi needs no Node (Figure 6).</li>
+  <li><b>The state is small.</b> <code>auth.svelte.js</code> holds who is signed in; <code>live.svelte.js</code> holds one <code>EventSource</code> connection (opened only while signed in) and a counter that goes up on every event. Screens watch the counter and reload what they show: that one idea replaces polling. Each screen fetches through <code>api.js</code>, a thin wrapper over <code>fetch</code> that turns a 401 into "back to the login screen".</li>
+  <li><b>Navigation is the address.</b> A link like <code>https://envmon.lan/#002d004f3442501020323848/Firmware</code> opens that device on that tab.</li>
+  <li><b>Roles are enforced on the server.</b> The page hides buttons a viewer cannot use, but even a hand-made request is refused (403).</li>
+  <li><b>No chart library.</b> <code>Chart.svelte</code> draws plain SVG lines, which keeps the download small for a Pi.</li>
+</ul>
+
+<section class="land">
+  <h2>Figure 5. Back-end architecture</h2>
+  <figure><img src="diagrams/backend.svg" alt="Backend architecture" style="max-height: 138mm"></figure>
+  <p class="small">Purple boxes are the backend's modules; green is the broker; orange is the browser. Dashed arrows publish to the broker. The "event" arrows are what feeds the live stream and the alerts.</p>
+</section>
+
+<section class="land">
+  <h2>Figure 6. Front-end architecture</h2>
+  <figure><img src="diagrams/frontend.svg" alt="Frontend architecture" style="max-height: 138mm"></figure>
+  <p class="small">Orange boxes are screens (<code>src/</code> and <code>src/tabs/</code>); grey boxes are shared helpers (<code>src/lib/</code>). Everything talks to the backend through <code>/api/*</code> and the live stream.</p>
+</section>
+
+<!-- ============================ 7 ============================ -->
+<h1 id="c7">7. The messages: what travels between device and cloud</h1>
+<p>All messages are JSON text, except the OTA data chunks. Each carries <code>schema_version</code> ("1.1"), <code>device_id</code>, <code>timestamp</code> and <code>sync_state</code> ("synchronised" or "unsynchronised"). The topic root is <code>iotmonitor</code>. The formats are defined by the firmware (<code>firmware/gateway/application/cloud_publisher/</code>) and the OTA wire contract by <code>docs/lld/application/update-service-lld.md</code> §6; a change on one side must be matched on the other, which is the main reason both live in one repository.</p>
+
+<table>
+  <tr><th style="width:36%">Topic</th><th style="width:9%">QoS</th><th>Direction and meaning</th></tr>
+  <tr><td><code>dt/iotmonitor/&lt;id&gt;/telemetry</code></td><td>0</td><td>device → cloud, every 60 s: sensor values of both boards</td></tr>
+  <tr><td><code>dt/iotmonitor/&lt;id&gt;/health</code></td><td>0</td><td>device → cloud, every 5 min: firmware version, uptime, reset cause, Modbus and MQTT counters, Wi-Fi signal, free memory, stack margins</td></tr>
+  <tr><td><code>dt/iotmonitor/&lt;id&gt;/alarms</code></td><td>1</td><td>device → cloud, on change: alarm raised (HIGH/LOW) or CLEAR, with value and limit</td></tr>
+  <tr><td><code>cmd/iotmonitor/&lt;id&gt;/config</code></td><td>1</td><td>cloud → device: <code>{"temp_alarm_high":3000,"req":5}</code></td></tr>
+  <tr><td><code>cmd/iotmonitor/&lt;id&gt;/control</code></td><td>1</td><td>cloud → device: <code>{"command":"read","req":7}</code></td></tr>
+  <tr><td><code>dt/iotmonitor/&lt;id&gt;/config/result</code>, <code>control/result</code></td><td>1</td><td>device → cloud: the answer, echoing <code>req</code></td></tr>
+  <tr><td><code>cmd/iotmonitor/&lt;id&gt;/ota</code></td><td>1</td><td>cloud → device: start an update <code>{"job":42,"size_a":N,"size_b":N}</code></td></tr>
+  <tr><td><code>dt/iotmonitor/&lt;id&gt;/ota/request</code></td><td>0</td><td>device → cloud: one per chunk <code>{"job":42,"slot":"B","offset":4096,"len":1024}</code></td></tr>
+  <tr><td><code>cmd/iotmonitor/&lt;id&gt;/ota/data</code></td><td>0</td><td>cloud → device, binary: job (4 bytes) + offset (4 bytes) + up to 1024 bytes of the file</td></tr>
+  <tr><td><code>dt/iotmonitor/&lt;id&gt;/ota/result</code></td><td>1</td><td>device → cloud: <code>accepted</code>, <code>rejected</code>, <code>failed</code>, <code>success</code>, <code>rolled_back</code> (+ reason, version, rollback count)</td></tr>
+</table>
+
+<h2>Example: a telemetry message (shortened)</h2>
+<pre><code>{ "schema_version": "1.1", "device_id": "002d004f3442501020323848",
+  "timestamp": 1794257541, "sync_state": "synchronised",
+  "temperature_deci_c": 256, "humidity_pct": 38, "pressure_hpa": 1010,
+  "accel_x_mg": ..., "gyro_x_mdps": ..., "mag_x_mgauss": ...,
+  "field_device": { "online": true, "temperature_deci_c": 220, "humidity_pct": 41, "pressure_hpa": 1014 } }</code></pre>
+<p class="small">Units are integers on purpose: tenths of °C, percent, hectopascal, milli-g, milli-degrees per second, milligauss.</p>
+
+<h2>Example: an alarm</h2>
+<pre><code>{ "schema_version": "1.1", "device_id": "...", "timestamp": ..., "sync_state": "synchronised",
+  "sensor_id": "temperature", "alarm_type": "HIGH", "measured_value_raw": 3120,
+  "threshold_value_raw": 3000, "source": "gateway" }     // source is "field_device" for the other board</code></pre>
+<p class="small">Alarm values keep each sensor's own fixed-point scale: temperature in hundredths of °C (3120 = 31.20 °C), humidity in hundredths of % and pressure in tenths of hPa (9552 = 955.2 hPa). The sensors are named <code>temperature</code>, <code>humidity</code> and <code>pressure</code>; the type is HIGH, LOW or CLEAR.</p>
+
+
+
+<!-- ============================ 8 ============================ -->
+<h1 id="c8">8. Security: who trusts whom</h1>
+<p>Three separate questions are answered by three separate mechanisms. Keeping them apart is the point.</p>
+<figure>
+  <img src="diagrams/trust.svg" alt="Trust diagram" style="max-width:66%">
+  <figcaption>Figure 7. Left: the certificate authority and what it signs. Middle: the access list. Right: two unrelated trust chains: firmware signing, and the web login.</figcaption>
+</figure>
+
+<table>
+  <tr><th style="width:24%">Question</th><th>Answer</th></tr>
+  <tr><td><b>Who is this device / program?</b></td><td>The certificate it shows to the broker, signed by our CA. The broker refuses anyone without one (no anonymous clients). Each device's name is its serial.</td></tr>
+  <tr><td><b>What may it do?</b></td><td>The access list, keyed by the certificate's name. A device can only write under its own serial and read only its own commands. A device cannot send commands, and cannot read another device's commands.</td></tr>
+  <tr><td><b>Is the firmware genuine?</b></td><td>The release signing key (ECDSA P-256) signs each image; the matching <i>public</i> key is built into the Gateway firmware and checks the signature before any update is installed. This is a different key from the CA key. A forged update command at worst starts a download that ends in <code>sig_invalid</code>.</td></tr>
+  <tr><td><b>Who is the person at the web page?</b></td><td>The login (5.7). Separate from every certificate above.</td></tr>
+  <tr><td><b>Is the web page the real one?</b></td><td>Caddy's certificate for <code>envmon.lan</code>, trusted because the browser imported Caddy's root once.</td></tr>
+  <tr><td><b>Can a lost device be shut out?</b></td><td><code>iotpki.py revoke &lt;serial&gt;</code> and refresh the revocation list on the broker.</td></tr>
+</table>
+
+<h2>The keys and what each one does</h2>
+<table>
+  <tr><th style="width:23%">Key</th><th>Where</th><th>If lost</th></tr>
+  <tr><td>CA private key</td><td><code>~/.iot-pki/ca/ca.key</code> on the PC, encrypted with a passphrase. Never copied to the Pi.</td><td>No new certificates can be issued; make a new CA and re-provision every device.</td></tr>
+  <tr><td>Device private key</td><td>In the Gateway's flash (CertStore), also in <code>~/.iot-pki/issued/&lt;serial&gt;/</code></td><td>Revoke the certificate and issue a new one.</td></tr>
+  <tr><td>Release signing key</td><td><code>~/keys/ota_release.pem</code> on the PC</td><td>No further OTA update can be signed. The board is not lost: it can still be flashed with a cable (readout protection is off).</td></tr>
+  <tr><td>Session secrets</td><td>Only hashes, in the database</td><td>-</td></tr>
+</table>
+<p class="small">A dated backup of the PKI folder and the signing key is kept in <code>/media/luca/Data/iot-backups/</code>; see chapter 11.</p>
+
+<!-- ============================ 9 ============================ -->
+<h1 id="c9">9. Workflow: set everything up from nothing</h1>
+<p>The order matters: identities first, then the places that check them, then the device.</p>
+
+<div class="two">
+  <figure><img src="diagrams/setup.svg" alt="Setup flow" style="width:100%"><figcaption>Figure 8. The nine steps.</figcaption></figure>
+  <div>
+<h3>Step 1-2 · Make the CA and the certificates (on the PC)</h3>
+<pre><code>export IOTPKI_CA_PASSPHRASE=...            # protects the CA key
+broker/iotpki.py init                      # once: creates the CA
+broker/iotpki.py server --san IP:192.168.0.209 --san DNS:envmon.lan \
+                        --san DNS:localhost --san IP:127.0.0.1
+broker/iotpki.py service iotcloud          # the backend's certificate
+broker/iotpki.py service ota-operator      # for the OTA tool
+broker/iotpki.py device 002d004f3442501020323848   # one per device</code></pre>
+<p class="small">The <code>--san</code> entries are the names and addresses the broker may be reached as. The device checks that the address it connects to is in this list.</p>
+
+<h3>Step 3 · Install the broker (on the Pi)</h3>
+<pre><code>broker/build-bundle.sh && scp broker/out/broker-bundle.tar.gz luca@192.168.0.209:
+# on the Pi:
+tar xzf broker-bundle.tar.gz &amp;&amp; cd broker-bundle &amp;&amp; sudo ./install-broker.sh --replace-bench
+# rollback if needed:  sudo ./install-broker.sh --rollback</code></pre>
+  </div>
+</div>
+
+<div class="callout warn"><b class="t">Read before step 3</b>
+  <code>--replace-bench</code> removes the old bench configuration. From then on only certificates from the new CA work: the Gateway and every script that
+  connected to that broker need new certificates. Do it when nothing else is using the Pi.</div>
+
+<h3>Step 4-5 · Install the cloud and create a login</h3>
+<pre><code>cloud/web/build.sh                         # builds the web app in a container
+cloud/deploy/build-bundle.sh
+scp cloud/deploy/out/iotcloud-bundle.tar.gz luca@192.168.0.209:
+# on the Pi:
+tar xzf iotcloud-bundle.tar.gz &amp;&amp; cd iotcloud-bundle &amp;&amp; sudo ./install.sh
+sudo iotcloud-admin add-user luca --role admin     # asks for a password (10+ characters)</code></pre>
+
+<h3>Step 6 · Give the backend its identity</h3>
+<pre><code>sudo install -o root -g iotcloud -m 0640 ca.crt iotcloud.crt iotcloud.key /etc/iotcloud/certs/
+sudo nano /etc/iotcloud/iotcloud.env        # broker host/port and the three certificate paths
+sudo systemctl restart iotcloud
+journalctl -u iotcloud -n 20                # "connected to the broker: Success"</code></pre>
+<p>If a certificate file is missing the service still starts (the web app and stored data work, commands answer 503) and the log names the missing file.</p>
+
+<h3>Step 7-8 · Provision the device and reset it</h3>
+<p>The Gateway's console is a serial port (460800 baud). <code>provision_device.py</code> types the console's <code>prov</code> commands for you: it converts the PEM files to the binary form the device stores, sends them in small acknowledged chunks, and checks each step.</p>
+<pre><code>scripts/provision_device.py --port /dev/ttyACM0 --ssid MyWifi --password '...' \
+    --ca ca.crt --cert 002d004f3442501020323848.crt --key 002d004f3442501020323848.key \
+    --endpoint 192.168.0.209
+scripts/provision_device.py --port /dev/ttyACM0 --status      # what is stored</code></pre>
+<div class="callout warn"><b class="t">The trap that costs an hour</b>
+  The Gateway reads its certificates and endpoint <b>only at boot</b>. After provisioning, reset the board. Until then it keeps using the old identity, and the broker log shows
+  <code>unknown ca</code> or <code>unexpected eof</code> although everything stored is correct.</div>
+<ul>
+  <li>The Wi-Fi must be a <b>2.4 GHz</b> network (the module cannot use 5 GHz).</li>
+  <li>The Gateway's certificate and the Wi-Fi settings are stored in the external flash (CertStore) and survive firmware updates.</li>
+</ul>
+
+<h3>Step 9 · Check it end to end</h3>
+<ol>
+  <li><b>Broker:</b> <code>sudo tail /var/log/mosquitto/mosquitto.log</code> shows <code>New client connected … as 002d004f3442501020323848</code>.</li>
+  <li><b>Backend:</b> <code>curl -s localhost:8000/api/healthz</code> on the Pi returns <code>{"ok":true}</code>.</li>
+  <li><b>Web app:</b> sign in at <code>https://envmon.lan/</code>; the Gateway appears in the side bar within a minute (first telemetry), with a green dot.</li>
+  <li><b>Round trip:</b> on the Commands tab press <b>Read</b>; the row should turn to <i>accepted</i> within seconds. This proves the whole path in both directions through the access list.</li>
+</ol>
+
+<h3>Adding a second device later</h3>
+<p>Issue a certificate with <code>iotpki.py device &lt;serial&gt;</code> (the serial is shown by the device's console), run <code>provision_device.py</code> for it, reset it. Nothing changes on the broker or the cloud: the access list is written in terms of "its own serial", so a new device is covered automatically, and the cloud registers it when it first hears from it.</p>
+
+<!-- ============================ 10 ============================ -->
+<h1 id="c10">10. Workflow: sign a firmware and deploy it with OTA</h1>
+
+<h2>10.1 Why it is built this way</h2>
+<p>A failed firmware update can leave a board unusable and out of reach. Three rules prevent that: <b>(1)</b> never write over the running image, <b>(2)</b> install only an image whose signature proves it comes from us, and <b>(3)</b> let the new image <i>earn</i> trust by passing a self-check, and return to the old one if it does not.
+Two consequences shape the file format:</p>
+<ul>
+  <li><b>Two images per release.</b> The Gateway's processor has two flash banks, and it can run code from one while writing the other. The code is not position-independent, so one release is linked twice: once for Slot A (bank 1, <code>0x0800_6000</code>) and once for Slot B (bank 2, <code>0x0808_0000</code>). The device uses whichever one it is <i>not</i> running from. Both are uploaded; the device asks for the right one.</li>
+  <li><b>A signed header.</b> Each file starts with a 128-byte header: a magic number, the version (major·minor·patch), the length, the address it was linked for, the SHA-256 of the body, and a 64-byte ECDSA-P256 signature over all of that. The body is authenticated through the header.</li>
+</ul>
+
+<h2>10.2 Prepare once: the signing key</h2>
+<pre><code>tools/ota/make_image.py genkey --private ~/keys/ota_release.pem
+#   writes the private key outside git and rewrites firmware_store/ota_public_key.c</code></pre>
+<p><code>ota_public_key.c</code> is committed as an <b>all-zero placeholder</b> (not a valid point on the curve), so a fresh build can verify nothing and <i>fails closed</i>; a unit test insists on it. For a release you copy the real public half in, build, and <code>git checkout</code> the file again. <code>build-release.sh</code> refuses to build when the file is not the public half of the key you pass.</p>
+
+<h2>10.3 Build and sign both images</h2>
+<pre><code>scripts/build-bootloader.sh /tmp/bl                       # once per board: /tmp/bl/bootloader.elf
+scripts/build-release.sh --version 1.0.1 --private ~/keys/ota_release.pem --out ~/rel/1.0.1
+#   links for Slot A and Slot B, signs both, writes the Slot-A descriptor
+#   output: gateway_slot_a.ota  gateway_slot_b.ota  (+ .bin, .elf, desc_a.bin)</code></pre>
+<p>The version lives in the signed header. Two releases with identical code but different versions (1.0.0 and 1.0.1) are a good way to test the update path itself without a code change adding its own risks.</p>
+
+<h2>10.4 First time only: put the bootloader and a first signed image on the board with a cable</h2>
+<p>A board that has never run from a slot cannot update itself. The first image is flashed with the programmer (openocd): the bootloader, then the Slot-A image and its descriptor. After that every update is over the air.</p>
+<pre><code>scripts/build-release.sh --flash-only --out ~/rel/1.0.0 --bootloader /tmp/bl/bootloader.elf
+# expect on the console at boot:  BL in=0 out=1 bank=A gen=1 ... ver=0x01000000   BL run 0x08006000
+# and NO message "not running from a slot: OTA disabled"</code></pre>
+<p class="small">On this bench the boards are plugged into the Pi, so the same openocd steps were run there (programming <code>bootloader.elf</code>, erasing the 8 KB metadata area, programming Slot A at <code>0x08006000</code> and its descriptor at <code>0x08005000</code>). The result is identical.</p>
+
+<h2>10.5 Deploy through the cloud</h2>
+<ol>
+  <li>In the web app open the device, tab <b>Firmware</b>. Upload <code>gateway_slot_a.ota</code> and <code>gateway_slot_b.ota</code> (they appear in the image list with their SHA-256).</li>
+  <li>Choose the two files and press <b>Start update</b>. The cloud creates a job and publishes the start command.</li>
+  <li>Watch the progress bar (it follows the device's chunk requests). The state goes <i>sent → running → success</i>.</li>
+</ol>
+<p>The same from the command line (the browser does exactly this):</p>
+<pre><code>curl -X PUT --data-binary @gateway_slot_a.ota  https://envmon.lan/api/images/a.ota     # (with the session cookie)
+curl -X PUT --data-binary @gateway_slot_b.ota  https://envmon.lan/api/images/b.ota
+curl -X POST https://envmon.lan/api/devices/002d004f3442501020323848/ota -d '{"image_a":"a.ota","image_b":"b.ota"}'
+curl https://envmon.lan/api/devices/002d004f3442501020323848/ota                          # job state</code></pre>
+<p>Or without the cloud's web app, with the stand-alone operator tool (this is how the real Gateway was updated on 2026-11-09):</p>
+<pre><code>scripts/ota_server.py --host envmon.lan --device-id 002d004f3442501020323848 \
+    --cafile ~/.iot-pki/issued/ota-operator/ca.crt --cert ~/.iot-pki/issued/ota-operator/ota-operator.crt \
+    --key ~/.iot-pki/issued/ota-operator/ota-operator.key \
+    --image-a ~/rel/1.0.1/gateway_slot_a.ota --image-b ~/rel/1.0.1/gateway_slot_b.ota --job 1109 --expect success</code></pre>
+<p>Use a new <code>--job</code> number each time; sending the same number again <i>resumes</i> an interrupted download.</p>
+
+<section class="land">
+  <h2>10.6 What happens, step by step</h2>
+  <figure><img src="diagrams/seq_ota.svg" alt="OTA sequence" style="max-height: 150mm"></figure>
+  <p class="small">The download is slow on purpose: one 1 KB request/answer per round trip over a Wi-Fi module that is not fast. On the real Gateway it ran at about 2.3 KiB/s (about 2.5 minutes for a 338 KB image).</p>
+</section>
+
+<h2>10.7 On the Gateway: the same story in six stages</h2>
+<ol>
+  <li><b>Accept.</b> The command is checked (right size, not busy, ready). The Gateway answers <code>accepted</code> or <code>rejected</code> with a reason.</li>
+  <li><b>Download</b> into the <b>staging area</b> of the external flash, never into the running bank. A power cut here costs only the download, and it can resume.</li>
+  <li><b>Verify:</b> header fields, SHA-256 of the body, and the ECDSA signature against the public key built into the firmware. Any failure ends the update with a reason (<code>sig_invalid</code>, <code>hash_mismatch</code>, <code>wrong_slot</code>, …) and changes nothing.</li>
+  <li><b>Install</b> the verified image into the bank it is not running from, 2 KB at a time, and write its descriptor. Then <i>arm</i> it (boot state <code>TRIAL_PENDING</code>) and reset.</li>
+  <li><b>Trial boot.</b> The bootloader sees the armed image, marks it <code>TRIAL_RUNNING</code> and starts it.</li>
+  <li><b>Self-check.</b> The new firmware must show that sensors are ready, the Modbus link is ready, and the cloud connection is up, within a time limit. Pass: it <b>confirms</b> itself and only then reports <code>success</code>. Fail, crash, watchdog or power loss before confirming: the bootloader restores the previous bank at the next boot, and that image reports <code>rolled_back</code>.</li>
+</ol>
+
+<div class="two">
+<figure><img src="diagrams/bootstate.svg" alt="Boot state machine" style="width:100%"><figcaption>Figure 9. The boot state kept in the metadata area.</figcaption></figure>
+<figure><img src="diagrams/ota_pipeline.svg" alt="OTA pipeline" style="width:100%"><figcaption>Figure 10. The pipeline from the operator's PC to a confirmed image.</figcaption></figure>
+</div>
+<style>.two:has(img[alt="Boot state machine"]) { grid-template-columns: 0.85fr 1.15fr; }</style>
+
+<figure>
+  <img src="diagrams/flash.svg" alt="Flash layout" style="max-width:92%">
+  <figcaption>Figure 11. Where everything lives. The download lands in the QSPI staging area, is verified there, and is copied into the bank that is not running.</figcaption>
+</figure>
+
+<div style="break-inside: avoid">
+<h2>10.8 When it goes wrong</h2>
+<table>
+  <tr><th style="width:21%">Result / reason</th><th>Meaning</th><th style="width:32%">What to do</th></tr>
+  <tr><td><code>rejected</code> (<code>busy</code>, <code>not_ota_capable</code>, <code>not_ready</code>, <code>bad_command</code>)</td><td>The device refused to start. <code>not_ota_capable</code>: it is not running from a slot (flash it once with a cable, 10.4).</td><td>Fix the cause, start a new job.</td></tr>
+  <tr><td><code>failed</code> <code>download_failed</code>, <code>stalled</code>, <code>start_timeout</code></td><td>The link dropped or the cloud stopped answering.</td><td>Check broker and Wi-Fi; send the same job again to resume.</td></tr>
+  <tr><td><code>failed</code> <code>sig_invalid</code>, <code>hash_mismatch</code>, <code>bad_header</code>, <code>wrong_slot</code>, <code>too_large</code></td><td>The file is not one this device will accept: signed with another key, damaged, built for the wrong slot, or larger than a slot (480 KB).</td><td>Rebuild with the right key and both slots; check that the public key in the firmware matches.</td></tr>
+  <tr><td><code>failed</code> <code>install_failed</code>, <code>activate_failed</code></td><td>The flash write did not verify (retried once).</td><td>Retry; if it repeats, suspect the board's flash.</td></tr>
+  <tr><td><code>rolled_back</code> (reason <code>rollback</code>)</td><td>The new image booted but failed its self-check, or crashed. The old one runs again. The reason cannot tell the two apart; the failed image's own log has the detail.</td><td>Look at the console log of the failed run; fix and release a new version.</td></tr>
+  <tr><td>no result at all</td><td>A power cut between steps can lose the report. The cloud still learns the truth from the <code>fw_version</code> in the next health message.</td><td>Check the version shown in the web app.</td></tr>
+</table>
+
+</div>
+
+<h2>10.9 A real run: 2026-11-09</h2>
+<table>
+  <tr><th style="width:30%">Step</th><th>Result</th></tr>
+  <tr><td>Cable flash</td><td>Bootloader + signed 1.0.0 programmed and verified; console showed <code>BL run 0x08006000</code>, no "OTA disabled".</td></tr>
+  <tr><td>Update 1.0.0 → 1.0.1</td><td>Accepted; 338 chunks, 345,688 bytes in 145.8 s (2.3 KiB/s); <code>success</code>, version 1.0.1, 0 rollbacks. After a reset the bootloader ran <code>bank=B gen=4 ver=0x01000001</code> at <code>0x08080000</code>. The cloud showed firmware 1.0.1.</td></tr>
+  <tr><td>Update to a deliberately failing 1.0.2</td><td>The trial image booted (<code>bank=A gen=6 ver=0x01000002</code>), its self-check failed, and the next boot was <code>bank=B gen=7 rb=1 ver=0x01000001</code>: back on 1.0.1. Result <code>rolled_back</code>, rollbacks 1.</td></tr>
+</table>
+<p class="small">Both used the command-line operator tool. The cloud's own Firmware tab speaks the same messages and is covered by tests and the simulator, but has not yet been used against the real Gateway.</p>
+
+<!-- ============================ 11 ============================ -->
+<h1 id="c11">11. Day-to-day: operate, back up, troubleshoot</h1>
+
+<h2>11.1 Routine tasks</h2>
+<table>
+  <tr><th style="width:30%">Task</th><th>How</th></tr>
+  <tr><td>Look at the service</td><td><code>systemctl status iotcloud</code> · <code>journalctl -u iotcloud -f</code> · <code>curl -s localhost:8000/api/healthz</code></td></tr>
+  <tr><td>Users</td><td><code>sudo iotcloud-admin list | add-user NAME --role admin|viewer | set-password NAME | delete-user NAME</code> (needs a real terminal for the password prompt)</td></tr>
+  <tr><td>Upgrade the cloud</td><td>Build a new bundle (<code>cloud/deploy/build-bundle.sh</code>), copy it, run <code>sudo ./install.sh</code> again. Data, users, images and settings stay. Back up the database first.</td></tr>
+  <tr><td>Back up the database</td><td>It is one file in WAL mode; copy it safely with SQLite's backup call (Python: <code>sqlite3.connect(src).backup(dst)</code>) or <code>sqlite3 FILE ".backup /tmp/x"</code>. Also keep <code>/var/lib/iotcloud/images</code> and <code>/etc/iotcloud</code>.</td></tr>
+  <tr><td>Back up the keys</td><td>Copy <code>~/.iot-pki</code> (CA key is encrypted) and <code>~/keys/ota_release.pem</code>. Store the CA passphrase in a password manager. A dated copy was made on 2026-11-09 to <code>/media/luca/Data/iot-backups/2026-11-09/</code> (same disk, other partition: copy it to a USB stick for disk failure).</td></tr>
+  <tr><td>Download data</td><td>Device page → <b>Downloads</b>, or <code>/api/devices/&lt;id&gt;/export?kind=telemetry&amp;format=csv</code> (kinds: telemetry, health, alarms, events).</td></tr>
+  <tr><td>Alerts to a phone</td><td>Alerts page → add channel → <b>Test</b>. For ntfy: install the app, subscribe to the same server and a long random topic.</td></tr>
+  <tr><td>Try without hardware</td><td><code>cloud/dev/run-local.sh --sim</code>, then open <code>http://127.0.0.1:8000</code>.</td></tr>
+</table>
+
+<h2>11.2 Troubleshooting: symptom → cause</h2>
+<table>
+  <tr><th style="width:33%">You see</th><th>Likely cause and fix</th></tr>
+  <tr><td>Broker log: <code>tlsv1 alert unknown ca</code> from the device</td><td>The device does not trust the broker's CA: it still has the old CA. Provision the new CA, then <b>reset the board</b>.</td></tr>
+  <tr><td>Broker log: <code>unexpected eof while reading</code>, repeating every minute</td><td>The device closed during the handshake: usually it has not reloaded its certificates. Reset it. (A certificate that does not match the endpoint name is the other cause.)</td></tr>
+  <tr><td>Web app shows "login required" / back to login</td><td>The session ended (7 days, or a password change). Sign in again.</td></tr>
+  <tr><td>Commands answer <b>503</b>, no new data</td><td>The backend is not connected to the broker. <code>journalctl -u iotcloud -n 20</code> names the missing or wrong certificate file or setting.</td></tr>
+  <tr><td>A device shows <i>offline</i> but is running</td><td>No message for 150 s. Check Wi-Fi (2.4 GHz only), the broker log, and that the endpoint stored on the device is reachable.</td></tr>
+  <tr><td>Command stays <i>pending</i> then <i>timeout</i></td><td>The device is offline or busy. QoS 1 delivers it when the device returns; the row then updates.</td></tr>
+  <tr><td>Alert log says <code>HTTP Error 401: Unauthorized</code> (ntfy)</td><td>The channel's token is not accepted by the server. A real ntfy access token starts with <code>tk_</code>; or use no token with a long random topic.</td></tr>
+  <tr><td>Restart of the backend takes 90 s</td><td>Fixed: the unit now stops open live streams after 5 s. If it returns, check the unit has <code>--timeout-graceful-shutdown 5</code>.</td></tr>
+  <tr><td>Firmware version in the web app briefly goes back</td><td>Fixed: an older replayed health message no longer overwrites newer information.</td></tr>
+  <tr><td>OTA ends <code>rejected</code> / <code>not_ota_capable</code></td><td>The board is not running from a slot. Flash the bootloader and a signed image with a cable once (10.4).</td></tr>
+  <tr><td>Field Device pressure looks odd</td><td>It is simulated (see chapter 4). Only the Gateway's pressure is a real measurement.</td></tr>
+</table>
+
+<h2>11.3 Safety nets worth remembering</h2>
+<ul>
+  <li>The broker installer restores the old configuration by itself if Mosquitto will not start, and <code>--rollback</code> restores it on request.</li>
+  <li>A bad firmware cannot take the Gateway out of service: it returns to the previous image. A board is never lost to a bad update; a cable and a programmer can always reflash it.</li>
+  <li>A backend crash loses nothing: devices' QoS 1 messages wait in the broker (persistent session) and the data is in the database.</li>
+</ul>
+
+<!-- ============================ 12 ============================ -->
+<h1 id="c12">12. Status and honest limits</h1>
+
+<h2>Proven on the real boards (2026-11-09)</h2>
+<ul>
+  <li>Gateway and Field Device running together, data reaching the web app through the secured broker with certificates from our own CA.</li>
+  <li>A command from the web app ("Read") reaching the Gateway and its answer returning.</li>
+  <li>Real OTA: update 1.0.0 → 1.0.1 and a forced rollback, both through the new broker, with the signing key made on this PC.</li>
+  <li>An 8-hour endurance run on the Pi passed earlier (no reset of either board, no MQTT publish failures).</li>
+</ul>
+
+<h2>Not proven, or known limits</h2>
+<table>
+  <tr><th style="width:30%">Item</th><th>State</th></tr>
+  <tr><td>The cloud's own OTA endpoint on the real Gateway</td><td>Tested by unit tests and the simulator; the real runs used the command-line tool. The messages are identical.</td></tr>
+  <tr><td>Device logs in the cloud</td><td>The firmware publishes no log messages today (logs leave only on the serial console). The "logs" you can download are readings, health, alarms, command and OTA results. Real device logs need a firmware feature (a decision still open).</td></tr>
+  <tr><td>Phone alerts</td><td>The channel exists and the chain is tested against a local ntfy; the configured channel on the Pi currently fails with 401 (wrong token), to be fixed.</td></tr>
+  <tr><td>RS-485 bus errors</td><td>About 0.77 % timeouts and CRC errors on the Gateway–Field Device cable during the endurance run, inside the 1 % limit; wiring and termination should be checked at the boards.</td></tr>
+  <tr><td>One update at a time, no abort</td><td>By design of the OTA protocol.</td></tr>
+  <tr><td>Rate limiting</td><td>Only logins are limited. The API is meant for a home network behind a VPN, not the open internet; nothing opens a port to the internet.</td></tr>
+  <tr><td>Memory limit on the Pi</td><td>The systemd memory cap is not enforced (kernel setting); the service uses about 60 MB.</td></tr>
+  <tr><td>Backups</td><td>One copy on the PC's second partition. A copy on another device is advisable.</td></tr>
+</table>
+
+<h2>If you want to go deeper</h2>
+<table>
+  <tr><th style="width:38%">Topic</th><th>Where</th></tr>
+  <tr><td>Why each design choice was made</td><td><code>cloud/DECISIONS.md</code></td></tr>
+  <tr><td>Deployment details and the first-install story</td><td><code>cloud/deploy/README.md</code></td></tr>
+  <tr><td>The CA, the access list, revocation, what was tested</td><td><code>broker/README.md</code></td></tr>
+  <tr><td>The OTA wire contract, the update state machine, the bench procedure TC-SYS-OTA-001..005</td><td><code>docs/lld/application/update-service-lld.md</code></td></tr>
+  <tr><td>Image format, flash regions, bootloader contract</td><td><code>docs/lld/middleware/firmware-store.md</code>, <code>docs/hld/flash-partition-layout.md</code></td></tr>
+  <tr><td>Signing tools</td><td><code>tools/ota/README.md</code></td></tr>
+</table>
+
+<!-- ============================ A ============================ -->
+<h1 id="appA">Appendix A. Reference</h1>
+
+<h2>A.1 Settings of the backend (environment variables, file <code>/etc/iotcloud/iotcloud.env</code>)</h2>
+<table>
+  <tr><th style="width:34%">Variable</th><th style="width:22%">Default / on the Pi</th><th>Meaning</th></tr>
+  <tr><td><code>IOTCLOUD_DB</code></td><td><code>/var/lib/iotcloud/iotcloud.sqlite3</code></td><td>the database file</td></tr>
+  <tr><td><code>IOTCLOUD_IMAGE_DIR</code></td><td><code>/var/lib/iotcloud/images</code></td><td>uploaded firmware files</td></tr>
+  <tr><td><code>IOTCLOUD_WEB_DIR</code></td><td><code>/opt/iotcloud/web</code></td><td>the built web app</td></tr>
+  <tr><td><code>IOTCLOUD_AUTH</code></td><td><code>on</code></td><td>login required (off only for the localhost dev stack)</td></tr>
+  <tr><td><code>IOTCLOUD_COOKIE_SECURE</code></td><td><code>on</code></td><td>cookie never sent over plain http (needed behind HTTPS)</td></tr>
+  <tr><td><code>IOTCLOUD_MQTT_HOST</code> / <code>_PORT</code></td><td><code>127.0.0.1</code> / <code>8883</code></td><td>the broker (1883 for a plain local broker)</td></tr>
+  <tr><td><code>IOTCLOUD_MQTT_CA</code>, <code>_CERT</code>, <code>_KEY</code></td><td><code>/etc/iotcloud/certs/…</code></td><td>the backend's identity for mutual TLS: all three or none</td></tr>
+  <tr><td><code>IOTCLOUD_TOPIC_ROOT</code></td><td><code>iotmonitor</code></td><td>first part of every topic</td></tr>
+  <tr><td><code>IOTCLOUD_ONLINE_WINDOW_S</code></td><td><code>150</code></td><td>a device is online while its last message is younger than this</td></tr>
+  <tr><td><code>IOTCLOUD_COMMAND_TIMEOUT_S</code></td><td><code>60</code></td><td>after this a pending command shows as timeout</td></tr>
+</table>
+
+<h2>A.2 The API (all under <code>/api</code>; a signed-in user for reads, an admin for changes)</h2>
+<table>
+  <tr><th style="width:36%">Endpoint</th><th>What it does</th></tr>
+  <tr><td><code>POST /auth/login</code>, <code>/auth/logout</code>, <code>GET /auth/me</code></td><td>session handling (login and healthz are open)</td></tr>
+  <tr><td><code>GET /healthz</code></td><td>is the service alive</td></tr>
+  <tr><td><code>GET /devices</code>, <code>/devices/{id}</code></td><td>list, and one device with latest values, health, active alarms, online flag</td></tr>
+  <tr><td><code>GET /devices/{id}/telemetry | health | alarms | events</code></td><td>history; query <code>since</code>, <code>until</code>, <code>limit</code></td></tr>
+  <tr><td><code>GET /devices/{id}/export?kind=…&amp;format=csv|json</code></td><td>download (kinds: telemetry, health, alarms, events)</td></tr>
+  <tr><td><code>POST /devices/{id}/config</code>, <code>/control</code></td><td>send a command (returns 202 and the command row)</td></tr>
+  <tr><td><code>GET /devices/{id}/commands</code>, <code>/commands/{id}</code></td><td>commands and their status</td></tr>
+  <tr><td><code>GET /images</code>, <code>PUT /images/{name}</code>, <code>DELETE /images/{name}</code></td><td>firmware store</td></tr>
+  <tr><td><code>POST /devices/{id}/ota</code>, <code>GET /devices/{id}/ota</code>, <code>GET /ota/{job}</code>, <code>POST /ota/{job}/cancel</code></td><td>start, follow and cancel an update</td></tr>
+  <tr><td><code>GET/POST /notify/channels</code>, <code>PUT/DELETE …/{id}</code>, <code>POST …/{id}/test</code>, <code>GET /notify/events</code>, <code>/notify/log</code></td><td>alert channels and their log</td></tr>
+  <tr><td><code>GET /stream</code></td><td>live events (server-sent events)</td></tr>
+</table>
+
+<h2>A.3 The files of <code>cloud/</code></h2>
+<pre><code>cloud/
+  README.md  DECISIONS.md
+  backend/iotcloud/   __init__ admin api auth commands config db ingest live mqtt notify ota
+  backend/tests/      conftest test_api test_auth test_commands_ota test_ingest test_notify
+  web/                build.sh package.json vite.config.js index.html
+  web/src/            App Login Alerts DeviceView (.svelte)  app.css  main.js
+  web/src/lib/        api.js  live.svelte.js  auth.svelte.js  Chart.svelte
+  web/src/tabs/       Overview Charts Alarms Commands Firmware Downloads (.svelte)
+  sim/                device_sim.py
+  dev/                run-local.sh  test-alerts.sh  mosquitto-dev.conf
+  deploy/             build-bundle.sh install.sh test-install.sh iotcloud.service Caddyfile
+                      iotcloud.env.example requirements.lock README.md
+  doc/                this guide: Cloud-Guide.pdf and src/ (the scripts that rebuild it)</code></pre>
+
+<h2>A.4 Rebuilding this guide</h2>
+<pre><code>cloud/doc/src/build.sh        # draws the diagrams (Graphviz) and prints guide.html to Cloud-Guide.pdf (headless Chrome)</code></pre>
+
+</body>
+</html>
