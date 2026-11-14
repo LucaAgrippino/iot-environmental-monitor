@@ -91,6 +91,36 @@ def test_lockout_after_repeated_failures(app_client):
     assert login(c).status_code == 429  # even the right password waits
 
 
+def login_from(c, address, user="luca", pw=PW):
+    return c.post("/api/auth/login", json={"username": user, "password": pw}, headers={"x-forwarded-for": address})
+
+
+def test_a_lockout_applies_to_the_address_that_guessed_not_to_the_user_everywhere(app_client):
+    """Security review S-7: someone on the LAN who keeps guessing the admin's password no longer locks the admin out at another address."""
+    c, _, _ = app_client
+    for _ in range(auth.MAX_FAILS):
+        assert login_from(c, "192.168.0.50", pw="wrong password!").status_code == 401
+    assert login_from(c, "192.168.0.50").status_code == 429  # the guesser is locked out, even with the right password
+    assert login_from(c, "192.168.0.60").status_code == 200  # the admin at another address is not
+
+
+def test_one_address_trying_many_user_names_is_stopped_as_a_whole(app_client):
+    c, _, _ = app_client
+    for i in range(auth.MAX_FAILS_PER_CLIENT):
+        assert login_from(c, "192.168.0.70", user=f"nobody{i}", pw="wrong password!").status_code == 401
+    assert login_from(c, "192.168.0.70", user="luca").status_code == 429  # a new name does not help, nor the right password
+    assert login_from(c, "192.168.0.71", user="luca").status_code == 200
+
+
+def test_the_generated_documentation_pages_are_not_served(app_client):
+    """Security review S-3: /docs, /redoc and /openapi.json were reachable without a login and listed every endpoint."""
+    c, _, _ = app_client
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert c.get(path).status_code == 404, path
+        assert login(c).status_code == 200
+        assert c.get(path).status_code == 404, path  # also with a session
+
+
 def test_new_password_ends_old_sessions_and_database_holds_no_token(app_client):
     c, _, db = app_client
     token = login(c).cookies.get("session") or c.cookies.get("session")

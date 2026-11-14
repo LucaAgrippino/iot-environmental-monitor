@@ -18,8 +18,10 @@ SESSION_TTL_S = 7 * 24 * 3600
 MIN_PASSWORD = 10
 SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 
-# A failed login costs the next attempt more and more time (per user name, in memory).
+# Failed logins are counted in memory per user name AND client address, and per address alone: someone who keeps guessing the admin's
+# password from one machine locks only that machine out of that account, not the admin at another address (security review S-7).
 MAX_FAILS, LOCK_S, WINDOW_S = 5, 60, 300
+MAX_FAILS_PER_CLIENT = 20  # failures from one address, any user name, inside WINDOW_S
 _fails: dict[str, list[float]] = {}
 
 
@@ -72,24 +74,27 @@ def list_users(db):
     return db.query("SELECT name, role, created FROM users ORDER BY name")
 
 
-def _locked(name: str, now: float) -> bool:
-    recent = [t for t in _fails.get(name, []) if now - t < WINDOW_S]
-    _fails[name] = recent
-    return len(recent) >= MAX_FAILS and now - recent[-1] < LOCK_S
+def _locked(key: str, limit: int, now: float) -> bool:
+    recent = [t for t in _fails.get(key, []) if now - t < WINDOW_S]
+    _fails[key] = recent
+    return len(recent) >= limit and now - recent[-1] < LOCK_S
 
 
-def login(db, name: str, password: str, now: float | None = None):
-    """Returns (token, role). Raises AuthError. The same message for an unknown user and a wrong password."""
+def login(db, name: str, password: str, now: float | None = None, client: str = ""):
+    """Returns (token, role). Raises AuthError. The same message for an unknown user and a wrong password.
+    `client` is the address the request came from (the proxy's X-Forwarded-For); it keys the lockout together with the user name."""
     now = time.time() if now is None else now
-    if _locked(name, now):
+    pair, per_client = f"{name}|{client}", f"|{client}"
+    if _locked(pair, MAX_FAILS, now) or _locked(per_client, MAX_FAILS_PER_CLIENT, now):
         raise AuthError("too many attempts, wait a minute")
     rows = db.query("SELECT pw_hash, role FROM users WHERE name=?", (name,))
     # verify even for an unknown user, so the response time does not tell which names exist
     ok = verify_password(password, rows[0]["pw_hash"] if rows else "scrypt$16384$8$1$00$00")
     if not rows or not ok:
-        _fails.setdefault(name, []).append(now)
+        _fails.setdefault(pair, []).append(now)
+        _fails.setdefault(per_client, []).append(now)
         raise AuthError("wrong user name or password")
-    _fails.pop(name, None)
+    _fails.pop(pair, None)
     token = secrets.token_urlsafe(32)
     db.execute("INSERT INTO sessions(token_hash, user, created, expires) VALUES(?,?,?,?)",
                (_digest(token), name, int(now), int(now) + SESSION_TTL_S))

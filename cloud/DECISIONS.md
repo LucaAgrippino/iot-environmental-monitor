@@ -48,3 +48,8 @@ Short, informal. Newest at the bottom.
     an id closes that device's one `sent` or `running` job; with none active it is ignored (validation finding F-12). Newer
     Gateway firmware sends the job id too (it reads it from its staging journal), so this attribution is the fallback for a
     Gateway that does not, or whose journal was damaged.
+19. **Hardening from the security review (2026-11-14).** The generated API documentation pages (`/docs`, `/redoc`, `/openapi.json`) are off: they sat outside the login guard and listed
+    every endpoint (S-3). An upload is read in pieces and refused with 413 as soon as it passes 2 MB, and the proxy refuses a body over 3 MB, so a large body is never taken into memory
+    whole (S-6). The login lockout counts failures per user name **and** client address, plus 20 failures per address over all names, so a guesser on the LAN locks only their own
+    address out of an account and not the admin at another address (S-7); the address is the first `X-Forwarded-For` entry, which Caddy sets from the real peer and does not take from
+    the client, and the backend listens on localhost only.

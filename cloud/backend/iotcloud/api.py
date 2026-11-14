@@ -69,6 +69,12 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
 
     PUBLIC = {"/api/healthz", "/api/auth/login"}
 
+    def client_ip(request: Request) -> str:
+        """The caller's address. Behind the proxy that is the first X-Forwarded-For entry (Caddy sets it from the real peer and does not trust
+        a value sent by the client); the backend listens on localhost only, so nothing else reaches it."""
+        fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        return (fwd or (request.client.host if request.client else ""))[:45]
+
     def guard(request: Request):
         """Every /api route: a logged-in user for reads, an admin for anything that changes something."""
         if not settings.auth_required or request.url.path in PUBLIC:
@@ -84,7 +90,8 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
                 raise HTTPException(403, "this account can only read")
         request.state.user = user
 
-    app = FastAPI(title="iotcloud", lifespan=lifespan, dependencies=[Depends(guard)])
+    # The generated documentation pages (/docs, /redoc, /openapi.json) are outside the login guard and list every endpoint: off (security review S-3)
+    app = FastAPI(title="iotcloud", lifespan=lifespan, dependencies=[Depends(guard)], docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db, app.state.hub, app.state.settings = db, hub, settings
 
     def device_row(r: dict, now: int) -> dict:
@@ -105,7 +112,7 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
     async def login(request: Request, response: Response):
         body = await request.json()
         try:
-            token, role = auth.login(db, str(body.get("username", "")), str(body.get("password", "")))
+            token, role = auth.login(db, str(body.get("username", "")), str(body.get("password", "")), client=client_ip(request))
         except auth.AuthError as e:
             raise HTTPException(429 if "too many" in str(e) else 401, str(e))
         response.set_cookie("session", token, max_age=auth.SESSION_TTL_S, httponly=True, samesite="strict",
@@ -253,8 +260,18 @@ def create_app(settings: config.Settings | None = None, db: Database | None = No
     @app.put("/api/images/{name}", status_code=201)
     async def upload_image(name: str, request: Request):
         """Raw body = the .ota file (tools/ota/make_image.py output). One file per flash slot."""
+        # Read at most MAX_IMAGE bytes: the body is not taken into memory whole before the size is checked (security review S-6)
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > ota.MAX_IMAGE:
+            raise HTTPException(413, f"image size must be 1..{ota.MAX_IMAGE} bytes")
+        chunks, total = [], 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > ota.MAX_IMAGE:
+                raise HTTPException(413, f"image size must be 1..{ota.MAX_IMAGE} bytes")
+            chunks.append(chunk)
         try:
-            return ota.save_image(db, settings.image_dir, name, await request.body())
+            return ota.save_image(db, settings.image_dir, name, b"".join(chunks))
         except ota.OtaError as e:
             raise HTTPException(400, str(e))
 
