@@ -211,6 +211,14 @@ after the broker returned), the 20 s outage none; a reset costs about 12 s but t
 the documentation corrected. Cloud data over the run: telemetry complete (12 rows, largest gap 60 s), health 71 of about 72 (gaps of 20 s and 30 s: a sample or two lost around a recovery step, the
 publisher is blocked for a few seconds by it). The wedge of V-26 did not occur in these six either (12 outages without it since the fix, 1 in 4 before), so the cure is still not shown by a real case.
 
+**V-32 (the F-12 follow-up on the board, and a new finding, 2026-11-14 20:14 to 20:50, Gateway 1.1.7 = v0.0.0+bac3d9ce, suite `validation/suites/30_ota.robot`).** *F-12 verified with the Gateway's own
+job id:* an update to 1.1.8 closed as `success` and the Gateway's report carries `job` 11 (`req` 11); the rollback of a 1.1.9 whose self-check was forced to fail, reported by the firmware that came back,
+carries `job` 10; before the fix both had `req: null` (V-29). *New finding F-14:* in the first attempt at the 1.1.8 update the broker was stopped for 25 s at 115 712 bytes and the update was abandoned: the
+Gateway left `updating_firmware` for `operational` about 36 s after the last chunk, with no failure reported, and the job stayed `running` until the suite cancelled it after 1200 s. The health messages show
+`cloud_connected` true for about 35 s into the outage, that is the Gateway had not noticed the loss; the unanswered chunks were counted as failures (three of 5 s end the update). A repeat with the console
+captured resumed and succeeded (the log shows the pause, `leave`/`join`, `MQTT (re)connected` and then `chunk at 105472 timed out, failure 1 of 3`), so the failure is intermittent (1 of 4 interrupted
+downloads so far); the earlier runs of V-29 and V-30 resumed.
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -301,6 +309,10 @@ publisher is blocked for a few seconds by it). The wedge of V-26 did not occur i
 13. **F-13 (fixed and verified, V-30) An update can be started for a Gateway that is not connected** (UC-18 E1: raise a connection error). `POST /api/devices/{id}/ota` has no online check (config and control
    commands refuse a device silent for more than the online window with `409 device offline`, F-10); the job is created in `sent` and nobody runs it until it expires after 10 minutes.
    Proposal: the same `require_online` for the update start, with a test.
+14. **F-14 (fixed in firmware, not yet on the Gateway) An interrupted download can be abandoned when the loss of the link is noticed late** (UC-18 E2, REQ-DM-051, REQ-DM-052, US-D6). Chunks sent into a
+   dead but not yet noticed link look like failures on a connected link; three of 5 s ended the update, so the pause-and-resume logic never ran (V-32). The same applies to a cloud service that is slow
+   to subscribe again after a broker restart. Fix: three failures end the update only after `US_LINK_GRACE_MS` (2 min) without progress, counted from the last chunk or the last resume; the pause forgets the
+   failures counted against the dead link (US-D8, tests TC-US-028..034 changed or added, the new ones checked by mutation). Needs a Gateway release and repeated interrupted downloads to show it on the board.
 
 ## Open points
 
@@ -312,5 +324,5 @@ publisher is blocked for a few seconds by it). The wedge of V-26 did not occur i
 - F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
   the touch that kept working; a Field Technician touch session in normal use is the remaining check.
 - F-11 (the Gateway stays offline after a broker outage until a reset): fix on the Gateway (1.1.3), 6 of 6 outages recovered (V-28); the wedge did not recur, so the cure is not yet shown by a real case. Open question: should the useless rejoin step (it answers ERROR while associated) become a disconnect and join, and should the module reset wait for a longer outage than 20 s?
-- Done 2026-11-14: UC-18 and UC-20 over the air (V-29), F-12 and F-13 fixed and verified (V-30). Follow-ups written and unit-tested, not yet on the Gateway: the Gateway sends the job id in the report after the reboot (F-12), and the F-11 ladder leaves and rejoins the access point and resets the module later. Open: the optional real AWS IoT Core check.
+- Done 2026-11-14: UC-18 and UC-20 over the air (V-29), F-12 and F-13 fixed and verified (V-30), F-12 verified with the Gateway's own job id (V-32); F-14 (a download abandoned when the link loss is noticed late) fixed in firmware, not yet on the Gateway. Follow-ups written and unit-tested, not yet on the Gateway: the Gateway sends the job id in the report after the reboot (F-12), and the F-11 ladder leaves and rejoins the access point and resets the module later. Open: the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.

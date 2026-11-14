@@ -14,6 +14,7 @@ Force Tags        validation    ota
 *** Variables ***
 ${REL}            %{HOME}/rel/1.1.4
 ${NEWVER}         1.1.4
+${BASEVER}        1.1.4
 ${BAD}            %{HOME}/ota-validation
 ${FAILREL}        %{HOME}/rel-fail/1.1.5
 ${GW_SWD}         openocd -f interface/stlink-dap.cfg -c "adapter serial 0670FF575157877567154553" -c "transport select dapdirect_swd" -f target/stm32l4x.cfg
@@ -128,7 +129,7 @@ UC-18 E3 A new firmware whose self-check fails is rolled back to the previous on
     ${row}=    Run Update Job    val-115fail-a    val-115fail-b    timeout=1200
     Log    the Gateway's answer: ${row}[detail]
     Should Be True    '${row}[state]' in ('rolled_back', 'failed')    the failing firmware ended as ${row}[state]
-    Wait For Firmware    1.1.4
+    Wait For Firmware    ${BASEVER}
 
 UC-18 E1 An update for a Gateway that is not connected is refused
     [Documentation]    The Gateway's CPU is halted for 170 s, longer than the online window of 150 s, with the broker up. The API

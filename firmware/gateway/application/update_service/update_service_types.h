@@ -36,11 +36,16 @@ typedef enum
 /* Constants (§8.3)                                                        */
 /* ---------------------------------------------------------------------- */
 
-#define US_CHUNK_SIZE (1024U)          /**< Bytes per chunk request.                          */
-#define US_CHUNK_TIMEOUT_MS (5000U)    /**< Wait for one chunk.                               */
-#define US_MAX_RETRIES (3U)            /**< Consecutive failures while connected (REQ-DM-052). */
-#define US_STALL_LIMIT_MS (600000UL)   /**< No progress for this long: fail (US-D7).          */
-#define US_START_TIMEOUT_MS (360000UL) /**< LifecycleController has this long to call start.  */
+#define US_CHUNK_SIZE (1024U)        /**< Bytes per chunk request.                          */
+#define US_CHUNK_TIMEOUT_MS (5000U)  /**< Wait for one chunk.                               */
+#define US_MAX_RETRIES (3U)          /**< Consecutive failures while connected (REQ-DM-052). */
+#define US_STALL_LIMIT_MS (600000UL) /**< No progress for this long: fail (US-D7).          */
+#define US_LINK_GRACE_MS                                                                           \
+    (120000UL) /**< Three failed chunks end the update only after this long without progress,      \
+                *  counted from the last chunk or the last resume: a dead link is noticed after    \
+                *  the keep-alive and looks connected until then (US-D8, validation finding F-14). \
+                */
+#define US_START_TIMEOUT_MS (360000UL)     /**< LifecycleController has this long to call start.  */
 #define US_SELF_CHECK_TIMEOUT_MS (60000UL) /**< Self-check budget, includes MQTT reconnect.    */
 #define US_SELF_CHECK_POLL_MS (500U)       /**< Probe and link poll period.                       */
 #define US_REPORT_RETRY_MS (100U)          /**< Transport queue full: wait, then retry.           */
