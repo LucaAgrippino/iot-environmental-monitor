@@ -36,7 +36,7 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1/E2 (gateway disconnected) in the end-of-phase session |
 | UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); LCD in the manual session |
 | UC-16 Provision device | Field Technician | console | Pending |
-| UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed, not yet on the board) |
+| UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
 | UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 (FD unplugged) in the manual session |
 | UC-20 Verify firmware integrity | System | OTA refusal cases | Held with UC-18 |
@@ -111,7 +111,7 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
 
 ## Findings
 
-1. **F-1 (fixed in firmware) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
+1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
    (about 14 per second). It hides other console output. Candidate: log the first failure and then once per
    N seconds, with a count. Not a validation failure (UC-07 E1 asks for a logged error); a usability finding.
 2. **F-2 (fixed) The operator cannot see accelerometer, gyroscope and magnetometer** (UC-05 step 2, REQ-CC-000). The Gateway
@@ -127,7 +127,7 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
    request id, so the cloud cannot match the answer: the command stays pending and then shows `timeout` (UC-15 E3
    asks the operator to learn that the value was not applied). The invalid value case works (`invalid_value`).
    Fix: echo `req` in the `unknown_key` answer (Gateway) or show unmatched config results in the command list (cloud).
-5. **F-5 (fixed in firmware) A second `restart` inside the 30 s window is the confirmation.** Was by design (LLD section 10), but an operator
+5. **F-5 (fixed; V-19) A second `restart` inside the 30 s window is the confirmation.** Was by design (LLD section 10), but an operator
    who presses Restart… twice, or an automation that retries, reboots the Gateway without the explicit confirm. In
    addition a late `restart_confirm` is answered `accepted` although nothing is pending. Consider ignoring a repeated
    `restart` and answering a late confirm with a rejection.
@@ -137,8 +137,9 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
 ## Open points
 
 - Done 2026-11-14: Gateway 1.1.1 (signed release, built from 7b0dced, version string v0.0.0+7b0dceda) flashed with the owner's go-ahead; identity kept, cloud reconnected; UC-05 x3, UC-14 and UC-15 E3 x2 pass (6/6), including the unknown-key scenario (V-18).
-- F-1 (Field Device: first failed read logged, then every 100th, plus a recovery line; tests TC-SS-002b/c) and F-5 are fixed
-  in the firmware and unit-tested. They reach the boards with the next Gateway release and Field Device flash (owner's go-ahead).
+- Done 2026-11-14 (V-19): F-1 and F-5 on the boards with the owner's go-ahead: Gateway 1.1.2 and the Field Device, both built from 09d5588
+  (v0.0.0+09d5588f). API scenarios UC-05 x3, UC-14, UC-15 x3 and the new UC-17 E3 pass (8/8). Barometer fault injected for 21 s:
+  213 failed reads gave 3 warning lines (reads 1, 100, 200) and one recovery line, instead of about 213 lines. Field Device settings unchanged.
 - End-of-phase manual session: LCD use cases (UC-01..03, UC-15 Field Technician), UC-16, the disconnected cases (E1/E2
   of UC-09..UC-14, UC-19 E3), and UC-18/UC-20 (OTA, only with the owner's go-ahead).
 - Optional last: a real AWS IoT Core connection.
