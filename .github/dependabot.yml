@@ -1,0 +1,12 @@
+# Update pull requests for the things that can carry a vulnerability: the GitHub Actions the CI uses (pinned to commits)
+# and the Python packages of the cloud service. Weekly; the CI runs on each pull request before anything is merged.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pip"
+    directory: "/cloud/backend"
+    schedule:
+      interval: "weekly"
