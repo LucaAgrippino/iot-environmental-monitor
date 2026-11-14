@@ -22,7 +22,8 @@
   "MD041": false,  // first line is h1
   "MD047": false,  // single trailing newline
   "MD056": false,  // table column count
-  "MD058": false   // blanks around tables
+  "MD058": false,  // blanks around tables
+  "MD060": false   // table column style (new in markdownlint 0.40; the legacy tables are not aligned)
 
   // Default-enabled rules NOT disabled here remain active:
   // MD042 (empty links), MD051 (link fragments),
