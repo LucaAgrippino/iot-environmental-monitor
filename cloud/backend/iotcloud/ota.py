@@ -148,9 +148,18 @@ def on_request(db, publish, image_dir: str, root: str, device: str, payload: byt
 
 def on_result(db, device: str, msg: dict, now: int):
     job = msg.get("job")
-    if not isinstance(job, int) or isinstance(job, bool):
-        return
     result = msg.get("result")
+    if not isinstance(job, int) or isinstance(job, bool) or job <= 0:
+        # The Gateway reports the outcome of an update after its reboot and does not know the job id any more, so a
+        # final result without one belongs to the device's one active job (only one is allowed at a time): without
+        # this the job stayed "running" for ever and the operator never saw the result (validation finding F-12).
+        if result not in TERMINAL:
+            return
+        active = db.query("SELECT id FROM ota_jobs WHERE device=? AND state IN ('sent','running') ORDER BY id DESC LIMIT 1",
+                          (device,))
+        if not active:
+            return
+        job = active[0]["id"]
     if result in TERMINAL:
         db.execute("UPDATE ota_jobs SET state=?, updated=?, detail=? WHERE id=? AND device=?",
                    (result, now, json.dumps(msg), job, device))

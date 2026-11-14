@@ -221,3 +221,44 @@ def test_a_command_is_refused_while_the_broker_link_is_down_instead_of_being_que
     assert r.status_code == 503 and "not sent" in r.json()["detail"]
     assert bus.sent == []
     assert db.query("SELECT COUNT(*) AS n FROM commands")[0]["n"] == 0
+
+
+def test_a_final_result_without_a_job_id_closes_the_devices_active_job(env):
+    """UC-18 step 9 and E3 (validation finding F-12): after its reboot the Gateway sends success or rolled_back without the job id."""
+    c, bus, db, settings = env
+    upload(c, "a.ota", b"x" * 100)
+    for result, reason in (("success", None), ("rolled_back", "rollback")):
+        job = c.post(f"/api/devices/{DEV}/ota", json={"image_a": "a.ota", "image_b": "a.ota"}).json()
+        device_says(db, "ota/result", event="ota", result="accepted")  # not final: nothing changes
+        assert c.get(f"/api/ota/{job['id']}").json()["state"] == "sent"
+        msg = {"event": "ota", "result": result, "version": "1.1.4", "rollbacks": 0}
+        if reason:
+            msg["reason"] = reason
+        device_says(db, "ota/result", **msg)
+        got = c.get(f"/api/ota/{job['id']}").json()
+        assert got["state"] == result and json.loads(got["detail"])["version"] == "1.1.4"
+        assert c.get(f"/api/devices/{DEV}/ota").json()[0]["state"] == result
+
+
+def test_a_final_result_without_a_job_id_is_ignored_when_no_job_is_active(env):
+    c, bus, db, settings = env
+    upload(c, "a.ota", b"x" * 100)
+    job = c.post(f"/api/devices/{DEV}/ota", json={"image_a": "a.ota", "image_b": "a.ota"}).json()
+    device_says(db, "ota/result", event="ota", job=job["id"], result="failed", reason="hash_mismatch")
+    device_says(db, "ota/result", event="ota", result="success")  # a late one: the job is already closed
+    assert c.get(f"/api/ota/{job['id']}").json()["state"] == "failed"
+    device_says(db, "ota/result", event="ota", job=0, result="success")  # a zero id is no id either
+    assert c.get(f"/api/ota/{job['id']}").json()["state"] == "failed"
+
+
+def test_an_update_for_a_device_that_is_not_reporting_is_refused(env, monkeypatch):
+    """UC-18 E1 (validation finding F-13): no job is created for a Gateway that has not reported within the online window."""
+    import time
+    c, bus, db, settings = env
+    upload(c, "a.ota", b"x" * 100)
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() + settings.online_window_s + 60)
+    r = c.post(f"/api/devices/{DEV}/ota", json={"image_a": "a.ota", "image_b": "a.ota"})
+    assert r.status_code == 409 and "offline" in r.json()["detail"], r.text
+    assert db.query("SELECT COUNT(*) AS n FROM ota_jobs")[0]["n"] == 0
+    assert not any(t.endswith("/ota") for t, _, _ in bus.sent)
