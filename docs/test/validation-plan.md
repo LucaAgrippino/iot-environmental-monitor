@@ -34,7 +34,7 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 in the end-of-phase session |
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
 | UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1/E2 (gateway disconnected) in the end-of-phase session |
-| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key: **F-4** (fixed in the firmware, not yet on the board); LCD in the manual session |
+| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); LCD in the manual session |
 | UC-16 Provision device | Field Technician | console | Pending |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request counts as the confirmation: **F-5** |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
@@ -123,7 +123,7 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
    `profile_remove` (PR #213) answer 400. The routing of a command to the Field Device (UC-19 step 3) cannot be
    validated until the Pi runs the current bundle (`cloud/deploy/build-bundle.sh` and `install.sh` as the cloud
    README describes). Needs the owner's decision: it changes the running production service.
-4. **F-4 (fixed in firmware, not deployed) A rejected unknown setting is not reported to the operator.** The Gateway answers `unknown_key` without the
+4. **F-4 (fixed; Gateway 1.1.1 on the board) A rejected unknown setting is not reported to the operator.** The Gateway answers `unknown_key` without the
    request id, so the cloud cannot match the answer: the command stays pending and then shows `timeout` (UC-15 E3
    asks the operator to learn that the value was not applied). The invalid value case works (`invalid_value`).
    Fix: echo `req` in the `unknown_key` answer (Gateway) or show unmatched config results in the command list (cloud).
@@ -134,7 +134,7 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
 
 ## Open points
 
-- Deploy the F-4 firmware fix (a new Gateway release: needs the owner's go-ahead for the flash or OTA), then re-run the unknown-key scenario.
+- Done 2026-11-14: Gateway 1.1.1 (signed release, built from 7b0dced, version string v0.0.0+7b0dceda) flashed with the owner's go-ahead; identity kept, cloud reconnected; UC-05 x3, UC-14 and UC-15 E3 x2 pass (6/6), including the unknown-key scenario (V-18).
 - Decide whether to change F-5 (a second `restart` inside the window) and F-1 (sensor-fault log flood).
 - End-of-phase manual session: LCD use cases (UC-01..03, UC-15 Field Technician), UC-16, the disconnected cases (E1/E2
   of UC-09..UC-14, UC-19 E3), and UC-18/UC-20 (OTA, only with the owner's go-ahead).
