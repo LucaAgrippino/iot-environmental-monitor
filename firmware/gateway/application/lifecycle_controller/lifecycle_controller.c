@@ -566,10 +566,15 @@ static void handle_restarting_event(const lifecycle_event_t *ev)
     switch (ev->type)
     {
     case LC_EVENT_RESTART_CONFIRMED:
-    case LC_EVENT_RESTART_REQUESTED: /* a second request is the confirmation (§10) */
         (void) xTimerStop(s_restart_timer, 0U);
         LOG_INFO(MODULE_TAG, "Restarting confirmed -> soft reset");
         reset_system(); /* does not return on target */
+        break;
+
+    case LC_EVENT_RESTART_REQUESTED:
+        /* Only the explicit confirmation resets (REQ-NF-307). A repeated request, for example a
+         * double click or a retrying script, must not count as one (validation finding F-5). */
+        LOG_INFO(MODULE_TAG, "restart already pending: waiting for the confirmation");
         break;
 
     case LC_EVENT_RESTART_TIMEOUT:

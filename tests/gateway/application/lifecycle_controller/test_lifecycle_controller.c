@@ -1156,12 +1156,21 @@ void test_LC_088_the_restart_timer_expiry_posts_RESTART_TIMEOUT(void)
     TEST_ASSERT_EQUAL_UINT32(30000U, LIFECYCLE_RESTART_TIMEOUT_MS);
 }
 
-void test_LC_089_a_second_RESTART_REQUESTED_counts_as_the_confirmation(void)
+void test_LC_089_a_second_RESTART_REQUESTED_is_ignored_and_does_not_confirm(void)
 {
+    /* Validation finding F-5: only the explicit confirmation resets (REQ-NF-307). */
     boot_restarting();
+    const uint32_t starts = g_mock_xTimerStart_call_count;
+
     step(LC_EVENT_RESTART_REQUESTED, 0U);
-    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
+    TEST_ASSERT_EQUAL(LIFECYCLE_STATE_RESTARTING, lifecycle_controller->get_state());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_calls[C_RESET]);
     TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_CLOUD_FLUSH]);
+    TEST_ASSERT_EQUAL_UINT32(starts,
+                             g_mock_xTimerStart_call_count); /* the 30 s window is not extended */
+
+    step(LC_EVENT_RESTART_CONFIRMED, 0U); /* the confirmation still works afterwards */
+    TEST_ASSERT_EQUAL_UINT32(1U, g_calls[C_RESET]);
 }
 
 void test_LC_090_a_fault_while_restarting_gives_FAULTED(void)

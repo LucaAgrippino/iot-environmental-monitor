@@ -111,8 +111,13 @@ typedef struct
 /* Configuration and public API                                          */
 /* ===================================================================== */
 
-/** @brief Handler for the /control command payload (LifecycleController's remote dispatch). */
-typedef void (*cp_control_handler_t)(const uint8_t *payload, uint32_t len);
+/**
+ * @brief Handler for the /control command payload (LifecycleController's remote dispatch).
+ * @return true if the command was accepted, false if the device refuses it in its present state
+ *         (for example a restart confirmation with no restart pending); the answer on the result
+ *         topic follows (validation finding F-5).
+ */
+typedef bool (*cp_control_handler_t)(const uint8_t *payload, uint32_t len);
 
 /** @brief Outcome of a command executed on the Field Device (REQ-MB-080, REQ-MB-090). */
 typedef enum

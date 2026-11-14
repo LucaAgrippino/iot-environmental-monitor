@@ -39,6 +39,25 @@
 const irtc_t *rtc_driver = NULL;
 
 /* ======================================================================= */
+/* Log hook: counts what the module writes, to check the throttle (F-1)    */
+/* ======================================================================= */
+
+static uint32_t g_log_warn_count;
+static uint32_t g_log_info_count;
+
+void ss_test_log_hook(int level)
+{
+    if (level == 1)
+    {
+        g_log_warn_count++;
+    }
+    else if (level == 2)
+    {
+        g_log_info_count++;
+    }
+}
+
+/* ======================================================================= */
 /* Health report mock                                                       */
 /* ======================================================================= */
 
@@ -166,6 +185,8 @@ void setUp(void)
 {
     mock_freertos_reset();
     health_mock_reset();
+    g_log_warn_count = 0U;
+    g_log_info_count = 0U;
     baro_stub_reset();
     ht_stub_reset();
     ts_stub_reset();
@@ -238,6 +259,49 @@ void test_TC_SS_002_ht_driver_error_readings_invalid_cycle_continues(void)
     /* Health event was pushed for the first failure */
     TEST_ASSERT_EQUAL_UINT32(1U, g_health_push_calls);
     TEST_ASSERT_EQUAL(HEALTH_EVENT_SENSOR_FAIL, g_health_last_event);
+}
+
+/* ======================================================================= */
+/* TC-SS-002b: a persistent driver fault is logged once, then every 100th   */
+/* read, not on every cycle (validation finding F-1)                        */
+/* ======================================================================= */
+
+void test_TC_SS_002b_a_persistent_driver_fault_is_logged_on_the_first_read_and_then_every_100th(
+    void)
+{
+    init_with_default_alpha();
+    g_ht_read_ret = HT_ERR_FAULT;
+
+    (void) sensor_service_run_cycle();
+    /* one line for temperature and one for humidity on the first failed read */
+    TEST_ASSERT_EQUAL_UINT32(2U, g_log_warn_count);
+
+    for (uint32_t i = 1U; i < 250U; i++)
+    {
+        (void) sensor_service_run_cycle();
+    }
+    /* reads 1, 100 and 200, for the two channels: 6 lines instead of 500 */
+    TEST_ASSERT_EQUAL_UINT32(6U, g_log_warn_count);
+}
+
+void test_TC_SS_002c_a_recovery_is_logged_and_a_new_fault_is_logged_again_at_once(void)
+{
+    init_with_default_alpha();
+    const uint32_t info_after_init = g_log_info_count;
+    g_ht_read_ret = HT_ERR_FAULT;
+    (void) sensor_service_run_cycle();
+    (void) sensor_service_run_cycle();
+    TEST_ASSERT_EQUAL_UINT32(2U, g_log_warn_count);
+    TEST_ASSERT_EQUAL_UINT32(info_after_init, g_log_info_count);
+
+    g_ht_read_ret = HT_ERR_OK;
+    (void) sensor_service_run_cycle();
+    /* temperature and humidity recovered */
+    TEST_ASSERT_EQUAL_UINT32(info_after_init + 2U, g_log_info_count);
+
+    g_ht_read_ret = HT_ERR_FAULT;
+    (void) sensor_service_run_cycle();
+    TEST_ASSERT_EQUAL_UINT32(4U, g_log_warn_count); /* a new streak starts with a line */
 }
 
 /* ======================================================================= */

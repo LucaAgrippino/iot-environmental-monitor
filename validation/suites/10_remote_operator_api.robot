@@ -167,6 +167,24 @@ UC-17 E2 A restart that is not confirmed is cancelled
     ${ups}=    Evaluate    [r['uptime_s'] for r in ${rows}]
     Should Be True    all(b > a for a, b in zip(${ups}, ${ups}[1:]))    the uptime restarted: ${ups}
 
+UC-17 E3 A late confirmation and a repeated restart are refused (F-5)
+    [Documentation]    Needs Gateway firmware with the F-5 fix. Nothing may reboot in this test.
+    [Tags]    UC-17    F-5
+    ${status}    ${row}=    Send    control    ${{ {"command": "restart_confirm"} }}
+    ${done}=    Command Result    ${row}[id]    timeout=20
+    Should Be Equal    ${done}[status]    rejected    a confirmation with no restart pending was ${done}[status]
+    ${status}    ${row}=    Send    control    ${{ {"command": "restart"} }}
+    ${done}=    Command Result    ${row}[id]    timeout=20
+    Should Be Equal    ${done}[status]    accepted
+    ${status}    ${row}=    Send    control    ${{ {"command": "restart"} }}
+    ${done}=    Command Result    ${row}[id]    timeout=20
+    Should Be Equal    ${done}[status]    rejected    a repeated restart was ${done}[status]
+    # the pending restart times out after 30 s: leave the Gateway as it was found
+    Sleep    35s
+    ${d}=    Device View
+    Should Be Equal    ${d}[health][lifecycle_state]    operational
+    Should Be True    ${d}[health][uptime_s] > 60    the gateway rebooted: uptime ${d}[health][uptime_s] s
+
 UC-17 The confirmed restart reboots the gateway and it reports again
     [Tags]    UC-17
     ${t}=    Now

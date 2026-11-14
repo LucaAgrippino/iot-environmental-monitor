@@ -1419,9 +1419,9 @@ void test_LW_067_an_edit_session_snapshots_and_commits_through_ConfigService(voi
 /* /control commands                                                     */
 /* ===================================================================== */
 
-static void remote(const char *json)
+static bool remote(const char *json)
 {
-    lifecycle_handle_remote((const uint8_t *) json, (uint32_t) strlen(json));
+    return lifecycle_handle_remote((const uint8_t *) json, (uint32_t) strlen(json));
 }
 
 static lifecycle_event_t last_sent(void)
@@ -1435,7 +1435,7 @@ static lifecycle_event_t last_sent(void)
 void test_LW_070_a_restart_command_requests_a_restart(void)
 {
     boot_controller();
-    remote("{\"command\":\"restart\"}");
+    TEST_ASSERT_TRUE(remote("{\"command\":\"restart\"}"));
     TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xQueueSend_call_count);
     TEST_ASSERT_EQUAL(LC_EVENT_RESTART_REQUESTED, last_sent().type);
 }
@@ -1443,15 +1443,37 @@ void test_LW_070_a_restart_command_requests_a_restart(void)
 void test_LW_071_a_restart_confirm_command_posts_the_confirmation(void)
 {
     boot_controller();
-    remote("{\"command\":\"restart_confirm\"}");
-    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xQueueSend_call_count);
+    deliver(LC_EVENT_RESTART_REQUESTED, 0U); /* a restart is pending */
+    const uint32_t sent = g_mock_xQueueSend_call_count;
+
+    TEST_ASSERT_TRUE(remote("{\"command\":\"restart_confirm\"}"));
+    TEST_ASSERT_EQUAL_UINT32(sent + 1U, g_mock_xQueueSend_call_count);
     TEST_ASSERT_EQUAL(LC_EVENT_RESTART_CONFIRMED, last_sent().type);
+}
+
+void test_LW_071b_a_restart_confirm_with_no_restart_pending_is_refused(void)
+{
+    /* Validation finding F-5: it used to be answered "accepted" although nothing happened. */
+    boot_controller();
+    TEST_ASSERT_FALSE(remote("{\"command\":\"restart_confirm\"}"));
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueSend_call_count);
+}
+
+void test_LW_071c_a_repeated_restart_while_one_is_pending_is_refused(void)
+{
+    boot_controller();
+    TEST_ASSERT_TRUE(remote("{\"command\":\"restart\"}"));
+    deliver(LC_EVENT_RESTART_REQUESTED, 0U);
+    const uint32_t sent = g_mock_xQueueSend_call_count;
+
+    TEST_ASSERT_FALSE(remote("{\"command\":\"restart\"}"));
+    TEST_ASSERT_EQUAL_UINT32(sent, g_mock_xQueueSend_call_count);
 }
 
 void test_LW_072_a_reset_metrics_command_resets_the_health_counters_directly(void)
 {
     boot_controller();
-    remote("{\"command\":\"reset_metrics\"}");
+    TEST_ASSERT_TRUE(remote("{\"command\":\"reset_metrics\"}"));
     TEST_ASSERT_EQUAL_UINT32(1U, s_hm_reset_calls);
     TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueSend_call_count);
 }
@@ -1459,9 +1481,9 @@ void test_LW_072_a_reset_metrics_command_resets_the_health_counters_directly(voi
 void test_LW_073_an_unknown_command_does_nothing(void)
 {
     boot_controller();
-    remote("{\"command\":\"format_everything\"}");
-    remote("{\"cmd\":\"restart\"}");
-    remote("not json");
+    TEST_ASSERT_FALSE(remote("{\"command\":\"format_everything\"}"));
+    TEST_ASSERT_FALSE(remote("{\"cmd\":\"restart\"}"));
+    TEST_ASSERT_FALSE(remote("not json"));
     TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xQueueSend_call_count);
     TEST_ASSERT_EQUAL_UINT32(0U, s_hm_reset_calls);
 }
@@ -1497,8 +1519,9 @@ void test_LW_077_a_full_queue_does_not_crash_the_command_path(void)
 {
     boot_controller();
     g_mock_xQueueSend_return = pdFALSE;
-    remote("{\"command\":\"restart\"}");
-    remote("{\"command\":\"restart_confirm\"}");
+    TEST_ASSERT_FALSE(remote("{\"command\":\"restart\"}")); /* not queued: refused */
+    deliver(LC_EVENT_RESTART_REQUESTED, 0U);                /* a restart is pending anyway */
+    TEST_ASSERT_FALSE(remote("{\"command\":\"restart_confirm\"}"));
     TEST_ASSERT_EQUAL_UINT32(2U, g_mock_xQueueSend_call_count);
 }
 

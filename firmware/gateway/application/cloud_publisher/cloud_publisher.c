@@ -1780,8 +1780,9 @@ static void prv_handle_control(struct cloud_publisher_inst *inst, const cp_comma
     default:
         if (inst->control_handler != NULL)
         {
-            inst->control_handler(entry->payload, entry->payload_len);
-            prv_publish_control_result(inst, cmd, req_known, req, true, NULL);
+            const bool accepted = inst->control_handler(entry->payload, entry->payload_len);
+            prv_publish_control_result(inst, cmd, req_known, req, accepted,
+                                       accepted ? NULL : "bad_state");
         }
         else
         {

@@ -87,14 +87,16 @@ lifecycle_err_t lifecycle_wiring_bind(const lifecycle_wiring_config_t *config,
  *
  * CloudPublisher's control handler (cloud_publisher_config_t::control_handler, CP-D25). The payload
  * is matched for "command":"restart", "restart_confirm" or "reset_metrics"; anything else is logged
- * and ignored, and only the first 63 bytes are examined. Results are not reported back yet
- * (CloudPublisher's call returns void).
+ * and ignored, and only the first 63 bytes are examined. The result is reported back: a
+ * restart confirmation with no restart pending, a repeated restart while one is pending and a
+ * command that could not be queued return false (CloudPublisher answers "rejected", F-5).
  *
  * @param[in] payload  Message body, not NUL-terminated; NULL or empty is ignored.
  * @param[in] len      Byte count.
+ * @return true if the command was accepted.
  * @note Threading: CloudPublisherTask. Not ISR-safe.
  */
-void lifecycle_handle_remote(const uint8_t *payload, uint32_t len);
+bool lifecycle_handle_remote(const uint8_t *payload, uint32_t len);
 
 /**
  * @brief ModbusPollerTask entry: wait for the start gate, then run the poller.
