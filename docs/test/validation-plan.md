@@ -28,17 +28,17 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-06 Monitor device health | Remote Operator | cloud API and browser | **PASS** (V-06) |
 | UC-07 Acquire sensor data | System | FD console, SWD fault, cloud | **PASS** (V-07); Gateway side seen in the cloud telemetry (V-10) |
 | UC-08 Evaluate sensor alarms | System | FD console, cloud | **PASS** (V-08, V-09) |
-| UC-09 Receive alarm notification | Remote Operator | cloud | **PASS** main flow (V-09); E1 (buffering while disconnected) in the end-of-phase session |
-| UC-10 Receive sensor telemetry | AWS IoT Core | cloud | **PASS** main flow (V-10); E1 in the end-of-phase session |
-| UC-11 Receive device health data | AWS IoT Core | cloud | **PASS** main flow (V-11); E1 in the end-of-phase session |
-| UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 in the end-of-phase session |
+| UC-09 Receive alarm notification | Remote Operator | cloud | **PASS** main flow (V-09); E1 alarms buffered and delivered in order (V-25) |
+| UC-10 Receive sensor telemetry | AWS IoT Core | cloud | **PASS** main flow (V-10); E1 **PARTIAL**: data sent before the Gateway noticed the loss is missing, **F-9** (V-25) |
+| UC-11 Receive device health data | AWS IoT Core | cloud | **PASS** main flow (V-11); E1 **PARTIAL**: same, **F-9** (V-25) |
+| UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 passes (V-25) |
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
-| UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1/E2 (gateway disconnected) in the end-of-phase session |
+| UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1 passes with observation **F-10** (V-25); E2 not stageable by hand |
 | UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); Field Technician main flow and E4 pass (V-23) |
 | UC-16 Provision device | Field Technician | console | **PASS** with finding **F-8** (V-24) |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
-| UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 (FD unplugged) in the manual session |
+| UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 passes (V-25); E4 not stageable by hand |
 | UC-20 Verify firmware integrity | System | OTA refusal cases | Held with UC-18 |
 
 ## Records
@@ -135,6 +135,20 @@ gives `Discarded` and a second `prov commit` says `Nothing staged`; the stored i
 Wi-Fi setting are intact and the Gateway stayed connected. Not run: E1 (an apply failure) and a real change of the
 Wi-Fi credentials or certificates on the production Gateway (covered in verification). Result: pass.
 
+**V-25 (disconnected cases, 2026-11-14 16:36 to 16:42, script `validation/outage.py`).** *UC-19 E3:* with the Field Device
+CPU halted over SWD the Gateway answered a `fd_ack_alarm` as failed and the cloud showed `rejected` (suite scenario
+`UC-19 E3`); the FD was resumed and is healthy. *Outage:* the broker on the Pi was stopped for 245 s (16:36:02 to 16:40:07).
+UC-09/UC-12 E1: the alarm raised at 16:37:38 and cleared at 16:38:08 were both received after the restart (16:40:33), in
+order (HIGH, then CLEAR): pass. UC-10/UC-11 E1: telemetry (period 60 s) and health (period 10 s) show nothing between the
+stop and 16:38:45 (telemetry) or 16:38:52 (health): the two telemetry messages (16:36:45, 16:37:45) and about 17 health
+messages of that time never reached the cloud; from 16:38:45 on the messages were buffered and arrived after the restart
+(16:40:34), then live data resumed: partial, **F-9**. The first buffered telemetry (16:39:44, received 16:40:38) arrived after
+a live one (16:40:34, received 16:40:35), so the arrival order is not strictly chronological (REQ-BF-010). UC-14 E1: the
+read request sent during the outage was accepted by the API (202) and stayed `pending`; the cloud presents `timeout`
+after 60 s and the row became `accepted` at 16:40:35 when the Gateway answered after the reconnect: **F-10**.
+Not staged: E2 of UC-14 and E4 of UC-19 (a result produced while disconnected needs a command that arrives just before the
+loss; the buffering of results is covered by unit tests CP-T*).
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -176,6 +190,17 @@ Wi-Fi credentials or certificates on the production Gateway (covered in verifica
    with `strtol` and casts it to `uint8_t` before the range check, so 300 becomes 44 and is staged (256 is refused as 0,
    257 is accepted as 1). A commit would silently set address 44 and cut the Modbus link. `config set` does not have the
    problem (4294968296 is refused). Proposal: check the range on the `long` value first. Not committed in the session.
+9. **F-9 Data published shortly before the Gateway notices a lost connection is not buffered** (UC-10/UC-11 E1, REQ-BF-000,
+   REQ-BF-010). In the broker outage the first 2 min 43 s of telemetry and health were lost although alarms of the same
+   time were delivered. The keep-alive is 60 s (`MQTT_KEEP_ALIVE_S`); a likely cause is that the Gateway publishes to a
+   connection that is already dead until the keep-alive times out and treats those QoS 1 messages as sent. Not yet
+   confirmed with a Gateway console log of an outage. Proposal: keep QoS 1 messages in the buffer until their PUBACK arrives
+   (or re-queue the unacknowledged ones at teardown), and consider a shorter keep-alive.
+10. **F-10 A command sent while the Gateway is unreachable is executed when it returns** (UC-14 E1). The operator sees
+   `timeout` after 60 s and the command then runs after the reconnect (4 min later here) and the row turns `accepted`.
+   By design (the broker keeps the QoS 1 message, `commands.py`), but a stale `config` or `control` command may surprise
+   the operator; the use case only asks to show that it was not delivered. Proposal: expire commands in the broker
+   (MQTT 5 message expiry) or mark the row as expired and ignore the late answer. Design decision for the owner.
 
 ## Open points
 
