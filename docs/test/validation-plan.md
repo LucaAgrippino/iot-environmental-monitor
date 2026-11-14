@@ -35,7 +35,7 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
 | UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1/E2 (gateway disconnected) in the end-of-phase session |
 | UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); Field Technician main flow and E4 pass (V-23) |
-| UC-16 Provision device | Field Technician | console | Pending |
+| UC-16 Provision device | Field Technician | console | **PASS** with finding **F-8** (V-24) |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
 | UC-19 Forward remote commands | AWS IoT Core | cloud | **PASS** (E2 and routing to the Field Device, after F-3); E3 (FD unplugged) in the manual session |
@@ -127,6 +127,14 @@ active alarm (correct) while the pill blinked ALARM (F-6).
 (confirmation asked), CONFIRM: console `config list` showed 4200 and the alarm cleared. E4: value changed to 30.0, APPLY,
 CANCEL: the field shows 42.0 again and the console still shows 4200. Result: pass.
 
+**V-24 (UC-16, 2026-11-14).** Field Device console: `prov set modbus-addr 0` is refused (`invalid value, 1..247`); staging 5, `prov commit`
+and answering `n` gives `Discarded` and `config list` still shows address 1 (E2); staging 1, `prov commit`, `y` gives
+`Provisioning applied and persisted` and a save to flash (main flow). Wi-Fi, baud and parity are refused on the Field
+Device (`not yet supported (CS-O10)`). Gateway console: an endpoint with a space is refused, a valid one is staged, `n`
+gives `Discarded` and a second `prov commit` says `Nothing staged`; the stored identity (CA, certificate, key) and the
+Wi-Fi setting are intact and the Gateway stayed connected. Not run: E1 (an apply failure) and a real change of the
+Wi-Fi credentials or certificates on the production Gateway (covered in verification). Result: pass.
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -164,6 +172,10 @@ CANCEL: the field shows 42.0 again and the console still shows 4200. Result: pas
    BERR/ARLO, so the state never clears. A reset of the Field Device fixed it. The trigger is not established: the
    bus was clean before and after the same console `config commit`, and after a reset it stayed clean for the rest of
    the session. Proposal: recover (SWRST + bus clear) when BUSY is found on entry and when BERR/ARLO is flagged.
+8. **F-8 `prov set modbus-addr 300` is accepted on the Field Device** (UC-16, range 1..247). `cmd_prov` converts the number
+   with `strtol` and casts it to `uint8_t` before the range check, so 300 becomes 44 and is staged (256 is refused as 0,
+   257 is accepted as 1). A commit would silently set address 44 and cut the Modbus link. `config set` does not have the
+   problem (4294968296 is refused). Proposal: check the range on the `long` value first. Not committed in the session.
 
 ## Open points
 
