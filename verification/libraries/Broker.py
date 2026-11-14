@@ -83,9 +83,12 @@ class Broker:
             srv.close()
         return firsts
 
-    def plain_listener_attempt_times(self, port, seconds):
-        """Like plain_listener_records, but returns the time (seconds since the epoch) at which each connection attempt arrived."""
+    def plain_listener_attempt_times(self, port, seconds, ignore_addresses="127.0.0.1"):
+        """Like plain_listener_records, but returns the time (seconds since the epoch) at which each connection attempt arrived,
+        leaving out the clients whose address is in the comma-separated `ignore_addresses` (the collector and the cloud service run
+        on the same machine as the broker and reconnect to it too)."""
         import time
+        ignore = {a.strip() for a in str(ignore_addresses).split(",") if a.strip()}
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(("0.0.0.0", int(port)))
@@ -96,10 +99,11 @@ class Broker:
         try:
             while time.time() < end:
                 try:
-                    conn, _ = srv.accept()
+                    conn, peer = srv.accept()
                 except socket.timeout:
                     continue
-                times.append(time.time())
+                if peer[0] not in ignore:
+                    times.append(time.time())
                 conn.close()
         finally:
             srv.close()

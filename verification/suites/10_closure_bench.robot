@@ -17,6 +17,7 @@ Suite Teardown    Restore Closure
 
 *** Variables ***
 ${ORIG_TELE}      ${EMPTY}
+${PI}             192.168.0.209
 ${ORIG_HEALTH}    ${EMPTY}
 
 *** Keywords ***
@@ -461,7 +462,8 @@ TC-VER-CL-024 After the broker is lost the Gateway reconnects after 2 s and doub
     ${r}=    Run Process    sudo    -n    systemctl    stop    mosquitto    timeout=60
     Should Be Equal As Integers    ${r.rc}    0    ${r.stderr}
     ${stopped}=    Evaluate    __import__('time').time()
-    ${times}=    Plain Listener Attempt Times    8883    200
+    # only the Gateway: the collector and the cloud service on the Pi also reconnect to the broker's port
+    ${times}=    Plain Listener Attempt Times    8883    200    127.0.0.1,${PI}
     Log    attempts ${times}
     ${n}=    Get Length    ${times}
     Should Be True    ${n} >= 5    only ${n} connection attempts in 200 s
@@ -470,13 +472,15 @@ TC-VER-CL-024 After the broker is lost the Gateway reconnects after 2 s and doub
     Should Be True    ${first} <= 4.0    the first attempt came ${first} s after the loss, expected about 2 s
     ${iv}=    Evaluate    [round(b - a, 1) for a, b in zip($times, $times[1:])]
     Log    intervals ${iv}
-    FOR    ${i}    IN RANGE    1    ${n} - 1
-        ${prev}=    Evaluate    $iv[$i - 1]
-        ${cur}=    Evaluate    $iv[$i]
-        ${expected}=    Evaluate    min(2 * $prev, 60.0)
-        Should Be True    abs(${cur} - ${expected}) <= max(2.0, 0.25 * ${expected})    interval ${i}: ${cur} s after ${prev} s, expected about ${expected} s
-    END
-    Should Be True    max($iv) <= 65.0    an interval of ${iv} exceeds the 60 s cap
+    # each interval is the wait (2, 4, 8, 16, 32, then the 60 s cap) plus the duration of the attempt itself (Wi-Fi resolve, TLS
+    # handshake, failure): a constant of a few seconds. Subtract the expected wait: what is left must be small and the same each time.
+    ${extra}=    Evaluate    [round($iv[k] - min(2.0 * 2 ** k, 60.0), 1) for k in range(len($iv))]
+    Log    attempt duration implied by each interval: ${extra}
+    ${low}=    Evaluate    min($extra)
+    ${high}=    Evaluate    max($extra)
+    Should Be True    ${low} >= 0.0    an interval is shorter than the wait it should contain: ${iv}
+    Should Be True    ${high} <= 8.0    an interval is more than 8 s longer than its wait: ${iv}
+    Should Be True    ${high} - ${low} <= 2.0    the waits do not double: the attempt durations ${extra} are not constant
     [Teardown]    Run Keywords    Run Process    sudo    -n    systemctl    start    mosquitto    timeout=60
     ...    AND    Sleep    5s
     ...    AND    Restart Collector

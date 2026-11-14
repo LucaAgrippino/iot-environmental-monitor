@@ -18,6 +18,7 @@ class PortCapture:
     def __init__(self):
         self._fd = None
         self._text = ""
+        self._marks = []   # (offset in _text, time.time()) at the start of every chunk read
         self._run = False
         self._thread = None
 
@@ -31,6 +32,7 @@ class PortCapture:
         a[4] = a[5] = _rate[int(baud)]
         termios.tcsetattr(self._fd, termios.TCSANOW, a)
         self._text = ""
+        self._marks = []
         self._run = True
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
@@ -42,6 +44,7 @@ class PortCapture:
             except BlockingIOError:
                 data = b""
             if data:
+                self._marks.append((len(self._text), time.time()))
                 self._text += ANSI.sub("", data.decode("latin1"))
             else:
                 time.sleep(0.05)
@@ -55,6 +58,27 @@ class PortCapture:
             if time.time() >= end:
                 raise AssertionError("%r not seen on the port; last 400 characters: %r" % (text, self._text[-400:]))
             time.sleep(0.2)
+
+    def port_capture_time_of(self, text, after=0.0):
+        """Time (seconds since the epoch, to the chunk the text arrived in) of the first occurrence of `text` seen at or after the
+        time `after`. Fails when it is not in the capture."""
+        start = 0
+        for off, t in self._marks:
+            if t >= float(after):
+                start = off
+                break
+        else:
+            raise AssertionError("nothing was captured after %s" % after)
+        i = self._text.find(text, start)
+        if i < 0:
+            raise AssertionError("%r not in the capture; last 300 characters: %r" % (text, self._text[-300:]))
+        stamp = self._marks[0][1]
+        for off, t in self._marks:
+            if off <= i:
+                stamp = t
+            else:
+                break
+        return stamp
 
     def get_port_capture(self):
         return self._text

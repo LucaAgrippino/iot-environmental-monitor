@@ -17,6 +17,9 @@ Test Teardown     Stop Port Capture
 *** Variables ***
 ${DEVICE}         002d004f3442501020323848
 ${PI}             192.168.0.209
+# a 1.0.2 built with --fail-selfcheck and signed with the real key on the PC (scripts/build-release.sh), copied to the Pi
+${FAIL_A}         %{HOME}/rel-fail/1.0.2/gateway_slot_a.ota
+${FAIL_B}         %{HOME}/rel-fail/1.0.2/gateway_slot_b.ota
 ${GW_PORT}        /dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_0670FF575157877567154553-if02
 
 *** Keywords ***
@@ -93,3 +96,20 @@ TC-VER-OTA-009 The update command channel accepts only authenticated clients
     [Tags]    TC-VER-OTA-009    REQ-DM-056
     ${refused}=    Broker Refuses A Client Without Certificate    ${PI}
     Should Be True    ${refused}    the broker accepted a client without a certificate
+
+TC-VER-OTA-012 A failed self-check rolls back and the previous firmware is operational again within 10 s
+    [Documentation]    REQ-NF-204 and REQ-DM-071. A 1.0.2 built to fail its self-check is installed; its trial boot waits for the verdict (the
+    ...    self-check budget is 60 s), fails, and the Gateway rolls back. The time from "self-check failed: rolling back" to the
+    ...    previous firmware's "Operational" is taken from the Gateway's own console. The firmware is 1.0.1 again afterwards.
+    [Tags]    TC-VER-OTA-012    REQ-NF-204    REQ-DM-071
+    Start Port Capture    ${GW_PORT}    460800
+    ${r}=    Run Update    ${DEVICE}    ${FAIL_A}    ${FAIL_B}    4001    timeout=900
+    Should Be Equal    ${r}    rolled_back
+    Sleep    45s
+    Port Capture Should Contain    self-check failed: rolling back    5
+    ${failed}=    Port Capture Time Of    self-check failed: rolling back
+    ${ok}=    Port Capture Time Of    ] Operational    ${failed}
+    ${gap}=    Evaluate    ${ok} - ${failed}
+    Log    rollback: self-check failed -> previous firmware operational in ${gap} s
+    Should Be True    0 < ${gap} <= 10    the previous firmware was operational ${gap} s after the failed self-check, the limit is 10 s
+    [Teardown]    Stop Port Capture

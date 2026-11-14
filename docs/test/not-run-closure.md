@@ -98,3 +98,13 @@ Closure runs of 2026-11-13/14: suites 10 (time, remote commands, Modbus retries,
 stall, busy, authentication) and the FD display cases. The merged report is built from an explicit list of valid runs (the killed runs of 10 and
 12 November and the abandoned development runs of 10 November are left out); the two test ids that were reused by mistake (GW-016 and GW-017)
 were relabelled in copies of the affected result files (GW-018 and GW-019) before merging, the original result files are untouched.
+
+### Update, later on 2026-11-14
+
+- **NF-204** is verified: TC-VER-OTA-012 (a 1.0.2 that fails its self-check; 4.7 s from the failed self-check to the previous firmware being
+  operational again, limit 10 s; also tagged REQ-DM-071).
+- **NF-209** is verified at the MQTT layer: TC-VER-CL-024 (the first attempt 0.5 s after the loss; the waits double 2, 4, 8, 16, 32, 60 s plus a
+  constant 3 to 5 s for the attempt itself). The Wi-Fi layer of the requirement is not forced on the bench.
+- Report: 100 of 100 test cases pass; 182 requirements verified by test, 9 by hand, 5 waived, 1 not applicable, 0 failed, **10 open**:
+  the eight operator-checklist items (LD-040, LD-110, LD-120, LD-130, LD-150, LD-155, LD-190, NF-214), LD-060 and SA-010 (unit-level evidence,
+  pending the owner's acceptance).
