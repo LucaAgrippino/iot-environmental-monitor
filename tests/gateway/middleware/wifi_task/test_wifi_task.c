@@ -192,6 +192,12 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
     return s_open_socket_result;
 }
 
+uint8_t wifi_last_open_failed_step(wifi_handle_t handle)
+{
+    (void) handle;
+    return 0u;
+}
+
 wifi_err_t wifi_send(wifi_handle_t handle, wifi_socket_t socket, const uint8_t *data, size_t len)
 {
     (void) handle;

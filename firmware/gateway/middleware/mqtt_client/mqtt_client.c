@@ -757,7 +757,9 @@ static mqtt_client_err_t prv_connect_step_idle(struct mqtt_client_inst *inst,
         inst->wifi, WIFI_SOCKET_TCP, cfg->broker_endpoint, cfg->broker_port, &socket);
     if (wifi_status != WIFITASK_ERR_OK)
     {
-        LOG_ERROR(MQTT_CLIENT_LOG_MODULE, "wifitask_open_socket failed: %d", (int) wifi_status);
+        LOG_ERROR(MQTT_CLIENT_LOG_MODULE,
+                  "wifitask_open_socket failed: %d (AT step %u of 5: P0 P1 P3 P4 P6)",
+                  (int) wifi_status, (unsigned) wifitask_last_open_failed_step(inst->wifi));
         return MQTT_CLIENT_ERR_CONNECT_FAIL;
     }
 

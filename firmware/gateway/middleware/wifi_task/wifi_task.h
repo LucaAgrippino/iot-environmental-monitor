@@ -253,6 +253,17 @@ wifitask_err_t wifitask_open_socket(wifitask_handle_t handle, wifi_socket_type_t
                                     wifi_socket_t *out_socket);
 
 /**
+ * @brief The AT step at which the last wifitask_open_socket() failed (validation finding F-11).
+ *
+ * @param[in] handle  WifiTask handle (NULL gives 0).
+ * @return 0 if the last open worked; 1..5 for P0, P1, P3, P4, P6 (see
+ * wifi_last_open_failed_step()).
+ * @note Not queued: it reads a value the driver keeps; call it right after a failed open, from the
+ *       task that made the call.
+ */
+uint8_t wifitask_last_open_failed_step(wifitask_handle_t handle);
+
+/**
  * @brief Send data on an open socket (routed through WifiTask).
  *
  * @param handle WifiTask handle.

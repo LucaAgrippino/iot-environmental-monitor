@@ -556,6 +556,11 @@ wifitask_err_t wifitask_resolve(wifitask_handle_t handle, const char *hostname, 
                                WIFITASK_REPLY_TIMEOUT_TICKS(WIFITASK_WIFI_DNS_TIMEOUT_MS));
 }
 
+uint8_t wifitask_last_open_failed_step(wifitask_handle_t handle)
+{
+    return (handle == NULL) ? 0u : wifi_last_open_failed_step(handle->wifi);
+}
+
 wifitask_err_t wifitask_ping(wifitask_handle_t handle)
 {
     wifitask_request_t req = {.op = WIFITASK_OP_PING};

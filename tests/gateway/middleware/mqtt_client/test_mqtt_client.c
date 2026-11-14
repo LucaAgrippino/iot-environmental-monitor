@@ -117,6 +117,12 @@ static void prv_queue_recv_bytes(const uint8_t *data, size_t len)
     s_recv_len += len;
 }
 
+uint8_t wifitask_last_open_failed_step(wifitask_handle_t handle)
+{
+    (void) handle;
+    return 0u;
+}
+
 wifitask_err_t wifitask_open_socket(wifitask_handle_t handle, wifi_socket_type_t type,
                                     const char *remote_addr, uint16_t remote_port,
                                     wifi_socket_t *out_socket)
