@@ -1,7 +1,7 @@
 # Project closure
 
-**Date:** 2026-11-14. **Repository:** `main` (first commit 2026-03-31). **Result:** the V-model is complete from requirements to validation.
-The only item left open on purpose is a check against a real AWS IoT Core connection, which needs an AWS account (section 5).
+**Date:** 2026-11-14; **declared closed by the owner on 2026-11-15** (release `v1.0.0`). **Repository:** `main` (first commit 2026-03-31). **Result:** the V-model is complete from
+requirements to validation, and the findings of the security review are fixed except the items listed in section 5, which the owner left open on purpose.
 
 The system is an IoT environmental monitor of two nodes: a **Field Device** (STM32F469 Discovery: sensors, touch LCD, Modbus RTU slave) and a **Gateway**
 (B-L475E-IOT01A: Modbus RTU master, MQTT over mutual TLS), with a **cloud service** and **broker** that stand in for AWS IoT Core. See the
@@ -27,15 +27,16 @@ The system is an IoT environmental monitor of two nodes: a **Field Device** (STM
   trial boot, a self-check and an automatic rollback.
 - **Cloud service and broker:** a service on a Raspberry Pi (API, web app, alert channels) behind a Mosquitto broker with certificate-based access control, with its own
   certificate authority. It plays the role AWS IoT Core has in the architecture.
-- **State at closure:** Gateway firmware 1.1.20, Field Device `v0.0.0+66f7b136`, cloud service and broker deployed from `main`.
+- **State at closure:** Gateway firmware 1.1.22 (the first with downgrade protection), Field Device `v0.0.0+66f7b136`, cloud service and broker deployed from `main`; the Raspberry Pi is
+  hardened (firewall, key-only SSH, updated packages); release tag `v1.0.0`.
 
 ## 3. The evidence
 
 | Measure | Value |
 |---|---|
-| Host tests, Gateway | 1661 tested, 1658 passed, 0 failed, 3 ignored |
+| Host tests, Gateway | 1664 tested, 1661 passed, 0 failed, 3 ignored |
 | Host tests, Field Device and shared | 903 tested, 898 passed, 0 failed, 5 ignored |
-| Cloud and broker tests | 55 passed |
+| Cloud and broker tests | 59 passed |
 | Continuous integration | 15 checks (builds of both boards, host tests, clang-format, cppcheck, Markdown lint, cloud tests, installers); green on `main` |
 | Verification | 100 Robot Framework test cases, 25 merged runs |
 | Validation | Robot Framework and Playwright suites in [`validation/`](../validation/), records V-04 to V-33 |
@@ -52,6 +53,11 @@ Each level found defects the one before it could not.
   could stay offline after an outage, and an interrupted firmware download that was abandoned because a dead link looks connected until the keep-alive notices.
 
 ## 5. What is not closed
+
+The project is closed with these items open on purpose. None blocks the use of the system; each needs a decision or a resource the owner has not committed.
+
+- **Security review items still open** ([security-review.md](security-review.md), section 6): **S-1**, the Gateway's private key is obfuscated and not protected while read-out protection is off (turning it on
+  makes flashing harder); **S-5**, the release signing key has no passphrase yet (the tools support one). Everything else in the review is fixed or accepted.
 
 - **Real AWS IoT Core.** Every cloud result is against the local stand-in. A connection to the real service is a self-contained job for when an AWS account is
   available: repeat the cloud-facing scenarios of `validation/suites/` against it (telemetry, health, alarms, commands, firmware update). Two behaviours depend on
