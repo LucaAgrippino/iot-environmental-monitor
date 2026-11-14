@@ -3273,6 +3273,102 @@ void test_CP_T116_the_hook_is_asked_again_once_the_backoff_has_run_out(void)
     TEST_ASSERT_EQUAL_STRING("13.60.114.43", g_spy_mqtt_connect_last_endpoint);
 }
 
+/* ======================================================================= */
+/* CP-T145..T148 - the recovery ladder (validation finding F-11)            */
+/* ======================================================================= */
+
+static uint32_t g_spy_recover_rejoin;
+static uint32_t g_spy_recover_reset;
+static void prv_spy_link_recover(cp_link_recover_t step)
+{
+    if (step == CP_LINK_RECOVER_REJOIN)
+    {
+        g_spy_recover_rejoin++;
+    }
+    else if (step == CP_LINK_RECOVER_RESET_MODULE)
+    {
+        g_spy_recover_reset++;
+    }
+}
+
+static void prv_create_failing_with_recovery(void)
+{
+    g_cfg.link_recover = prv_spy_link_recover;
+    g_spy_recover_rejoin = 0u;
+    g_spy_recover_reset = 0u;
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+}
+
+/* Tick (1 s each) until `n` connect attempts have been made in all, or give up. */
+static void prv_tick_until_attempts(uint32_t n)
+{
+    for (uint32_t i = 0u; (i < 2000u) && (g_spy_mqtt_connect_calls < n); i++)
+    {
+        prv_stats_tick();
+    }
+    TEST_ASSERT_EQUAL_UINT32(n, g_spy_mqtt_connect_calls);
+}
+
+void test_CP_T145_three_failed_attempts_in_a_row_ask_for_a_rejoin(void)
+{
+    prv_create_failing_with_recovery();
+
+    prv_tick_until_attempts(2u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_recover_rejoin);
+
+    prv_tick_until_attempts(3u);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_rejoin);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_recover_reset);
+}
+
+void test_CP_T146_six_failed_attempts_ask_for_a_module_reset_and_then_only_every_15th(void)
+{
+    prv_create_failing_with_recovery();
+
+    prv_tick_until_attempts(5u);
+    TEST_ASSERT_EQUAL_UINT32(0u, g_spy_recover_reset);
+    prv_tick_until_attempts(6u);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_reset);
+    TEST_ASSERT_EQUAL_UINT32(1u,
+                             g_spy_recover_rejoin); /* the rejoin at the 3rd stays the only one */
+
+    prv_tick_until_attempts(
+        20u); /* a broker that is really down does not keep the module resetting */
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_reset);
+    prv_tick_until_attempts(21u);
+    TEST_ASSERT_EQUAL_UINT32(2u, g_spy_recover_reset);
+}
+
+void test_CP_T147_a_connection_resets_the_count_of_failures(void)
+{
+    prv_create_failing_with_recovery();
+
+    prv_tick_until_attempts(2u);
+    g_spy_mqtt_is_connected_return = true; /* it worked */
+    prv_stats_tick();
+    g_spy_mqtt_is_connected_return = false; /* and dropped again */
+    g_spy_mqtt_connect_calls = 0u;
+
+    prv_tick_until_attempts(2u);
+    TEST_ASSERT_EQUAL_UINT32(
+        0u, g_spy_recover_rejoin); /* two failures since the connection, not four */
+    prv_tick_until_attempts(3u);
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_recover_rejoin);
+}
+
+void test_CP_T148_without_a_recovery_hook_failures_only_back_off(void)
+{
+    g_cfg.link_recover = NULL;
+    g_spy_mqtt_is_connected_return = false;
+    g_spy_mqtt_connect_return = MQTT_CLIENT_ERR_CONNECT_FAIL;
+    TEST_ASSERT_EQUAL(CP_ERR_OK, cloud_publisher_create(&g_cfg, &g_handle));
+
+    prv_tick_until_attempts(8u);
+    TEST_ASSERT_EQUAL_UINT32(8u, g_spy_mqtt_connect_calls);
+}
+
 void test_CP_T117_the_hook_is_not_asked_between_the_steps_of_one_attempt(void)
 {
     prv_create_disconnected_with_prepare();

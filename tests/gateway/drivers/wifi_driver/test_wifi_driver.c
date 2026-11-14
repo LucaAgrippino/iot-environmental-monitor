@@ -847,6 +847,64 @@ void test_WIFI_T23_close_socket_frees_slot_even_when_stop_client_fails(void)
     TEST_ASSERT_EQUAL(0u, reopened);
 }
 
+/* Script one complete, successful open (P0, P1, P3, P4, P6=1). */
+static void helper_script_open_ok(void)
+{
+    for (uint32_t i = 0u; i < 5u; i++)
+    {
+        helper_script_at_command("\r\nOK\r\n");
+    }
+}
+
+/* T28 (validation finding F-11, WIFI-O17): the connect step (P6=1) fails. The driver stops the
+ * half-set client on that slot (P0, P6=0), says which step failed, and the next open starts on
+ * another slot, so it does not meet the same confused module socket again. */
+void test_WIFI_T28_a_failed_connect_cleans_up_and_the_retry_uses_another_slot(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+
+    TEST_ASSERT_EQUAL_UINT8(0u, wifi_last_open_failed_step(handle));
+
+    helper_script_at_command("\r\nOK\r\n");             /* P0=0 */
+    helper_script_at_command("\r\nOK\r\n");             /* P1 */
+    helper_script_at_command("\r\nOK\r\n");             /* P3 */
+    helper_script_at_command("\r\nOK\r\n");             /* P4 */
+    helper_script_at_command("\r\nERROR: refused\r\n"); /* P6=1 fails */
+    helper_script_at_command("\r\nOK\r\n");             /* clean-up: P0=0 */
+    helper_script_at_command("\r\nOK\r\n");             /* clean-up: P6=0 */
+    TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+    TEST_ASSERT_EQUAL_UINT8(5u, wifi_last_open_failed_step(handle));
+
+    helper_script_open_ok();
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+    TEST_ASSERT_EQUAL(1u, sock); /* not slot 0 again */
+    TEST_ASSERT_EQUAL_UINT8(0u, wifi_last_open_failed_step(handle));
+
+    /* After a success the search starts at the lowest slot again: with slot 1 busy the next open
+     * gets 0. */
+    helper_script_open_ok();
+    TEST_ASSERT_EQUAL(WIFI_ERR_OK,
+                      wifi_open_socket(handle, WIFI_SOCKET_UDP, "pool.ntp.org", 123, &sock));
+    TEST_ASSERT_EQUAL(0u, sock);
+}
+
+/* T29: a failure before the host is set (P1, the protocol) needs no clean-up, only the step is
+ * recorded. */
+void test_WIFI_T29_a_failed_early_step_is_recorded_without_clean_up(void)
+{
+    wifi_handle_t handle = helper_create_ready();
+    wifi_socket_t sock = WIFI_INVALID_SOCKET;
+
+    helper_script_at_command("\r\nOK\r\n");          /* P0=0 */
+    helper_script_at_command("\r\nERROR: nope\r\n"); /* P1 fails */
+    TEST_ASSERT_EQUAL(WIFI_ERR_SOCKET,
+                      wifi_open_socket(handle, WIFI_SOCKET_TCP, "10.0.0.1", 8883, &sock));
+    TEST_ASSERT_EQUAL_UINT8(2u, wifi_last_open_failed_step(handle));
+}
+
 void test_WIFI_T19_recv_strips_leading_and_trailing_framing(void)
 {
     wifi_handle_t handle = helper_create_ready();

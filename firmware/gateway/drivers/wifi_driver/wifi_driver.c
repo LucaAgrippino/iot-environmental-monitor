@@ -112,6 +112,10 @@ struct wifi_inst
     wifi_link_state_t link_state;
     int8_t rssi_dbm;
     bool socket_open[WIFI_MAX_SOCKETS];
+    wifi_socket_t open_start_hint; /**< Slot the next open starts looking at: 0 normally, the slot
+                                      after a failed one. */
+    uint8_t last_open_failed_step; /**< 0 = the last open worked, else 1..5 = P0, P1, P3, P4, P6
+                                      (F-11). */
     wifi_datardy_cb_t datardy_cb;
     void *datardy_ctx;
     bool ready;
@@ -627,6 +631,8 @@ wifi_err_t wifi_reset_module(wifi_handle_t handle)
     handle->link_state = WIFI_LINK_DOWN;
     handle->rssi_dbm = 0;
     memset(handle->socket_open, 0, sizeof(handle->socket_open));
+    handle->open_start_hint = 0u; /* a reset also clears the module's confused sockets (F-11) */
+    handle->last_open_failed_step = 0u;
 
     const wifi_err_t err = prv_boot_module(handle);
     if (err != WIFI_ERR_OK)
@@ -812,6 +818,34 @@ wifi_err_t wifi_resolve(wifi_handle_t handle, const char *hostname, char *out_ip
     return prv_parse_ipv4(handle->at_buf, resp_len, out_ip, out_len);
 }
 
+/**
+ * An open failed at AT step `step` (1..5 = P0, P1, P3, P4, P6). Remembers the step for the log,
+ * makes the next open start after this slot, and, once the host or port was already set on the
+ * module, stops the half-configured client on that slot (best effort, the answer is ignored): the
+ * module may be left with a socket it considers busy (WIFI-O17).
+ */
+static wifi_err_t prv_open_failed(struct wifi_inst *handle, wifi_socket_t slot, uint8_t step,
+                                  bool clean_up)
+{
+    handle->last_open_failed_step = step;
+    handle->open_start_hint = (wifi_socket_t) ((slot + 1u) % WIFI_MAX_SOCKETS);
+
+    if (clean_up)
+    {
+        char slot_str[WIFI_NUMSTR_MAX];
+
+        (void) snprintf(slot_str, sizeof(slot_str), "%u", (unsigned) slot);
+        (void) prv_send_kv(handle, WIFI_AT_SET_SOCKET, slot_str, NULL, WIFI_RESP_TIMEOUT_MS);
+        (void) prv_send_kv(handle, WIFI_AT_SET_CLIENT, "0", NULL, WIFI_RESP_TIMEOUT_MS);
+    }
+    return WIFI_ERR_SOCKET;
+}
+
+uint8_t wifi_last_open_failed_step(wifi_handle_t handle)
+{
+    return (handle == NULL) ? 0u : handle->last_open_failed_step;
+}
+
 wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const char *remote_addr,
                             uint16_t remote_port, wifi_socket_t *out_socket)
 {
@@ -824,9 +858,15 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
         return WIFI_ERR_NOT_INIT;
     }
 
+    /* The lowest free slot, except right after a failed open: then the search starts after the
+     * failed slot, so the retry does not meet the same confused module socket again (validation
+     * finding F-11, WIFI-O17: every open failed on one slot while the radio and the AT interface
+     * worked). */
     wifi_socket_t slot = WIFI_INVALID_SOCKET;
-    for (wifi_socket_t i = 0u; i < WIFI_MAX_SOCKETS; i++)
+    for (wifi_socket_t k = 0u; k < WIFI_MAX_SOCKETS; k++)
     {
+        const wifi_socket_t i = (wifi_socket_t) ((handle->open_start_hint + k) % WIFI_MAX_SOCKETS);
+
         if (!handle->socket_open[i])
         {
             slot = i;
@@ -851,31 +891,33 @@ wifi_err_t wifi_open_socket(wifi_handle_t handle, wifi_socket_type_t type, const
     wifi_err_t err = prv_send_kv(handle, WIFI_AT_SET_SOCKET, slot_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return prv_open_failed(handle, slot, 1u, false);
     }
     err = prv_send_kv(handle, WIFI_AT_SET_PROTOCOL, protocol_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return prv_open_failed(handle, slot, 2u, false);
     }
     err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_HOST, remote_addr, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return prv_open_failed(handle, slot, 3u, true);
     }
     err = prv_send_kv(handle, WIFI_AT_SET_REMOTE_PORT, port_str, NULL, WIFI_RESP_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return prv_open_failed(handle, slot, 4u, true);
     }
     /* P6=1 — start client. Unlike P0/P1/P3/P4 above, this triggers a real
      * connect over the air, which needs its own generous bound (WIFI-O9). */
     err = prv_send_kv(handle, WIFI_AT_SET_CLIENT, "1", NULL, WIFI_SOCKET_CONNECT_TIMEOUT_MS);
     if (err != WIFI_ERR_OK)
     {
-        return WIFI_ERR_SOCKET;
+        return prv_open_failed(handle, slot, 5u, true);
     }
 
+    handle->open_start_hint = 0u;
+    handle->last_open_failed_step = 0u;
     handle->socket_open[slot] = true;
     *out_socket = slot;
     return WIFI_ERR_OK;

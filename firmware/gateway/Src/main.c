@@ -649,6 +649,28 @@ static const char *prepare_connect(void)
     return ((again == WIFITASK_ERR_OK) && resolve_once()) ? s_broker_ip : NULL;
 }
 
+/* F-11: CloudPublisher calls this when connect attempts keep failing. A refused connection and a
+ * module socket left confused by a vanished peer (WIFI-O17) both end as a failed socket open, and a
+ * broker given as an IP address always "resolves", so prepare_connect() never escalates on its own.
+ * First the access point is joined again, later the module is reset (it drops its sockets and the
+ * association) and the access point joined again. Nothing here needs to know the cause. */
+static void link_recover(cp_link_recover_t step)
+{
+    if (step == CP_LINK_RECOVER_RESET_MODULE)
+    {
+        const wifitask_err_t reset = wifitask_reset_module(s_wifitask);
+
+        LOG_WARN("Main", "link recovery: Wi-Fi module reset -> %d", (int) reset);
+        if (reset != WIFITASK_ERR_OK)
+        {
+            return;
+        }
+    }
+    const wifitask_err_t join = wifitask_connect_ap(s_wifitask, wifi_ssid(), wifi_password());
+
+    LOG_WARN("Main", "link recovery: join the access point -> %d", (int) join);
+}
+
 static void boot_task(void *arg)
 {
     (void) arg;
@@ -786,6 +808,7 @@ static void boot_task(void *arg)
         .update = update_service_get_instance(),
         .mqtt_connect_cfg = connect_cfg,
         .connect_prepare = prepare_connect,
+        .link_recover = link_recover,
     };
     cloud_publisher_handle_t cp = NULL;
 

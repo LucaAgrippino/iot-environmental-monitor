@@ -119,6 +119,15 @@ typedef struct
  */
 typedef bool (*cp_control_handler_t)(const uint8_t *payload, uint32_t len);
 
+/** @brief Recovery steps CloudPublisher asks for when connecting keeps failing (validation finding
+ * F-11). */
+typedef enum
+{
+    CP_LINK_RECOVER_REJOIN = 1, /**< Join the access point again.                            */
+    CP_LINK_RECOVER_RESET_MODULE =
+        2, /**< Reset the Wi-Fi module, then join the access point again. */
+} cp_link_recover_t;
+
 /** @brief Outcome of a command executed on the Field Device (REQ-MB-080, REQ-MB-090). */
 typedef enum
 {
@@ -172,6 +181,13 @@ typedef struct
      *  ready; the attempt then counts as a failure and backs off like any other. NULL hook: the
      *  address in mqtt_connect_cfg is used as given. It may block for many seconds. */
     const char *(*connect_prepare)(void);
+    /** Called in task context when connect attempts keep failing: after CP_RECOVER_REJOIN_AFTER
+     *  consecutive failures with CP_LINK_RECOVER_REJOIN, after CP_RECOVER_RESET_AFTER and then
+     * every CP_RECOVER_RESET_EVERY failures with CP_LINK_RECOVER_RESET_MODULE. The cause of a
+     * failed attempt cannot be told from here (a refused connection and a confused module socket
+     * both end as a failed socket open), so the steps do not depend on it. NULL: no recovery. It
+     * may block for seconds. */
+    void (*link_recover)(cp_link_recover_t step);
     const idevice_profile_manager_t *profiles; /**< NULL: "profile_add" and "profile_remove" are
                                                     rejected as "failed" (REQ-DM-100).         */
     void (*on_profile_changed)(

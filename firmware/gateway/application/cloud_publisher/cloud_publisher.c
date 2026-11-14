@@ -69,6 +69,18 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
  * 1 s floor would let a retry slip through on the very next tick. */
 #define CP_RECONNECT_BACKOFF_MIN_S 2u
 #define CP_RECONNECT_BACKOFF_MAX_S 60u
+/* F-11: the recovery ladder, in consecutive failed connect attempts (about 6 s and 1 minute with
+ * the backoff above). */
+#ifndef CP_RECOVER_REJOIN_AFTER
+#define CP_RECOVER_REJOIN_AFTER 3u
+#endif
+#ifndef CP_RECOVER_RESET_AFTER
+#define CP_RECOVER_RESET_AFTER 6u
+#endif
+#ifndef CP_RECOVER_RESET_EVERY
+#define CP_RECOVER_RESET_EVERY                                                                     \
+    15u /* a broker that is really down must not keep the module resetting */
+#endif
 
 /* CP-D32: one store-and-forward replay pass is bounded, so a large backlog is sent over many
  * stats ticks instead of one burst. A pass stops at the first of the three limits; the next pass
@@ -178,7 +190,10 @@ struct cloud_publisher_inst
     char device_serial[CP_DEVICE_SERIAL_LEN];
     mqtt_connect_cfg_t mqtt_connect_cfg;  /**< CP-D9: owned here for connect()/reconnect(). */
     const char *(*connect_prepare)(void); /**< CP-D34: gets the link ready before an attempt. */
-    cp_fd_command_t fd_command;           /**< REQ-MB-080/090: command register write, or NULL. */
+    void (*link_recover)(
+        cp_link_recover_t step); /**< F-11: rejoin / reset the module after repeated failures. */
+    uint32_t connect_failures;   /**< Consecutive failed connect attempts; 0 while connected. */
+    cp_fd_command_t fd_command;  /**< REQ-MB-080/090: command register write, or NULL. */
     const idevice_profile_manager_t *profiles; /**< REQ-DM-100: remote profile updates, or NULL. */
     void (*on_profile_changed)(uint8_t slave); /**< After an add or replace; may be NULL. */
     bool connect_in_progress;       /**< CP-D34: a connect sequence is mid-way (CP-D10). */
@@ -278,6 +293,7 @@ static void prv_publish_health(struct cloud_publisher_inst *inst);
 static void prv_poll_stats(struct cloud_publisher_inst *inst);
 static void prv_maybe_reconnect(struct cloud_publisher_inst *inst);
 static void prv_note_connect_failure(struct cloud_publisher_inst *inst, mqtt_client_err_t rc);
+static void prv_recover_link_if_due(struct cloud_publisher_inst *inst);
 static void prv_drain_saf(struct cloud_publisher_inst *inst);
 static void prv_drain_publish_failed(struct cloud_publisher_inst *inst);
 static void prv_drain_alarm_queue(struct cloud_publisher_inst *inst, bool link_held);
@@ -367,6 +383,8 @@ cloud_publisher_err_t cloud_publisher_create(const cloud_publisher_config_t *con
     inst->update = config->update;
     inst->mqtt_connect_cfg = config->mqtt_connect_cfg;
     inst->connect_prepare = config->connect_prepare;
+    inst->link_recover = config->link_recover;
+    inst->connect_failures = 0u;
     inst->fd_command = config->fd_command;
     inst->profiles = config->profiles;
     inst->on_profile_changed = config->on_profile_changed;
@@ -801,6 +819,7 @@ static void prv_maybe_reconnect(struct cloud_publisher_inst *inst)
         prv_note_link(inst, true);
         inst->reconnect_countdown_s = 0u; /* ready to retry immediately after a future drop */
         inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S; /* CP-D13: fresh curve next drop */
+        inst->connect_failures = 0u;                            /* F-11 */
         prv_subscribe_commands(
             inst); /* CPC-1, CP-D26: after every connect; retried until all hold */
         return;
@@ -855,6 +874,42 @@ static void prv_note_connect_failure(struct cloud_publisher_inst *inst, mqtt_cli
     uint32_t next = inst->reconnect_backoff_s * 2u;
     inst->reconnect_backoff_s =
         (next > CP_RECONNECT_BACKOFF_MAX_S) ? CP_RECONNECT_BACKOFF_MAX_S : next;
+    prv_recover_link_if_due(inst);
+}
+
+/* F-11: after repeated failed attempts rejoin the access point, then reset the module; one step per
+ * threshold. After a recovery step the next attempt comes soon (the backoff starts again), because
+ * the step may have cured the cause. */
+static void prv_recover_link_if_due(struct cloud_publisher_inst *inst)
+{
+    inst->connect_failures++;
+    if (inst->link_recover == NULL)
+    {
+        return;
+    }
+
+    const uint32_t n = inst->connect_failures;
+    cp_link_recover_t step;
+
+    if (n == CP_RECOVER_REJOIN_AFTER)
+    {
+        step = CP_LINK_RECOVER_REJOIN;
+    }
+    else if ((n >= CP_RECOVER_RESET_AFTER) &&
+             (((n - CP_RECOVER_RESET_AFTER) % CP_RECOVER_RESET_EVERY) == 0u))
+    {
+        step = CP_LINK_RECOVER_RESET_MODULE;
+    }
+    else
+    {
+        return;
+    }
+    LOG_WARN(CP_LOG_MODULE, "%u failed connect attempts in a row: %s", (unsigned) n,
+             (step == CP_LINK_RECOVER_REJOIN) ? "joining the access point again"
+                                              : "resetting the Wi-Fi module");
+    inst->link_recover(step);
+    inst->reconnect_backoff_s = CP_RECONNECT_BACKOFF_MIN_S;
+    inst->reconnect_countdown_s = CP_RECONNECT_BACKOFF_MIN_S;
 }
 
 static void prv_drain_saf(struct cloud_publisher_inst *inst)

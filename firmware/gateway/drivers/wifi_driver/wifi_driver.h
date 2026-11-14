@@ -321,6 +321,17 @@ wifi_err_t wifi_recv(wifi_handle_t handle, wifi_socket_t socket, uint8_t *buf, s
 wifi_err_t wifi_close_socket(wifi_handle_t handle, wifi_socket_t socket);
 
 /**
+ * @brief The AT step at which the last wifi_open_socket() failed (validation finding F-11).
+ *
+ * wifi_open_socket() returns WIFI_ERR_SOCKET for any of its five steps; this says which one, so the
+ * log can tell a module that refuses the socket (P0 to P4) from a connection that fails (P6).
+ *
+ * @param[in] handle  WifiDriver handle (NULL gives 0).
+ * @return 0 if the last open worked or none was made; 1..5 for P0, P1, P3, P4, P6.
+ */
+uint8_t wifi_last_open_failed_step(wifi_handle_t handle);
+
+/**
  * @brief DATARDY (PE1 / EXTI1) ISR entry point.
  *
  * Called from EXTI1_IRQHandler() in stm32l4xx_it.c, after

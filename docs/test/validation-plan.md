@@ -224,8 +224,8 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
    command then ran 4 minutes later. Fix, as decided by the owner: a command for a device that has not reported within the
    online window is refused with `409 device offline ... the command was not sent`, and a command is refused with `503` while the
    cloud's broker link is down; no command row is created in either case (tests in `test_commands_ota.py`).
-11. **F-11 After a broker outage the Gateway can stay offline until it is reset** (found during the F-9 investigation; analysed 2026-11-14,
-   not fixed). *Observed:* in the second broker outage the Gateway noticed the loss in the same second (`Connection lost`, then a failed
+11. **F-11 (fixed in firmware, not yet on the board) After a broker outage the Gateway can stay offline until it is reset** (found during the F-9
+   investigation; analysed 2026-11-14). *Observed:* in the second broker outage the Gateway noticed the loss in the same second (`Connection lost`, then a failed
    31-byte send, `err=6`) and from then on every connect attempt, with the backoff 2, 4, 8, 16, 32, 60 s, logged
    `wifitask_open_socket failed: 6` (`WIFI_ERR_SOCKET`), also after the broker was back; NTP could not open a socket either. A reset of
    the Gateway cured it in 60 s. In the first and the third outage (and in the short broker restart of the deployment) it reconnected
@@ -245,6 +245,9 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
    `wifi_open_socket()` try the next free slot after a failed open (round robin) and send `P6=0` for the slot that failed; (c) log which
    AT step failed. *Verification:* host tests for (a) and (b); on the board repeat the broker stop at least 5 times before and after
    (`validation/outage.py` with a shorter outage) and capture the Gateway console. Needs the owner's go-ahead for each flash.
+   *Implemented:* all three. CloudPublisher counts consecutive failed connect attempts and asks `main.c` to rejoin the access point at the
+   3rd and to reset the module at the 6th and then every 15th (CP-D41, tests CP-T145..T148); `wifi_open_socket()` retries on the next slot
+   and cleans up the failed one (WIFI-T28/T29); MqttClient logs the failed AT step. Gateway host tests 1654 passed, 0 failed.
 
 ## Open points
 
@@ -255,6 +258,6 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
 - Done 2026-11-14: the manual session (LCD use cases V-20..V-23, UC-16 V-24, the disconnected cases V-25, V-26).
 - F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
   the touch that kept working; a Field Technician touch session in normal use is the remaining check.
-- F-11 (the Gateway stays offline after a broker outage until a reset): analysed (see the finding), fix proposed, waiting for the owner's decision.
+- F-11 (the Gateway stays offline after a broker outage until a reset): fix written and unit-tested; needs a Gateway release flashed (owner's go-ahead), then repeated broker stops (at least 5) with the console captured.
 - UC-18 and UC-20 (OTA, only with the owner's go-ahead) and the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.
