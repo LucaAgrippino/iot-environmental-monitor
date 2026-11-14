@@ -78,7 +78,7 @@ jobs:
         run: bash scripts/make-placeholder-bringup-headers.sh
 
       - name: Build with STM32CubeIDE
-        uses: xanderhendriks/action-build-stm32cubeide@260130874784d4ddadb0a199fb94f78e1e5ae224  # v15.0
+        uses: xanderhendriks/action-build-stm32cubeide@8501da822a749338cd177377e5329e28057b7ca9  # v17.0
         with:
           project-path: ${{ matrix.project_path }}
           project-target: ${{ matrix.project_target }}
