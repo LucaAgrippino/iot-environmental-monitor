@@ -14,12 +14,12 @@ jobs:
     name: Host unit tests (Ceedling)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           submodules: recursive
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199  # v1
         with:
           ruby-version: "3.0"
           bundler-cache: false
@@ -64,7 +64,7 @@ jobs:
             project_path: firmware/gateway
             project_target: gateway/Release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           submodules: recursive
 
@@ -78,7 +78,7 @@ jobs:
         run: bash scripts/make-placeholder-bringup-headers.sh
 
       - name: Build with STM32CubeIDE
-        uses: xanderhendriks/action-build-stm32cubeide@v15.0
+        uses: xanderhendriks/action-build-stm32cubeide@260130874784d4ddadb0a199fb94f78e1e5ae224  # v15.0
         with:
           project-path: ${{ matrix.project_path }}
           project-target: ${{ matrix.project_target }}
@@ -89,7 +89,7 @@ jobs:
     name: Field Device GUI (firmware build and simulator)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           submodules: recursive
 
@@ -114,7 +114,7 @@ jobs:
     name: Build configurations (one main() each)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       # The configurations CI builds: Debug and Release on both boards.
       - name: Check that each configuration compiles exactly one main()
@@ -129,7 +129,7 @@ jobs:
     name: Static analysis (cppcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install cppcheck
         run: sudo apt-get install -y cppcheck
@@ -161,7 +161,7 @@ jobs:
     name: Formatting check (clang-format)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Install clang-format-17
         run: sudo apt-get install -y clang-format-17
@@ -184,10 +184,10 @@ jobs:
     name: Markdown lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Lint markdown
-        uses: DavidAnson/markdownlint-cli2-action@v18
+        uses: DavidAnson/markdownlint-cli2-action@eb5ca3ab411449c66620fe7f1b3c9e10547144b0  # v18
         with:
           globs: |
             docs/**/*.md

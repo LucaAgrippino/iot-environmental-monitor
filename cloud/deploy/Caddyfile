@@ -4,6 +4,10 @@
 {$IOTCLOUD_HOST:envmon.lan} {
 	tls internal
 	encode gzip
+	# Firmware images are at most 2 MB: nothing larger is read (security review S-6)
+	request_body {
+		max_size 3MB
+	}
 	reverse_proxy 127.0.0.1:8000 {
 		# the live stream must reach the browser at once, not in buffered blocks
 		flush_interval -1

@@ -262,3 +262,12 @@ def test_an_update_for_a_device_that_is_not_reporting_is_refused(env, monkeypatc
     assert r.status_code == 409 and "offline" in r.json()["detail"], r.text
     assert db.query("SELECT COUNT(*) AS n FROM ota_jobs")[0]["n"] == 0
     assert not any(t.endswith("/ota") for t, _, _ in bus.sent)
+
+
+def test_an_oversized_upload_is_refused_without_taking_it_whole_into_memory(env):
+    """Security review S-6: the body is read in pieces and refused as soon as it passes the limit (413), declared or not."""
+    c, _, _, _ = env
+    too_big = b"x" * (ota.MAX_IMAGE + 1)
+    assert c.put("/api/images/big.ota", content=too_big).status_code == 413
+    assert c.put("/api/images/ok.ota", content=b"x" * 100).status_code == 201
+    assert c.get("/api/images").json()[0]["name"] == "ok.ota"  # the refused one was not stored
