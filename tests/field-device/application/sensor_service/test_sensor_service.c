@@ -408,3 +408,26 @@ void test_TC_SS_007_callback_fired_with_correct_snapshot(void)
     TEST_ASSERT_TRUE(g_cb_snapshot.readings[SENSOR_ID_HUMIDITY].valid);
     TEST_ASSERT_TRUE(g_cb_snapshot.readings[SENSOR_ID_PRESSURE].valid);
 }
+
+/* ======================================================================= */
+/* TC-SS-008: init leaves the poll timer stopped; start_polling starts it   */
+/* (REQ-LD-060: the first reading comes only after the splash)              */
+/* ======================================================================= */
+
+void test_TC_SS_008_polling_starts_only_on_request(void)
+{
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_NOT_INIT, sensor_service_start_polling());
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xTimerStart_call_count);
+
+    init_with_default_alpha();
+    TEST_ASSERT_EQUAL_UINT32(0U, g_mock_xTimerStart_call_count);
+
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_start_polling());
+    TEST_ASSERT_EQUAL_UINT32(1U, g_mock_xTimerStart_call_count);
+
+    /* No cycle has run, so the snapshot holds no valid reading: the display waits */
+    sensor_snapshot_t snap;
+    TEST_ASSERT_EQUAL(SENSOR_SERVICE_ERR_OK, sensor_service_get_snapshot(&snap));
+    TEST_ASSERT_FALSE(snap.readings[SENSOR_ID_TEMPERATURE].valid);
+    TEST_ASSERT_EQUAL_UINT32(0U, snap.cycle_count);
+}

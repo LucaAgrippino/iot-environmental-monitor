@@ -122,7 +122,17 @@ static const led_pin_t k_fd_led_pins[LED_COUNT] = {
 /* SensorTask and its Lifecycle adapters                                    */
 /* ======================================================================= */
 
+/** Pause between the screens appearing and the first sensor poll (display images only). */
+#define SENSOR_FIRST_READ_DELAY_MS (1000U)
+
 static volatile bool s_sensors_ready;
+/** Set when the screens are up (the splash is dismissed, or there is no display): the sensors
+ *  start reading only then, so the Sensors screen shows "waiting for data" (REQ-LD-060). */
+#ifdef FD_WITH_GUI
+static volatile bool s_sensors_may_poll;
+#else
+static volatile bool s_sensors_may_poll = true; /* no display: nothing to wait for */
+#endif
 
 /* The alarm log: the Field Device otherwise says nothing when a limit is crossed, which makes
  * the alarm-propagation test (2B-007) impossible to time from the log. */
@@ -207,6 +217,16 @@ static void sensor_task(void *arg)
     apply_alarm_thresholds();
     (void) config_service_register_change_callback(on_config_changed);
     s_sensors_ready = true;
+
+    while (!s_sensors_may_poll)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10U));
+    }
+#ifdef FD_WITH_GUI
+    /* Long enough to read "Waiting for data" (REQ-LD-060); the first poll alone is only 100 ms */
+    vTaskDelay(pdMS_TO_TICKS(SENSOR_FIRST_READ_DELAY_MS));
+#endif
+    (void) sensor_service_start_polling();
 
     for (;;)
     {
@@ -525,6 +545,7 @@ static void gui_task(void *arg)
             {
                 lcd_ui_dismiss_splash();
                 dismissed = true;
+                s_sensors_may_poll = true; /* the screens come up with no reading yet */
             }
         }
     }
@@ -542,6 +563,7 @@ static void gui_bring_up(void)
     {
         LOG_ERROR(MODULE_TAG, "display bring-up failed: the Field Device runs without the GUI");
         (void) health_report->push_event(HEALTH_EVENT_LCD_FAIL, 0U);
+        s_sensors_may_poll = true; /* no display: nothing to wait for */
         return;
     }
     lcd_ui_show_splash();

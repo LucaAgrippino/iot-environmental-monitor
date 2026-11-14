@@ -471,7 +471,7 @@ static void sensor_screen_on_refresh(screen_t *self)
         }
         else if (scr->ever_valid[i])
         {
-            state = CARD_ERROR; /* the last good value is shown faded (REQ-LD-060) */
+            state = CARD_ERROR; /* shown as a dash; the status keeps the last good time */
             shown = scr->last_value[i];
             when = scr->last_valid_epoch[i];
         }
@@ -482,6 +482,10 @@ static void sensor_screen_on_refresh(screen_t *self)
 
         value[0] = '\0';
         ui_fmt_value(value, sizeof(value), ch, shown);
+        if (state == CARD_ERROR)
+        {
+            (void) snprintf(value, sizeof(value), S_DASH); /* an invalid reading shows no number */
+        }
         ui_fmt_clock(clock, sizeof(clock), when);
         switch (state)
         {
@@ -1421,12 +1425,7 @@ LCD_UI_TEST_VISIBLE void cancel_tapped_cb(lv_event_t *e)
 LCD_UI_TEST_VISIBLE void modal_cancel_cb(lv_event_t *e)
 {
     (void) e;
-    config_screen_t *scr = &s_ui.config_screen;
-
-    lv_timer_pause(scr->confirm_timeout_timer);
-    confirm_modal_hide(&scr->modal);
-    scr->sub_state = CFG_STATE_EDITING; /* the edits are kept */
-    cfg_update_chrome(scr);
+    cfg_discard(&s_ui.config_screen); /* no confirmation: all edits are dropped (REQ-LD-155) */
 }
 
 LCD_UI_TEST_VISIBLE void confirm_tapped_cb(lv_event_t *e)

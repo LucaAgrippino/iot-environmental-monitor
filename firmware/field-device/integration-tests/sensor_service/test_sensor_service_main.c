@@ -108,6 +108,7 @@ static void vSensorTask(void *pvParameters)
     LOG_INFO(IT_TAG, "SensorTask HighWaterMark 0 %lu", uxHighWaterMark0);
 
     sensor_service_init();
+    sensor_service_start_polling();
 
     UBaseType_t uxHighWaterMark1 = uxTaskGetStackHighWaterMark(NULL);
     LOG_INFO(IT_TAG, "SensorTask HighWaterMark 1 %lu", uxHighWaterMark1);
