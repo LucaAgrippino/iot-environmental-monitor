@@ -18,9 +18,11 @@
 #include "barometer_driver_stub.h"
 #include "humidity_temp_driver_stub.h"
 #include "health_monitor_stub.h"
+/* The unit test counts warnings and information lines through this hook (F-1 throttle). */
+void ss_test_log_hook(int level);
 #define LOG_ERROR(m, f, ...) ((void) 0)
-#define LOG_WARN(m, f, ...) ((void) 0)
-#define LOG_INFO(m, f, ...) ((void) 0)
+#define LOG_WARN(m, f, ...) ss_test_log_hook(1)
+#define LOG_INFO(m, f, ...) ss_test_log_hook(2)
 #define LOG_DEBUG(m, f, ...) ((void) 0)
 #else
 #include "barometer_driver/barometer_driver.h"
@@ -77,6 +79,9 @@ static const int32_t s_range_max[SENSOR_ID_COUNT] = {
 /* Internal state                                                           */
 /* ======================================================================= */
 
+/** A persistent sensor fault is logged on its first failed read and then once per this many. */
+#define SS_FAIL_LOG_EVERY 100U
+
 typedef struct
 {
     bool initialised;
@@ -87,6 +92,7 @@ typedef struct
     uint8_t alpha_num;                   /**< IIR coefficient numerator */
     uint8_t alpha_den;                   /**< IIR coefficient denominator */
     bool driver_failed[SENSOR_ID_COUNT]; /**< permanent fail flag */
+    uint32_t fail_streak[SENSOR_ID_COUNT]; /**< consecutive failed reads, for the log throttle */
     void (*subscribers[SENSOR_MAX_SUBSCRIBERS])(const sensor_snapshot_t *);
     uint8_t subscriber_count;
     TimerHandle_t poll_timer;
@@ -341,13 +347,27 @@ static void process_sensor_reading(int id, int32_t raw_value, bool driver_ok,
     if (!driver_ok)
     {
         r->valid = false;
-        LOG_WARN(MODULE_TAG, "Sensor %d driver error", id);
+        /* Log the first failure of a streak and then every SS_FAIL_LOG_EVERY-th one: a failed
+         * sensor is read every cycle and one line per cycle hid the rest of the console (F-1). */
+        s_ss.fail_streak[id]++;
+        if ((s_ss.fail_streak[id] == 1U) || ((s_ss.fail_streak[id] % SS_FAIL_LOG_EVERY) == 0U))
+        {
+            LOG_WARN(MODULE_TAG, "Sensor %d driver error (%lu consecutive failed reads)", id,
+                     (unsigned long) s_ss.fail_streak[id]);
+        }
         if (*first_fail_this_cycle)
         {
             *first_fail_this_cycle = false;
             (void) health_report->push_event(HEALTH_EVENT_SENSOR_FAIL, (uint32_t) id);
         }
         return; /* skip steps 2–5 for this sensor */
+    }
+
+    if (s_ss.fail_streak[id] != 0U)
+    {
+        LOG_INFO(MODULE_TAG, "Sensor %d driver recovered after %lu failed reads", id,
+                 (unsigned long) s_ss.fail_streak[id]);
+        s_ss.fail_streak[id] = 0U;
     }
 
     /* Step 2: stamp (REQ-SA-100). */

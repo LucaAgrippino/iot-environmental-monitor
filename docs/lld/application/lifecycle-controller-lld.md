@@ -489,9 +489,12 @@ Restarting + LC_EVENT_RESTART_TIMEOUT:
   → Operational
 
 Restarting + LC_EVENT_RESTART_REQUESTED (second time):
-  Treat as confirmation — same as LC_EVENT_RESTART_CONFIRMED above.
-  Handles the case where the Modbus master issues the command twice
-  using the same register write.
+  Ignored (logged); the 30 s window is neither extended nor ended. Only
+  LC_EVENT_RESTART_CONFIRMED resets (REQ-NF-307). Changed after validation
+  finding F-5: a double click or a retrying script must not count as the
+  confirmation. lifecycle_handle_remote() also refuses a repeated "restart"
+  and a "restart_confirm" with no restart pending, and the cloud answers
+  "rejected" (reason "bad_state").
 
 Restarting + LC_EVENT_UNRECOVERABLE_FAULT:
   → Faulted (always honoured)
@@ -877,7 +880,7 @@ event group between cases.
 | TC-LC-086 | Restarting + `RESTART_CONFIRMED` → `reset_driver->soft_reset` called | REQ-DM-020 |
 | TC-LC-087 | Restarting + `RESTART_TIMEOUT` → `restart_pending=false`, `OPERATIONAL` | REQ-DM-030, LC-O4 |
 | TC-LC-088 | Restart timer fires at provisional 30 s → `RESTART_TIMEOUT` posted | LC-O4 |
-| TC-LC-089 | Restarting + second `RESTART_REQUESTED` → treated as confirmation, `soft_reset` called | REQ-DM-020 |
+| TC-LC-089 | Restarting + second `RESTART_REQUESTED` → ignored: no reset, timer not restarted, a later `RESTART_CONFIRMED` still resets | REQ-DM-020, REQ-NF-307 |
 | TC-LC-090 | Restarting + `UNRECOVERABLE_FAULT` → `FAULTED` (event honoured) | REQ-SA-040 |
 | TC-LC-091 | FD build excludes Restarting state entirely (compile-time check) | — |
 

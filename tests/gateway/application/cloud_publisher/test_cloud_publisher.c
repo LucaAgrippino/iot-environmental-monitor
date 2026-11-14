@@ -358,11 +358,13 @@ static const ilifecycle_t g_spy_lifecycle = {.get_state = spy_life_get_state};
 
 static uint32_t g_spy_control_calls;
 static uint32_t g_spy_control_len;
-static void spy_control_handler(const uint8_t *payload, uint32_t len)
+static bool g_spy_control_accepts = true;
+static bool spy_control_handler(const uint8_t *payload, uint32_t len)
 {
     (void) payload;
     g_spy_control_calls++;
     g_spy_control_len = len;
+    return g_spy_control_accepts;
 }
 
 /* The Field Device command hook (REQ-MB-080/090). */
@@ -2792,6 +2794,21 @@ void test_CP_T109_restart_reaches_the_handler_and_is_acknowledged(void)
     TEST_ASSERT_EQUAL_UINT32(2u, g_spy_control_calls);
     TEST_ASSERT_NOT_NULL(
         strstr(g_spy_mqtt_publish_last_payload, "\"command\":\"restart_confirm\""));
+}
+
+/* CP-T109b: a command the handler refuses is answered "rejected" with a reason, not "accepted"
+ * (validation finding F-5: a restart confirmation with no restart pending). */
+void test_CP_T109b_a_control_command_the_handler_refuses_is_reported_as_rejected(void)
+{
+    prv_create_and_connect();
+    g_spy_control_accepts = false;
+    prv_send_control("{\"command\":\"restart_confirm\",\"req\":77}");
+    g_spy_control_accepts = true;
+
+    TEST_ASSERT_EQUAL_UINT32(1u, g_spy_control_calls);
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"result\":\"rejected\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"bad_state\""));
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":77"));
 }
 
 /* CP-T128: "fd_ack_alarm" writes CMD_ACK_ALARM (0x0200 = 1) on the Field Device and reports the

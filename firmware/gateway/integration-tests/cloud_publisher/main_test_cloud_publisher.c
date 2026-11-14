@@ -402,10 +402,11 @@ static lifecycle_state_t bringup_life_state(void)
 }
 static const ilifecycle_t s_bringup_lifecycle = {.get_state = bringup_life_state};
 
-static void bringup_control(const uint8_t *payload, uint32_t len)
+static bool bringup_control(const uint8_t *payload, uint32_t len)
 {
     LOG_INFO("CloudPub", "/control received (%lu bytes): %.*s", (unsigned long) len, (int) len,
              (const char *) payload);
+    return true;
 }
 
 /** TC-HW-CP-011 outcome of one alarm: the seam moved out of the health report (CP-D19). */

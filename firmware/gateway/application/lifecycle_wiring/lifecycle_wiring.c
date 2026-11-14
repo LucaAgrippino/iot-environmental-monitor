@@ -646,11 +646,11 @@ static bool payload_has_command(const char *text, const char *name)
     return strstr(text, needle) != NULL;
 }
 
-void lifecycle_handle_remote(const uint8_t *payload, uint32_t len)
+bool lifecycle_handle_remote(const uint8_t *payload, uint32_t len)
 {
     if ((payload == NULL) || (len == 0U))
     {
-        return;
+        return false;
     }
 
     char text[REMOTE_PAYLOAD_MAX + 1U];
@@ -665,31 +665,49 @@ void lifecycle_handle_remote(const uint8_t *payload, uint32_t len)
     {
         const lifecycle_event_t ev = {.type = LC_EVENT_RESTART_CONFIRMED, .param = 0U};
 
+        /* A confirmation without a pending restart is refused, and nothing is queued (F-5). */
+        if (lifecycle_controller->get_state() != LIFECYCLE_STATE_RESTARTING)
+        {
+            LOG_WARN(MODULE_TAG, "restart confirmation refused: no restart pending");
+            return false;
+        }
         if (!lifecycle_controller->post_event(ev))
         {
             LOG_WARN(MODULE_TAG, "restart confirmation not queued");
+            return false;
         }
+        return true;
     }
-    else if (payload_has_command(text, LIFECYCLE_REMOTE_CMD_RESTART))
+    if (payload_has_command(text, LIFECYCLE_REMOTE_CMD_RESTART))
     {
+        /* A repeated request while one is pending is refused: only the confirmation resets (F-5).
+         */
+        if (lifecycle_controller->get_state() == LIFECYCLE_STATE_RESTARTING)
+        {
+            LOG_WARN(MODULE_TAG, "restart request refused: already waiting for the confirmation");
+            return false;
+        }
         if (lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_SOFT_RESTART) !=
             LIFECYCLE_ERR_OK)
         {
             LOG_WARN(MODULE_TAG, "restart request not queued");
+            return false;
         }
+        return true;
     }
-    else if (payload_has_command(text, LIFECYCLE_REMOTE_CMD_RESET_METRICS))
+    if (payload_has_command(text, LIFECYCLE_REMOTE_CMD_RESET_METRICS))
     {
         if (lifecycle_controller->handle_remote_command(LC_REMOTE_CMD_RESET_METRICS) !=
             LIFECYCLE_ERR_OK)
         {
             LOG_WARN(MODULE_TAG, "reset_metrics not executed");
+            return false;
         }
+        return true;
     }
-    else
-    {
-        LOG_WARN(MODULE_TAG, "unknown control command ignored");
-    }
+
+    LOG_WARN(MODULE_TAG, "unknown control command ignored");
+    return false;
 }
 
 void lifecycle_wiring_poller_task(void *arg)
