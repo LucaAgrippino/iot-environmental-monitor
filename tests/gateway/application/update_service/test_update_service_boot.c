@@ -168,6 +168,23 @@ void test_TC_US_062_a_passed_self_check_confirms_then_reports_then_tidies_then_t
     TEST_ASSERT_EQUAL_UINT32(1U, fake_fs_calls(FFS_CONFIRM));
 }
 
+/* TC-US-062b (validation finding F-12): the job number is still in the staging journal after the
+ * reboot, so the success report carries it and the cloud can close the job. */
+void test_TC_US_062b_the_success_report_carries_the_job_number_from_the_journal(void)
+{
+    boot_trial();
+    fake_fs_set_session_id(true, 77U);
+
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, update_control_ops.resume_self_checking(ust_us));
+    ust_step();
+
+    TEST_ASSERT_EQUAL_UINT32(1U, fake_transport_report_count());
+    TEST_ASSERT_EQUAL_INT(US_RESULT_SUCCESS, last_report()->result);
+    TEST_ASSERT_TRUE(last_report()->job_known);
+    TEST_ASSERT_EQUAL_UINT32(77U, last_report()->job);
+    expect_order("report_success", "discard"); /* read before the journal is discarded */
+}
+
 void test_TC_US_063_a_cloud_that_stays_away_for_the_whole_budget_fails_the_check(void)
 {
     boot_trial();
@@ -261,6 +278,22 @@ void test_TC_US_066_resume_rollback_enters_rolling_back_without_touching_flash(v
 /* ---------------------------------------------------------------------- */
 /* After a rollback                                                        */
 /* ---------------------------------------------------------------------- */
+
+/* TC-US-067b (F-12): the rollback report carries the job number of the update that was rolled back.
+ */
+void test_TC_US_067b_the_rollback_report_carries_the_job_number_from_the_journal(void)
+{
+    boot_in(FIRMWARE_BOOT_ROLLED_BACK, FIRMWARE_SLOT_A, OLD_VERSION, 1U);
+    fake_fs_set_session_id(true, 78U);
+
+    TEST_ASSERT_EQUAL_INT(UPDATE_SERVICE_ERR_OK, update_control_ops.resume_after_rollback(ust_us));
+    ust_step();
+
+    TEST_ASSERT_EQUAL_INT(US_RESULT_ROLLED_BACK, last_report()->result);
+    TEST_ASSERT_TRUE(last_report()->job_known);
+    TEST_ASSERT_EQUAL_UINT32(78U, last_report()->job);
+    expect_order("report_rolled_back", "discard");
+}
 
 void test_TC_US_067_a_rolled_back_boot_reports_acknowledges_and_tidies_in_that_order(void)
 {

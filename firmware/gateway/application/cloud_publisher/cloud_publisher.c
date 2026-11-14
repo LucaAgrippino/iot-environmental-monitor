@@ -69,13 +69,14 @@ _Static_assert(CP_JSON_BUF_SIZE <= SAF_PAYLOAD_MAX, "a payload must fit one Stor
  * 1 s floor would let a retry slip through on the very next tick. */
 #define CP_RECONNECT_BACKOFF_MIN_S 2u
 #define CP_RECONNECT_BACKOFF_MAX_S 60u
-/* F-11: the recovery ladder, in consecutive failed connect attempts (about 6 s and 1 minute with
- * the backoff above). */
+/* F-11: the recovery ladder, in consecutive failed connect attempts: about 6 s for the rejoin and
+ * about 70 s for the module reset with the backoff above, so an outage of a minute or less does not
+ * cost a module reset. */
 #ifndef CP_RECOVER_REJOIN_AFTER
 #define CP_RECOVER_REJOIN_AFTER 3u
 #endif
 #ifndef CP_RECOVER_RESET_AFTER
-#define CP_RECOVER_RESET_AFTER 6u
+#define CP_RECOVER_RESET_AFTER 8u
 #endif
 #ifndef CP_RECOVER_RESET_EVERY
 #define CP_RECOVER_RESET_EVERY                                                                     \

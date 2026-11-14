@@ -624,6 +624,48 @@ void test_TC_FS_036b_discard_reports_an_erase_failure_but_still_forgets_the_sess
     TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_BAD_STATE, IMG->write_chunk(fsu_fs, 0U, data, 4U));
 }
 
+/* TC-FS-038 (validation finding F-12): the session identifier, which is the cloud's job number, can
+ * be read back from the journal, also after a restart of the store (the firmware that boots after
+ * an update reports the outcome with it). */
+void test_TC_FS_038_the_last_session_id_is_read_back_and_survives_a_restart(void)
+{
+    uint32_t id = 0U;
+
+    arrange_file();
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_NO_SESSION,
+                          IMG->last_session_id(fsu_fs, &id)); /* nothing staged yet */
+
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, fsu_download(s_file, s_len, IMAGE_ID, 3000U));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->last_session_id(fsu_fs, &id));
+    TEST_ASSERT_EQUAL_UINT32(IMAGE_ID, id);
+
+    (void) fsu_create(
+        FIRMWARE_SLOT_A_BASE); /* the device restarts: a new store over the same flash */
+    id = 0U;
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->last_session_id(fsu_fs, &id));
+    TEST_ASSERT_EQUAL_UINT32(IMAGE_ID, id);
+}
+
+void test_TC_FS_038b_the_last_session_id_is_gone_after_a_discard_and_when_the_record_is_damaged(
+    void)
+{
+    uint32_t id = 0U;
+
+    arrange_file();
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->begin(fsu_fs, IMAGE_ID, s_len));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->last_session_id(fsu_fs, &id));
+
+    fake_qspi_mem()[JOURNAL_BASE + 4U] ^=
+        0x01U; /* a bit of the identifier flips: the CRC no longer matches */
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_NO_SESSION, IMG->last_session_id(fsu_fs, &id));
+    fake_qspi_mem()[JOURNAL_BASE + 4U] ^= 0x01U;
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->last_session_id(fsu_fs, &id));
+
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_OK, IMG->discard(fsu_fs));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_NO_SESSION, IMG->last_session_id(fsu_fs, &id));
+    TEST_ASSERT_EQUAL_INT(FIRMWARE_STORE_ERR_NULL_POINTER, IMG->last_session_id(fsu_fs, NULL));
+}
+
 void test_TC_FS_037_a_maximum_size_file_uses_at_most_122_journal_entries(void)
 {
     static uint8_t block[FIRMWARE_CHECKPOINT_STEP];

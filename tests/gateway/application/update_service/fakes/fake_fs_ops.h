@@ -62,6 +62,10 @@ void fake_fs_set_resume_offset(uint32_t offset);
 /** @brief What verify() fills in. */
 void fake_fs_set_verify_info(uint32_t version, uint32_t len, firmware_slot_t slot);
 
+/** @brief The session the journal holds (F-12): last_session_id() returns it; NO_SESSION when not
+ * set. Not logged. */
+void fake_fs_set_session_id(bool valid, uint32_t id);
+
 /** @brief install_step() sets *done after this many calls of an install (default 3). */
 void fake_fs_set_install_steps(uint32_t steps);
 

@@ -78,6 +78,23 @@ firmware_store_err_t fs_journal_scan(const iqspi_flash_t *q, uint32_t image_id, 
                                      uint32_t *next);
 
 /**
+ * @brief The identifier of the session the journal records, whatever it is (validation finding
+ * F-12).
+ *
+ * The image identifier of a session is the job number the cloud gave the update. The journal is not
+ * erased when the new image is activated, only when the next update begins or the session is
+ * discarded, so the firmware that boots after the update can still read which job it belongs to.
+ *
+ * @param[out] image_id  The identifier, valid only when OK is returned.
+ * @param q QSPI flash driver.
+ * @param scratch Work buffer of at least sizeof(firmware_journal_session_t) bytes.
+ * @return FIRMWARE_STORE_ERR_OK when a valid session record was read; FIRMWARE_STORE_ERR_NO_SESSION
+ * when the journal holds none (erased, torn or its CRC does not match); FLASH_READ.
+ */
+firmware_store_err_t fs_journal_session_id(const iqspi_flash_t *q, uint8_t *scratch,
+                                           uint32_t *image_id);
+
+/**
  * @brief Erase the journal sector (image sectors are left; lazy erase handles their reuse).
  *
  * @param q QSPI flash driver.

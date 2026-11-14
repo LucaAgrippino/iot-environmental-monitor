@@ -146,6 +146,27 @@ static firmware_store_err_t f_discard(firmware_store_t *self)
     return enter(FFS_DISCARD);
 }
 
+static bool s_session_valid;
+static uint32_t s_session_id;
+
+void fake_fs_set_session_id(bool valid, uint32_t id)
+{
+    s_session_valid = valid;
+    s_session_id = id;
+}
+
+static firmware_store_err_t f_last_session_id(firmware_store_t *self, uint32_t *image_id_out)
+{
+    (void) self;
+
+    if (!s_session_valid)
+    {
+        return FIRMWARE_STORE_ERR_NO_SESSION;
+    }
+    *image_id_out = s_session_id;
+    return FIRMWARE_STORE_ERR_OK;
+}
+
 static firmware_store_err_t f_get_boot_info(const firmware_store_t *self,
                                             firmware_boot_info_t *info_out)
 {
@@ -184,6 +205,7 @@ const ifirmware_image_store_t fake_fs_image_ops = {
     .install_step = f_install_step,
     .activate = f_activate,
     .discard = f_discard,
+    .last_session_id = f_last_session_id,
 };
 
 const ifirmware_boot_control_t fake_fs_boot_ops = {
@@ -207,6 +229,8 @@ void fake_fs_reset(void)
     s_write_len = 0U;
     s_last_job = 0U;
     s_last_file_len = 0U;
+    s_session_valid = false;
+    s_session_id = 0U;
     (void) memset(s_write_data, 0, sizeof(s_write_data));
 
     s_boot = (firmware_boot_info_t){

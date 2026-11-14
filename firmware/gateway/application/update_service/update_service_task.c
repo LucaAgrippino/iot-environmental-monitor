@@ -512,6 +512,25 @@ static void validate(void)
 /* Post-update boot (§13)                                                  */
 /* ---------------------------------------------------------------------- */
 
+/**
+ * @brief Report the outcome of an update after the reboot, with the job number when it is still
+ * known.
+ *
+ * The Gateway does not keep the job number in RAM across the reboot, but the staging journal's
+ * session record holds it (the image identifier is the job number) until the journal is discarded
+ * or the next update begins. Without it the cloud could only guess which job the result belongs to
+ * (validation finding F-12).
+ */
+static void report_final(us_result_t result, us_reason_t reason)
+{
+    uint32_t job = 0U;
+    const bool known =
+        (g_us.cfg.fs_image->last_session_id != NULL) &&
+        (g_us.cfg.fs_image->last_session_id(g_us.cfg.fs, &job) == FIRMWARE_STORE_ERR_OK);
+
+    report(result, reason, known, known ? job : 0U);
+}
+
 /** @brief The self-check passed: commit, report, tidy up, tell LifecycleController (§13.3). */
 static void self_check_pass(void)
 {
@@ -528,7 +547,7 @@ static void self_check_pass(void)
     }
 
     refresh_boot();
-    report(US_RESULT_SUCCESS, US_REASON_NONE, false, 0U);
+    report_final(US_RESULT_SUCCESS, US_REASON_NONE);
 
     if (g_us.cfg.fs_image->discard(g_us.cfg.fs) != FIRMWARE_STORE_ERR_OK)
     {
@@ -574,7 +593,7 @@ static void start_self_check(void)
 /** @brief The rolled-back image booted: report, acknowledge, tidy up (§13.4). */
 static void after_rollback(void)
 {
-    report(US_RESULT_ROLLED_BACK, US_REASON_ROLLBACK, false, 0U);
+    report_final(US_RESULT_ROLLED_BACK, US_REASON_ROLLBACK);
 
     const firmware_store_err_t rc = g_us.cfg.fs_boot->acknowledge_rollback(g_us.cfg.fs);
 

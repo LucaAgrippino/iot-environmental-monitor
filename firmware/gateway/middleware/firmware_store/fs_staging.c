@@ -151,6 +151,30 @@ firmware_store_err_t fs_journal_begin(const iqspi_flash_t *q, uint32_t image_id,
     return err;
 }
 
+firmware_store_err_t fs_journal_session_id(const iqspi_flash_t *q, uint8_t *scratch,
+                                           uint32_t *image_id)
+{
+    firmware_journal_session_t session;
+    const firmware_store_err_t err = q_read(q, journal_addr(), scratch, sizeof(session));
+
+    if (err != FIRMWARE_STORE_ERR_OK)
+    {
+        return err;
+    }
+    (void) memcpy(&session, scratch, sizeof(session));
+
+    if ((session.magic != FIRMWARE_JOURNAL_MAGIC) ||
+        (session.image_id == FIRMWARE_IMAGE_ID_ERASED) ||
+        (session.crc32 !=
+         config_store_crc32((const uint8_t *) &session, FIRMWARE_JOURNAL_SESSION_CRC_SPAN)))
+    {
+        return FIRMWARE_STORE_ERR_NO_SESSION;
+    }
+
+    *image_id = session.image_id;
+    return FIRMWARE_STORE_ERR_OK;
+}
+
 /** @brief True if the entry is a plausible checkpoint for a file of file_len bytes. */
 static bool checkpoint_plausible(uint32_t value, uint32_t file_len)
 {

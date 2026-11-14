@@ -304,5 +304,5 @@ active, the validation images removed from the store.
 - F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
   the touch that kept working; a Field Technician touch session in normal use is the remaining check.
 - F-11 (the Gateway stays offline after a broker outage until a reset): fix on the Gateway (1.1.3), 6 of 6 outages recovered (V-28); the wedge did not recur, so the cure is not yet shown by a real case. Open question: should the useless rejoin step (it answers ERROR while associated) become a disconnect and join, and should the module reset wait for a longer outage than 20 s?
-- Done 2026-11-14: UC-18 and UC-20 over the air (V-29), F-12 and F-13 fixed and verified (V-30). Open: the optional real AWS IoT Core check, and the follow-ups of F-11 and F-12 (the Gateway keeping the job id across the reboot).
+- Done 2026-11-14: UC-18 and UC-20 over the air (V-29), F-12 and F-13 fixed and verified (V-30). Follow-ups written and unit-tested, not yet on the Gateway: the Gateway sends the job id in the report after the reboot (F-12), and the F-11 ladder leaves and rejoins the access point and resets the module later. Open: the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.
