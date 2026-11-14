@@ -104,8 +104,10 @@ staging, authentication, installation and boot metadata.
 - authenticate the image (FirmwareStore, FS-D4).
 
 **Non-goals** (not in the SRS, P6): cancelling an update in progress,
-progress reports, version anti-rollback, delta updates, Field Device OTA
-(D35), automatic resume after a reboot without a new command (§10.5).
+progress reports, delta updates, Field Device OTA (D35), automatic resume
+after a reboot without a new command (§10.5). Version anti-rollback was a
+non-goal and is now enforced by FirmwareStore (FS-D20); the update fails with
+the reason `version_not_newer`.
 
 ---
 
@@ -451,6 +453,7 @@ LifecycleController agrees, the device has not committed to the update.
 | `US_REASON_INSTALL_FAILED` | `install_failed` | Install failed twice (§12) |
 | `US_REASON_ACTIVATE_FAILED` | `activate_failed` | `activate` failed |
 | `US_REASON_ROLLBACK` | `rollback` | After a reboot: the self-check failed, or the image crashed during its trial (indistinguishable, §13.4) |
+| `US_REASON_VERSION_NOT_NEWER` | `version_not_newer` | The signed image is not newer than the running firmware (anti-rollback, FS-D20; `FIRMWARE_STORE_ERR_OLD_VERSION`) |
 
 ---
 

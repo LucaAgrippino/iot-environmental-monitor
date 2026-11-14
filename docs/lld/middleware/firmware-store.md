@@ -84,10 +84,10 @@ OTA state machine.
 - push health events (failures are returned to UpdateService, which reports them per REQ-DM-055);
 - run at boot before the application (that is the bootloader, §13).
 
-**Non-goals** (not in the SRS, P6): version anti-rollback enforcement,
-image encryption, delta updates, Field Device OTA (D35). The signed header
-carries the version, so anti-rollback can be added later without a format
-change.
+**Non-goals** (not in the SRS, P6): image encryption, delta updates, Field
+Device OTA (D35). Version anti-rollback was a non-goal and was added after the
+security review of 2026-11-14 (S-4, FS-D20): `verify()` refuses an image whose
+signed version is not newer than the running firmware. The format did not change.
 
 ---
 
@@ -986,6 +986,7 @@ is not OTA-capable by §13.1, as specified); the bench wipes the metadata pages 
 | FS-D17 | A failed `begin` (journal erase, program or read-back) leaves the operation state IDLE, not unchanged as §9 said for v0.2 | The journal sector has already been erased, so an older RECEIVING session no longer exists; leaving it RECEIVING would accept chunks that no resume could find |
 | FS-D18 | `get_boot_info` takes `const firmware_store_t *self` | It is a pure query; the vtable type says so |
 | FS-D19 | The committed `ota_public_key.c` is an all-zero placeholder, which is not a point on P-256. `ota_ecdsa_p256_verify` then returns the library-failure result, and `verify` returns `CRYPTO`, never `SIG_INVALID`. No image can be installed until `make_image.py genkey` provisions a key. A failed mutex creation maps to `NO_INSTANCE` (the code list has no resource error) | Fail closed, and do not report an unprovisioned device as a forged image |
+| FS-D20 | **Anti-rollback** (security review S-4). After the signature, the body hash and the reset vector pass, `verify()` returns `FIRMWARE_STORE_ERR_OLD_VERSION` when `header.version <= running_version` (the version in the running slot's descriptor). The version is part of the signed header, so it cannot be changed without breaking the signature. A running version of 0 (no valid descriptor, a bring-up image) has nothing to compare with and does not block. A release can therefore not be installed over itself or over a newer one by an update; reinstalling or going back is done with the debug cable. Tests TC-FS-041b..d. |
 
 ---
 

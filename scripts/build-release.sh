@@ -52,7 +52,7 @@ import re, sys
 sys.path.insert(0, sys.argv[3] + "/tools/ota")
 from cryptography.hazmat.primitives import serialization
 import make_image
-key = serialization.load_pem_private_key(open(sys.argv[1], "rb").read(), password=None)
+key = make_image.load_private_key(sys.argv[1])
 want = make_image.raw_public_key(key)
 text = open(sys.argv[2]).read()
 have = bytes(int(h, 16) for h in re.findall(r"0x([0-9A-Fa-f]{2})", text.split("{", 1)[1]))
