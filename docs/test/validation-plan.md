@@ -20,9 +20,9 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 
 | UC | Actor | How it is run | Status |
 |---|---|---|---|
-| UC-01 View sensor readings | Field Technician | LCD, by hand | End-of-phase manual session |
-| UC-02 View system status | Field Technician | LCD, by hand | End-of-phase manual session |
-| UC-03 View active alarms | Field Technician | LCD, by hand | End-of-phase manual session |
+| UC-01 View sensor readings | Field Technician | LCD, by hand | **PASS** (V-20); E1 passes with observation **F-6** |
+| UC-02 View system status | Field Technician | LCD, by hand | **PASS** (V-21), E1 included |
+| UC-03 View active alarms | Field Technician | LCD, by hand | **PASS** (V-22); touch lock-up found on the way: **F-7** |
 | UC-04 View device diagnostics | Field Technician | FD console | **PASS** (V-04) |
 | UC-05 View telemetry data | Remote Operator | cloud API and browser | **PASS** (V-05); F-2 fixed and re-run |
 | UC-06 Monitor device health | Remote Operator | cloud API and browser | **PASS** (V-06) |
@@ -34,7 +34,7 @@ run it, on the real boards, and gets a short record here. Started 2026-11-14.
 | UC-12 Receive alarm events | AWS IoT Core | cloud | **PASS** main flow (V-09); E1 in the end-of-phase session |
 | UC-13 Synchronise time | System | FD console log | **PASS** (V-13) |
 | UC-14 Request sensor reading | Remote Operator | cloud API and browser | **PASS** (V-14); E1/E2 (gateway disconnected) in the end-of-phase session |
-| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); LCD in the manual session |
+| UC-15 Configure operational parameters | FT and RO | console and LCD (FT), cloud (RO) | **PARTIAL**: RO main flow and E3 invalid value pass (V-15); unknown key passes after F-4 (Gateway 1.1.1 flashed, V-18); Field Technician main flow and E4 pass (V-23) |
 | UC-16 Provision device | Field Technician | console | Pending |
 | UC-17 Request restart device | Remote Operator | cloud API and browser | **PASS** (V-17); a second request no longer counts as the confirmation (**F-5** fixed; V-19) |
 | UC-18 Deploy firmware update | Remote Operator | cloud, OTA | Held: OTA only on the owner's go-ahead |
@@ -109,6 +109,24 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
   CP-T99b). The Gateway on the bench runs release 1.1.0 without this change; the scenario
   `UC-15 E3 A setting the device does not know...` stays failing until a new release is flashed or sent over the air.
 
+**V-20 (UC-01, 2026-11-14, with Luca at the board).** The Sensors screen shows the three values with units and they
+refresh. E1: barometer fault injected over SWD: temperature and humidity stay normal, the pressure field shows a dash
+in red; after the fault is cleared the value returns. Result: pass. Observations: see F-6.
+
+**V-21 (UC-02).** The Status screen shows the sensor, system, Modbus sections. E1 (system in error, pressure fault): a
+banner "Sensor error - last valid reading shown", the failure row in red with an error and the time of the last valid
+reading; the Modbus CRC row is yellow and shows 1, equal to the console `status`. After the fault is cleared the banner
+disappears and the pill says RUNNING. Result: pass.
+
+**V-22 (UC-03).** With `temp-alarm-high` set to 20.00 over the console the Alarms screen lists the temperature alarm
+HIGH, the header pill blinks ALARM, the Sensors screen shows the value with the blinking label. Clearing the alarm
+(V-23) returns the pill to RUNNING. Result: pass. While the pressure sensor was invalid the Alarms screen said no
+active alarm (correct) while the pill blinked ALARM (F-6).
+
+**V-23 (UC-15, Field Technician).** Main flow on the display: CONFIG, temperature high 20.0 changed to 42.0, APPLY
+(confirmation asked), CONFIRM: console `config list` showed 4200 and the alarm cleared. E4: value changed to 30.0, APPLY,
+CANCEL: the field shows 42.0 again and the console still shows 4200. Result: pass.
+
 ## Findings
 
 1. **F-1 (fixed; V-19) Log flood on a sensor fault.** One failed sensor prints one `Sensor 2 driver error` warning per poll
@@ -133,6 +151,19 @@ uptime under 200 s and state operational. The browser shows a separate confirm b
    `restart` and answering a late confirm with a rejection.
    Fixed: a repeated `restart` is ignored and refused (`rejected`, reason `bad_state`); a `restart_confirm` with nothing
    pending is refused the same way; the LLD section 10 and TC-LC-089 are changed (host tests LC-089, LW-071b/c, CP-T109b).
+6. **F-6 A sensor fault is shown as ALARM although no alarm exists** (UC-01 E1, UC-03). The header pill blinks ALARM
+   for any Field Device fault (`compute_pill`, `fault_text`) while the Alarms screen and the console list no alarm, so
+   the technician sees ALARM and then "no active alarms". Also the banner says "last valid reading shown" but the Sensors
+   card shows a dash, not the old value. Proposal: a distinct pill word (FAULT) or a line on the Alarms screen naming
+   the sensor error. Design decision for the owner; not changed.
+7. **F-7 Touch input stops permanently after an I2C1 bus error** (found at UC-03, 2026-11-14 about 16:22). The display
+   kept updating but no touch reached the firmware (no `touch raw` log in a 45 s capture while the screen was touched
+   many times). Over SWD: I2C1 CR1 = 0x601 (STOP pending), SR1 = 0x100 (BERR), SR2 = 0x3 (MSL, BUSY), identical on six
+   reads; the sensors (another bus) kept reading. `transfer_write`/`transfer_read` return `I2C_ERR_BUS_BUSY` at once when
+   BUSY is set and run the recovery (`i2c_bus_recovery`, SWRST) only after a timeout, and the wait loops do not check
+   BERR/ARLO, so the state never clears. A reset of the Field Device fixed it. The trigger is not established: the
+   bus was clean before and after the same console `config commit`, and after a reset it stayed clean for the rest of
+   the session. Proposal: recover (SWRST + bus clear) when BUSY is found on entry and when BERR/ARLO is flagged.
 
 ## Open points
 
