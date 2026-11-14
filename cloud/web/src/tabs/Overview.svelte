@@ -27,6 +27,13 @@
     <div class="muted">{l?.fd_humidity_pct ?? '-'} % · {l?.fd_pressure_hpa ?? '-'} hPa</div>
   </div>
 </div>
+{#if l && l.accel_x_mg != null}
+  <div class="grid" data-testid="motion">
+    <div class="card"><div class="muted">Accelerometer (mg)</div><div class="mid">{l.accel_x_mg} · {l.accel_y_mg} · {l.accel_z_mg}</div><div class="muted">x · y · z</div></div>
+    <div class="card"><div class="muted">Gyroscope (mdps)</div><div class="mid">{l.gyro_x_mdps} · {l.gyro_y_mdps} · {l.gyro_z_mdps}</div><div class="muted">x · y · z</div></div>
+    <div class="card"><div class="muted">Magnetometer (mgauss)</div><div class="mid">{l.mag_x_mgauss} · {l.mag_y_mgauss} · {l.mag_z_mgauss}</div><div class="muted">x · y · z</div></div>
+  </div>
+{/if}
 {#if l}<div class="muted">Reading from {fmtTime(l.ts)}</div>{/if}
 
 {#if healthRows.length}
@@ -41,6 +48,7 @@
 {/if}
 
 <style>
+  .mid { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .big { font-size: 1.8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 1.5rem; }
   .kv { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--line); padding: .2rem 0; font-size: .9rem; }

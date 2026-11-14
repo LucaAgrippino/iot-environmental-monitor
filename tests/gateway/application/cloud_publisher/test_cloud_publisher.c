@@ -2614,6 +2614,25 @@ void test_CP_T99_local_only_and_unknown_keys_are_refused_with_nothing_applied(vo
     TEST_ASSERT_EQUAL_UINT32(0u, g_spy_set_deferred_calls);
 }
 
+/* CP-T99b (validation F-4): a rejected command still reports the request id, even when "req" comes
+ * after the bad member. */
+void test_CP_T99b_a_rejection_carries_the_request_id_when_req_is_last(void)
+{
+    prv_create_and_connect();
+
+    prv_deliver_config("{\"nonsense\":1,\"req\":42}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":42"));
+    TEST_ASSERT_NOT_NULL(
+        strstr(g_spy_mqtt_publish_last_payload, "\"reason\":\"unknown_key\",\"key\":\"nonsense\""));
+
+    prv_deliver_config("{\"filter_alpha\":100,\"req\":43}");
+    TEST_ASSERT_NOT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\":43"));
+
+    /* no request id in the command: none in the answer */
+    prv_deliver_config("{\"nonsense\":1}");
+    TEST_ASSERT_NULL(strstr(g_spy_mqtt_publish_last_payload, "\"req\""));
+}
+
 /* CP-T100: malformed inputs. */
 void test_CP_T100_malformed_config_commands_are_rejected_with_nothing_applied(void)
 {
