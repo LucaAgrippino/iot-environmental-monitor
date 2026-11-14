@@ -427,6 +427,7 @@ LifecycleController agrees, the device has not committed to the update.
 | `US_CHUNK_TIMEOUT_MS` | 5000 | Covers the 100 ms MQTT process tick plus WiFi/TLS round trip with margin |
 | `US_MAX_RETRIES` | 3 | REQ-DM-052, Machine 3 T4 |
 | `US_STALL_LIMIT_MS` | 600 000 | No progress for 10 min, connected or not → fail (US-D7, US-O3) |
+| `US_LINK_GRACE_MS` | 120 000 | Three failed chunks end the update only after this long without progress, from the last chunk or the last resume (US-D8) |
 | `US_START_TIMEOUT_MS` | 360 000 | Above the 5-minute EditingConfig deferral (REQ-NF-214) |
 | `US_SELF_CHECK_TIMEOUT_MS` | 60 000 | Includes MQTT reconnect (HLD state-machines open question 5); US-O2 |
 | `US_SELF_CHECK_POLL_MS` | 500 | |
@@ -587,8 +588,8 @@ out-of-order write. `resume` failing → fail `staging_error`.
 
 | Event | Action |
 |---|---|
-| Request deadline passes, link up | `failures++`; `failures ≥ US_MAX_RETRIES` → fail `download_failed`; else re-request the same offset (Machine 3 I2) |
-| Request deadline passes, link down | `paused = true`; not counted (UC-18 E2) |
+| Request deadline passes, link up | `failures++`; `failures ≥ US_MAX_RETRIES` **and** no progress for `US_LINK_GRACE_MS` since the last chunk or the last resume → fail `download_failed`; else re-request the same offset (Machine 3 I2, US-D8) |
+| Request deadline passes, link down | `paused = true`; `failures = 0` (what timed out before the loss was noticed belonged to the dead link); not counted (UC-18 E2, US-D8) |
 | Paused and link up again (checked every `US_SELF_CHECK_POLL_MS` while paused) | `paused = false`; re-request (DM-051) |
 | `now − last_progress > US_STALL_LIMIT_MS` | Fail `stalled` |
 
@@ -1129,6 +1130,7 @@ The v0.1 items were renumbered: IDs US-O1..US-O8 above are new.
 | US-D13 | UpdateService confirms before reporting success; LifecycleController's confirm is an idempotent re-assert | The success report is never sent for an uncommitted image; the existing LifecycleController code is kept |
 | US-D14 | Same `job` sent again = resume; a new `job` = fresh download | Resume across a reboot with no device-side memory (REQ-DM-051) |
 | US-D15 | `update_service_get_instance()` returns the singleton handle before `update_service_create()`; every operation refuses it with `NOT_INITIALISED` until create has succeeded | Breaks the creation cycle with CloudPublisher (CloudPublisher needs the instance, `update_service_create` needs the transport CloudPublisher provides). Found in WP4 session 1, decided D-2 in `docs/lld/application/gateway-main.md`. A message that reaches CloudPublisher in between is refused and logged, not acted on |
+| US-D8 | **A link that died is not yet a disconnected link** (validation finding F-14). The Gateway notices a broker that disappeared only after the keep-alive (7 to 11 s in the outage runs, longer in the worst case), and until then the link looks connected, so the chunks sent into it time out and were counted as failures: three of them (15 s) ended the update, and in one run in four the interrupted download of UC-18 E2 did not resume. The same happens for a cloud service that is slow to subscribe again after a broker restart. Now three failures end the update only after `US_LINK_GRACE_MS` (2 min) without progress, counted from the last chunk or the last resume (`resumed_at`); the pause (US-D6) takes over as soon as the loss is noticed and forgets the failures counted against the dead link. REQ-DM-052 still holds (three retries, then discard), only later; flash write failures (US-D6) are device failures and still count at once. Tests TC-US-028, 028b, 029, 030b, 030c, 032, 034. | REQ-DM-051, REQ-DM-052 |
 
 ---
 
