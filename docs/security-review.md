@@ -55,3 +55,23 @@ Everything an attacker could do over the network to a device needs a certificate
 
 mbedTLS 3.6.7, coreMQTT v2.3.1, FreeRTOS kernel at commit `18ed888`, LVGL at commit `74d0a81`; Python: FastAPI 0.162.2, Starlette 1.10.0, uvicorn 0.54.0, paho-mqtt 2.2.0, pydantic 2.14.3
 (`cloud/deploy/requirements.lock`).
+
+## 6. Status after the fixes (2026-11-15)
+
+| ID | Status | What was done | Where |
+|---|---|---|---|
+| S-1 | **Open, owner's decision** | Not changed. Turning on read-out protection level 1 would protect the key, but flashing then needs a mass-erase regression and a regression also erases the device's identity (certificate, key, Wi-Fi), which then has to be provisioned again. Accepted as a physical-access risk until decided. | |
+| S-2 | Fixed, deployed | 132 packages upgraded (no reboot needed; services restarted onto the new libraries, 11 packages held back); firewall (`ufw`) active, default deny, ports 22, 80, 443 and 8883 allowed from the LAN only; SSH key-only (a drop-in that sorts before the cloud-init file that enabled passwords) and X11 forwarding off. Proved with a fresh key login, a refused password login, the web side, and the Gateway reconnecting through the firewall. | on the Pi |
+| S-3 | Fixed, deployed | The documentation pages return 404. | PR #233 |
+| S-4 | Implemented and tested, **not on the Gateway** | `FirmwareStore.verify()` refuses an image not newer than the running firmware (`version_not_newer`). Host tests 1664, 0 failed. Waiting for a Gateway release to be flashed and for an older image to be refused on the board. | PR #234 |
+| S-5 | Tooling done, **owner's step** | The signing tools accept an encrypted key (`OTA_KEY_PASSPHRASE` or a prompt), with tests; encrypting the key needs a passphrase only the owner can choose (command in `tools/ota/README.md`). | PR #234 |
+| S-6 | Fixed, deployed | An upload over 2 MB gets 413 without being read whole; the proxy refuses a body over 3 MB. | PR #233 |
+| S-7 | Fixed, deployed | The lockout is per user name and client address plus a per-address cap; the admin logged in from another address while the guesser was locked out. | PR #233 |
+| S-8 | Fixed | The stash is dropped and its objects purged; no private key remains in any commit outside the test vectors. | local |
+| S-9 | Fixed | The stale bench certificates were removed from the Pi. | on the Pi |
+| S-10 | Fixed | Actions pinned to commits (CI passes with the pins), Dependabot for Actions and pip, `SECURITY.md`, private vulnerability reporting enabled, `main` protected against force-push and deletion and requiring a pull request (no approvals, administrators may bypass). | PR #232, repository settings |
+| S-11 | Accepted | The webhook address is set by an admin and a notification server on the LAN is a legitimate target; revisit if the cloud is exposed beyond the LAN. | |
+| S-12 | Accepted | Ten-year device certificates with manual revocation are fine for one device. | |
+| S-13 | Fixed, deployed | The broker accepts only `ECDHE-RSA-AES256-GCM-SHA384` and `ECDHE-RSA-AES128-GCM-SHA256`; a CBC suite and a static-RSA suite are refused (handshake failure) and the Gateway and the cloud reconnected. | PR #235, on the Pi |
+| S-14 | Done | `pip-audit` finds no known vulnerability in the cloud's pins; mbedTLS 3.6.7 is the latest 3.6 release. coreMQTT v2.3.1 and FreeRTOS-Kernel V10.6.2 are behind their upstream majors (v5.0.2, V11.3.3); moving up a major version is a regression project, recorded, not done. | |
+
