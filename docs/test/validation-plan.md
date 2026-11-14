@@ -224,13 +224,27 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
    command then ran 4 minutes later. Fix, as decided by the owner: a command for a device that has not reported within the
    online window is refused with `409 device offline ... the command was not sent`, and a command is refused with `503` while the
    cloud's broker link is down; no command row is created in either case (tests in `test_commands_ota.py`).
-11. **F-11 After a broker outage the Gateway can stay offline until it is reset** (found during the F-9 investigation, 2026-11-14 about
-   16:49 Gateway time). In the second outage the Gateway noticed the loss at once and retried with backoff (2, 4, 8, 16, 32, 60 s), but
-   every attempt failed with `wifitask_open_socket failed: 6` (`WIFI_ERR_SOCKET`) even after the broker was back, and NTP could not open
-   a socket either; Wi-Fi was associated (rssi -63 dBm). It stayed offline 6 minutes until a reset of the Gateway (back in 60 s);
-   in the first outage it reconnected by itself in about 30 s. A stuck socket in the Wi-Fi module after the peer vanished
-   mid-session is suspected; not yet analysed. Proposal: after N failed opens, reset the module's sockets (or the module) and
-   reconnect. Open: needs a separate investigation and a decision.
+11. **F-11 After a broker outage the Gateway can stay offline until it is reset** (found during the F-9 investigation; analysed 2026-11-14,
+   not fixed). *Observed:* in the second broker outage the Gateway noticed the loss in the same second (`Connection lost`, then a failed
+   31-byte send, `err=6`) and from then on every connect attempt, with the backoff 2, 4, 8, 16, 32, 60 s, logged
+   `wifitask_open_socket failed: 6` (`WIFI_ERR_SOCKET`), also after the broker was back; NTP could not open a socket either. A reset of
+   the Gateway cured it in 60 s. In the first and the third outage (and in the short broker restart of the deployment) it reconnected
+   by itself in 9 to 35 s: 1 wedge in 4 outages. *Evidence about the module:* the Gateway's health messages kept reporting a changing RSSI
+   (-59 to -63 dBm) during the 6 minutes, so the module stayed associated and answered commands, and `resolve 192.168.0.209 -> 0`
+   succeeded on every attempt. Only opening a socket failed. *Why it never recovers by itself (code):* (1) `prepare_connect()` in
+   `Src/main.c` escalates (rejoin the access point, ping, reset the module) only when the broker name does not resolve; with an IP
+   address configured the module's DNS command returns the address without any network, so the escalation never starts and the
+   Gateway retries every 60 s for ever; (2) the link state is cached and never changes after a drop (WIFI-O15), so nothing else notices;
+   (3) `wifi_open_socket()` returns the same `WIFI_ERR_SOCKET` for any of its five AT steps (P0, P1, P3, P4, P6) and the log does not
+   say which. *Likely trigger (hypothesis, not proved):* the known WIFI-O17 case, a module socket left confused when the peer vanishes
+   (`P6=0` fails against a peer that already closed); the driver frees its own slot but always reuses the lowest free slot, so
+   the next open, and NTP's UDP open, meet the same confused module socket 0, which fits both failing while the AT interface and the
+   radio work. Why 1 outage in 4: unknown (timing of the close against the send in flight). *Proposed fix, in this order:*
+   (a) a recovery ladder that does not depend on the cause: after 3 consecutive failed connect attempts rejoin the access point, after 6
+   ping and reset the module (the calls already exist in `prepare_connect()`), bounding the outage to a few minutes; (b) in
+   `wifi_open_socket()` try the next free slot after a failed open (round robin) and send `P6=0` for the slot that failed; (c) log which
+   AT step failed. *Verification:* host tests for (a) and (b); on the board repeat the broker stop at least 5 times before and after
+   (`validation/outage.py` with a shorter outage) and capture the Gateway console. Needs the owner's go-ahead for each flash.
 
 ## Open points
 
@@ -241,6 +255,6 @@ needs the Gateway silent for 2.5 minutes with the broker up). API scenarios UC-0
 - Done 2026-11-14: the manual session (LCD use cases V-20..V-23, UC-16 V-24, the disconnected cases V-25, V-26).
 - F-6..F-10 are deployed and verified (V-27); F-7 (touch after a bus error) could not be provoked again, so its proof is the host tests and
   the touch that kept working; a Field Technician touch session in normal use is the remaining check.
-- F-11 (the Gateway stays offline after a broker outage until a reset) is open: it needs an analysis and a decision.
+- F-11 (the Gateway stays offline after a broker outage until a reset): analysed (see the finding), fix proposed, waiting for the owner's decision.
 - UC-18 and UC-20 (OTA, only with the owner's go-ahead) and the optional real AWS IoT Core check.
 - Optional last: a real AWS IoT Core connection.
