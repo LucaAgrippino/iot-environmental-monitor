@@ -30,6 +30,7 @@ const char *update_service_reason_string(us_reason_t reason)
         [US_REASON_INSTALL_FAILED] = "install_failed",
         [US_REASON_ACTIVATE_FAILED] = "activate_failed",
         [US_REASON_ROLLBACK] = "rollback",
+        [US_REASON_VERSION_NOT_NEWER] = "version_not_newer",
     };
 
     if ((uint32_t) reason >= (sizeof(k_names) / sizeof(k_names[0])))

@@ -424,6 +424,8 @@ static us_reason_t verify_reason(firmware_store_err_t rc)
         return US_REASON_CRYPTO;
     case FIRMWARE_STORE_ERR_FLASH_READ:
         return US_REASON_VERIFY_IO;
+    case FIRMWARE_STORE_ERR_OLD_VERSION:
+        return US_REASON_VERSION_NOT_NEWER;
     default:
         return US_REASON_STAGING_ERROR; /* INCOMPLETE, BAD_STATE, ...: a programming error */
     }

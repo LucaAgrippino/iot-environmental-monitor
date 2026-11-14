@@ -23,6 +23,7 @@ Requires the Python 'cryptography' package.
 
 import argparse
 import hashlib
+import os
 import struct
 import sys
 from pathlib import Path
@@ -133,10 +134,24 @@ def cmd_genkey(args):
     print("public key :", args.public_c)
 
 
+def load_private_key(path):
+    """Load a PEM private key. An encrypted key (security review S-5) needs its passphrase: from OTA_KEY_PASSPHRASE, or asked for at a terminal."""
+    data = Path(path).read_bytes()
+    try:
+        return serialization.load_pem_private_key(data, password=None)
+    except TypeError:  # "Password was not given but private key is encrypted"
+        passphrase = os.environ.get("OTA_KEY_PASSPHRASE")
+        if passphrase is None:
+            if not sys.stdin.isatty():
+                sys.exit("%s is encrypted: set OTA_KEY_PASSPHRASE or run at a terminal" % path)
+            import getpass
+
+            passphrase = getpass.getpass("passphrase of %s: " % path)
+        return serialization.load_pem_private_key(data, password=passphrase.encode())
+
+
 def cmd_sign(args):
-    key = serialization.load_pem_private_key(
-        Path(args.private).read_bytes(), password=None
-    )
+    key = load_private_key(args.private)
     body = Path(args.body).read_bytes()
     image = build_image(body, args.slot, parse_version(args.version), key)
     Path(args.out).write_bytes(image)
@@ -167,9 +182,7 @@ def c_array(name, data):
 
 def load_or_create(path):
     if path.exists():
-        return serialization.load_pem_private_key(
-            path.read_bytes(), password=None
-        )
+        return load_private_key(path)
     key = ec.generate_private_key(ec.SECP256R1())
     path.write_bytes(
         key.private_bytes(
